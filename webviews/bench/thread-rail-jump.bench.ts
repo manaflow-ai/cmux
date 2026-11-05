@@ -11,6 +11,7 @@ import { gzipSync } from "node:zlib";
 import { chromium, type Page, type CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { installPaintedFrames } from "../test/support/paintedFrames";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
 const distribution = (values: number[]) => ({ p50: pct(values, 0.5), p95: pct(values, 0.95) });
@@ -425,6 +426,76 @@ export async function measureRailScroll(
   };
 }
 
+/// The rail from a cold open of a long chat whose history pages in: from its first painted frame to
+/// its last, its box (top and height) and how many prompts it draws. The daemon answers the attach
+/// with the latest page and the prompt index after `indexDelayMs` (a real daemon's round trip), and
+/// two older pages load once it settles. Leo, 2026-11-03: "things should be instant and not shift
+/// layouts", and of this rail: "mostly i just don't like it when the thing shifts and whatnot trying to
+/// center itself". Its rows: the first frame's length short of the final one, and the rail's movement
+/// summed over every frame (box top and height, plus a row per prompt added above the held ones,
+/// which moves every held tick); both should be 0.
+export async function measureFirstFrame(page: Page, url: string, turns: number, eventReads: () => number) {
+  await page.addInitScript(() => {
+    const probe = window as unknown as { railFrames: unknown[]; railStop?: boolean };
+    probe.railFrames = [];
+    const start = performance.now();
+    window.cmuxAfterPaint(() => {
+      const nav = document.querySelector<HTMLElement>("nav.acpmux-minimap__rail");
+      if (nav && nav.getBoundingClientRect().height > 0) {
+        const box = nav.getBoundingClientRect();
+        const prompts = Number(nav.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
+        probe.railFrames.push({ at: performance.now() - start, top: box.top, height: box.height, prompts });
+      }
+      return !probe.railStop && performance.now() - start < 60_000;
+    });
+  });
+  await page.goto(url);
+  await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
+  await idle(page);
+  // The index has answered (or its delay passed) and the rail has settled.
+  await page.waitForTimeout(600);
+  // Two older pages, each read once the transcript reaches its top.
+  for (let pages = 0; pages < 2; pages += 1) {
+    const before = eventReads();
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      if (!node) return;
+      node.scrollTop = 0;
+      node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
+    });
+    const deadline = Date.now() + 15_000;
+    while (eventReads() === before && Date.now() < deadline) await page.waitForTimeout(50);
+    if (eventReads() === before) throw new Error("No older page was read");
+    await idle(page);
+  }
+  await page.waitForTimeout(300);
+  const frames = await page.evaluate(() => {
+    const probe = window as unknown as {
+      railFrames: { at: number; top: number; height: number; prompts: number }[];
+      railStop?: boolean;
+    };
+    probe.railStop = true;
+    return probe.railFrames;
+  });
+  if (!frames.length) throw new Error("The rail never painted");
+  const first = frames[0]!;
+  const last = frames.at(-1)!;
+  let shift = 0;
+  for (let at = 1; at < frames.length; at += 1) {
+    const [a, b] = [frames[at - 1]!, frames[at]!];
+    shift += Math.abs(b.top - a.top) + Math.abs(b.height - a.height) + Math.abs(b.prompts - a.prompts) * 10;
+  }
+  return {
+    frames: frames.length,
+    first,
+    last,
+    // The rail's length: its tick track (a row per prompt), which a box at its height cap hides.
+    lengthGapPx: Math.max(Math.abs(last.height - first.height), Math.abs(last.prompts - first.prompts) * 10),
+    promptGap: Math.abs(last.prompts - first.prompts),
+    shiftPx: shift,
+  };
+}
+
 async function main() {
   const turns = Number(process.argv[2] ?? 1200);
   const samples = Number(process.argv[3] ?? 20);
@@ -436,8 +507,9 @@ async function main() {
   const prod = process.env.PROD_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
   const { events, session } = papercutEvents({ turns, running: false });
   const paged = process.env.RAIL_BENCH_PAGED === "1";
+  const pagedRun = paged;
   const methods: string[] = [];
-  const answer = (method: string, params: Record<string, any> = {}) => {
+  const answer = (method: string, params: Record<string, any> = {}, paged = pagedRun) => {
     methods.push(method);
     switch (method) {
       case "initialize":
@@ -454,6 +526,15 @@ async function main() {
           ...(paged ? pagedEvents(events, params, true) : { events, hasMore: false }),
         };
       case "_acpmux/events":
+        // The prompt index is one unbounded reply, as acpmux's (hub/paging.rs prompt_index).
+        if (paged && params.promptIndex)
+          return {
+            events: events.filter(
+              (event: any) => event.kind === "user_message" && event.seq < Number(params.beforeSeq ?? Infinity),
+            ),
+            hasMore: false,
+            lastSeq: events.length,
+          };
         return paged
           ? { ...pagedEvents(events, params), lastSeq: events.length }
           : { events: [], hasMore: false, lastSeq: events.length };
@@ -464,18 +545,28 @@ async function main() {
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch: (request, server) => (server.upgrade(request) ? undefined : new Response("WebSocket", { status: 426 })),
+    // `?paged=1` pages this connection's history; `indexDelayMs` holds the prompt index's answer.
+    fetch: (request, server) => {
+      const query = new URL(request.url).searchParams;
+      const data = { paged: query.get("paged") === "1" || paged, indexDelayMs: Number(query.get("indexDelayMs") ?? 0) };
+      // The server is untyped for its sockets' data; this bench's sockets carry only this.
+      return server.upgrade(request, { data } as never) ? undefined : new Response("WebSocket", { status: 426 });
+    },
     websocket: {
       message(ws, raw) {
         const msg = JSON.parse(String(raw));
-        if (msg.id !== undefined)
+        const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as { paged: boolean; indexDelayMs: number };
+        if (msg.id === undefined) return;
+        const reply = () =>
           ws.send(
             JSON.stringify({
               jsonrpc: "2.0",
               id: msg.id,
-              result: answer(msg.method, msg.params ?? {}),
+              result: answer(msg.method, msg.params ?? {}, connectionPaged),
             }),
           );
+        if (msg.params?.promptIndex && indexDelayMs > 0) setTimeout(reply, indexDelayMs);
+        else reply();
       },
     },
   });
@@ -488,7 +579,12 @@ async function main() {
       return (await file.exists()) ? new Response(file) : new Response("Not found", { status: 404 });
     },
   });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+      : { channel: "chrome" }),
+    headless: true,
+  });
   try {
     if (temporary) {
       const { build } = await import("vite");
@@ -626,7 +722,38 @@ async function main() {
       });
       if (out) await page.screenshot({ path: path.join(out, `${arm}-jump.png`) });
       console.log("RAIL_BENCH " + JSON.stringify(report));
+      // thread-rail.tick-click.loaded-1000 -> thread_rail.tick_click.loaded_1000.<arm>: a tick click or reveal
+      // until the target paints (a response). A rail scroll's frame time is the painted-frame interval, which a
+      // headless runner's frame clock sets (16.7 ms), not work: a row with no target, so a dropped frame still shows.
+      for (const each of report.schema.cases)
+        if (each.p95 !== null)
+          perfRow({
+            name: `${each.id.replaceAll("-", "_")}.${arm.replaceAll("-", "_")}`,
+            p50: each.p50 ?? undefined,
+            p95: each.p95,
+            target: each.metric === "frame_time" ? undefined : TARGET_MS.response,
+          });
       if (out) fs.writeFileSync(path.join(out, `${arm}-results.json`), JSON.stringify(report, null, 2));
+      await page.close();
+    }
+    // The cold open of the same chat, paged, with the prompt index answering 150 ms after it asks.
+    {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      page.on("pageerror", (error) => console.error(error));
+      await installPaintedFrames(page);
+      const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`;
+      const first = await measureFirstFrame(
+        page,
+        url,
+        turns,
+        () => methods.filter((method) => method === "_acpmux/events").length,
+      );
+      console.log("RAIL_BENCH_FIRST_FRAME " + JSON.stringify(first));
+      // Pixels, not ms; lower is better and the target is 0 (the first frame is the final frame).
+      perfRow({ name: `thread_rail.first_paint.length_gap_px.paged_${turns}`, p95: first.lengthGapPx, unit: "px" });
+      perfRow({ name: `thread_rail.history_load.shift_px.paged_${turns}`, p95: first.shiftPx, unit: "px" });
+      if (out) fs.writeFileSync(path.join(out, "first-frame.json"), JSON.stringify(first, null, 2));
       await page.close();
     }
   } finally {

@@ -179,6 +179,35 @@ import CmuxNextTestSupport
         #expect(abs(Double(snapshot.width) / Double(snapshot.height) - 1.6) < 0.005, "the snapshot was squeezed to \(snapshot.width) x \(snapshot.height)")
     }
 
+    /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
+    /// back to its leave picture, but only one of the page as it is now (its picture version): a page that navigated
+    /// while hidden must not wake behind a picture of its earlier URL.
+    @Test(arguments: [true, false])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(current: Bool) async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
+        let page = try await rig.page(current ? "current" : "stale", body: "<p>leave picture</p>")
+        let key = try await rig.hide(page)
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
+        cache.pageThumbnails.insert(leave, for: key)
+        cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+        if current {
+            #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
+        } else {
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier version of itself")
+        }
+    }
+
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
     @Test func aPageThatHibernatesAgainShowsItsNewSnapshot() async throws {
         let rig = try Rig()
@@ -460,6 +489,8 @@ import CmuxNextTestSupport
     }
 
     @MainActor final class Pane: SurfacePresenter {
+        /// The pane's one browser chrome (`BrowserPaneChrome`), bound to a tab as the pane shows it.
+        let browserChrome = BrowserPaneChrome()
         func surfaceWasDisplaced(_ key: String) {}
     }
 }

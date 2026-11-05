@@ -21,10 +21,19 @@ public struct SidebarDocDrag {
     /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
     /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
     public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
+    /// The window's space (`ProfileID`): a group no open workspace here lists draws only in its own space
+    /// (`SidebarDocProjection.Group.lists(inRoom:)`, spaces.md). Nil: every such group draws.
+    public var room: String?
+    /// The spaces that exist (`SidebarDocItem.owningRoom`); nil: every stored space counts.
+    public var spaces: Set<String>?
+    /// The app's own document store this drag acts on (what the list arranges by, the key of its last change); nil
+    /// for a fixture with no document.
+    public let document: SidebarDocStore?
 
-    public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
+    public init(document: SidebarDocStore? = nil, item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
                 adoptRef: @escaping (WorkspaceID) -> [String: String]? = { _ in nil }) {
+        self.document = document
         self.adoptRef = adoptRef
         itemOf = item
         sectionOf = section
@@ -82,7 +91,8 @@ public struct SidebarDocDrag {
                 } else {
                     parent = row.group.flatMap { item(.group($0)) }
                 }
-                slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
+                slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind,
+                                   collapsed: kind == .group && row.isCollapsed))
                 rows[id] = row
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))

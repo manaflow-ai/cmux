@@ -15,7 +15,7 @@ struct CmuxToastDetailsTests {
                   action: .details("Details"), duration: CmuxToast.untilClosed)
     }
 
-    /// Details shows the detail under the message, selectable, with the button lit; again, it
+    /// Details shows the detail under the message, selectable, with the button a quiet Hide Details link; again, it
     /// hides it and the toast is as it was.
     @Test func detailsShowTheDetailInTheToastAndHideItAgain() throws {
         let view = CmuxToastView(toast: Self.toast())
@@ -32,14 +32,23 @@ struct CmuxToastDetailsTests {
         view.layoutSubtreeIfNeeded()
         #expect(view.showsDetails)
         #expect(!detail.isHidden)
-        #expect(button.isOn && button.shownFill != nil, "the Details button is not lit while the details show")
+        // Open, it is a quiet link with an up chevron, never a filled chip (Leo, 2026-11-01).
+        #expect(button.isOn && button.shownFill == nil, "the open Details button is a filled chip")
+        #expect(button.image != nil && button.imagePosition == .imageTrailing, "the open Details button has no chevron")
+        // On the title row's centre line with close.
+        let buttonFrame = button.convert(button.bounds, to: view)
+        let closeFrame = view.closeButton.convert(view.closeButton.bounds, to: view)
+        #expect(abs(buttonFrame.midY - closeFrame.midY) < 0.5, "\(buttonFrame) \(closeFrame)")
         #expect(view.messageLabel?.maximumNumberOfLines == CmuxToastView.expandedMessageLines, "the message is still cut at three lines")
         #expect(view.fittingSize.height > closed.height + 8, "the toast did not grow to show the detail")
-        #expect(abs(view.fittingSize.width - closed.width) < 1, "showing the detail changed the toast's width")
+        #expect(view.fittingSize.width >= CmuxToastView.expandedMinWidth - 0.5, "the shown detail wraps in a narrow column")
+        #expect(button.accessibilityLabel() == CmuxToastStrings.hideDetails, "the shown details have no Hide Details")
 
         button.performClick(nil)
         view.layoutSubtreeIfNeeded()
-        #expect(!view.showsDetails && detail.isHidden && !button.isOn)
+        #expect(!view.showsDetails && detail.isHidden && !button.isOn && button.image == nil)
+        #expect(button.accessibilityLabel() == "Details")
+        #expect(abs(view.fittingSize.width - closed.width) < 1, "hiding the details left the toast wide")
         #expect(button.shownFill == nil, "the Details button stayed lit after hiding the details")
         #expect(abs(view.fittingSize.height - closed.height) < 0.5)
         #expect(view.messageLabel?.themedToolTip == Self.reason)

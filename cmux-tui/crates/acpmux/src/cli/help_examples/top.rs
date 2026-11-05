@@ -63,6 +63,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                  --prompt-file ~/notes/brief.md --report-to coord -d",
             ),
             (
+                "Start a session from inside an agent that is not its child (no turn cards here)",
+                "acpmux new -n scratch --no-parent -d \"Look into the flaky test\"",
+            ),
+            (
                 "Run one prompt and print only the final reply",
                 "acpmux run -m claude \"Summarize the open TODOs in this repo\"",
             ),

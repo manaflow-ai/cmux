@@ -9,6 +9,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -24,8 +25,13 @@ export function ServersSection({
 }) {
   const t = useT();
   const now = useNow(servers.length > 0);
+  const listEdges = useScrollEdges();
   return (
-    <ul className="acpmux-session-info-list acpmux-session-info-scroll" data-section="servers">
+    <ul
+      ref={listEdges}
+      className="acpmux-session-info-list acpmux-session-info-scroll ui-scroll-edge-fade"
+      data-section="servers"
+    >
       {[...servers]
         .sort((a, b) => b.startedAt - a.startedAt)
         .map((server) => (

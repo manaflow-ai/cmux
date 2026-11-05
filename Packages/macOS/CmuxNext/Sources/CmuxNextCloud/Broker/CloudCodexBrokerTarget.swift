@@ -79,15 +79,13 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
     }
 
     /// The account API establishes ownership for this caller before the running
-    /// bridge is queried for its token-delivery capability. `callerOwnsVM` and `isLive` default to
-    /// the classic `/api/vm` attach answer and record; a Worker machine (the app server link) has
-    /// no row there and passes its link's owner answer and its record's status instead.
+    /// bridge is queried for its token-delivery capability. A Worker machine (the app server link)
+    /// passes its link's owner answer (`callerOwnsVM`) and its record's status (`isLive`).
     nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope,
-                            callerOwnsVM: (@Sendable () async throws -> Bool)? = nil,
-                            isLive: (@Sendable () async throws -> Bool)? = nil) {
+                            callerOwnsVM: @escaping @Sendable () async throws -> Bool,
+                            isLive: @escaping @Sendable () async throws -> Bool) {
         let api = api.pinningTeam(scope.teamID)
         // Guest files are controlled by the VM and cannot authorize token delivery.
-        let callerOwnsVM = callerOwnsVM ?? { try await api.attachEndpoint(machineID).vmKind == "owner" }
         self.init(machineID: machineID, capability: {
             guard try await callerOwnsVM() else {
                 return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false)
@@ -119,9 +117,7 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
                 guard case .http(let status, let code, _, _, _) = error,
                       status == 404, code == "vm_file_not_found" else { throw error }
             }
-        }, isLive: isLive ?? {
-            (try await api.machine(machineID)).status.isLive
-        })
+        }, isLive: isLive)
     }
 }
 

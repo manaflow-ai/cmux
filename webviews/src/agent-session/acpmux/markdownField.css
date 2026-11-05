@@ -31,9 +31,6 @@
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
-  /* Under the scrollbar fade its thumb paces with the pane's other fades (conversation.css). */
-  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
-  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
@@ -145,6 +142,34 @@
   color: inherit;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+/* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
+   the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
+.acpmux-md .acpmux-slash-token {
+  color: var(--agent-link, var(--agent-accent));
+}
+/* A skill's word with a description (its tooltip): a dotted underline on hover, as in a sent prompt. */
+.acpmux-md .acpmux-slash-token[data-tooltip]:hover {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
+   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
+   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
+.acpmux-md .acpmux-deeplink.is-link {
+  color: var(--agent-link, var(--agent-accent));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+.acpmux-md .acpmux-deeplink.is-chip {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  color: var(--agent-link, var(--agent-accent));
+  box-decoration-break: clone;
 }
 .acpmux-md code {
   padding: 1px 4px;
@@ -307,6 +332,24 @@
   border-radius: var(--acpmux-attach-radius, 8px);
   user-select: none;
 }
+/* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
+   around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
+   strip's chips wear it too while the whole draft is selected (ComposerBox, composerAttachments.css). */
+.acpmux-md-inline-selected {
+  position: relative;
+}
+.acpmux-md-inline-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
 .acpmux-md-inline-chip {
   position: relative;
   display: inline-flex;
@@ -351,6 +394,13 @@
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
   --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
 }
+/* A text file's page card in the text: as tall as a thumbnail there, two lines over its label. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card .acpmux-attachment-pasted-open {
+  padding-top: 4px;
+}
 .acpmux-md-inline-chip[data-chip="strip"] {
   min-width: 0;
   height: auto;
@@ -367,6 +417,34 @@
   color: var(--agent-text);
   font-size: inherit;
   text-decoration: underline;
+}
+/* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
+   .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
+   label; never the underlined name above. */
+.acpmux-md-inline-chip[data-preview="text"] {
+  justify-content: stretch;
+  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
+  width: 256px;
+  max-width: min(256px, 100%);
+  height: calc(var(--cmux-control-height, 24px) * 2);
+  padding: 0;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 12px;
+  border-radius: inherit;
+  text-decoration: none;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
+  top: 3px;
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {
@@ -400,4 +478,8 @@
 .acpmux-md-inline-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
+}
+/* The agent's suggested next prompt in italics (experiment `prompt-suggestion-look`, arm italic). */
+.acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {
+  font-style: italic;
 }

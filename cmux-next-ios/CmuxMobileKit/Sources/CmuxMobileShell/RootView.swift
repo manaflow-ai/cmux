@@ -309,12 +309,16 @@ public struct RootView: View {
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        AgentChatLauncher.shared.cancelPending()
+        AgentSessionDirectory.shared.newChatDraft = nil
+        // Send Message… needs a signed-in shell's Chief.
+        ChiefMessenger.shared.compose = nil
         // A pending approval/reply or notification route belongs to the old
         // account, including if sign-out came from an expired server session.
         PushReplies.shared.signedOut()
         let ending = live
         live = nil
-        shellModel.discard()
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -328,6 +332,10 @@ public struct RootView: View {
         store.resetForSignOut()
         // The chats loaded in this launch go too: the next background would save them again.
         AgentSessionDirectory.shared.removeAll()
+        // A shared thumbnail cache can still hold this account's file
+        // excerpts or images. Clear it, including in-flight reads, before a
+        // different account can open an artifact grid in the same process.
+        ArtifactThumbnailCacheLifecycle.clearForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
@@ -455,7 +463,10 @@ final class KeptModel<Model: AnyObject> {
         return made
     }
 
-    func discard() { kept = nil }
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
 }
 
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
@@ -510,6 +521,15 @@ struct ShellView: View {
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
+        }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
+        }
+        .sheet(item: $shell.messagingChief) { subject in
+            ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
+        }
+        .sheet(item: $shell.messagingChiefText) { draft in
+            ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -572,24 +592,7 @@ struct ShellView: View {
         .onChange(of: shell.lastOpenLocation) { _, location in
             shell.locationChanged(location)
         }
-        .onChange(of: shell.store.activeWorkspaces) { _, _ in
-            shell.continueRestore()
-        }
-        .onChange(of: shell.store.macData) { _, _ in
-            shell.continueRestore()
-            // Its Mac answered or went away: open the route, or the Feed.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
-        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
-            shell.terminalTabs.liveDataChanged()
-        }
-        .onChange(of: shell.store.workspaces) { _, _ in
-            // A terminal page shown before the tree arrived (a launch
-            // restore) attaches now (design/terminal R1-0).
-            shell.terminalTabs.liveDataChanged()
-            // A tapped notification waits for its Mac's tree (a cold launch), then opens.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
+        .modifier(WorkspaceDataObserver(shell: shell))
         .onChange(of: pushKinds, initial: true) { _, preferences in
             PushRegistration.shared.setPreferences(preferences)
         }
@@ -611,6 +614,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
@@ -630,6 +634,36 @@ private struct NotificationRouteObserver: ViewModifier {
             }
             .onChange(of: shell.tab) { _, tab in
                 if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
+    }
+}
+
+/// Follows the workspaces and the Macs' data (restore, terminal pages, a
+/// waiting notification route). Its own modifier: the reads re-run only this
+/// modifier's body, not ShellView's, which rebuilt the drawer, the tabs and
+/// every bar's toolbar on each Mac tree update.
+private struct WorkspaceDataObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shell.store.activeWorkspaces) { _, _ in
+                shell.continueRestore()
+            }
+            .onChange(of: shell.store.macData) { _, _ in
+                shell.continueRestore()
+                // Its Mac answered or went away: open the route, or the Feed.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+                shell.terminalTabs.liveDataChanged()
+            }
+            .onChange(of: shell.store.workspaces) { _, _ in
+                // A terminal page shown before the tree arrived (a launch
+                // restore) attaches now (design/terminal R1-0).
+                shell.terminalTabs.liveDataChanged()
+                // A tapped notification waits for its Mac's tree (a cold launch), then opens.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
             }
     }
 }
@@ -695,6 +729,7 @@ extension CmuxMobileModel.TransportKind {
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
+    private let voice = AgentVoiceMode.shared
 
     func body(content: Content) -> some View {
         content
@@ -703,9 +738,15 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let session = voice.session {
+                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    AgentVoiceBar(mode: voice, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -719,8 +760,21 @@ private struct LiveCallHost: ViewModifier {
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                voice.install(accountID: user?.id)
+                voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
+                // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.
+                voice.endOtherAudio = { [call] in call.close() }
+                AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
+                ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
+                ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
-            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+            .onDisappear {
+                ChiefCallLauncher.shared.handler = nil
+                voice.install(accountID: nil)
+                AgentChatLauncher.shared.handler = nil
+                ChiefMessenger.shared.compose = nil
+                ChiefMessenger.shared.composeText = nil
+            }
     }
 }
 
@@ -763,6 +817,10 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
+                        automations: { AnyView(CloudAutomationsScreen()) },
+                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                    ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
@@ -775,6 +833,9 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        // A closed ask's notification leaves Notification Center; only when an ask opens or
+        // closes, or the Feed finishes reading its Macs.
+        .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
     }
 }
 

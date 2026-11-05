@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(down,(100% - var(--cv-column,720px))/2,4px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:10px;gap:var(--ds-space-2,8px);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
+.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -24,51 +24,51 @@
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
+.nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
 /* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
-.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
+.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
-.nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
+.nt-row{display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 /* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
 .nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
-.nt-row-favicon{border-radius:3px;box-shadow:none;object-fit:contain}
+.nt-row-favicon{border-radius:4px;box-shadow:none;object-fit:contain}
 .nt-row-title{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis}
-.nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:12px}
-.nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
+.nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
-.nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 var(--font-ui)}
+.nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
-.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
-.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:8px;min-width:0;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-create-strip{display:flex;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ds-space-2);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three centered icons, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative;justify-content:center}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
-.nt-chats{margin-top:20px}
-.nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}
+.nt-chats{margin-top:var(--ds-space-5)}
+.nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
-.nt-chats-tab.is-selected{color:var(--agent-text);font-weight:500}
-.nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12.5px}
+.nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
+.nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
 .nt-chats-all:hover{color:var(--agent-text)}
-.nt-chats-empty{margin:8px 0 0;color:var(--acpmux-composer-dim);font-size:13px}
+.nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
-.nt-chats-retry{margin-left:8px;border:0;padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
+.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
 .nt-chats-retry:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
-.nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:8px}
+.nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
-.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;min-height:84px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left}
+.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-space-1);min-width:0;min-height:84px;padding:var(--ds-space-3) var(--ds-space-4);box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left}
 .nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
-.nt-card-meta{display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:11.5px}
-.nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:13.5px;font-weight:500}
-.nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:12.5px;line-height:1.35}
+.nt-card-meta{display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-caption)}
+.nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:var(--text-body);font-weight:var(--weight-emphasis)}
+.nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
@@ -90,7 +90,7 @@
   height: var(--text-content--line-height);
   display: flex;
   align-items: center;
-  font: 600 var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--weight-emphasis) var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
 }
 .nt-shell-glyph {
@@ -126,7 +126,7 @@
   align-items: center;
   gap: 2px;
   min-height: 34px;
-  padding: 0 10px 6px;
+  padding: 0 var(--ds-space-2) var(--ds-space-1);
   box-sizing: border-box;
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
@@ -135,6 +135,7 @@
    spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
+.nt-composer[data-cloud-starting="true"] .nt-box { visibility: hidden; pointer-events: none; }
 .nt-location { display: contents; }
 /* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
    keeps its place and names nothing until the daemon lists the chats, never "Choose folder" first. */
@@ -165,7 +166,7 @@
   /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
      the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
      project chip row starts at a different x than + and the text). */
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
   border-radius: 0;
   background: none;
@@ -174,16 +175,16 @@
 /* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
    browser tab and New chat read as buttons, not as text (Lucas #21133). */
 .nt-screen .nt-create {
-  gap: 6px;
-  margin: 10px 0 0;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-2) 0 0;
 }
 .nt-screen .nt-create .nt-tool {
   height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: 8px;
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-soft);
-  font-weight: 400;
+  font-weight: var(--weight-regular);
 }
 .nt-screen .nt-create .nt-tool:hover,
 .nt-screen .nt-create .nt-tool:focus-visible {
@@ -200,14 +201,14 @@
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {
   /* Keep the prompt prefix on the same monospace metrics as the reserved shell slot. */
-  font: 600 var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--weight-emphasis) var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-soft);
 }
 .nt-screen[data-template="console"] .nt-box {
-  border-radius: 10px;
+  border-radius: var(--ds-radius-popup);
 }
 .nt-screen[data-template="console"] .nt-composer {
-  --acpmux-strip-radius: 10px;
+  --acpmux-strip-radius: var(--ds-radius-popup);
 }
 .nt-screen[data-template="console"],
 .nt-screen[data-template="console"] .nt-field {
@@ -233,19 +234,19 @@
 }
 .nt-cards[data-variant="list"] {
   grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
+  gap: var(--grid-half-step);
   /* The rows' text on the title's and the composer's edges, their hover fill past them (Leo 2026-10-13). */
-  margin-inline: -10px;
+  margin-inline: calc(-1 * var(--ds-space-2));
 }
 .nt-cards[data-variant="list"] .nt-card {
   flex-direction: row;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   /* One line: the card's own 84px floor drew each row three lines tall. */
   min-height: 0;
   height: 30px;
-  padding: 0 10px;
-  border-radius: 8px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   background: none;
   box-shadow: none;
 }
@@ -280,13 +281,13 @@
 .nt-screen[data-template="console"] .nt-card-title,
 .nt-screen[data-template="console"] .nt-card-message {
   font-family: inherit;
-  font-weight: 400;
+  font-weight: var(--weight-regular);
 }
 /* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
-.nt-open-tabs{margin-top:12px;display:flex;flex-direction:column}
+.nt-open-tabs{margin-top:var(--ds-space-3);display:flex;flex-direction:column}
 /* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
-.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-open-tab{width:100%;height:28px;border:0;border-radius:8px;background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-open-tab{width:100%;height:28px;border:0;border-radius:var(--ds-radius-popup);background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-card-host,.nt-row-host{display:contents}
@@ -294,7 +295,7 @@
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 /* The create actions (cx-ag5.7): one quiet ghost row under the box, at its left edge. */
-.nt-create{display:flex;flex-wrap:wrap;margin:8px 4px 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-create{display:flex;flex-wrap:wrap;margin:var(--ds-space-2) var(--ds-space-1) 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. Marks are muted at rest:
    color is for state, not for every row. */
@@ -302,40 +303,41 @@
    it): the list takes the room left under the field and gives up rows in a short window instead of
    pushing the page past it. Only below two rows of list does the page scroll, so nothing is ever
    out of reach. */
-.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:0}
+.nt-all{margin-top:var(--ds-space-3);display:flex;flex-direction:column;flex:1 1 0;min-height:0}
 .nt-all .nt-all-host{min-height:60px}
 /* The list fades out under its top and bottom edges instead of slicing a row (as Settings,
    cx-jh7kq); its end padding holds the fades, so the first and last rows sit in full ink. */
 .nt-all-list{
   box-sizing:border-box;
-  padding-block:6px 18px;
-  mask-image:linear-gradient(to bottom,transparent,#000 6px,#000 calc(100% - 18px),transparent);
+  padding-block:var(--ds-space-2) var(--ds-space-4);
+  mask-image:linear-gradient(to bottom,transparent,#000 var(--ds-space-2),#000 calc(100% - var(--ds-space-4)),transparent);
 }
 .nt-all .nt-chats-head{height:30px;padding:0 0 0 var(--ui-row-padding-inline)}
-.nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
 .nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
 .nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
 /* Filter (cx-htpk0): quiet text like the view tabs, full ink while it narrows the list. */
-.nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:22px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-all .nt-chats-filter-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.nt-chats-filter-chevron{width:10px;height:10px;opacity:.7}
+.nt-chats-filter-chevron{width:var(--grid-glyph);height:var(--grid-glyph);opacity:.7}
 .nt-chats-filter-list{min-width:150px}
-.nt-all-search{margin-left:auto;display:flex;align-items:center;gap:6px;width:min(200px,45%);height:26px;padding:0 10px;box-sizing:border-box;border-radius:8px;color:var(--acpmux-composer-dim)}
+.nt-all-search{margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-2);width:min(200px,45%);height:26px;padding:0 var(--ds-space-2);box-sizing:border-box;border-radius:var(--ds-radius-popup);color:var(--acpmux-composer-dim)}
 .nt-all-search:hover,.nt-all-search:focus-within{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-all-search svg{flex:none}
 .nt-all-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);-webkit-appearance:none;appearance:none;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-search input::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .nt-all-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
-.nt-all-active{flex:none;margin:2px 0 0;padding:0 0 4px;list-style:none;border-bottom:.5px solid var(--acpmux-composer-edge)}
+.nt-all-active{flex:none;margin:2px 0 0;padding:0 0 var(--ds-space-1);list-style:none;border-bottom:.5px solid var(--acpmux-composer-edge)}
 .nt-all-active li{height:30px;padding:1px 0;box-sizing:border-box}
+.nt-all-leads-head{display:flex;align-items:center;gap:var(--ds-space-2);padding:0 var(--ui-row-padding-inline)!important;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
 .nt-all-host,.nt-all-scroll{flex:1;min-height:0;display:flex;flex-direction:column}
-.nt-all-host{margin-top:4px}
+.nt-all-host{margin-top:var(--ds-space-1)}
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
-.nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
+.nt-all-row{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
 .nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
@@ -343,11 +345,11 @@
 .nt-all-row[data-state] .nt-all-title{color:var(--agent-text)}
 .nt-all-row[data-untitled] .nt-all-title{color:var(--acpmux-composer-dim)}
 .nt-all-project{flex:0 10000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:12px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
-.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
 .nt-all-group-chevron{flex:none;transform:rotate(90deg)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
@@ -399,6 +401,8 @@
    sheet draws the same row. */
 .nt-screen .nt-composer {
   --acpmux-composer-control: 28px;
+  --acpmux-composer-trail-glyph: 18px;
+  --acpmux-composer-trail-stroke: 1.35;
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
@@ -439,29 +443,31 @@
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
 }
-/* Codex's look keeps the controls in the box's own row under the field (cmux #28901), as the chat's
-   Codex box does (composerLocation.css): +, the mic and Send are the same one 28 px control, + stands
-   as far off the box's left as Send off its right and both as far over the row's bottom, the inset
-   Claude's look gives New Tab's + (so + keeps one column in both looks). */
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers {
-  padding: 0 var(--acpmux-composer-inset) var(--acpmux-composer-inset);
-}
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers :is(.acpmux-mic, .acpmux-send) {
-  width: var(--acpmux-composer-control);
-  height: var(--acpmux-composer-control);
-}
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
   width: 24px;
   height: 24px;
 }
-/* Send is the mic's plain glyph at the mic's size (Leo 2026-10-21: no disc; composerStates.css). */
-.nt-pickers .acpmux-send .acpmux-icon {
-  width: 18px;
-  height: 18px;
+/* Send is the mic's plain glyph at the mic's size and weight (Leo 2026-10-21: no disc;
+   composerStates.css), the composer's trailing glyph tokens (composerLocation.css). */
+.nt-pickers :is(.acpmux-send, .acpmux-mic) .acpmux-icon {
+  width: var(--acpmux-composer-trail-glyph);
+  height: var(--acpmux-composer-trail-glyph);
+  stroke-width: var(--acpmux-composer-trail-stroke);
 }
+/* New Tab's trailing controls share the chat composer's action rhythm. The default button group
+   leaves its legacy 8px gap in place; use the same 4px token as Claude's composer so mic and Send
+   keep one icon column in Home and New Tab. The gallery keeps the tighter and legacy arms visible
+   for comparison. */
+.nt-pickers .acpmux-composer-actions {
+  gap: var(--acpmux-composer-action-gap, var(--ds-space-1));
+}
+.nt-composer[data-trailing-gap="tight"] { --acpmux-composer-action-gap: 2px; }
+.nt-composer[data-trailing-gap="shared"] { --acpmux-composer-action-gap: var(--ds-space-1); }
+.nt-composer[data-trailing-gap="roomy"] { --acpmux-composer-action-gap: var(--ds-space-2); }
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
-   the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
+   the rest dim on the text ink and the current one under the accent dot that slides to a pick
+   (useSlidingIndicator places and slides it; no CSS transition here). A
    name shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow,
    so the row never moves. The radio fills the target, unseen (the pane does not load ui.css). The
    row sits out of the flow, in the pages' bottom padding, so the pages lay out as without it. */
@@ -474,10 +480,9 @@
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
-.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
 .nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-name[data-shown]{opacity:1;transition-duration:0s}
-@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
+@media (prefers-reduced-motion:reduce){.nt-style-option::after{transition:none}}
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
@@ -492,14 +497,14 @@
 .nt-box {
   /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
   --acpmux-attach-inset: 18px;
-  --acpmux-attach-gap: 6px;
+  --acpmux-attach-gap: var(--ds-space-2);
   --acpmux-attach-height: 64px;
-  --acpmux-attach-radius: 6px;
+  --acpmux-attach-radius: var(--ds-radius-control);
 }
 /* The attachments sit under the field (NewTabScreen), so the text keeps its place as they come:
    the field's own bottom inset is the gap above them, a short one below. */
 .nt-box > .acpmux-attachments {
-  padding: 0 var(--acpmux-attach-inset) 8px;
+  padding: 0 var(--acpmux-attach-inset) var(--ds-space-2);
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -520,9 +525,9 @@
   right: 78px;
   min-width: 20px;
   height: 20px;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-soft);
   font: inherit;
@@ -538,11 +543,11 @@
 .nt-card-children {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
+  gap: var(--grid-half-step);
+  margin-top: var(--grid-half-step);
 }
 .nt-cards[data-variant="list"] .nt-card-children > .nt-card {
-  padding-left: 30px;
+  padding-left: var(--ds-space-6);
 }
 /* Now Playing (NowPlayingPlayer.tsx): the sidebar card's track under the create actions, laid out
    like Apple's Now Playing widget and Control Center's media module. One soft card in the New Tab
@@ -554,22 +559,22 @@
    while it plays and rest low when paused or under reduced motion. No artwork: a music note on the
    card's fill. Nothing plays, or the setting is off: no card and no space. */
 .nt-player-host{display:contents}
-.nt-player{display:flex;align-items:center;gap:14px;margin:16px 4px 0;padding:12px;width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;
+.nt-player{display:flex;align-items:center;gap:var(--ds-space-3);margin:var(--ds-space-4) var(--ds-space-1) 0;padding:var(--ds-space-3);width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;
   border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);
   box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge),var(--elevation-1,none)}
-.nt-player-art{position:relative;flex:none;width:72px;height:72px;border-radius:8px;overflow:hidden;
+.nt-player-art{position:relative;flex:none;width:72px;height:72px;border-radius:var(--ds-radius-popup);overflow:hidden;
   background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .nt-player-art::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .nt-player-art img{display:block;width:100%;height:100%;object-fit:cover}
 .nt-player-art-empty{display:grid;place-items:center;width:100%;height:100%;color:var(--acpmux-composer-dim)}
 .nt-player-art-empty svg{width:28px;height:28px}
-.nt-player-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
-.nt-player-head{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.nt-player-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-2)}
+.nt-player-head{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-width:0}
 .nt-player-text{flex:1 1 auto;min-width:0}
-.nt-player-title{color:var(--agent-text);font-weight:600;font-size:var(--text-body);line-height:var(--text-body--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:var(--text-body--letter-spacing)}
+.nt-player-title{color:var(--agent-text);font-weight:var(--weight-emphasis);font-size:var(--text-body);line-height:var(--text-body--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:var(--text-body--letter-spacing)}
 .nt-player-artist{color:var(--agent-soft,var(--acpmux-composer-dim));font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-player-levels{flex:none;display:flex;align-items:flex-end;gap:2px;height:10px;margin-top:4px;color:var(--acpmux-composer-dim);opacity:.8}
+.nt-player-levels{flex:none;display:flex;align-items:flex-end;gap:2px;height:10px;margin-top:var(--ds-space-1);color:var(--acpmux-composer-dim);opacity:.8}
 .nt-player-levels i{display:block;width:2px;border-radius:1px;background:currentColor;transform-origin:bottom}
 .nt-player-levels i:nth-child(1){height:40%}
 .nt-player-levels i:nth-child(2){height:65%}
@@ -583,20 +588,20 @@
 .nt-player-played{height:100%;width:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transform-origin:left center;transition:transform 1s linear} /* motion-allow: playback progress */
 /* The bar fills from the inline start: right to left under RTL. */
 .nt-player-played:dir(rtl){transform-origin:right center}
-.nt-player-controls{display:flex;align-items:center;gap:10px;margin-left:-4px}
+.nt-player-controls{display:flex;align-items:center;gap:var(--ds-space-2);margin-left:calc(-1 * var(--ds-space-1))}
 .nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
   background:transparent;color:var(--agent-text)}
 .nt-player-button:hover:not(:disabled){background:var(--acpmux-pill-hover)}
 .nt-player-button:active:not(:disabled){background:var(--acpmux-pill-press)}
 .nt-player-button:disabled{color:var(--acpmux-composer-dim);opacity:.5}
 .nt-player-button:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,currentColor);outline-offset:2px}
-.nt-player-play{width:32px;height:32px;padding:8px;background:var(--agent-text);color:var(--cmux-surface-solid,var(--acpmux-base))}
+.nt-player-play{width:32px;height:32px;padding:var(--ds-space-2);background:var(--agent-text);color:var(--cmux-surface-solid,var(--acpmux-base))}
 .nt-player-play:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 88%,transparent)}
 .nt-player-play:active:not(:disabled){background:color-mix(in srgb,var(--agent-text) 76%,transparent)}
 /* After Hide Now Playing: one quiet line with Undo where the card was, until the page goes. */
-.nt-player-note{display:flex;align-items:center;gap:8px;margin:16px 4px 0;width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-player-note{display:flex;align-items:center;gap:var(--ds-space-2);margin:var(--ds-space-4) var(--ds-space-1) 0;width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-player-note-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nt-player-undo{flex:none;height:24px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--agent-text);font:inherit}
+.nt-player-undo{flex:none;height:24px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-popup);background:none;color:var(--agent-text);font:inherit}
 .nt-player-undo:hover{background:var(--acpmux-pill-hover)}
 .nt-player-undo:active{background:var(--acpmux-pill-press)}
 .nt-player-undo:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,currentColor);outline-offset:2px}
@@ -612,7 +617,7 @@
 .nt-above {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
   min-width: 0;
 }
 /* The strip is size-contained (its controls answer to its own width): it takes the row's spare
@@ -625,35 +630,37 @@
 :root[data-top-strip] .nt-above {
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: var(--ds-space-1);
 }
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
    one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
-.nt-extras{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 4px 8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:18px;letter-spacing:var(--text-caption--letter-spacing)}
+.nt-extras{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-1) var(--ds-space-3);margin:0 var(--ds-space-1) var(--ds-space-2);color:var(--agent-muted);font-size:var(--text-caption);line-height:18px;letter-spacing:var(--text-caption--letter-spacing)}
 .nt-extra-warm{flex:1 0 100%;color:var(--agent-soft)}
 .nt-extra-clock,.nt-extra-timer{font-variant-numeric:tabular-nums;white-space:nowrap}
 .nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
 .nt-extra-quote blockquote{margin:0;font:inherit}
 .nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-widgets{display:flex;flex-direction:column;gap:10px;margin-top:8px}
-.nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
-.nt-widget-row{display:flex;align-items:center;gap:12px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
+.nt-widgets{display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
+/* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
+   run edge to edge by taking that inset back. */
+.nt-widget{--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+.nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
 .nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
 .nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt-widget-check{flex:none;color:var(--agent-text)}
-.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
-.nt-widget-attention{gap:4px}
-.nt-widget-chat{display:flex;align-items:center;gap:4px;min-width:0;padding-right:6px;border-radius:14px}
+.nt-widget-rule{height:0;margin:4px calc(-1 * var(--nt-card-inset));border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-attention{gap:var(--ds-space-1)}
+.nt-widget-chat{display:flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding-right:var(--ds-space-1);border-radius:14px}
 /* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
-.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:6px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;letter-spacing:var(--text-body--letter-spacing)}
+.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:var(--ds-space-2);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 .nt-widget-chat-open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-widget-state{flex:none;color:var(--agent-warning,var(--agent-text))}
 .nt-widget-chat[data-state=error] .nt-widget-state,.nt-widget-chat[data-state=failed] .nt-widget-state{color:var(--agent-danger)}
 .nt-widget-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nt-widget-dismiss{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;padding:0;background:none;color:var(--acpmux-composer-dim)}
+.nt-widget-dismiss{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:var(--ds-radius-popup);padding:0;background:none;color:var(--acpmux-composer-dim)}
 .nt-widget-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-widget-tip{display:flex;flex-direction:column;gap:2px;max-width:360px}
 .nt-widget-tip-title{color:var(--agent-text)}
@@ -668,7 +675,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    while they fit. When content grows, the whole page scrolls together. */
 .nt-screen[data-layout="stage"] {
   /* The band under the composer: the page's bottom padding, and where the composer sticks (below). */
-  --nt-stage-foot: 16px;
+  --nt-stage-foot: var(--ds-space-4);
   overflow: auto;
   gap: 0;
   padding-top: 0;
@@ -689,8 +696,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 24px 0 16px;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-5) 0 var(--ds-space-4);
   box-sizing: border-box;
 }
 .nt-stage > * {
@@ -707,14 +714,15 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-stage-cards {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--ds-space-3);
   width: min(440px, 100%);
 }
 /* A floating card: the composer's surface and rim, its shadow, a small radius. */
 .nt-stage-card {
+  --nt-card-inset: 6px;
   display: flex;
   flex-direction: column;
-  padding: 6px;
+  padding: var(--nt-card-inset);
   box-sizing: border-box;
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
@@ -730,15 +738,15 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-env-choose .acpmux-project-button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   width: 100%;
   min-width: 0;
   height: 32px;
   max-width: none;
-  padding: 0 10px;
+  padding: 0 var(--ds-space-2);
   box-sizing: border-box;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--ds-radius-popup);
   background: none;
   box-shadow: none;
   color: var(--agent-soft);
@@ -804,7 +812,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-stage-divider {
   height: 0;
-  margin: 4px -6px;
+  margin: 4px calc(-1 * var(--nt-card-inset));
   border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }
@@ -823,8 +831,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen .nt-suggest .nt-create .nt-tool {
   height: 32px;
-  padding: 0 10px;
-  border-radius: 9px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   box-shadow: none;
 }
 /* The composer at the foot, the full width of the column: Default's own composer (the strip over
@@ -843,9 +851,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
    drawn at once on the New Tab (noEntry.css); it fades only as it goes. */
 .nt-hovercard {
-  max-width: min(320px, calc(100vw - 24px));
-  padding: 8px 10px;
-  border-radius: 8px;
+  max-width: min(320px, calc(100vw - var(--ds-space-5)));
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-popup);
 }
 .nt-hovercard-body {
   display: flex;
@@ -870,7 +878,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    (--cv-column, Leo 2026-10-21: no extra left and right padding), so its composer is as wide as the
    chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
-  gap: 10px;
+  gap: var(--ds-space-3);
   padding-top: clamp(24px, 8vh, 96px);
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
@@ -894,10 +902,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
   min-width: 0;
-  margin-top: 10px;
-  padding: 0 14px;
+  margin-top: var(--ds-space-3);
+  padding: 0 var(--ds-space-4);
 }
 /* The strip is size-contained (its controls answer to its own width), so it takes the row's spare
    room as a basis-0 item; the chips keep their own width at the right end. */
@@ -924,7 +932,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   height: 34px;
 }
 .nt-screen[data-template="cards"] .nt-chats-tab.is-selected {
-  padding: 5px 14px;
+  padding: var(--ds-space-1) var(--ds-space-4);
   border-radius: 999px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
   box-shadow:
@@ -932,13 +940,13 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
     var(--elevation-1);
 }
 .nt-screen[data-template="cards"] .nt-cards {
-  gap: 16px;
-  margin-top: 14px;
+  gap: var(--ds-space-4);
+  margin-top: var(--ds-space-4);
 }
 .nt-screen[data-template="cards"] .nt-card {
-  gap: 4px;
+  gap: var(--ds-space-1);
   /* Sized to its content (the card's own 84px floor): a fixed 260px card held ~70px of text. */
-  padding: 14px 16px;
+  padding: var(--ds-space-4) var(--ds-space-4);
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
   box-shadow:
@@ -947,7 +955,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"] .nt-card-title {
   font-size: var(--text-title);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-title--letter-spacing);
 }
 .nt-screen[data-template="cards"] .nt-card-message {
@@ -1015,10 +1023,16 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
      heading step is that 20px. */
   font-size: var(--text-heading);
   line-height: var(--nt-headline-line);
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   color: var(--agent-text);
   overflow-wrap: anywhere;
   letter-spacing: var(--text-heading--letter-spacing);
+}
+/* The machine the chat starts on, plain text in the question: a long name gives way first. */
+.nt-headline-machine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nt-headline[data-look="quiet"] {
   --nt-headline-line: var(--text-heading--line-height);
@@ -1027,7 +1041,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-headline[data-look="quiet"] .nt-headline-text {
   font-size: var(--text-heading);
   line-height: var(--nt-headline-line);
-  font-weight: 500;
+  font-weight: var(--weight-regular);
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
   letter-spacing: var(--text-heading--letter-spacing);
 }
@@ -1054,8 +1068,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px 16px;
-  margin-top: 10px;
+  gap: var(--ds-space-1) var(--ds-space-4);
+  margin-top: var(--ds-space-2);
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -1065,7 +1079,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-ambient-weather {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--ds-space-1);
 }
 .nt-ambient-weather[data-stale] {
   opacity: 0.55;
@@ -1080,12 +1094,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-ambient-machines {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--ds-space-1) var(--ds-space-3);
 }
 .nt-ambient-machine {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--ds-space-1);
   max-width: 180px;
 }
 .nt-ambient-machine-icon {
@@ -1135,22 +1149,22 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-edit-bar {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  top: var(--ds-space-3);
+  right: var(--ds-space-3);
   z-index: var(--layer-sticky, 10);
   display: flex;
   /* Not the full width every other child of .nt-screen takes: a bar in the top right corner. */
   width: auto;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 .nt-edit-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   height: 26px;
-  padding: 0 10px;
+  padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-text);
   font: inherit;
@@ -1175,7 +1189,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
   width: 100%;
   border-radius: 14px;
   cursor: grab;
@@ -1194,13 +1208,13 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-widget-remove {
   position: absolute;
-  top: -7px;
-  left: -7px;
+  top: calc(-1 * var(--ds-space-2));
+  left: calc(-1 * var(--ds-space-2));
   z-index: var(--layer-raised, 1);
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 50%;

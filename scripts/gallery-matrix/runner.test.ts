@@ -24,7 +24,7 @@ test("motion review cards include an opt-in video", () => {
 });
 
 test("capture clips stay in the viewport after scroll and handle offscreen or missing targets", async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...(process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) });
   try {
     const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
     await page.setContent('<style>body{margin:0;height:1600px}#root{position:absolute;left:80px;top:600px;width:100px;height:80px;background:blue}[data-gallery-capture]{position:absolute;left:10px;top:10px;width:40px;height:30px;background:red}</style><div id="root"><div data-gallery-capture></div></div>');

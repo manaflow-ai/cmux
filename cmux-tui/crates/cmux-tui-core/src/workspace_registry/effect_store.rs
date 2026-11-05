@@ -952,6 +952,7 @@ impl WorkspaceRegistry {
         deltas: &Value,
         terminals: &[(String, Option<String>)],
         workspace_close: Option<&ResourceWorkspaceClose>,
+        restates_all: bool,
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
@@ -1016,7 +1017,7 @@ impl WorkspaceRegistry {
             resource.revision.saturating_sub(1),
             resource.revision,
             &deltas,
-            true,
+            restates_all,
         );
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }

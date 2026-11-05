@@ -94,6 +94,7 @@ fn ensure_error(error: &EnsureError) -> &'static str {
         EnsureError::Spawn(_) => "it could not be started",
         EnsureError::NotReady => "it did not become ready in time",
         EnsureError::RestoreTimeout => "it did not finish restoring its session in time",
+        EnsureError::Busy => "it refused every connection at its connection limit",
         EnsureError::WrongOwner => "another program serves its socket",
         EnsureError::DifferentSession => "another session serves its socket",
         EnsureError::DifferentState => "its running owner serves a deleted or replaced home",

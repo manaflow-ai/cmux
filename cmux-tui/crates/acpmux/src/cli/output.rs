@@ -111,6 +111,8 @@ pub(crate) struct PromptId {
     pub cli_host: Option<String>,
     /// `--attach`: the files' blocks, after the text (`attach.rs`).
     pub attachments: Vec<Value>,
+    /// `--notice`: a tool's notice (`_meta.acpmux.notice`, `prompt_provenance::notice_of`).
+    pub notice: Option<Value>,
 }
 
 impl PromptId {
@@ -126,6 +128,7 @@ impl PromptId {
                 thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
+                notice: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -137,6 +140,7 @@ impl PromptId {
                 thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
+                notice: None,
             },
         }
     }
@@ -171,6 +175,9 @@ impl PromptId {
         }
         if let Some(host) = &self.cli_host {
             mux["cliHost"] = json!(host);
+        }
+        if let Some(notice) = &self.notice {
+            mux.set("notice", notice.clone());
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());
@@ -1117,9 +1124,13 @@ fn page_events(page: &Value) -> (Vec<Value>, bool) {
 /// `limit`, and any `kinds` or `maxBytes`), then the older pages before it with the same filter,
 /// since one reply holds at most `hub::MAX_PAGE_BYTES`.
 pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec<Value>> {
+    paged_events(client, query, method::MUX_ATTACH).await
+}
+
+/// Read older pages using the same filter as the initial snapshot or live attachment.
+async fn paged_events(client: &Arc<Client>, query: Value, first: &str) -> Result<Vec<Value>> {
     let limit = query.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
-    let (mut events, mut more) =
-        page_events(&client.request(method::MUX_ATTACH, query.clone()).await?);
+    let (mut events, mut more) = page_events(&client.request(first, query.clone()).await?);
     while more && events.len() < limit {
         let Some(first) = events.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
             break;
@@ -1203,10 +1214,13 @@ pub(crate) async fn last_replies(
 ) -> Result<Vec<String>> {
     // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
     let page = json!({
-        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES,
+        // Events with beforeSeq read newest first. This one-shot read must not attach the
+        // shared daemon-to-daemon link to a running chat's live stream.
+        "beforeSeq": u64::MAX
     });
     let mut t = Transcript::default();
-    for e in with_older(client, page).await? {
+    for e in paged_events(client, page, method::MUX_EVENTS).await? {
         t.apply_event(&e);
     }
     let mut out: Vec<String> = t

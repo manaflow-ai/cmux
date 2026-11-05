@@ -150,33 +150,45 @@ struct CrossMachineTabMoveTests {
     static func withMachines(_ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-xmove-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
         let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-mac-\(UUID().uuidString.prefix(6).lowercased())",
-                                                      stateDirectory: root.appendingPathComponent("mac-state")), environment: environment)
+                                                      stateDirectory: root.appendingPathComponent("mac-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
         let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-vm-\(UUID().uuidString.prefix(6).lowercased())",
-                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
+                                                     stateDirectory: root.appendingPathComponent("vm-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
+        let macOwner = AppTestDaemonOwner(mac)
+        let vmOwner = AppTestDaemonOwner(vm)
         _ = NSApplication.shared
-        let vmSocket = try await vm.endpointProvider().socketPath
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
-        }
-        services.windows.restoreWhenLoaded()
         let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
         services.machines.add(machine)
-        machine.daemon.start(remote: { vmSocket })
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+            let panels = NSApp.windows.filter { services.palette.owns($0) }
+            services.palette.hide()
+            for panel in panels { panel.close() }
+            AppHarnessWindows.closeThoseThisTestOpened()
+        }
 
         let result: Result<Void, any Error>
         do {
+            let vmSocket = try await vmOwner.endpointProvider().socketPath
+            try Task.checkCancellation()
+            services.daemon.start {
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: macOwner.endpointProvider)
+            }
+            services.windows.restoreWhenLoaded()
+            machine.daemon.start(remote: { vmSocket })
             let deadline = ContinuousClock.now + .seconds(60)
             func macPane() -> PaneModel? { services.daemon.store.workspaces.first?.screens.first?.panes.first }
-            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let pane = try #require(macPane(), "this Mac's daemon has no pane")
             let macConnection = try #require(services.daemon.connection)
             let vmConnection = try #require(machine.daemon.connection, "the other machine did not connect")
@@ -185,16 +197,21 @@ struct CrossMachineTabMoveTests {
             func target() -> WorkspaceModel? {
                 machine.daemon.store.workspaces.first { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } }
             }
-            while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while target() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
             try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
             result = .success(())
         } catch {
             result = .failure(error)
         }
-        await CloudMoveTests.end(services.daemon)
-        await CloudMoveTests.end(machine.daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
+        // task-owner: joined teardown survives cancellation, stops both reconnect loops before
+        // closing windows, and reaps each owner even when startup never exposed a connection.
+        reaped = await Task { @MainActor in
+            await machine.daemon.shutdownConnectionAndWait()
+            let macReaped = await macOwner.stop(services)
+            let vmReaped = await vmOwner.reap()
+            return macReaped && vmReaped
+        }.value
         try result.get()
     }
 }

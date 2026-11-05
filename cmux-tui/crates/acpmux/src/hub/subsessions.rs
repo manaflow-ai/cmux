@@ -81,7 +81,7 @@
 //! Conversation makes one), with the parent's history, harness, model and folder, and the fork's
 //! `parentId`: an agent branches its own conversation off. It takes no harness, model, effort,
 //! folder or worktree of its own. Its link and lineage are in its meta when it is made, and its
-//! harness starts pinned to the folder the start checked, as a new child's does (`fork_into`).
+//! harness starts pinned to the folder the start checked, as a new child's does (`fork_with_boundary`).
 //!
 //! The index of live children per parent (`subsession_index.rs`) is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -421,7 +421,8 @@ impl Hub {
     /// its slot. Read over every open child, live ones too: one that hibernates between this
     /// read and the reservation still counts. A prompt that comes after this read wakes its child
     /// as one after the reservation would: past the limit, as a reopen does. Prompts a failed
-    /// turn holds (`pause_queue`) wake nothing until released, so they do not count.
+    /// turn holds (`pause_queue`) or that wait for the owner (`queue_approve.rs`) wake nothing
+    /// until released or approved, so they do not count.
     pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
         let open = self.subsessions.open_children(parent);
         let children: Vec<Arc<Session>> = {
@@ -429,7 +430,7 @@ impl Hub {
             open.iter().filter_map(|id| sessions.get(id).cloned()).collect()
         };
         let waking = |c: &Session| {
-            let held = c.queue().iter().filter(|q| q.held).count() as u64;
+            let held = c.queue().iter().filter(|q| q.aside()).count() as u64;
             c.queued() > held || c.turn_lock.try_lock().is_err()
         };
         children.iter().filter(|c| waking(c)).map(|c| c.id.clone()).collect()
@@ -654,12 +655,13 @@ impl Hub {
         if req.fork {
             let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };
             let fork = admitted
-                .run(self.fork_into(
+                .run(self.fork_with_boundary(
                     parent,
                     Some(name),
                     None,
                     Default::default(),
                     pm.workspace_id.clone(),
+                    None,
                     None,
                     false,
                     Some(sub),

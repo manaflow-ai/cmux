@@ -1,0 +1,11 @@
+[package]
+name = "acpmux-build-id"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The acpmux build id (git short hash, dirty tag, date), in a leaf crate so a new stamp does not recompile acpmux"
+
+[lints]
+workspace = true

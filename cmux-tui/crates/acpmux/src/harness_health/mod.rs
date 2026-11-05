@@ -185,8 +185,8 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// own credential, since `codex login status` says "Not logged in" there
 /// while Codex works. Otherwise `codex login status` answers (also behind
 /// codex-acp) when Codex keeps its login in a file. Claude's sign-in
-/// sources (`claude_auth`) only ever prove a sign-in, so none found stays
-/// unknown, never a guess from a missing file.
+/// sources (`claude_auth`) normally prove presence only. A sole, expired file login without
+/// a refresh token is Expired off macOS only with complete project context; otherwise unknown.
 ///
 /// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
 /// start, every few hours), and acpmux never asks the keychain on its own.
@@ -194,7 +194,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// here), and `codex login status` does not run when Codex keeps its login
 /// in the keychain (`cli_auth_credentials_store` `keyring` or `auto`): the
 /// sign-in stays unknown. Nothing here writes a credential or starts a login.
-fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>)> {
     // No credential read (Keychain, `codex login status`) while agent
     // launches are off (cx-9ettq): the sign-in stays unknown.
     if crate::launch_policy::agent_launch_disabled() {
@@ -205,6 +205,14 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
             let env = crate::login_env::effective_for(Some("codex"), &s.env);
+            // A project config can select a provider/profile the home-level probe cannot see.
+            // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
+            if let Some(cwd) = cwd {
+                match codex_project_config(cwd, &env) {
+                    None | Some(true) => return None,
+                    Some(false) => {}
+                }
+            }
             match codex_provider::provider_auth(&env) {
                 codex_provider::ProviderAuth::Configured(detail) => {
                     return Some((Auth::SignedIn, Some(detail)));
@@ -226,7 +234,33 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         }
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
             let env = crate::login_env::effective_for(Some("claude"), &s.env);
-            let found = crate::claude_auth::find(&env);
+            let found = match cwd.filter(|_| s.unresolved.is_empty()) {
+                Some(cwd) => crate::claude_auth::find_in(&env, cwd),
+                None => crate::claude_auth::find(&env),
+            };
+            if found.expired_file_login {
+                // An endpoint can authenticate independently, including without a client
+                // token. Its auth is not established by the subscription credential file.
+                if found.endpoint.is_some() {
+                    return Some((
+                        Auth::Unknown,
+                        Some(
+                            "Claude file login expired; custom endpoint credentials not verified"
+                                .into(),
+                        ),
+                    ));
+                }
+                if !found.credential_sources_complete {
+                    return Some((
+                        Auth::Unknown,
+                        Some("Claude file login expired; project credentials not verified".into()),
+                    ));
+                }
+                return Some((
+                    Auth::Expired,
+                    Some("Claude file login expired; sign in again".into()),
+                ));
+            }
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
@@ -251,6 +285,39 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         }
         _ => None,
     }
+}
+
+/// Whether a Codex launch can inherit a project configuration from `cwd` or
+/// one of its ancestors. The home-level login probe cannot account for a
+/// provider selected by any of those files.
+fn codex_project_config(cwd: &Path, env: &BTreeMap<String, String>) -> Option<bool> {
+    let cwd = std::fs::canonicalize(cwd).ok()?;
+    let home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    let codex_home =
+        codex_provider::codex_home(env).and_then(|path| std::fs::canonicalize(path).ok());
+    let mut dir = Some(cwd.as_path());
+    while let Some(current) = dir {
+        // The Codex home itself is not a project directory. Its config controls
+        // the home-level probe and must not make this target inconclusive.
+        if home.as_deref() == Some(current) || codex_home.as_deref() == Some(current) {
+            return Some(false);
+        }
+        if current.join(".codex/config.toml").is_file() {
+            return Some(true);
+        }
+        // Do not inspect parent directories outside this project or the user's
+        // home. A repository root is the highest project-scoped config level.
+        if current.join(".git").exists() {
+            break;
+        }
+        dir = current.parent();
+    }
+    Some(false)
 }
 
 /// Whether Codex keeps its login in `<CODEX_HOME>/auth.json`, so `codex
@@ -323,6 +390,17 @@ pub(crate) fn fresh_auth(
     profile: &crate::config::HarnessProfile,
     notes: Option<&crate::config::profiles::AuthNotes>,
 ) -> Result<(Auth, String), String> {
+    fresh_auth_in(id, profile, notes, None)
+}
+
+/// A known session directory lets the file check account for project credentials. A target
+/// without a directory, or a profile supplying its own settings, remains inconclusive.
+pub(crate) fn fresh_auth_in(
+    id: &str,
+    profile: &crate::config::HarnessProfile,
+    notes: Option<&crate::config::profiles::AuthNotes>,
+    cwd: Option<&Path>,
+) -> Result<(Auth, String), String> {
     let s = Subject::of(id, profile, notes).ok_or("the harness has no command")?;
     let keychain = keychain_sign_in(id, profile);
     if !s.check.is_empty() && keychain.is_none() {
@@ -332,7 +410,21 @@ pub(crate) fn fresh_auth(
             (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
         };
     }
-    match builtin_auth(&s) {
+    // CLI globals can select another provider/profile or a keyring credential store.
+    // File-only evidence cannot establish that effective configuration, and a plain
+    // `codex login status` refusal must not override a working custom-provider chat.
+    if s.family == "codex" && profile.argv.iter().skip(1).any(|arg| arg.starts_with('-')) {
+        return Err(
+            "Codex launch options select credentials this file-only check cannot verify".into()
+        );
+    }
+    let custom_settings = profile.argv.iter().any(|arg| {
+        arg == "--settings"
+            || arg.starts_with("--settings=")
+            || arg == "--setting-sources"
+            || arg.starts_with("--setting-sources=")
+    });
+    match builtin_auth(&s, cwd.filter(|_| !custom_settings)) {
         Some((auth, detail)) if auth != Auth::Unknown => Ok((auth, detail.unwrap_or_default())),
         _ => Err(match keychain {
             Some(why) => format!("no check ran: {why}, which acpmux does not read"),
@@ -545,7 +637,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     // Without a profile check, the agent's own answer; a sign-in it proves,
     // or a provider that `codex login` cannot fix, outranks an older probe's
     // sign-in error.
-    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
+    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s, None)).flatten();
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
@@ -603,6 +695,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 mod tests {
     use super::{
         Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+        codex_project_config,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -747,6 +840,81 @@ mod tests {
             let (dir, env) = home_with(n, config);
             assert_eq!(codex_login_in_file(&env), file, "{config:?}");
             let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn codex_project_config_checks_ancestors_of_the_launch_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let project = root.join("project");
+        let nested = project.join("src/deep");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
+
+        assert_eq!(codex_project_config(&nested, &env), Some(true));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_project_config_resolves_symlinked_directories_and_unknown_paths() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let project = root.join("project");
+        let source = project.join("src/deep");
+        let alias = root.join("alias");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        symlink(project.join("src"), &alias).unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
+
+        assert_eq!(codex_project_config(&alias.join("deep"), &env), Some(true));
+        assert_eq!(codex_project_config(&root.join("missing"), &env), None);
+
+        let home_codex = root.join(".codex");
+        std::fs::create_dir_all(&home_codex).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(home_codex.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        assert_eq!(codex_project_config(&root.join("src"), &env), Some(false));
+
+        let custom_home = root.join("custom-codex");
+        let custom_cwd = custom_home.join("src/deep");
+        std::fs::create_dir_all(&custom_cwd).unwrap();
+        std::fs::write(custom_home.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([
+            ("HOME".to_owned(), root.display().to_string()),
+            ("CODEX_HOME".to_owned(), custom_home.display().to_string()),
+        ]);
+        assert_eq!(codex_project_config(&custom_cwd, &env), Some(false));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_launch_overrides_do_not_produce_a_subscription_refusal() {
+        for args in [
+            vec!["-p", "local", "app-server"],
+            vec!["--profile=local", "app-server"],
+            vec!["-c", "model_provider=\"local\"", "app-server"],
+            vec!["-c", "cli_auth_credentials_store=\"keyring\"", "app-server"],
+        ] {
+            let argv: Vec<_> = std::iter::once("codex").chain(args).collect();
+            let profile = serde_json::from_value(json!({"argv": argv})).unwrap();
+            let result = super::fresh_auth("codex", &profile, None);
+            assert!(result.is_err(), "launch overrides require inconclusive evidence: {result:?}");
         }
     }
 

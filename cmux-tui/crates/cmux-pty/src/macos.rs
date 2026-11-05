@@ -265,6 +265,18 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `PWD` names the directory as the caller spelled it. A shell keeps an
+    // inherited `PWD` only when it names its working directory; otherwise
+    // it shows getcwd(3), the real path, so a terminal started in /tmp read
+    // /private/tmp on macOS (REOPEN-F3). A caller's own `PWD` (set or
+    // removed) wins.
+    if command.cwd_descriptor.is_none()
+        && let Some(cwd) = command.cwd.as_deref().filter(|cwd| cwd.is_absolute())
+        && !command.environment.contains_key("PWD")
+        && !command.removed_environment.contains("PWD")
+    {
+        process.env("PWD", cwd);
+    }
     // `SHELL` first, so a removal still wins over this backend's own override
     // (`PtyCommand::env_remove` promises the child never sees the key).
     process.env("SHELL", shell);

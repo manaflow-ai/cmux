@@ -7,9 +7,26 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { classicField } from "./support/classicNewTabField";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "CustomEvent", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Element",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "getSelection",
+  "MutationObserver",
+  "Event",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
+  "MouseEvent",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
 let host: HTMLElement;
@@ -28,8 +45,17 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
-    CustomEvent: window.CustomEvent,
+    Element: window.Element,
+    // Milkdown (the field's editor) pairs the global CustomEvent with the global dispatchEvent, so the
+    // global CustomEvent stays the runtime's; this test builds its own events from `window`.
+    Event: window.Event,
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    MouseEvent: window.MouseEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // The page's field is the chat composer's prompt editor (MarkdownField, ProseMirror).
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -81,12 +107,8 @@ test("the bar shows real places only and follows the host's open tabs without lo
   const rows = () => [...host.querySelectorAll('[role="option"]')].map((row) => row.textContent?.trim() ?? "");
   try {
     await act(async () => root.render(<Page />));
-    const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-    await act(async () => {
-      setValue.call(field, "workspace");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
+    const field = await classicField(host);
+    await field.type("workspace");
     const before = rows();
     // workspace-7 closes; workspace-9 opens with a shell.
     await act(async () => {
@@ -108,7 +130,7 @@ test("the bar shows real places only and follows the host's open tabs without lo
       zsh: list.some((row) => row.includes("zsh")),
       gone: list.some((row) => row.includes("workspace-7")),
     });
-    expect({ before: look(before), after: look(rows()), field: field.value }).toEqual({
+    expect({ before: look(before), after: look(rows()), field: field.value() }).toEqual({
       before: { cargo: 1, blank: false, zsh: false, gone: true },
       after: { cargo: 1, blank: false, zsh: true, gone: false },
       field: "workspace",

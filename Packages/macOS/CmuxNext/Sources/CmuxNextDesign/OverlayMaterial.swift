@@ -53,10 +53,15 @@ public final class ReduceTransparency {
     /// Always opaque: for a card floating over content that must not show through it.
     public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
 
-    /// Pins the state (tests, Debug); nil follows `system`. Changing it
-    /// redraws every live surface at once.
+    /// Pins the state (tests, Debug, `debug.reduce_transparency`); nil follows `system`. Changing it
+    /// redraws every live surface at once, and posts the display-options change on `changes`, so the
+    /// window backdrops that read `shared` (`WindowRootView`, `WindowSurfaceView`) repaint too.
     public var override: Bool? {
-        didSet { if override != oldValue { refreshSurfaces() } }
+        didSet {
+            guard override != oldValue else { return }
+            refreshSurfaces()
+            changes.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        }
     }
 
     /// Whether overlays draw opaque now.

@@ -201,6 +201,8 @@ async fn write(
         Err(e) => e,
     };
     let Some((peer, id, _)) = hub.resolve_remote(key) else { return Err(missing) };
+    // No wait for a reconnecting link here: this frame holds back every later message on the app's
+    // connection (`InFlight`). The upload's begin already waited for it (`peer_forward.rs`).
     if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }

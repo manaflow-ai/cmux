@@ -10,7 +10,11 @@ import Foundation
     /// state now and the daemon's tab never shows. False for any other tab (it closes as usual).
     public func cancel(tab id: String) -> Bool {
         guard let transaction = CancelledCreation.transaction(showingTab: id, in: store) else { return false }
-        CancelledCreation.cancel(transaction, in: store)
+        if CancelledCreation.keepsCreation(transaction, in: store) {
+            CancelledCreation.closeStandIn(transaction, in: store)
+        } else {
+            CancelledCreation.cancel(transaction, in: store)
+        }
         return true
     }
 
@@ -49,6 +53,16 @@ import Foundation
     /// only if a snapshot says the daemon kept it).
     public static let closeAttemptLimit = 3
 
+    /// The tab of `pane` that stand-in tab `id` became, once the records list it there in its place
+    /// (a confirmed reply or echo named it). A pane's strip shows the records one observation step
+    /// late: a Cmd-W in that step still names the stand-in, which the records no longer hold, and
+    /// closed nothing (smoke, STATUS 4852). Nil for any other id, and for a stand-in still shown,
+    /// cancelled (its tab is hidden) or refused.
+    public func replacement(ofStandIn id: String, in pane: PaneModel) -> TabModel? {
+        guard ProvisionalTab.isProvisional(id), let surface = store.intentLog.replacement(ofStandIn: id) else { return nil }
+        return pane.tabs.first { $0.surface == surface }
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 
@@ -64,7 +78,27 @@ import Foundation
     }
 }
 
-extension DaemonStore { public var creations: DaemonCreations { DaemonCreations(store: self) } }
+extension DaemonStore {
+    public var creations: DaemonCreations { DaemonCreations(store: self) }
+
+    /// A close of pane `handle` while it is still opening (a stand-in no cancel took, e.g. a dock's pane): it leaves
+    /// the visible records now, and the daemon's pane that takes it over stays out until the close commits. The
+    /// caller sends `close-pane` for ``daemonTarget(_:)``, then settles (`noteSettled`) or rejects the transaction.
+    /// Nil for a daemon pane (its close needs no intent).
+    public func intendStandInPaneClose(_ handle: PaneID) -> ClientTransactionID? {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
+        let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self)
+        var paneID = panesByHandle[handle]?.resourceID?.rawValue, workspace: WorkspaceKey?
+        switch origin {
+        case .pane(let id)?: paneID = id
+        case .workspace(let key)?: workspace = key
+        case nil: break
+        }
+        let transaction = ClientTransactionID.generate()
+        intend(.closeStandInPane(pane: handle, paneID: paneID, workspace: workspace), transaction: transaction)
+        return transaction
+    }
+}
 
 extension CancelledCreation {
     /// Marks `transaction`'s creation cancelled (once): the lift undoes its provisional tab or
@@ -78,7 +112,7 @@ extension CancelledCreation {
     /// Hands each cancelled creation's daemon surface to the close once, as soon as it is known.
     static func requestCloses(in store: DaemonStore) {
         guard !store.overlayLifted else { return }
-        for entry in store.intentLog.entries where entry.closeWhenCreated && !entry.closeRequested {
+        for entry in store.intentLog.entries where (entry.closeWhenCreated || entry.standInClosed) && !entry.closeRequested {
             // A create's tab paired by a guess (``ProvisionalTab/matched(_:in:)``) is hidden but
             // closed only once the daemon names it for this transaction: a wrong guess never
             // closes another create's tab.

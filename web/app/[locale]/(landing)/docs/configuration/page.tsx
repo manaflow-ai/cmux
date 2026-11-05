@@ -442,6 +442,11 @@ working-directory = ~/code`}</CodeBlock>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>
+      <p>
+        {t.rich("shortcutsBindingsKeymapLink", {
+          keymapLink: (chunks) => <Link href="/docs/keyboard-shortcuts#base-keymaps">{chunks}</Link>,
+        })}
+      </p>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
           <h4>{localizedShortcutText(category.title, locale)}</h4>

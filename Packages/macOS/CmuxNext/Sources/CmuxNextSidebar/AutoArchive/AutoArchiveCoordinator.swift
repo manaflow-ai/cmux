@@ -60,12 +60,12 @@ public final class AutoArchiveCoordinator {
     static let cardNames = 5
 
     /// - Parameters:
-    ///   - document: the active sidebar document (by default `SidebarDocStore.current` while active).
+    ///   - document: the app's sidebar document while it is active (its own store, from the composition root).
     ///   - ledgerStore: where the last-seen ledger lasts across launches.
     ///   - clock: drives the pass and save deadlines (tests pass a manual clock).
     ///   - now: the wall clock the idle times are measured on.
     public init(host: any AutoArchiveHost,
-                document: @escaping () -> (any AutoArchiveDocument)? = { SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil } },
+                document: @escaping () -> (any AutoArchiveDocument)?,
                 ledgerStore: AutoArchiveLedgerStore, clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.host = host

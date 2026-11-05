@@ -7,9 +7,14 @@ feeds=()
 for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
 # The versioned DMG publish-nightly-next-github uploaded: the publisher needs one
 # immutable asset, reuses the remote copy with the same size and digest, and so writes
-# the rolling name only while its versioned file is on the release.
+# the feed copy only while its versioned file is on the release.
+# The rolling name ${CHANNEL_DMG_PREFIX}-arm64.dmg (cmux.com/next, the release body) is the
+# same cmux NIGHTLY build (com.cmuxterm.app.nightly), moved only while it is the feed's newest.
+dmg="nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+rolling="nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg"
+cp -c "$dmg" "$rolling" 2>/dev/null || cp "$dmg" "$rolling"
 python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
   --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-  --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-  --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" --replace-feeds "${feeds[@]}"
+  --immutable "$dmg" --alias "$rolling" \
+  --replace-feeds "${feeds[@]}"
 echo "newest=true" >> "$GITHUB_OUTPUT"

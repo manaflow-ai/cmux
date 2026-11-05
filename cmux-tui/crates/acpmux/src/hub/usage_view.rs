@@ -86,11 +86,12 @@ impl Hub {
             {
                 continue;
             }
-            let env = crate::route_account::spawn_env(&m, self.harness_env(&m).await.1);
+            let (claude_stdio, env) = self.harness_env(&m).await;
+            let env = crate::route_account::spawn_env(&m, env);
             // Only an argv this daemon started it with says how it runs: a watched chat runs in
             // another app, and one never started here (adopted, revived) ran with unknown flags.
             let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
-            let source = Source {
+            let mut source = Source {
                 family,
                 agent_session_id: sid,
                 cwd: m.cwd.clone(),
@@ -98,6 +99,11 @@ impl Hub {
                 argv,
                 env,
             };
+            // The window acpmux started it with when the person set none (`harness_limits::lift_claude`).
+            if claude_stdio && crate::usage_stats::claude_autocompact_unset(&source) {
+                let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+                source.env.insert(key.into(), value.into());
+            }
             sources.push((m.id.clone(), source));
         }
         let models = Models::from_catalog(&self.catalog.current());

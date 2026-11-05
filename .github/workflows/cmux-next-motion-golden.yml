@@ -50,6 +50,10 @@ concurrency:
   group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   dispatch:
     # Only with the label, and on `labeled` only when the label added is this one.
@@ -57,7 +61,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'motion-golden')
       && (github.event.action != 'labeled' || github.event.label.name == 'motion-golden')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch

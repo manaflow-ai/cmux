@@ -11,8 +11,9 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
-//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
-//!   sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
+//!   person's own that an agent writes as the customize app) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -53,6 +54,8 @@
 //!   of the notes it saves.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
+
+pub mod prompt_sources;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -109,24 +112,20 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
-    agents_chat_state";
+    agents_chat_state,acpmux_send,acpmux_ls,acpmux_last,acpmux_info,\
+    acpmux_inbox_read,acpmux_inbox_reply";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
 /// multiple-choice question that read "Waiting for you: allow this?" (Leo
 /// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
 /// cmux skill say the same. Claude Code may cut server instructions past
-/// 2048 characters, so the code-mode text plus this rule stays under that.
-pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
-    mode and the harness's own permission prompts, never through your questions, and a chat in \
-    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
-    tool call its harness would ask about. So never ask them to allow, confirm or approve a \
-    step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one \
-    line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's \
-    own request (importing a browser's cookies, deleting their data) waits for that request, \
-    and a cmux consent card is theirs to answer; leave such a step out and say so. Ask only \
-    about product taste you cannot settle from the request or the code, as that choice, never \
-    as a permission.";
+/// 2048 characters, so both compact rules stay under that.
+pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
+
+/// The small cmux-owned coordination block sent once as hidden first-turn context.
+/// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
+pub const CONCURRENT_WORK_RULE: &str = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
 
 /// cmux's own rules for its computer use server (`cmux-cua`), which `cmux
 /// mcp serve` puts before that server's `initialize` instructions on each
@@ -206,6 +205,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    ("cmux-customization/SKILL.md", include_str!("../../../../skills/cmux-customization/SKILL.md")),
+    (
+        "cmux-customization/references/examples.md",
+        include_str!("../../../../skills/cmux-customization/references/examples.md"),
+    ),
+    (
+        "cmux-customization/references/local-app-views.md",
+        include_str!("../../../../skills/cmux-customization/references/local-app-views.md"),
+    ),
+    (
+        "cmux-customization/references/viewer-types.md",
+        include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
@@ -587,25 +599,25 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
-    if crate::cloud_repo_mcp::is_cloud_machine() {
-        if let Some(acpmux) = &inputs.acpmux {
-            // Cloud repository tools run on Cloud machines only. They forward
-            // the session caller token to the daemon action bridge.
-            servers.push(McpServer {
-                name: crate::cloud_repo_mcp::SERVER_NAME.into(),
-                command: acpmux.exe.clone(),
-                args: acpmux.args_lossy(&["repo-mcp"]),
-                env: executable("cmux")
-                    .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
-                    .into_iter()
-                    .chain(
-                        std::env::var("CMUX_SOCKET_PATH")
-                            .ok()
-                            .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
-                    )
-                    .collect(),
-            });
-        }
+    if crate::cloud_repo_mcp::is_cloud_machine()
+        && let Some(acpmux) = &inputs.acpmux
+    {
+        // Cloud repository tools run on Cloud machines only. They forward
+        // the session caller token to the daemon action bridge.
+        servers.push(McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["repo-mcp"]),
+            env: executable("cmux")
+                .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                .into_iter()
+                .chain(
+                    std::env::var("CMUX_SOCKET_PATH")
+                        .ok()
+                        .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                )
+                .collect(),
+        });
     }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
@@ -680,7 +692,10 @@ impl AgentTools {
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }
-            if server.name == "cmux"
+            // The `acpmux` server gets the list too: folded, `cmux` filters its
+            // tools by the same names; standalone (cmux off or missing, so no
+            // fold) the server's own filter is the only one (`acpmux_mcp::allowed`).
+            if (server.name == "cmux" || server.name == crate::acpmux_mcp::SERVER_NAME)
                 && let Some(tools) = tools
             {
                 server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
@@ -726,16 +741,21 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
-            let repo_route: Vec<_> = if server.name == crate::cloud_repo_mcp::SERVER_NAME {
-                server
-                    .env
-                    .iter()
-                    .filter(|(k, _)| matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH"))
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            // What survives the env reset below: the Cloud repo route, and the
+            // `acpmux` server's tool allowlist (`scoped`), its only filter when
+            // there is no `cmux` server to fold into.
+            let kept: Vec<_> = server
+                .env
+                .iter()
+                .filter(|(k, _)| match server.name.as_str() {
+                    crate::cloud_repo_mcp::SERVER_NAME => {
+                        matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
+                    }
+                    crate::acpmux_mcp::SERVER_NAME => k == MCP_TOOLS_ENV,
+                    _ => false,
+                })
+                .cloned()
+                .collect();
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -781,7 +801,10 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
-            server.env.extend(repo_route);
+            if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server.env.push(("ACPMUX_SESSION_ID".to_owned(), session_id.to_owned()));
+            }
+            server.env.extend(kept);
         }
         self
     }
@@ -1055,11 +1078,21 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    .to_string()
+}
+
+/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
+/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
+/// prints on success, so a failure (a binary that is gone, or one that does not know
+/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
+/// `unknown resource scope "__bg-hook"` on each call).
+pub(crate) fn hook_command(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
-    .to_string()
+    format!("{} || true", quoted.join(" "))
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

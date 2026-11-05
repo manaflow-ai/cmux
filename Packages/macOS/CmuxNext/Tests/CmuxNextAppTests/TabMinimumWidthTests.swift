@@ -43,13 +43,16 @@ import Testing
         2 * m.tabBackgroundInset + m.contentLeadingInset + m.iconSize + m.titleCloseSpacing + m.closeButtonSize + m.contentTrailingInset
     }
 
-    @Test func theDefaultMinimumIsTheFaviconPlusCloseWidth() {
+    @Test func theDefaultMinimumIsTheFaviconCloseAndCrowdedTitleWidth() {
         DesignSettings.shared.tabOverflow = .shrink
         DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil)
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
         let m = harness.strip.metrics
-        #expect(m.minInactiveTabWidth == faviconAndCloseWidth(m), "minimum \(m.minInactiveTabWidth), favicon + x need \(faviconAndCloseWidth(m))")
+        // Lawrence msg 19596: plus a few title characters, so a crowded tab never reads as "…".
+        let expected = faviconAndCloseWidth(m) + TabStripMetrics.crowdedTitleRoom
+        #expect(m.minInactiveTabWidth == expected, "minimum \(m.minInactiveTabWidth), favicon + title + x need \(expected)")
+        #expect(m.crowdedMinimumWidth == expected)
         #expect(m.faviconCloseWidth == faviconAndCloseWidth(m))
         let unselected = harness.strip.result.slots.filter { $0.id != harness.selected }.map(\.width)
         #expect(unselected.allSatisfy { $0 == m.minInactiveTabWidth }, "\(Set(unselected))")
@@ -64,7 +67,7 @@ import Testing
         let cell = try #require(harness.strip.cells[TabID("tab3")])
         #expect(abs(cell.frame.width - m.minInactiveTabWidth) < 0.5, "tab3 is \(cell.frame.width) wide")
         cell.isHovered = true
-        #expect(cell.visibility.showsIcon && cell.visibility.showsClose && !cell.visibility.showsTitle, "\(cell.visibility)")
+        #expect(cell.visibility.showsIcon && cell.visibility.showsClose, "\(cell.visibility)")
         let close = try #require(cell.closeButtonRect, "a hovered tab at the minimum has no x")
         let pill = m.pillFrame(slotWidth: cell.frame.width, height: cell.frame.height)
         let icon = CGRect(x: cell.iconLayer.position.x - cell.iconLayer.bounds.width / 2, y: 0,

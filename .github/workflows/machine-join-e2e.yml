@@ -30,6 +30,15 @@ on:
         required: false
         default: ""
         type: string
+      bench:
+        description: "deps: while joined, time cold and warm Cargo and bun installs through `acpmux machine deps warm` (the platform's dependency cache); deps-slow: the same over a link with 150 ms more latency"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - deps
+          - deps-slow
 
 permissions:
   contents: read
@@ -44,8 +53,8 @@ jobs:
     # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
     # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
     # this job adds an OS user and holds the stack secrets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
-    timeout-minutes: 45
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 90
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
     steps:
@@ -190,9 +199,48 @@ jobs:
             exit 1
           fi
 
+      # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
+      # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while
+      # joined. Every cache the bench fills lives under the base, outside the scanned home. No secret here.
+      - name: Prepare the dependency bench
+        if: startsWith(inputs.bench, 'deps')
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          BENCH: ${{ inputs.bench }}
+        run: |
+          set -euo pipefail
+          sysroot="$(cd cmux-tui && rustc --print sysroot)"
+          sudo cp -a -- "$sysroot" "$JOIN_BASE/toolchain"
+          sudo chown -R root:root "$JOIN_BASE/toolchain"
+          sudo chmod -R go-w "$JOIN_BASE/toolchain"
+          sudo install -o root -g root -m 0755 "$(command -v bun)" "$JOIN_BASE/bin/bun"
+          sudo install -o root -g root -m 0755 scripts/cmux-next/deps-bench.sh "$JOIN_BASE/bin/deps-bench.sh"
+          sudo install -d -o "$JOIN_USER" -g "$JOIN_USER" -m 0700 "$JOIN_BASE/bench" "$JOIN_BASE/bench/webviews"
+          # cmux-tui's workspace and the one path dependency outside it (crates/cmux-tui -> workers/cmux-vm/cli).
+          git archive HEAD cmux-tui workers/cmux-vm/cli | sudo -n -u "$JOIN_USER" -- tar -x -C "$JOIN_BASE/bench"
+          # The manifest without its scripts (the postinstall reads the app's catalogs, not part of the bench).
+          jq 'del(.scripts)' webviews/package.json | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/webviews/package.json" >/dev/null
+          sudo -n -u "$JOIN_USER" -- cp -- webviews/bun.lock "$JOIN_BASE/bench/webviews/bun.lock"
+          # deps-slow: every packet out of this VM waits 150 ms more (a far-away registry and cache).
+          # The VM is destroyed after the job, so the delay is never undone. A kernel without netem
+          # gets the same delay from a local proxy that the bench routes every tool's HTTPS through.
+          if [ "$BENCH" = deps-slow ]; then
+            dev="$(ip -o route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+            sudo modprobe sch_netem 2>/dev/null || true
+            if sudo tc qdisc replace dev "$dev" root netem delay 150ms; then
+              tc qdisc show dev "$dev"
+              echo netem | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            else
+              sudo install -o root -g root -m 0755 scripts/cmux-next/delay-proxy.py "$JOIN_BASE/bin/delay-proxy.py"
+              echo 150 | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link-proxy-ms" >/dev/null
+              echo proxy | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            fi
+          fi
+
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke
-        timeout-minutes: 15
+        timeout-minutes: 60
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -200,11 +248,14 @@ jobs:
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
+          BENCH: ${{ inputs.bench }}
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
+          bench=()
+          case "$BENCH" in deps | deps-slow) bench=(--bench "$JOIN_BASE/bin/deps-bench.sh") ;; esac
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
-            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
+            --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}"
 
       # Fails on a token or credential prefix, a JWT or an auth header in the evidence (nothing is then
       # uploaded or summarized), on missing evidence, and on a joined machine not shown revoked.

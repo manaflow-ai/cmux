@@ -4,16 +4,21 @@
    16px plus the 8px gap), in the transcript's Markdown at the detail size. */
 .cv-subsession__cut,
 .cv-subsession__raw {
-  margin-inline-start: 24px;
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
   min-width: 0;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__under {
-  margin: -3px 0 4px 22.5px;
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
   min-width: 0;
 }
 .cv-subsession__markdown {
-  margin-top: 2px;
+  margin-top: 0;
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
@@ -48,7 +53,7 @@
   all: unset;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--grid-gap);
   cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
@@ -67,4 +72,24 @@
 .cv-sent__file {
   font-family: var(--cv-code-font, var(--cv-mono));
   font-size: 0.92em;
+}
+
+/* Inside an opened message (`.cv-subsession__under`, already at the text column) Raw starts where
+   the message does, never a second indent in (Leo, 2026-11-02: "Raw ⌄" "on its own oddly indented
+   line"). */
+.cv-subsession__under > .cv-subsession__raw {
+  padding-inline-start: 0;
+}
+/* The opened message's quiet actions (SentMessageLine.tsx, stacked): Copy, then Raw, on one line
+   under the message at its indent, shown while it is open. */
+.cv-subsession__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  min-height: var(--cv-footer-control-slot, 24px);
+}
+.cv-subsession__actions > .cv-sent-actions {
+  height: auto;
+  margin-inline-start: calc(-1 * (var(--cv-footer-control-slot, 24px) - 16px) / 2);
+  opacity: 1;
 }

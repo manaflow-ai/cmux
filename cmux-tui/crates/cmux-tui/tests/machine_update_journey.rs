@@ -103,6 +103,9 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
             vec![
                 ("CMUX_TEST_DAEMON_BUILD_ID", OLD_BUILD.to_owned()),
                 ("CMUX_TEST_DAEMON_HIDE_CAPABILITIES", NEWER_VERBS.to_owned()),
+                // Older, as its build time says: a machine of another build that is not older
+                // lacks a capability instead (`machine_capability_missing`, #36044).
+                ("CMUX_TEST_DAEMON_BUILD_TIME", "1".to_owned()),
             ],
         ),
     );
@@ -470,7 +473,8 @@ fn machine_update_swaps_in_the_pinned_build_and_keeps_terminals_and_chats() {
     let shipped = fs::read(bin()).unwrap();
     let mut old = shipped.clone();
     old.extend_from_slice(b"\0cmux-tui built before the move verbs\0");
-    let vm = SupervisedVm::start(&root, &old, true);
+    // Built before this client, as its build time says: only an older machine is outdated (#36044).
+    let vm = SupervisedVm::start_built_at(&root, &old, true, LACKS_FOR_UPDATE, "1");
     let before = vm.identify().unwrap();
     assert_eq!(before["build_id"], json!(OLD_BUILD), "{before}");
 
@@ -667,7 +671,9 @@ fn machine_update_refuses_a_build_that_does_not_match_its_pin() {
 /// anything: run directly with a wrong checksum, a pid that is not the
 /// daemon, an install path outside its own home, a result file elsewhere,
 /// or while another update holds the lock, it refuses, and the machine's
-/// binary and daemon stay as they were.
+/// binary and daemon stay as they were. A pid that is not the daemon on this
+/// terminal's socket is what a daemon restarted since the Mac read its pid
+/// gives: the quiet `busy` (#33011), never a read of that pid's process.
 #[test]
 fn machine_update_apply_step_refuses_before_changing_anything() {
     use std::os::unix::fs::PermissionsExt as _;
@@ -724,7 +730,7 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
     let (code, outcome) = apply(&sha, &install, &not_daemon, &result);
     assert_eq!(
         (code, outcome.as_ref().map(|o| o["state"].clone())),
-        (Some(1), Some(json!("failed"))),
+        (Some(1), Some(json!("busy"))),
         "{outcome:?}"
     );
     unchanged("a pid that is not the daemon");
@@ -763,7 +769,7 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
     let _ = other.wait();
     assert_eq!(
         (code, outcome.as_ref().map(|o| o["state"].clone())),
-        (Some(1), Some(json!("failed"))),
+        (Some(1), Some(json!("busy"))),
         "{outcome:?}"
     );
     unchanged("a pid of the binary that is not the serving daemon");

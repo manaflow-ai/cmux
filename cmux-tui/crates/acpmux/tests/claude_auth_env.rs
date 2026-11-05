@@ -170,13 +170,16 @@ async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
 /// `ask`, in a session named `name` (one daemon, several sessions).
 async fn ask_as(d: &Daemon, harness: &str, name: &str) -> (Result<Value, String>, Value) {
     let mut rpc = Rpc::connect(&d.socket).await;
-    let s = rpc
-        .call(
+    let created = rpc
+        .answer(
             "session/new",
             json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "name": name}}}),
         )
         .await;
-    let id = s["sessionId"].as_str().unwrap().to_owned();
+    if let Some(error) = created.get("error") {
+        return (Err(error["message"].as_str().unwrap_or_default().to_owned()), Value::Null);
+    }
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
     let answer = rpc
         .answer(
             "session/prompt",
@@ -256,7 +259,8 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
 }
 
 /// (a3) The daemon's prompt-cache switches never reach an agent; a harness
-/// that sets one on purpose keeps it. Before: an acpmux client run from an
+/// that sets one on purpose keeps it. The one-hour switch an agent does get
+/// is acpmux's own default (`prompt_cache_env.rs`), not the daemon's. Before: an acpmux client run from an
 /// OptChat turn (whose settings env has DISABLE_PROMPT_CACHING=1) started
 /// the NIGHTLY Chief daemon, and every agent it spawned sent no cache marks
 /// (2026-10-19: 277 of 756 sampled requests read and wrote no cache).
@@ -279,7 +283,12 @@ async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
         [("CLAUDECODE", "1")].into_iter().chain(switches.iter().copied()).collect();
     for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", switches.as_slice())] {
         for (harness, want) in
-            [("claude", json!({})), ("marks", json!({"DISABLE_PROMPT_CACHING": "1"}))]
+            // acpmux's own default is the one-hour cache (prompt_cache_env.rs), never the
+            // daemon's switches; a profile that turns caching off gets none of it.
+            [
+                ("claude", json!({"ENABLE_PROMPT_CACHING_1H": "1"})),
+                ("marks", json!({"DISABLE_PROMPT_CACHING": "1"})),
+            ]
         {
             let d = start(&dir, harnesses.clone(), extra).await;
             let (reply, _) = ask(&d, harness).await;
@@ -782,6 +791,122 @@ async fn a_secret_delivered_after_start_reaches_the_next_agent() {
     assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
 }
 
+/// Cloud environment declarations reach the actual child without any shell
+/// startup hook, refresh on replacement/deletion, and never enter the cache.
+#[tokio::test]
+async fn literal_machine_env_reaches_local_children_without_a_profile_hook() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-env", "export ANTHROPIC_API_KEY=sk-login\n");
+    let first = "synthetic-machine-first'\\$HOME\n$(touch should-not-exist)";
+    let other = "synthetic-machine-other";
+    let d = start(
+        &dir,
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": first})),
+            "profile": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "profile", "DEMO_KEY": "profile"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
+        &[],
+    ).await;
+    let (before, _) = ask_as(&d, "claude", "before-machine-env").await;
+    assert_eq!(found(&before)["loginOnly"], json!([]));
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    let replace = |value: &str| {
+        let next = conf.join("next-machine.env");
+        std::fs::write(&next, format!("export DEMO_KEY='{}'\n", value.replace('\'', "'\\''")))
+            .unwrap();
+        std::fs::set_permissions(&next, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::rename(next, &file).unwrap();
+    };
+    replace(first);
+    let (delivered, _) = ask_as(&d, "claude", "machine-delivered").await;
+    assert_eq!(found(&delivered)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&delivered)["machineMatches"], true);
+    assert!(!dir.join("should-not-exist").exists());
+    let (profile, _) = ask_as(&d, "profile", "machine-profile-precedence").await;
+    assert_eq!(found(&profile)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-not-a-reference").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+    replace(other);
+    let (rotated, _) = ask_as(&d, "claude", "machine-rotated").await;
+    assert_eq!(found(&rotated)["loginOnly"], json!(["DEMO_KEY"]));
+    assert_eq!(found(&rotated)["machineMatches"], false);
+    std::fs::remove_file(&file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    for name in ["login-env.json", "daemon.out", "daemon.stderr"] {
+        let content = std::fs::read_to_string(dir.join(name)).unwrap();
+        assert!(!content.contains("synthetic-machine-first"), "machine value leaked to {name}");
+        assert!(!content.contains(other), "rotated machine value leaked to {name}");
+    }
+}
+
+/// Removing a declaration also suppresses a stale copy inherited by the
+/// long-running daemon, rather than revealing the daemon's old value again.
+#[tokio::test]
+async fn revoked_machine_env_does_not_fall_back_to_inherited_values() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-inherited", "export ANTHROPIC_API_KEY=sk-login\n");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export DEMO_KEY='synthetic-current-value'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({
+            "claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "synthetic-current-value"})),
+            "reference": claude(json!({"DEMO_KEY": "${env:DEMO_KEY}"})),
+        }),
+        &[("DEMO_KEY", "synthetic-inherited-old-value")],
+    )
+    .await;
+    let (current, _) = ask_as(&d, "claude", "machine-current-inherited").await;
+    assert_eq!(found(&current)["machineMatches"], true);
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+    std::fs::remove_file(file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked-inherited").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+    let (reference, _) = ask_as(&d, "reference", "machine-reference-revoked-inherited").await;
+    assert!(reference.unwrap_err().contains("${env:DEMO_KEY} is not set in the login environment"));
+}
+
+#[tokio::test]
+async fn current_machine_credentials_survive_nested_claude_cleanup() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-nested", "");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export ANTHROPIC_AUTH_TOKEN='synthetic-current-token'\nexport ANTHROPIC_BASE_URL='https://current.invalid'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({"claude": claude(json!({}))}),
+        &[
+            ("CLAUDECODE", "1"),
+            ("ANTHROPIC_AUTH_TOKEN", "synthetic-parent-token"),
+            ("ANTHROPIC_BASE_URL", "https://parent.invalid"),
+        ],
+    )
+    .await;
+    let (current, _) = ask_as(&d, "claude", "machine-nested-current").await;
+    assert_eq!(found(&current)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
+    assert_eq!(found(&current)["base"], "https://current.invalid");
+    std::fs::remove_file(file).unwrap();
+    let (revoked, turn) = ask_as(&d, "claude", "machine-nested-revoked").await;
+    let error = revoked.expect_err("a revoked credential survived nested cleanup");
+    // A generic launch or socket failure is an error too. Verify the fake Claude actually
+    // started and rejected the missing auth, rather than rewarding an unrelated failure.
+    assert!(error.contains("Claude is not signed in here."), "{error}");
+    assert!(error.contains("(Claude said: Not logged in · Please run /login)"), "{error}");
+    assert_eq!(turn["status"], "failed", "{turn}");
+    assert_eq!(turn["errorText"], error.as_str(), "{turn}");
+}
+
 /// A version-manager prefix passes, but never a secret under it: the agent
 /// gets MISE_DATA_DIR, not MISE_GITHUB_TOKEN or NVM_AUTH_HEADER, unless
 /// `loginEnvAllow` names one exactly.
@@ -863,4 +988,57 @@ async fn a_profile_bedrock_switch_gets_no_aws_secret() {
     let v = found(&reply);
     assert_eq!(v["auth"], json!(["bedrock"]), "{v}");
     assert_eq!(v["awsKeys"], json!(["AWS_PROFILE", "AWS_REGION"]), "{v}");
+}
+
+/// The `/status` card's rows (Leo, 2026-11-03: "how come the status doesn't say anything"): a
+/// Claude chat started from a profile that sets its sign-in, endpoint and Claude home has, in
+/// its session info, the machine, the kind of sign-in and where it came from (never its value),
+/// the route, the settings files in force, and the usage limits Claude Code reported.
+#[tokio::test]
+async fn session_info_names_host_sign_in_route_settings_and_limits() {
+    let dir = scratch("status", "export EDITOR=vi\n");
+    let home = dir.join("home/.claude");
+    std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
+    std::fs::create_dir_all(dir.join(".claude")).unwrap();
+    std::fs::write(dir.join(".claude/settings.local.json"), "{}").unwrap();
+    // Not `claude()`: its sign-in mode answers every prompt itself, with no rate_limit_event.
+    let env = json!({
+        "CLAUDE_CONFIG_DIR": home,
+        "ANTHROPIC_AUTH_TOKEN": "status-secret-token",
+        "ANTHROPIC_BASE_URL": "http://sr2-gateway.example:4016",
+    });
+    let profile = json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": env});
+    let d = start(&dir, json!({"claude": profile}), &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude"}}}),
+        )
+        .await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "rate-limits-probe"}]}),
+    )
+    .await;
+    let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["machine"].as_str().is_some_and(|h| !h.is_empty()), "{info}");
+    // `host` means a chat on another machine to clients: a local chat's detail has none.
+    assert!(info.get("host").is_none_or(Value::is_null), "{info}");
+    assert_eq!(info["authSource"], "Auth token (ANTHROPIC_AUTH_TOKEN, from its profile)", "{info}");
+    assert_eq!(info["route"], "SR2 gateway (sr2-gateway.example:4016)", "{info}");
+    let settings: Vec<&str> = info["settingsSources"]
+        .as_array()
+        .unwrap_or_else(|| panic!("settingsSources: {info}"))
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let has = |suffix: &str| settings.iter().any(|s| s.ends_with(suffix));
+    // The fake HOME is the daemon's home, so its Claude home reads as `~`.
+    assert!(settings.contains(&"~/.claude/settings.json"), "{settings:?}");
+    assert!(has(".claude/settings.local.json"), "{settings:?}");
+    assert!(settings.contains(&"autocompact at 400K"), "{settings:?}");
+    assert!(info["usageLimits"]["windows"].as_array().is_some_and(|w| !w.is_empty()), "{info}");
+    assert!(!info.to_string().contains("status-secret-token"), "{info}");
 }

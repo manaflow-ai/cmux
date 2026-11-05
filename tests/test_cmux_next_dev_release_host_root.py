@@ -317,6 +317,21 @@ class HostRootTests(unittest.TestCase):
                 self.assertIn(f"cache cold: {why} -> wholemodule", seen["out"])
                 self.assertIn("swift_mode=wholemodule\n", report.read_text())
 
+    def test_a_blacksmith_vm_with_its_restored_cache_compiles_singlefile_from_the_checkout(self):
+        report = self.root / "report.txt"
+        ws = self.workspace("runner-2")
+        seen = self.compile(ws, CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26", CMUX_NEXT_DEV_VM_CACHE="1",
+                            CMUX_NEXT_SWIFT_COMPILATION_MODE="auto", CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertEqual(seen["swift_mode"], "singlefile", seen["out"])
+        self.assertIn("VM cache from actions/cache", seen["out"])
+        self.assertIn("mode=vm\n", report.read_text())
+        self.assertEqual(seen["root"], str(ws), "a VM builds from its checkout, the same path on every VM")
+        self.assertTrue(seen["dd"].endswith("/cmux-next-dev-daily-release"), seen["dd"])
+        self.assertFalse(self.host.exists(), "a VM build never touches the host root")
+        seen = self.compile(ws, CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26", CMUX_NEXT_DEV_VM_CACHE="1",
+                            CMUX_NEXT_COMPILATION_CACHE="0", CMUX_NEXT_SWIFT_COMPILATION_MODE="auto")
+        self.assertIn("cache cold: not a mini -> wholemodule", seen["out"], "the cache switch still turns it off")
+
     def test_auto_compiles_whole_module_while_another_build_holds_the_host_root(self):
         hold = self.root / "hold"
         first, first_job = self.start(self.workspace("runner-2"), STUB_HOLD=str(hold))

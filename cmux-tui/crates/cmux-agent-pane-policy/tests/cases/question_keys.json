@@ -1,0 +1,215 @@
+[
+ {
+  "name": "the normalized question's item ids and prompts",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "acpmux": {
+      "question": {
+       "items": [
+        {
+         "id": "q1",
+         "prompt": "Which?"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  "keys": [
+   "Which?",
+   "q1"
+  ]
+ },
+ {
+  "name": "Claude Code's own AskUserQuestion: its questions' text (Swift AcpmuxDecisionContextSequenceTests)",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": [
+      {
+       "question": "Which one?",
+       "options": [
+        {
+         "label": "A"
+        }
+       ]
+      },
+      {
+       "question": "Why?",
+       "options": [
+        {
+         "label": "Because"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "keys": [
+   "Which one?",
+   "Why?"
+  ]
+ },
+ {
+  "name": "the normalized question wins over Claude's raw input",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "acpmux": {
+      "question": {
+       "items": [
+        {
+         "id": "q1"
+        }
+       ]
+      }
+     },
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": [
+      {
+       "question": "Other?"
+      }
+     ]
+    }
+   }
+  },
+  "keys": [
+   "q1"
+  ]
+ },
+ {
+  "name": "a normalized question that is not an object falls back to Claude's raw input",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "acpmux": {
+      "question": "not an object"
+     },
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": [
+      {
+       "question": "Which one?"
+      }
+     ]
+    }
+   }
+  },
+  "keys": [
+   "Which one?"
+  ]
+ },
+ {
+  "name": "entries without a string question add no key",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": [
+      {
+       "question": 3
+      },
+      "x",
+      {
+       "text": "y"
+      },
+      {
+       "question": "Ok?"
+      }
+     ]
+    }
+   }
+  },
+  "keys": [
+   "Ok?"
+  ]
+ },
+ {
+  "name": "an AskUserQuestion with no questions has no keys but is a question",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": []
+    }
+   }
+  },
+  "keys": []
+ },
+ {
+  "name": "another Claude tool is no question",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "claude": {
+      "tool": "Bash"
+     }
+    },
+    "rawInput": {
+     "questions": [
+      {
+       "question": "Which?"
+      }
+     ]
+    }
+   }
+  },
+  "keys": null
+ },
+ {
+  "name": "an AskUserQuestion whose questions are not a list is no question",
+  "request": {
+   "toolCall": {
+    "_meta": {
+     "claude": {
+      "tool": "AskUserQuestion"
+     }
+    },
+    "rawInput": {
+     "questions": {
+      "question": "Which?"
+     }
+    }
+   }
+  },
+  "keys": null
+ },
+ {
+  "name": "a tool permission is no question",
+  "request": {
+   "toolCall": {
+    "title": "Run ls"
+   },
+   "options": [
+    {
+     "optionId": "a",
+     "kind": "allow_once"
+    }
+   ]
+  },
+  "keys": null
+ }
+]

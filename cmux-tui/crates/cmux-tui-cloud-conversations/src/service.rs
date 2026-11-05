@@ -115,6 +115,18 @@ pub trait CloudBackend: Send + Sync {
         let _ = (url, bearer, client_version);
         Err(TransportError("this cloud backend sends no GET requests".into()))
     }
+    /// Platform REST request with an install bearer supplied by the verified native app.
+    /// The concrete backend never follows redirects for this request.
+    fn platform(
+        &self,
+        method: &str,
+        url: &str,
+        bearer: &str,
+        body: &Value,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (method, url, bearer, body);
+        Err(TransportError("this cloud backend sends no platform requests".into()))
+    }
     /// `PUT url` with `headers` and the raw `body`, no bearer: an attachment
     /// upload slot or a presigned object URL is its own credential.
     fn put(
@@ -125,6 +137,21 @@ pub trait CloudBackend: Send + Sync {
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, headers, body);
         Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// Mint one direct part URL using the slot credential, never the lease bearer.
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        let _ = (url, number);
+        Err(TransportError("direct attachment slots are unsupported".into()))
+    }
+    /// Upload to a presigned part URL and retain its response ETag.
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("direct attachment uploads are unsupported".into()))
     }
     /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
     /// a signed attachment URL is its own credential.

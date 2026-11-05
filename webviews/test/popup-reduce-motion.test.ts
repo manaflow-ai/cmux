@@ -137,6 +137,18 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
           )
           .catch(() => {});
         expect(await faded()).toEqual(expected);
+        // The open settles first, as in the menu case above. A close in the open's first frames finds
+        // the dialog still at opacity 0, where CSS starts no transition (nothing to fade), and when
+        // those frames land depends on the engine (Chromium 156's headless shell ran them later than
+        // 151, so Escape came while the dialog was still invisible).
+        await page
+          .locator(".ui-dialog")
+          .evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((a) => a.finished)));
+        await page.evaluate(() =>
+          Promise.all(
+            [...document.querySelectorAll(".ui-backdrop")].flatMap((el) => el.getAnimations().map((a) => a.finished)),
+          ),
+        );
         await forget();
         await page.keyboard.press("Escape");
         await page.locator(".ui-dialog").waitFor({ state: "detached" });

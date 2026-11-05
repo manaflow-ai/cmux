@@ -67,29 +67,11 @@ impl Mux {
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
-        // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry.
-        // The fold lock orders this save with `fold_agent_roster`'s, so
-        // neither writes an older snapshot over the other's. The write takes
-        // the registry connection alone, never the workspace registry lock,
-        // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap();
-        let retired = {
-            let mut host = self.agent_roster.lock().unwrap();
-            let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
-        };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.registry_connection.put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        drop(fold);
+        // yet, so a closed terminal retires its roster entry explicitly, and
+        // the snapshot persists so a restart does not resurrect it. The
+        // roster's owner thread does both; the close only records it
+        // (cmux-ad m11 2, `agent_roster_worker.rs`).
+        self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
@@ -120,11 +102,13 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
+        self.stop_output_cleanup();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -140,6 +124,9 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        // The roster's owner saves what closes and hooks asked of it while
+        // the journal writer still runs; then it ends.
+        self.stop_agent_roster_worker();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
@@ -188,6 +175,11 @@ impl Mux {
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
+        // The readers stopped: in a shutdown the publications they queued
+        // commit now, in the same grace, as when the readers made them inline.
+        // In a drop no job can reach the mux any more (as no reader could),
+        // so they end at once.
+        self.finish_terminal_publications(terminal_reader_deadline);
         if self.journal_ingress.is_current_writer_thread() {
             // The readers stopped: the store's last write is safe here too.
             self.output_store.shutdown(self);
@@ -240,6 +232,27 @@ impl Mux {
         crate::host_exe::prepare_in_background();
         #[cfg(all(unix, not(test)))]
         crate::holder_runtime::prepare_in_background();
+    }
+
+    /// Debug seam (`CMUX_TUI_DEBUG_WEDGE_REGISTRY=1`, off by default): a
+    /// thread takes the workspace registry lock and never releases it, as the
+    /// lock-order deadlock of #32405 left an owner (#32621): `identify` still
+    /// answers, every workspace change waits forever. The replace tests use it
+    /// to prove that `server ensure` replaces such an owner.
+    pub fn wedge_registry_if_asked(self: &Arc<Self>) {
+        if std::env::var_os("CMUX_TUI_DEBUG_WEDGE_REGISTRY").is_none_or(|value| value != "1") {
+            return;
+        }
+        let mux = Arc::clone(self);
+        let (taken, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _registry = mux.workspace_registry.lock();
+            let _ = taken.send(());
+            loop {
+                std::thread::park();
+            }
+        });
+        let _ = wait.recv();
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {
@@ -301,6 +314,7 @@ impl Mux {
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

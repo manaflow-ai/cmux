@@ -26,6 +26,7 @@ public struct ChiefSettingsView: View {
     let session: ChiefSession
     /// Message: back to the conversation with the keyboard up.
     let onMessage: (() -> Void)?
+    private let computer = ChiefComputer.shared
     @State private var report: ChiefEngineReport?
     /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
@@ -67,6 +68,8 @@ public struct ChiefSettingsView: View {
         Form {
             engineSection
             if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
+            // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
+            ChiefComputerSection(computer: computer)
             notificationsSection
             #if DEBUG
             diagnosticsSection
@@ -113,6 +116,8 @@ public struct ChiefSettingsView: View {
         // Mac or its model server is down, until the page closes; again
         // once Chief connects with the page open.
         .task(id: hasControl) { await session.watchEngine() }
+        // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
+        .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
         .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }

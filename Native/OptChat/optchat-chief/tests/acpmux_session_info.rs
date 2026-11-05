@@ -43,6 +43,10 @@ fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, paced: bool) 
                             s1,
                             row("d-1", "dup"),
                             row("d-2", "dup"),
+                            // An info refusal may fall back to the list; two equal names
+                            // must still be rejected instead of choosing the first row.
+                            row("f-1", "fallbackdup"),
+                            row("f-2", "fallbackdup"),
                             row("p-1", "builder/review"),
                             row("p-down", "builder/down"),
                             row("p-twin", "builder/optchat-twin"),
@@ -63,6 +67,9 @@ fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, paced: bool) 
                                 "\"dup\" matches 2 sessions; use the id",
                                 Value::Null,
                             ),
+                            Some("fallbackdup") => {
+                                err(-32000, "info temporarily unavailable", Value::Null)
+                            }
                             Some("builder/review" | "p-1") => ok(row("p-1", "review")),
                             // A peer's session with a bare name no local one has:
                             // acpmux forwards it and the peer answers as its own.
@@ -201,10 +208,17 @@ fn the_list_answers_only_what_info_cannot() {
     assert!(acpmux.session("").unwrap().is_none());
     assert_eq!(lists(), 1);
 
-    // A name two sessions share: the list says which.
-    assert_eq!(acpmux.find("dup").unwrap().as_deref(), Some("d-1"));
+    // The daemon explicitly says the name is ambiguous: never pick the first
+    // row in the list and silently send to an arbitrary child.
+    let duplicate = acpmux.find("dup").unwrap_err();
+    assert!(duplicate.contains("several sessions"), "{duplicate}");
+    assert_eq!(lists(), 1, "an explicit ambiguity needs no fallback list");
+    // Even when info fails for another reason, a fallback list with two
+    // identically named sessions is ambiguous, irrespective of list order.
+    let fallback = acpmux.find("fallbackdup").unwrap_err();
+    assert!(fallback.contains("several sessions"), "{fallback}");
     assert_eq!(lists(), 2);
-    // Info fails (the peer's link is down): the list's mirrored row answers.
+    // Info fails (the peer's link is down): a unique mirrored row remains usable.
     let down = acpmux.session("p-down").unwrap().expect("listed");
     assert_eq!(down.name, "builder/down");
     assert_eq!(

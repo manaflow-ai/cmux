@@ -21,10 +21,29 @@ extension ActionWorkFailure {
             shown = notReady.shown
             return
         }
+        // A close past its bound with no answer: its result is unknown (`CloseUnanswered`). A caller reads that it may
+        // still apply (a timeout, not a refusal); the person reads why.
+        if let unanswered = error as? CloseUnanswered {
+            self.init("\(label): \(unanswered)", mayHaveApplied: true)
+            shownReason = unanswered.description
+            cause = .text // unlike a missed deadline, a close that may still happen is said (#30915)
+            return
+        }
         let daemonError = error as? DaemonError
-        var timedOut = false
-        if case .timedOut = daemonError { timedOut = true }
-        self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        self.init("\(label): \(error)", mayHaveApplied: daemonError?.isMissedDeadline == true,
+                  terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        // What a person reads (`notice(title:)`): never the daemon's text, the command label or an op name. A missed
+        // deadline shows nothing (the store's echo shows what the daemon holds); a refusal or a lost connection, only "did not apply".
+        if cause == .text { cause = daemonError?.isLostConnection == true ? .connection : .daemon }
+        // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
+        if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }
+        switch daemonError {
+        case .missingCapabilities?, .sessionRestoreTimedOut?: shownReason = RefusalStrings.describe(error)
+        case .endpointBlocked(let reason)?: shownReason = reason
+        default: break
+        }
+        // A missed deadline's reason in words, for a surface that shows one; a toast shows nothing (`notice(title:)`).
+        if daemonError?.isMissedDeadline == true { shownReason = RefusalStrings.daemonTimedOut }
     }
 }
 
@@ -40,4 +59,11 @@ extension DaemonError {
         if case .terminalStartTimedOut = self { return true }
         return false
     }
+}
+
+/// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`), and whose
+/// workspace its store still lists: the result is unknown, since a paused daemon may still close it later.
+public struct CloseUnanswered: Error, Sendable, CustomStringConvertible {
+    public init() {}
+    public var description: String { RefusalStrings.closeUnanswered }
 }

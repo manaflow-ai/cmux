@@ -47,23 +47,25 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
         self.earlierFolded = earlierFolded
     }
 
-    /// The history of `newest` (the index, newest first; read lazily, stopping once the page and
-    /// one more are found). `live`: the chats an open workspace shows (the tree lists those).
-    /// `pinned`: the pinned keys in pin order; `chat` finds a pinned chat outside the page.
+    /// The history of `newest` (acpmux's Earlier window, newest first; read lazily, stopping once the
+    /// page is full). `more`: acpmux has chats past that window (`hasMore`), which is Show More; this
+    /// never reads past the page to find out. `live`: the chats an open workspace shows (the tree
+    /// lists those). `pinned`: the pinned keys in pin order; `chat` finds a pinned chat outside the page.
     public static func make(newest: some Sequence<SidebarHistoryChat>, chat: (String) -> SidebarHistoryChat?,
-                            live: Set<String>, pinned: [String], limit: Int, folded: Bool) -> SidebarChatHistoryState {
+                            live: Set<String>, pinned: [String], limit: Int, folded: Bool, more: Bool = false) -> SidebarChatHistoryState {
         var state = SidebarChatHistoryState(earlierFolded: folded)
         state.pinned = pinned.compactMap(chat)
         let skipped = live.union(pinned)
         let wanted = folded ? 0 : max(0, limit)
         for item in newest where !skipped.contains(item.id) {
             state.hasEarlier = true
-            if state.earlier.count == wanted {
-                state.hasMore = !folded
-                break
-            }
+            guard state.earlier.count < wanted else { break }
             state.earlier.append(item)
+            if state.earlier.count == wanted { break }
         }
+        state.hasMore = more && !folded
+        // Chats wait past the page even while the local skip leaves it empty: Earlier keeps its header.
+        if state.hasMore { state.hasEarlier = true }
         return state
     }
 

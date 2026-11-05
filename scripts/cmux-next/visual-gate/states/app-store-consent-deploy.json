@@ -34,7 +34,7 @@
         "--app",
         "manaflow-ai/hello-deploy",
         "--deploy",
-        "self-hosted:ops@build-01.corp"
+        "self-hosted:ops-build-01.example.invalid"
       ],
       "wait": 3,
       "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppsStoreChange.swift"

@@ -30,7 +30,7 @@ public final class LiveCoordinator {
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
-    /// user the first time; Allow then signs with Face ID.
+    /// user the first time; Allow then signs with the approval key.
     public internal(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
@@ -238,7 +238,9 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: summary)
+            var scoped = summary
+            scoped.accountID = self.userID
+            return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()
@@ -592,6 +594,7 @@ public final class LiveCoordinator {
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
+        ChiefComputer.shared.macChanged()
         phaseChanged(focused)
     }
 
@@ -665,6 +668,9 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        session.pairingRetry?.cancel()
+        for relay in session.cloudChats.values { relay.retire() }
+        session.cloudChats.removeAll()
         session.link.send(.target(nil))
         // Its data on screen is last-known now, and nothing says it is connected.
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
@@ -800,7 +806,7 @@ public final class LiveCoordinator {
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
-    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    /// approval key; nil without pairing keys or a paired Mac.
     public func chiefAnswerSigner() -> ChiefAnswerSigner? {
         guard let pairing, let macID = link.target?.macID, focused.pairingState == .paired else { return nil }
         return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)

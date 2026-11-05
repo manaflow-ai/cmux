@@ -82,10 +82,20 @@ impl Mux {
         if let Some(root) = options.terminal_host_root.as_deref() {
             crate::terminal_host_runtime::sweep_released_pty_locks(root);
         }
-        let records = match options.terminal_host_root.as_deref() {
+        let mut records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
         };
+        // The workspace the person sees goes first through this pass: a host
+        // found dead here schedules its respawn in this order, and the respawn
+        // gate keeps it (mux/terminal_respawn.rs), so after a kill of
+        // everything its terminals respawn first. Live hosts are sorted again
+        // below for their adoption threads.
+        let visible_workspace = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        records
+            .sort_by_key(|(_, record)| Some(&record.workspace_key) != visible_workspace.as_ref());
         let mut handled_terminals = HashSet::new();
         // Live hosts this pass hands to their adoption threads.
         let mut deferred: Vec<(

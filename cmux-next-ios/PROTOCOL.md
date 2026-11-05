@@ -546,6 +546,35 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+- `cloud-directory` (link protocol 2): no arguments; one JSON data frame
+  `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
+  followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
+  Mac's `phone.cloudDesktop` setting; `status` is the machine's Cloud status
+  (`running`, `paused`, `starting`, ...); `ran` says it has run at least once;
+  `linked` says the Mac holds its live carrier, so a Cloud chat can open on it.
+  A machine that is asleep (no live carrier, `linked` false) is listed too, for the
+  Chief's Computer card only; the Cloud chats list leaves it out. An older Mac sends
+  none of these fields: the phone reads `paid`, `desktops` and `ran` as false,
+  `status` as unknown and `linked` as true (it listed only linked machines).
+  Hostd obtains this list from the signed-in Mac app's authenticated owner
+  CloudLinkSession objects. Carrier paths and ownership markers are never sent
+  to the phone; conflicting duplicate machine/team entries are omitted.
+- `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
+  resolves exactly one current owner link from the app. This socket is already
+  the Cloud app server's daemon carrier; no second `link.dial` or service hello
+  is sent. Rust hostd requires `identify.data.capabilities` to advertise
+  `cloud-mobile-chat-v1` before marking its connection with that capability.
+  A successful `set-client-info` reply alone is insufficient. It discovers the VM's stored
+  agent tabs, and translates the phone's ACP requests to scoped native
+  `agent-session-*` commands. ACP pages and records keep their original sequence
+  numbers. Text prompts answer on durable acceptance; cancel and history paging
+  are supported. Approval answers, mode changes and arbitrary daemon commands
+  are refused. Every prompt first refreshes the session summary and requires
+  Claude `default`/`plan` or Codex `ask`, plus enforcement policy `ask`; missing
+  or unknown fields fail closed. This preflight supplements the required VM
+  implementation: authenticated owner checks and an atomic asking-mode floor
+  through dispatch, queued prompts and the active turn. It cannot replace that
+  enforcement or prove the actual Codex bridge profile from a mode name.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.
@@ -674,21 +703,32 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   long press sends a secondary click at that spot (pointer `button` 2) and
   shows the host's `rb.menu.show` of kind `context` as the system menu; rows
   whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
-  Inspect, Look Up, Speech, Cast, Create QR Code) are left out, and so are the
-  rows Chromium opens as a new tab through `OpenURLFromTab` (Open Link in New
-  Tab or Window, Open Image in New Tab, Search for, View Page Source): the browser host forwards only the page's
-  own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
-  a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out. Rows that open
+  a tab stay (2026-11-01): the browser host forwards the tabs Chromium opens
+  through `OpenURLFromTab` (Open Link in New Tab or Window, Open Image in New
+  Tab, Search for, Cmd-click) as `rb.open_tab`, like the page's own popups
+  (`OnBeforePopup`). View Page Source stays off the phone's menu: the host
+  answers it with an `rb.open_tab` of the page's `view-source:` address, which
+  the Mac's viewer opens but `new-browser-tab` refuses from a phone (http and
+  https only). The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
   or one that arrives with no long press waiting (after 1.5 s), as `{choice:
   "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
   in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
   (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
   answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
-  `rb.dialog.cancel` close the sheet or alert with no answer; a new stream
+  `rb.dialog.cancel` close the sheet or alert with no answer (the host sends
+  `rb.dialog.cancel` when Chromium resets its dialogs, when the frame that
+  asked goes away, as when the page removes the iframe whose alert shows, and
+  when the tab closes); a new stream
   session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
   color and datalist pickers) are not shown on the phone yet. The page menu's
-  Hard Reload sends `rb.history reload_no_cache`. Under
+  Hard Reload sends `rb.history reload_no_cache`. Find… (page menu, Cmd-F;
+  Cmd-G and Shift-Cmd-G step) shows the system find bar: each query sends
+  `rb.find {query, forward: true, match_case: false, next: false}`, Next and
+  Previous `{next: true, forward}`, and the host's `rb.find.result {matches,
+  active}` sets the bar's count; Done sends `rb.find.stop {keep_selection:
+  true}`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -735,6 +775,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
   `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
+  and drive authenticated owner Cloud machines through the Mac carrier.
+  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
+  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -747,7 +791,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
-  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
+  `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
+  (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
+  view only: hostd sends the source no input from the phone.
+  `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
   tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,

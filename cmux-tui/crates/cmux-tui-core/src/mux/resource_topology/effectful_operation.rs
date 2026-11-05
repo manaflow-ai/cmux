@@ -24,7 +24,7 @@ impl Mux {
             );
         }
         let _creation_handoff = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_handoff.lock().unwrap());
+            .then(|| self.resource_creation_handoff.write().unwrap());
         let _creation_fence = is_resource_close_operation(operation)
             .then(|| self.resource_creation_execution.lock().unwrap());
         let operation_name = operation_name(operation);

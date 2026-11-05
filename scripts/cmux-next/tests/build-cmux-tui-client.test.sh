@@ -8,7 +8,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 
 src="$TMP/src"
@@ -64,4 +65,14 @@ again=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --prin
 echo edit >> "$src/cmux-tui/a"
 run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>&1 || fail "a dirty tree did not build"
 [[ "$(builds)" == 8 ]] || fail "a tree with uncommitted cmux-tui edits reused the set"
+
+# A cmux-ci fleet job or step (CMUX_CI_PHASE_FILE set; a scripts/measure/ bench runs reload.sh in
+# one, with no NX_JOB_ID or CI) builds too, in the host's shared cache (CI_SHARED_CACHE_DIR) so
+# the next step's fresh checkout compiles incrementally (#30855).
+git_q -C "$src" commit -am two
+rm -rf "$src/cmux-tui/target" # a step's checkout is fresh
+run CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>"$TMP/err" \
+  || fail "a fleet step did not build: $(cat "$TMP/err")"
+[[ "$(builds)" == 12 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
+[[ -x "$TMP/shared/cmux-tui-client-target/release/cmux-tui" ]] || fail "a fleet step did not build in the shared cache"
 echo "build-cmux-tui-client: ok"

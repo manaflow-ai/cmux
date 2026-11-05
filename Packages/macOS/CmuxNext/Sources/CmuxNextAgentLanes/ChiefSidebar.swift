@@ -45,6 +45,9 @@ public final class ChiefSidebar {
         public var tab: (_ session: String, _ host: String) -> String?
         public var reveal: (_ tab: String) -> Bool
         public var openWorkspace: (_ session: String, _ host: String) throws -> ActionWork
+        /// Opens `session` of `host` as a chat tab right of tab `beside` (the link rule's column: reused, else
+        /// made); false when nothing opened. Nil: a link clicked beside a tab opens as one with no tab does.
+        public var openRight: ((_ session: String, _ host: String, _ beside: String) -> Bool)?
         /// Whether Chief home `host` of this Mac, not the app's own (a named Chief's), keeps
         /// `session` in its acpmux (#28877); nil: no other home's link opens.
         public var keeps: (@MainActor (_ session: String, _ host: String) async -> Bool)?
@@ -52,12 +55,14 @@ public final class ChiefSidebar {
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
                     openWorkspace: @escaping (String, String) throws -> ActionWork,
+                    openRight: ((String, String, String) -> Bool)? = nil,
                     keeps: (@MainActor (String, String) async -> Bool)? = nil) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
             self.reveal = reveal
             self.openWorkspace = openWorkspace
+            self.openRight = openRight
             self.keeps = keeps
         }
     }
@@ -188,13 +193,17 @@ public final class ChiefSidebar {
     ///   - session: The subagent's acpmux session id.
     ///   - chiefHost: The link's Chief host, `chief:<home id>`.
     ///   - registry: Where an open's work and refusal go.
+    ///   - besideTab: The tab the link was clicked in (Home's, a subagent pill or `aN` link): with no tab showing
+    ///     the session, its chat opens as a real tab on that tab's right (``Host/openRight``; user 2026-11-04,
+    ///     msg 21663: "just open it as pane to right side"), never a new workspace. Nil: as the sidebar row opens it.
     ///   - reveal: How a tab that shows the session comes forward (the link's window intent);
     ///     nil: ``Host/reveal``.
     /// - Returns: Whether the link showed or is opening something.
-    public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry,
+    public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry, besideTab: String? = nil,
                                  reveal: ((String) -> Bool)? = nil) -> Bool {
         guard let host, let appHost = host.chiefHost() else { return false }
         if let shown = host.tab(session, chiefHost), (reveal ?? host.reveal)(shown) { return true }
+        if chiefHost == appHost, let besideTab, let openRight = host.openRight, openRight(session, chiefHost, besideTab) { return true }
         // No tab shows it (its spawn made no workspace, as when this Mac was out of PTYs): open
         // the workspace its spawn would have, a chat tab on its session (no PTY).
         if chiefHost == appHost { return openSubagent(session, chiefHost: chiefHost, registry: registry) }
@@ -213,7 +222,8 @@ public final class ChiefSidebar {
     }
 
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
-    /// workspace on it in the Chief home's acpmux, shown once it is made.
+    /// workspace on it in the Chief home's acpmux, shown once the app lists it (in this turn when
+    /// the app shows it before the daemon's creates).
     /// False only when there is no Chief host (a refused open has already said why).
     @discardableResult
     private func openSubagent(_ session: String, chiefHost: String? = nil, registry: ActionRegistry) -> Bool {
@@ -230,10 +240,13 @@ public final class ChiefSidebar {
         }
         opening.insert(session)
         registry.track(work)
+        // The app shows the new workspace and its chat tab in this turn when it can (P4): that tab comes
+        // forward now, and the work's end brings nothing forward again.
+        let shownNow = host.tab(session, chiefHost).map(host.reveal) ?? false
         // task-owner: one open; ends with the workspace's work
         Task { [weak self] in
             defer { self?.opening.remove(session) }
-            guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
+            guard await work.value == nil, !shownNow, let tab = host.tab(session, chiefHost) else { return }
             _ = host.reveal(tab)
         }
         return true

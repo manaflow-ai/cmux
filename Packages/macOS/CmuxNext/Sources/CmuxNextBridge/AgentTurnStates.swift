@@ -50,15 +50,40 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var laneSinceMs: UInt64?
     /// The session's folder (`cwd`).
     public var cwd: String?
+    /// What each model call carries now and the window it fits in, in tokens, and what the
+    /// session spent in the last 24 hours, in US dollars (acpmux `usageStats`: `contextTokens`,
+    /// `contextWindow`, `costUsd24h`); nil when acpmux has not read them.
+    public var contextTokens: Int?
+    public var contextWindow: Int?
+    public var costUsd24h: Double?
+    /// The running turn's prompt is acpmux's notice of other agents' messages ("[inbox] New
+    /// messages from other agents…", `turn.notice`), not anyone's words: the hover card's
+    /// History leaves it out.
+    public var promptIsNotice = false
+    /// What the chat runs below its turn now, as acpmux counts it (`subagentsRunning`,
+    /// `subagentNames`, `commandsRunning`): its running subagents at any depth, the first of
+    /// their names, and its running background commands. 0 and empty from an older acpmux.
+    public var subagentsRunning = 0
+    public var subagentNames: [String] = []
+    public var commandsRunning = 0
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
-                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil) {
+                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
+                contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
         self.laneState = laneState
         self.laneSinceMs = laneSinceMs
         self.cwd = cwd
+        self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
+        self.costUsd24h = costUsd24h
+        self.promptIsNotice = promptIsNotice
+        self.subagentsRunning = subagentsRunning
+        self.subagentNames = subagentNames
+        self.commandsRunning = commandsRunning
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -69,10 +94,38 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
             return text
         }
         let lane = summary["lane"] as? [String: Any]
+        let usage = summary["usageStats"] as? [String: Any]
+        // A count acpmux could not read is null; a negative or non-finite one is no count.
+        let amount = { (value: Any?) -> Double? in
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            let amount = number.doubleValue
+            return amount.isFinite && amount >= 0 ? amount : nil
+        }
+        let tokens = { (value: Any?) -> Int? in amount(value).flatMap { $0 < Double(Int.max) ? Int($0) : nil } }
+        let count = { (value: Any?) -> Int in max(0, (value as? NSNumber)?.intValue ?? 0) }
         let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
                                      prompt: text(turn?["prompt"]), laneState: text(lane?["state"]),
-                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]))
+                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]),
+                                     contextTokens: tokens(usage?["contextTokens"]),
+                                     contextWindow: tokens(usage?["contextWindow"]).flatMap { $0 > 0 ? $0 : nil },
+                                     costUsd24h: amount(usage?["costUsd24h"]),
+                                     promptIsNotice: turn?["notice"] as? Bool == true,
+                                     subagentsRunning: count(summary["subagentsRunning"]),
+                                     subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
+                                     commandsRunning: count(summary["commandsRunning"]))
         return detail == AgentChatDetail() ? nil : detail
+    }
+
+    /// Whether acpmux read any of the chat's usage (`usageStats`).
+    public var hasUsage: Bool { contextTokens != nil || contextWindow != nil || costUsd24h != nil }
+
+    /// This detail with `usage`'s usage numbers in place of its own; the rest stays.
+    public func withUsage(of usage: AgentChatDetail) -> AgentChatDetail {
+        var detail = self
+        detail.contextTokens = usage.contextTokens
+        detail.contextWindow = usage.contextWindow
+        detail.costUsd24h = usage.costUsd24h
+        return detail
     }
 
     /// The detail of every session of a watch result that has one.
@@ -122,8 +175,29 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// session name (`optchat-sub-2e448bc2-a345`). A title or prompt reads as its gist
     /// (``promptGist(_:)``): a Chief subagent's `<chat>` view never names its tab. The latest
     /// prompt only stands in while acpmux reports no title at all. Nil when the chat has none yet.
+    /// A name that reads as an id or a counter (`cloud-item-14`, ``isOpaqueName(_:)``) yields to
+    /// the title or prompt, and stands in only while the chat has neither.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
-        if includingPrompt, let name = sessionName(summary) { return name }
+        guard includingPrompt, let name = sessionName(summary) else { return chatTitle(summary, includingPrompt: includingPrompt) }
+        return isOpaqueName(name) ? chatTitle(summary, includingPrompt: true) ?? name : name
+    }
+
+    /// Whether a session name reads as an id or a counter rather than its task (acpmux
+    /// `session_name::opaque_reason`, sessionList.ts `isOpaqueName`): its last `/` segment ends in
+    /// a counter (`cloud-item-14`) or has a hex run of 6 or more with a digit
+    /// (`dispatch-019a3f2e`). Leo 2026-11-02: "that's the agents naming them like that".
+    public static func isOpaqueName(_ name: String) -> Bool {
+        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
+        let parts = bare.split(whereSeparator: { "-_.".contains($0) })
+        let digits = { (part: Substring) in part.allSatisfy { ("0"..."9").contains($0) } }
+        if parts.count > 1, let last = parts.last, digits(last) { return true }
+        return parts.contains { part in
+            part.count >= 6 && part.allSatisfy(\.isHexDigit) && part.contains { ("0"..."9").contains($0) }
+        }
+    }
+
+    /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
+    private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
             // acpmux publishes the first prompt as `title` before its title
             // request completes. Only a source that names a real chat title
@@ -353,6 +427,17 @@ public final class AgentTurnStateStore {
         for id in ids {
             apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
                   title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+        }
+    }
+
+    /// Lays a usage read's numbers (`_acpmux/sessions` with `usage: true`, by session id) over
+    /// `source`'s sessions, leaving every other fact as it is; writes only what changed. A session
+    /// the store does not hold from `source` is skipped: the watch has not listed it.
+    public func applyUsage(_ usage: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource) {
+        for (id, numbers) in usage {
+            guard let record = sessions[id], record.source == source else { continue }
+            let detail = (record.detail ?? AgentChatDetail()).withUsage(of: numbers)
+            if record.detail != detail { record.detail = detail }
         }
     }
 

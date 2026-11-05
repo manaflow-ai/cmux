@@ -50,12 +50,13 @@ MARKS = [
     "daemon.first_tree_applied", "daemon_snapshot_loaded", "connecting_status_shown", "connecting_view_left",
     "workspace_content_shown", "first_terminal_frame", "agent_pane.handshake_end",
     "sidebar_rows_shown", "reveal.sidebar", "reveal.tabs", "reveal.pane", "terminal.launch_frame_shown",
-    "agent_pane.launch_image_shown",
+    "launch.visible_terminals_drawn", "agent_pane.launch_image_shown",
 ]
 # Launch regions held clear until their data lands (LaunchReveal); `reveal.<region>` marks when one shows.
 # A region that shows after the first frame was clear in it. The pane also shows in the first frame
-# when its terminal's last frame or its agent page's last image drew there.
-REGIONS = {"sidebar": [], "tabs": [], "pane": ["terminal.launch_frame_shown", "agent_pane.launch_image_shown"]}
+# when every visible terminal's last frame (the last of them, `launch.visible_terminals_drawn`; never the first,
+# `terminal.launch_frame_shown`, which hid REOPEN-F1) or its agent page's last image drew there.
+REGIONS = {"sidebar": [], "tabs": [], "pane": ["launch.visible_terminals_drawn", "agent_pane.launch_image_shown"]}
 # A fresh profile's launch window opens on the empty main pane beside the sidebar (cx-r650e) while
 # cmux-tui starts; its tab strip comes with the first workspace.
 FIRST_REGIONS = {"sidebar": [], "pane": ["connecting_view_shown", "workspace_content_shown"]}

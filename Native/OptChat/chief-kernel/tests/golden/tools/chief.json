@@ -44,7 +44,7 @@
     "name": "date"
   },
   {
-    "description": "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.",
+    "description": "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. The Chief picks the machine automatically; place overrides it with here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -64,15 +64,19 @@
           ],
           "type": "string"
         },
+        "harness": {
+          "description": "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out. With routing on, a spawn that names neither harness nor model is routed task by task (code to Codex, writing and research to Claude, a review to the other model), and the answer names each pick.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "model": {
+          "description": "The model they run on, an id the harness takes (for example gpt-6-astra or claude-sonnet-5-5); by default, the harness's. Refused, like harness, while routing is off: then leave it out.",
+          "minLength": 1,
+          "type": "string"
+        },
         "place": {
-          "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here.",
-          "enum": [
-            "cloud",
-            "local",
-            "cloud:small",
-            "cloud:medium",
-            "cloud:large"
-          ],
+          "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name.",
+          "minLength": 1,
           "type": "string"
         },
         "tasks": {
@@ -92,7 +96,7 @@
     "name": "spawn"
   },
   {
-    "description": "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note. Another acpmux session (a lane or agent on this Mac or an acpmux peer; control sessions lists them) is id session:<name>: the message goes to it as yours (from chief), and its answer comes back as a \"[session:<name>] ...\" report. A message an agent sent you through cmux chief starts [from <name>] and names its session: answer it there.",
+    "description": "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note. Any other acpmux session (a lane or agent on this Mac or an acpmux peer) is not a tell id: message it with the acpmux_send tool (acpmux_ls lists the sessions; acpmux_last reads its answer). A message an agent sent you through cmux chief starts [from <name>] and names its session: your reply goes back to it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -123,7 +127,7 @@
     "name": "tell"
   },
   {
-    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (subagents run hidden unless the setting subagents.showWorkspaces is on; show one when the user asks to watch it or must allow its prompt). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. sessions: the acpmux sessions you can tell (session:<name>). Never poll: reports, stuck notes and prompts come to you as messages.",
+    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (subagents run hidden unless the setting subagents.showWorkspaces is on; show one when the user asks to watch it or must allow its prompt). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -140,8 +144,7 @@
             "show",
             "hide",
             "cap",
-            "cloud",
-            "sessions"
+            "cloud"
           ],
           "type": "string"
         },
@@ -221,7 +224,7 @@
     "name": "version"
   },
   {
-    "description": "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.",
+    "description": "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -315,13 +318,16 @@
       "additionalProperties": false,
       "properties": {
         "attachments": {
-          "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card).",
+          "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card).",
           "items": {
             "minLength": 1,
             "type": "string"
           },
-          "maxItems": 10,
           "type": "array"
+        },
+        "long": {
+          "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut.",
+          "type": "boolean"
         },
         "reply_to": {
           "description": "A user message's line id: the message goes into its thread. Without it: the top level.",
@@ -399,7 +405,7 @@
     "name": "sleep"
   },
   {
-    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
+    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

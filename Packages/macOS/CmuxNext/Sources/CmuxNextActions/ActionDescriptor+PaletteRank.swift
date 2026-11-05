@@ -63,9 +63,9 @@ extension ActionDescriptor {
         "palette.copyIdentifiers", "workspaceGroup.copyID", "cloudCopyMachineID", "agentChat.copyIdentifier",
         // Diagnostics, recovery and one-time setup.
         "palette.restartSocketListener", "palette.restartServer", "palette.attemptUpdate", "openDebugSettings",
-        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording",
+        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording", "home.agentMessagePlayground", "home.mcpConnectPlayground", "home.chiefTeleportPlayground",
         "taskManager.killProcess", "palette.installCLI", "palette.uninstallCLI", "palette.makeDefaultBrowser",
-        "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "palette.shortcutKeymap",
+        "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.shortcutKeymap",
         "workspace.importClassic", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
         "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart", "palette.disableBrowser", "palette.enableBrowser",
         "server.makeThisMacAServer", "server.stopServing", "sendCtrlFToTerminal", "toggleReactGrab",

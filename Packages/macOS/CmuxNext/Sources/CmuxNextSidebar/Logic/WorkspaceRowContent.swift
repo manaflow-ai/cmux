@@ -68,6 +68,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
+    /// The session tree: the parent's title, when this row's own title is the same name. The row reads
+    /// "Subagent of <parent>" instead of its parent's name again (Leo 2026-10-30: "the sidebar tab shouldn't
+    /// just be named claude sr2 coord if you can just say it's Subagent of sr2 coord").
+    public var subagentOf: String?
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
@@ -136,7 +140,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             // Task status is already represented by the trailing status dots; only a user icon
             // belongs before the title (Chrome's chat list has no extra idle/status ring).
             icon: set.shows(.icon) ? ws.icon : nil,
-            detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
+            detail: Self.nonRedundantDetail(items.isEmpty ? nil : items.joined(separator: Self.separator), title: ws.title),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
@@ -167,9 +171,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
-            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
-                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            detail: Self.nonRedundantDetail(
+                (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+                title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: Self.bar(ws),
             showsWorking: ws.agentWorking
@@ -257,8 +263,30 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
     }
 
+    /// Drops the agent-session row's synthetic local/session label when it repeats the title.
+    /// Other hosts and facts remain visible; the decision is based on the rendered data.
+    static func nonRedundantDetail(_ detail: String?, title: String) -> String? {
+        guard let detail = nonEmpty(detail) else { return nil }
+        let parts = detail.components(separatedBy: Self.separator).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if parts.count == 2, parts[0].caseInsensitiveCompare("local") == .orderedSame,
+           parts[1].caseInsensitiveCompare(title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            return nil
+        }
+        return detail
+    }
+
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
+    }
+}
+
+nonisolated extension WorkspaceRowContent {
+    /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
+    static func sameTitle(_ a: String, _ b: String) -> Bool {
+        let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !a.isEmpty && a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
     }
 }

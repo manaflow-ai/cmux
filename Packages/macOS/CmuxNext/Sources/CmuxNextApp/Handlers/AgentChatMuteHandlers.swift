@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation

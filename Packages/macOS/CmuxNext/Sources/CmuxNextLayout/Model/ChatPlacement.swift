@@ -54,8 +54,19 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
     /// elsewhere: `pane` is the chat dock (not Home's pinned one), the main pane. Leo 2026-10-30: "IF I'M
     /// FOCUSED ON THE MAIN PANE OPEN IT THERE". The page is an agent tab, so the dock still holds only
     /// agent tabs; what is picked on it opens beside the chat.
+    /// Only the dock's top pane, the chat's: a pane Split Down made below the chat (#29848) is an
+    /// ordinary pane, so a pick on a page there takes the page's place.
     public nonisolated static func keepsNewTabPage(from pane: PaneID, columns: [LayoutColumn]) -> Bool {
-        guard let dock = columns.first(where: { $0.root.contains(pane) })?.dock else { return false }
+        guard let column = columns.first(where: { $0.root.contains(pane) }), let dock = column.dock,
+              column.root.panes.first == pane else { return false }
+        return dock.role == .agentChat && !dock.isPinned
+    }
+
+    /// Whether `pane` is one Split Down made below the chat in the chat dock (#29848): an ordinary pane,
+    /// so a person's browser from a New Tab page there (`newTab.submit`, typed in any mode) opens in it, not beside the chat.
+    public nonisolated static func isBelowChat(_ pane: PaneID, columns: [LayoutColumn]) -> Bool {
+        guard let column = columns.first(where: { $0.root.contains(pane) }), let dock = column.dock,
+              column.root.panes.first != pane else { return false }
         return dock.role == .agentChat && !dock.isPinned
     }
 
@@ -76,6 +87,23 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
     public nonisolated static func columns(of screen: LayoutScreen, containing pane: PaneID) -> [LayoutColumn] {
         screen.layout.columns.isEmpty
             ? screen.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
+    }
+}
+
+extension DockColumn {
+    /// Whether this chat dock takes only agent chats: every chat dock but Home's pinned dock while it
+    /// takes tabs (`allow_tabs`), which takes any tab dragged in (Leo 2026-10-21: "JUST MAKE THE TAB
+    /// THING SHOW UP ON THE MAIN PANE TOO"). It still never splits but for Split Down (`splitsDown`).
+    public nonisolated var takesOnlyChats: Bool {
+        role == .agentChat && !(isPinned && allowsTabs)
+    }
+
+    /// Whether Split Down of a pane in this column grows it below that pane (#29848), as classic
+    /// cmux's Cmd-Shift-D does: an unpinned chat dock (Home's pinned dock opens beside itself) on a
+    /// screen that is not `zoomed`. The daemon takes only that split there
+    /// (`dock-column-split-down-v1`), so the chat stays the dock's top pane.
+    public nonisolated func splitsDown(zoomed: Bool) -> Bool {
+        !zoomed && role == .agentChat && !isPinned
     }
 }
 

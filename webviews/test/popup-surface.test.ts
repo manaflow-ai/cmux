@@ -80,7 +80,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
     ),
     body: `<div class="ui-positioner"><div class="ui-popup ui-glass" id="menu">Menu</div></div>
 ${tooltips}
-<div class="page-menu" id="page-menu">Sort</div>
+<div class="ui-positioner"><div class="page-menu ui-popup ui-glass" id="page-menu">Sort</div></div>
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
@@ -89,8 +89,10 @@ ${tooltips}
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    // The markdown link editor is a ui/Popover: glass, like the menus.
-    glass: ["menu", "icon-bar-pill", "md-link-popover"],
+    // The markdown link editor is a ui/Popover: glass, like the menus. The History page menu
+    // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
+    // GLASS, SO JUST USE GLASS.").
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover"],
     surfaces: [
       "menu",
       "page-menu",

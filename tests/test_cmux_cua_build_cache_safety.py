@@ -344,6 +344,58 @@ def test_the_bundled_build_turns_on_host_consent(sha: str) -> None:
         )
 
 
+def test_the_build_names_its_rust_toolchain(sha: str) -> None:
+    """The fleet worker's shared RUSTUP_HOME has no default toolchain on purpose, and the cmux-cua clone has
+    no rust-toolchain.toml, so an unnamed `rustup target add` or cargo there failed: "rustup could not choose
+    a version of rustup to run ... no default is configured" (cmux7s, job 6f0858ce, 2026-11-01). The script
+    now builds with the toolchain cmux-tui pins; a caller's RUSTUP_TOOLCHAIN is kept."""
+    pinned = ""
+    for line in (ROOT / "cmux-tui" / "rust-toolchain.toml").read_text().splitlines():
+        if line.strip().startswith("channel"):
+            pinned = line.split("=", 1)[1].strip().strip('"')
+    assert pinned, "cmux-tui/rust-toolchain.toml names no channel"
+    for caller, want in ((None, pinned), ("caller-chosen", "caller-chosen")):
+        with tempfile.TemporaryDirectory(prefix="cmux-cua-toolchain-") as tmp:
+            root = Path(tmp)
+            environment = successful_build_environment(root, sha)
+            seen = root / "rustup-toolchain.log"
+            no_default = (
+                "if [[ -z \"${RUSTUP_TOOLCHAIN:-}\" ]]; then\n"
+                "  echo \"error: rustup could not choose a version of rustup to run, because one wasn't specified"
+                " explicitly, and no default is configured.\" >&2\n"
+                "  exit 1\n"
+                "fi\n"
+                f"echo \"$RUSTUP_TOOLCHAIN\" >> {seen}\n"
+            )
+            bin_dir = root / "bin"
+            for tool in ("rustup", "cargo"):
+                body = (bin_dir / tool).read_text()
+                head, rest = body.split("\n", 1)
+                write_executable(bin_dir / tool, f"{head}\n{no_default}{rest}")
+            argv_log = root / "cargo-argv.log"
+            environment["CUA_TEST_CARGO_ARGV_LOG"] = str(argv_log)
+            environment.pop("RUSTUP_TOOLCHAIN", None)
+            if caller:
+                environment["RUSTUP_TOOLCHAIN"] = caller
+            developer, sdk = fake_xcode(root, "Xcode")
+            environment.update(DEVELOPER_DIR=str(developer), SDKROOT=str(sdk))
+            result = subprocess.run(
+                [str(BUILD_SCRIPT), "--output", str(root / "output" / "cmux-cua"), "--archs", "arm64",
+                 "--cache-dir", str(root / "cache")],
+                env=environment, capture_output=True, text=True,
+            )
+            # Not the exit code: the fake cargo's binary is a copy of /usr/bin/true, which macOS kills once
+            # the script signs it ad hoc and runs it (see use_plain_binary in
+            # test_cmux_cua_dev_helper_identity.py). What matters is that rustup and cargo ran, and with
+            # which toolchain; on the old script rustup fails before either writes a line.
+            assert argv_log.exists() and seen.exists(), (
+                f"build-cmux-cua.sh never reached cargo with no rustup default (caller toolchain {caller!r})\n"
+                f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+            used = set(seen.read_text().split())
+            assert used == {want}, f"rustup and cargo ran with toolchains {used}, want {{{want!r}}}"
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
@@ -352,6 +404,7 @@ def main() -> int:
     test_unmanaged_helper_bundle_is_preserved(sha)
     test_each_xcode_gets_its_own_cargo_target(sha)
     test_the_bundled_build_turns_on_host_consent(sha)
+    test_the_build_names_its_rust_toolchain(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 

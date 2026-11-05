@@ -47,25 +47,6 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
 const DRAFT_SEPARATOR = "\n\n";
 
 /**
- * The longest draft the stores keep, in characters: acpmux's `Hub::MAX_COMPOSER_DRAFT_CHARS`
- * (cmux-tui/crates/acpmux/src/hub/mod.rs, which refuses a longer one) and the tab's kept unsent text
- * (`AgentUnsentDrafts.maximumCharacters`, Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane). Those
- * two own it; composer-draft-orderings.test.tsx pins all three equal.
- */
-export const MAX_DRAFT_CHARS = 1_000_000;
-
-/**
- * Whether the stores keep `text` (`MAX_DRAFT_CHARS`). Counted in code points, as acpmux counts; a
- * UTF-16 length within the limit is within it in every count, so most texts are never walked.
- */
-export function draftFits(text: string): boolean {
-  if (text.length <= MAX_DRAFT_CHARS) return true;
-  let count = 0;
-  for (const _ of text) if (++count > MAX_DRAFT_CHARS) return false;
-  return true;
-}
-
-/**
  * What the composer does when acpmux's draft read answers (`readDurableDraftState`). One rule:
  * once the person touched this chat's prompt (`local`: an edit or a send, in this mount or an
  * earlier one, or a write still queued or unanswered), what the page holds is the draft, and
@@ -75,11 +56,8 @@ export function draftFits(text: string): boolean {
  * Untouched, with nothing on its way, acpmux's draft fills the prompt; on the page's first read
  * whatever the prompt holds (the remount cache, an inherited draft) is kept beside it.
  * `text` is the prompt to show, `shown` whether it differs from the editor, and `write` whether it
- * goes to acpmux. `overflow`: the two texts to merge do not fit the stores' limit together
- * (`MAX_DRAFT_CHARS`), so nothing is merged or written: acpmux keeps its draft as it is, the editor
- * keeps what was typed, and the chat stays unread (its edits stay in the remount cache) until a read
- * finds a merge that fits (cmux#28204 review at b7cddbbf: a merge past the limit was written, and
- * the store that refuses it removed the saved draft).
+ * goes to acpmux. Drafts are merged and written whole; transport framing is responsible for moving
+ * large values without imposing a user-facing ceiling.
  */
 export function hydratedDraft(input: {
   current: string;
@@ -92,20 +70,22 @@ export function hydratedDraft(input: {
   sent: boolean;
   /** A write of this page's is queued or unanswered. */
   pendingWrite: boolean;
-  /** An earlier read's draft did not fit beside the typing (`overflow`) and was left out of the
-   * prompt: a send since then sent none of it. */
-  keptApart?: boolean;
-}): { text: string; shown: boolean; write: boolean; overflow?: true } {
+}): { text: string; shown: boolean; write: boolean } {
   const { current, restored, read, edited, pendingWrite } = input;
-  // A send consumed acpmux's draft only when the prompt could hold it. After an overflow it did
-  // not, so the saved draft comes back instead of being cleared (cmux#28204 review at c736d691).
-  const sent = input.sent && !input.keptApart;
+  const sent = input.sent;
   // The prompt as it is; it goes to acpmux when acpmux holds something else and nothing is on its way.
-  const keep = () => ({ text: current, shown: false, write: !pendingWrite && current !== (restored ?? "") });
+  const keep = () => ({
+    text: current,
+    shown: false,
+    write: !pendingWrite && current !== (restored ?? ""),
+  });
   const merge = () => {
     const text = mergedDraft(current, restored);
-    if (!draftFits(text)) return { text: current, shown: false, write: false, overflow: true as const };
-    return { text, shown: text !== current, write: text !== (restored ?? "") && Boolean(text.trim()) };
+    return {
+      text,
+      shown: text !== current,
+      write: text !== (restored ?? "") && Boolean(text.trim()),
+    };
   };
   if (edited || sent || pendingWrite) {
     if (sent || pendingWrite || read || !restored) return keep();
@@ -156,7 +136,7 @@ const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
  * a web swap still waits in case it lands late (tests change them). */
-export const draftWriteLimits = { timeoutMs: 5_000, lateHoldMs: 30_000 };
+export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000 };
 
 // A write that timed out may still land later. Nothing newer goes through the same connection
 // until it answers, so it can never land over a newer draft or a clear, and nothing is replayed.
@@ -188,8 +168,9 @@ function writeTimedOut(action: DraftAction, sessionId: string, sequence: number,
   if (sentDraftWrites.get(sessionId) === sequence) sentDraftWrites.delete(sessionId);
 }
 
-/** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
+/** A draft write waits while its host action is alive; the late hold only protects web swaps. */
 function answeredInTime(write: Promise<unknown>): Promise<unknown> {
+  if (!Number.isFinite(draftWriteLimits.timeoutMs)) return write;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(WRITE_TIMED_OUT), draftWriteLimits.timeoutMs);
@@ -384,23 +365,12 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
 // How many of the page's writes acpmux answered, by session (`readDurableDraftState`); one entry per
 // chat the page wrote a draft for.
 const draftSettles = new Map<string, number>();
-// `keptApart`: a read's draft did not fit beside the typing and stayed out of the prompt (hydratedDraft).
-const chatDrafts = new Map<
-  string,
-  { read: boolean; edited: boolean; sent: boolean; generation: number; keptApart: boolean }
->();
+const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean; generation: number }>();
 
 function chatDraft(sessionId: string) {
   let entry = chatDrafts.get(sessionId);
-  if (!entry)
-    chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0, keptApart: false }));
+  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0 }));
   return entry;
-}
-
-/** A read of `sessionId`'s draft did not fit beside the typing (`hydratedDraft` overflow): acpmux
- * keeps it, and the prompt holds none of it until a read merges it. */
-export function noteDraftKeptApart(sessionId: string | undefined): void {
-  if (sessionId?.trim()) chatDraft(sessionId).keptApart = true;
 }
 
 /** acpmux answered `write`: when nothing of the page's is still on its way for that chat and no
@@ -424,7 +394,6 @@ export function draftHistory(sessionId: string | undefined): {
   edited: boolean;
   sent: boolean;
   pendingWrite: boolean;
-  keptApart: boolean;
 } {
   const entry = sessionId ? chatDrafts.get(sessionId) : undefined;
   return {
@@ -432,7 +401,6 @@ export function draftHistory(sessionId: string | undefined): {
     edited: entry?.edited ?? false,
     sent: entry?.sent ?? false,
     pendingWrite: hasPendingDraftWrite(sessionId),
-    keptApart: entry?.keptApart ?? false,
   };
 }
 
@@ -447,7 +415,6 @@ export function markDraftRead(sessionId: string | undefined): void {
   if (!sessionId?.trim()) return;
   const entry = chatDraft(sessionId);
   entry.read = true;
-  entry.keptApart = false;
   if (!hasPendingDraftWrite(sessionId)) {
     entry.edited = false;
     entry.sent = false;

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// R3b (Lawrence's rule, scope by cmux-ad 2026-10-31): a create keeps every other column's width in points.
@@ -8,7 +9,7 @@ import Testing
 /// panes share it, and no other column changes. The check counts one violation for a create that changed
 /// another column, and none for a create that kept them or a width change that is no create. Debug builds
 /// record the widths (the test target builds Debug).
-@MainActor @Suite(.serialized) struct ColumnWidthInvariantTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ColumnWidthInvariantTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }

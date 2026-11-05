@@ -4,7 +4,7 @@
 // ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { GALLERY_NOW } from "../../../gallery/clock";
@@ -19,11 +19,19 @@ import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
 import { createWorkflowAdapter } from "./foldWorkflows";
 import { realWorkflowFixture } from "../realWorkflowFixture";
+import type { Play } from "../../../gallery/play";
+import "./SummaryCard.gallery.css";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo"
-> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; sessionInfoPush?: boolean };
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo" | "tools"
+> & {
+  tabRowHeight?: number;
+  preview?: boolean;
+  popover?: boolean;
+  sessionInfoPush?: boolean;
+  headerLook?: "before" | "regular";
+};
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,10 +46,13 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, headerLook, ...props }: Props) {
+  const [shown, setShown] = useState(true);
+  const control = popover ? { ...card, column: false, shown, close: () => setShown(false) } : card;
   return (
     <div
       className="acpmux-shell"
+      data-summary-header-look={headerLook}
       data-tab-row={tabRowHeight ? "" : undefined}
       data-session-info-chat-placement={sessionInfoPush ? "push" : undefined}
       style={
@@ -65,7 +76,7 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, .
             <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
               <div />
               <div className="acpmux-header-tools">
-                <SummaryButton card={card} />
+                <SummaryButton card={control} />
               </div>
             </header>
           </div>
@@ -97,7 +108,7 @@ function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, .
         />
       ) : sessionInfoPush ? null : (
         <SummaryCard
-          card={popover ? { ...card, column: false } : card}
+          card={control}
           environment={{
             summary: { sessionId: "gallery-session", cwd: CWD, branch: "feature/session-details" },
             machineName: "Development Mac",
@@ -240,6 +251,11 @@ const background = (list: SessionInfoProcess[]) => ({
   onStop: async () => undefined,
 });
 
+const openSubagentsTab: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-summary-title__button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-tab[data-selected]"));
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.summary-card",
   title: "Summary card",
@@ -250,6 +266,60 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/session-info/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "header-grid-before": {
+      note: "Before: every tab is regular weight and the inline header has a 2px trailing inset.",
+      props: { rows: liveSubagentRows, headerLook: "before" },
+      play: openSubagentsTab,
+    },
+    "header-grid-regular": {
+      note: "Comparison: header edges align with the body, with regular weight on both tabs.",
+      props: { rows: liveSubagentRows, headerLook: "regular" },
+      play: openSubagentsTab,
+    },
+    "header-grid-emphasis": {
+      note: "Chosen: the selected pill uses the shared Tabs emphasis weight; the inline header shares the body's edges, with one grid step below.",
+      props: { rows: liveSubagentRows },
+      play: async (ctx) => {
+        await openSubagentsTab(ctx);
+        const selected = ctx.find({ selector: ".acpmux-summary-tab[data-selected]" });
+        const head = ctx.find({ selector: ".acpmux-summary-card__head" });
+        const view = ctx.document.defaultView!;
+        if (view.getComputedStyle(selected).fontWeight !== "600") throw new Error("Selected tab lacks emphasis");
+        const padding = view.getComputedStyle(head);
+        if (padding.paddingLeft !== "0px" || padding.paddingRight !== "0px")
+          throw new Error("Inline head has a second horizontal inset");
+        const boxes = () =>
+          Array.from(
+            head.querySelectorAll(".acpmux-summary-tab, .acpmux-summary-tab__label, .acpmux-summary-tab__close"),
+          ).flatMap((element) => {
+            const rect = element.getBoundingClientRect();
+            return [rect.x, rect.y, rect.width, rect.height];
+          });
+        const before = boxes();
+        const assertStable = () => {
+          if (boxes().some((value, index) => Math.abs(value - before[index]!) > 0.1))
+            throw new Error("Selecting a summary tab moved or resized a tab or its close control");
+        };
+        await ctx.click({ selector: "button.acpmux-summary-tab" });
+        assertStable();
+        await ctx.click({ selector: ".acpmux-summary-tab__label" });
+        assertStable();
+      },
+    },
+    "nested-sources-menu": {
+      note: "Sources opens inside the floating Summary card. Dismissing or picking in the menu leaves the card open.",
+      props: {
+        popover: true,
+        rows: [],
+        onAttach: none,
+        tools: {
+          rows: [
+            { id: "mcp:docs", name: "Documentation", kind: "mcp", source: "claude", enabled: true, canToggle: true },
+          ],
+          set: async () => "now",
+        },
+      },
+    },
     "popover-environment": {
       note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
       props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
@@ -283,13 +353,21 @@ export default componentEntry<Props>({
       props: { tabRowHeight: 0, sessionInfoPush: true, rows: [] },
     },
     "shared-tab-row": {
-      note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
+      note: "The inline Summary column beside the chat, under a 32px native tab row. A running subagent, two commands and failed, stopped and done subagents make counts longer than the column, so they end in a right ellipsis, outside the native header holes.",
       props: {
         tabRowHeight: 32,
         rows: [
           ...rows,
           row("subagents", 1, {
             subagents: [
+              {
+                id: "running-review",
+                name: "Running review",
+                task: "Running review",
+                parent: null,
+                state: "running",
+                startedAt: minutesAgo(2),
+              },
               {
                 id: "failed-review",
                 name: "Review",

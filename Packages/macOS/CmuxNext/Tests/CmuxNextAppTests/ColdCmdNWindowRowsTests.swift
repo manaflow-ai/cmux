@@ -26,10 +26,9 @@ import Testing
         var value = false
     }
 
-    /// An active document store, made the app's for `body`; `show` false leaves it a projection behind (cold).
-    static func withDocument(shown: Bool, _ body: (SidebarDocStore) async throws -> Void) async throws {
-        let previous = SidebarDocStore.current
-        defer { SidebarDocStore.current = previous }
+    /// An active document store, made `services`' document for `body` when given (a window's placements read their
+    /// app's document); `show` false leaves it a projection behind (cold).
+    static func withDocument(shown: Bool, services: AppServices? = nil, _ body: (SidebarDocStore) async throws -> Void) async throws {
         let store = SidebarDocStore(remote: Remote())
         store.refresh()
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
@@ -38,7 +37,7 @@ import Testing
             store.show(live: [])
             try #require(store.shown != nil && store.shownVersion == store.version)
         }
-        SidebarDocStore.current = store
+        services?.sidebarDoc.store = store
         try await body(store)
     }
 
@@ -54,9 +53,9 @@ import Testing
     /// projection: they omit the current row. The stand-in waits, rather than drawing at the top or bottom.
     @Test func aWindowWhoseRowsLagTheDocumentKeepsTheStandInWaiting() async throws {
         _ = NSApplication.shared
-        try await Self.withDocument(shown: true) { _ in
+        try await Self.withDocument(shown: true) { store in
             let model = SidebarModel()
-            let rows = SidebarRows(model: model)
+            let rows = SidebarRows(model: model, document: { store })
             let stale = [SidebarRowSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("m"), name: "This Mac", kind: .local)), nodes: [])]
             rows.show(stale, creating: ([Self.probe(window: "w", current: "current", machine: "m")], nil))
             let drawn = model.sections.flatMap(\.workspaces).map(\.id.rawValue)
@@ -70,7 +69,7 @@ import Testing
         _ = NSApplication.shared
         try await Self.withDocument(shown: true) { store in
             let model = SidebarModel()
-            let rows = SidebarRows(model: model)
+            let rows = SidebarRows(model: model, document: { store })
             let stale = [SidebarRowSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("m"), name: "This Mac", kind: .local)), nodes: [])]
             let probe = Self.probe(window: "w", current: "current", machine: "m")
             rows.show(stale, creating: ([probe], nil))
@@ -98,8 +97,8 @@ import Testing
         windows.registry.apply { $0.openWindow(id: "other", workspaceIDs: ["k1"]) }
         controller.sidebar.resync()
         let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
-        try await Self.withDocument(shown: false) { _ in
-            #expect(NewWorkspaceDefaultSlot.layoutCatchingUp())
+        try await Self.withDocument(shown: false, services: services) { store in
+            #expect(NewWorkspaceDefaultSlot.layoutCatchingUp(store))
             let ran = Ran()
             NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
                                           then: { _, _ in ran.value = true }, windows: windows)
@@ -124,7 +123,7 @@ import Testing
         defer { controller.teardown(); controller.window?.close() }
         controller.sidebar.resync()
         let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
-        try await Self.withDocument(shown: false) { _ in
+        try await Self.withDocument(shown: false, services: services) { _ in
             let ran = Ran()
             NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
                                           then: { _, _ in ran.value = true }, windows: windows)
@@ -153,7 +152,7 @@ import Testing
         defer { controller.teardown(); controller.window?.close() }
         controller.sidebar.resync()
         let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
-        try await Self.withDocument(shown: false) { _ in
+        try await Self.withDocument(shown: false, services: services) { _ in
             let ran = Ran()
             NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
                                           then: { _, _ in ran.value = true }, windows: windows)

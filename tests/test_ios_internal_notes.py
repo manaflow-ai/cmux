@@ -332,6 +332,9 @@ class GitRangeTests(unittest.TestCase):
         self.git("init", "-q", "-b", "feat-cmux-next")
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
+        # No background gc: a detached auto-gc can still be writing objects/ when tearDown removes the repo.
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.base = self.commit("cmux-next-ios/project.yml", "settings:\n  MARKETING_VERSION: 1.2.1\n", "base")
         self.commit("web/x.ts", "x", "web only")
         # An app commit from before the cnx-ios -> cmux-next-ios rename still counts.

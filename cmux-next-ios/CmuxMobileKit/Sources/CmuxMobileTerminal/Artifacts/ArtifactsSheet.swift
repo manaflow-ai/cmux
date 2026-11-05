@@ -38,26 +38,29 @@ struct ArtifactsSheet: View {
         }
     }
 
-    private var shown: [TerminalArtifact] {
-        model.artifacts.filter { filter.includes($0.kind) }.sorted { $0.order > $1.order }
-    }
-
-    private func count(_ item: Filter) -> Int {
-        model.artifacts.filter { item.includes($0.kind) }.count
-    }
-
-    /// All, then every filter with items (and the selected one, so it never
-    /// vanishes under the finger).
-    private var chipFilters: [Filter] {
-        Filter.allCases.filter { $0 == .all || $0 == filter || count($0) > 0 }
+    /// Count per filter, in one pass over the artifacts (the sheet is fed live by the terminal).
+    static func counts(_ artifacts: [TerminalArtifact]) -> [Filter: Int] {
+        var byKind: [TerminalArtifact.Kind: Int] = [:]
+        for artifact in artifacts { byKind[artifact.kind, default: 0] += 1 }
+        var counts: [Filter: Int] = [:]
+        for filter in Filter.allCases {
+            counts[filter] = byKind.reduce(0) { $0 + (filter.includes($1.key) ? $1.value : 0) }
+        }
+        return counts
     }
 
     var body: some View {
-        NavigationStack(path: $model.artifactPath) {
+        // Derived once per body: the shown items and the chip counts. All, then every filter
+        // with items (and the selected one, so it never vanishes under the finger).
+        let artifacts = model.artifacts
+        let shown = artifacts.filter { filter.includes($0.kind) }.sorted { $0.order > $1.order }
+        let counts = Self.counts(artifacts)
+        let chipFilters = Filter.allCases.filter { $0 == .all || $0 == filter || (counts[$0] ?? 0) > 0 }
+        return NavigationStack(path: $model.artifactPath) {
             VStack(spacing: 0) {
                 // 8 pt under the Done button (R1-7, R2-7): the bar's bottom
                 // margin is 5 pt deeper than its buttons, so the chips go up by it.
-                chips
+                chips(chipFilters, counts: counts)
                     .padding(.top, -5)
                     .padding(.bottom, 4)
                 List {
@@ -88,7 +91,7 @@ struct ArtifactsSheet: View {
 
     /// Directly under the title, edge to edge, scrolling with a 16 pt
     /// leading inset (P2). Every chip shows its count.
-    private var chips: some View {
+    private func chips(_ chipFilters: [Filter], counts: [Filter: Int]) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(chipFilters) { item in
@@ -96,7 +99,7 @@ struct ArtifactsSheet: View {
                     Button {
                         withAnimation(.snappy) { filter = item }
                     } label: {
-                        Text("\(item.rawValue) \(count(item))")
+                        Text("\(item.rawValue) \(counts[item] ?? 0)")
                             .font(.subheadline.weight(.medium))
                             .monospacedDigit()
                             .padding(.horizontal, 14)

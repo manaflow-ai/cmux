@@ -1,6 +1,7 @@
 // Directional enter and exit (ui/presence.ts, Leo 2026-10-20): a side panel slides in from its edge
 // and leaves the way it came. It stays mounted while its exit plays, a reopen during the exit
-// reverses it in place, a second open changes nothing, and with motion off it goes at once.
+// reverses it in place, a second open changes nothing, and with motion off it goes at once. A change
+// of placement (`snapOn`, which a resize picks) shows or hides it with no enter or exit.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -51,14 +52,19 @@ afterAll(() => {
 async function mount() {
   const { createRoot } = await import("react-dom/client");
   const { usePresence } = await import("../src/ui/presence");
-  function Panel({ shown }: { shown: boolean }) {
-    const presence = usePresence(shown, "right");
+  phases.length = 0;
+  function Panel({ shown, placement }: { shown: boolean; placement?: string }) {
+    const presence = usePresence(shown, "right", { snapOn: placement });
+    if (presence.present) phases.push(presence.props["data-presence"]);
     return presence.present ? <aside {...presence.props} inert={presence.leaving} className="panel" /> : null;
   }
   act(() => root?.unmount());
   root = createRoot(doc.getElementById("root")!);
-  return (shown: boolean) => act(() => root!.render(<Panel shown={shown} />));
+  return (shown: boolean, placement?: string) => act(() => root!.render(<Panel shown={shown} placement={placement} />));
 }
+
+/// Every phase the panel rendered with, in order.
+const phases: string[] = [];
 
 const panel = () => doc.querySelector<HTMLElement>(".panel");
 
@@ -101,4 +107,33 @@ test("with motion off a closed panel goes at once", async () => {
   render(true);
   render(false);
   expect(panel()).toBeNull();
+});
+
+// Leo 2026-10-21, a pane opening or closing on the right of a chat with its summary open: "it just
+// destroys the overlay". The narrower pane moves the summary from its column to a popover; that
+// switch is the layout's, so the column never plays an exit drawn as a popover, and it comes back
+// with no entrance when the pane closes.
+test("a change of placement shows or hides the panel at once, with no enter or exit", async () => {
+  transition = "0.15s";
+  const render = await mount();
+  render(true, "inline");
+  expect(panel()?.dataset.presence).toBe("shown");
+  render(false, "popover");
+  expect(panel()).toBeNull();
+  phases.length = 0;
+  render(true, "inline");
+  expect(panel()?.dataset.presence).toBe("shown");
+  expect(phases).not.toContain("from");
+  // A click on the same placement still slides it.
+  render(false, "inline");
+  expect(panel()?.dataset.presence).toBe("leaving");
+  phases.length = 0;
+  render(true, "inline");
+  render(false, "inline");
+  act(() => {
+    panel()!.dispatchEvent(new window.Event("transitionend", { bubbles: true }));
+  });
+  phases.length = 0;
+  render(true, "inline");
+  expect(phases[0]).toBe("from");
 });

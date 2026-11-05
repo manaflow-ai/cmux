@@ -278,7 +278,7 @@ fn codex_cli_at(
 /// The global options before `app-server` in a bridge launch's args, read
 /// the way `codex_app_server::is_launch` reads them: `--flag=value` is one
 /// word, `-c value` and `--flag value` are two.
-fn codex_globals(args: &[String]) -> &[String] {
+pub(crate) fn codex_globals(args: &[String]) -> &[String] {
     let mut i = 0;
     while let Some(a) = args.get(i) {
         if a == "app-server" || !a.starts_with('-') {

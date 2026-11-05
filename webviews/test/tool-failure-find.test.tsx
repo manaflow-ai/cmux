@@ -74,8 +74,10 @@ for (const grouped of [false, true])
   test(`an exit code read from Claude Code's first line is counted once, as drawn (${grouped ? "command row" : "lone call"})`, async () => {
     const item = command(`a${grouped}`, "Exit code 1\nbuild failed");
     const painted = await paintedText(item, grouped);
+    // A step of an opened group says "failed" and leaves the exit code to its Shell block; a lone
+    // call keeps "Exit 1" (ToolFailureCause.tsx `InStep`).
     expect(host.querySelector(grouped ? ".cv-command__failed" : ".cv-tool__failed")?.textContent?.trim()).toBe(
-      "Exit 1",
+      grouped ? "failed" : "Exit 1",
     );
     expect(host.querySelector(".cv-shell__exit")?.textContent).toBe("Exit code 1");
     for (const query of ["Exit", "1", "build failed"])

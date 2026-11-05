@@ -27,9 +27,11 @@ Steps (`do`):
 Conditions (inside `expect.all`; evidence kind app):
   restore_no_blank  {pill_over_blank?: 0}  every sample showed each visible terminal pane with content (its
                                            held last frame or its replayed screen), never an empty surface;
-                                           and the last frame was up by the first window frame
-                                           (`terminal.launch_frame_shown` <= `first_window_frame_committed`,
-                                           or the first frame already drew live content); a "Restoring..."
+                                           and every visible terminal's last frame was up by the first window
+                                           frame (`launch.visible_terminals_drawn`, the LAST pane's, <=
+                                           `first_window_frame_committed`; `terminal.launch_frame_shown` is the
+                                           first pane's and is only detail), or the first frame already drew
+                                           live content; a "Restoring..."
                                            pill was never over an empty pane
   restore_live      {within_ms}            every visible terminal pane was live (attach live, link connected,
                                            its screen replayed) within WITHIN_MS of the app's `main_start` (the
@@ -183,6 +185,7 @@ def step_restore_relaunch(journey, step):
         "samples": len(sampler.samples), "blank_pane_samples": blank, "pill_over_blank": pill_over_blank,
         "first_window_frame_committed": marks.get("first_window_frame_committed"),
         "launch_frame_shown": marks.get("terminal.launch_frame_shown"),
+        "visible_terminals_drawn": marks.get("launch.visible_terminals_drawn"),
         "first_terminal_frame": marks.get("first_terminal_frame"),
         "sidebar_rows_shown": marks.get("sidebar_rows_shown"),
         "live_ms": live_ms, "main_start": main_start, "live_from_main_ms": live_app_ms, "visible_terminals": len({r["pane"] for s in sampler.samples for r in s["panes"] if r["kind"] == "terminal"}),
@@ -281,14 +284,17 @@ def _restore(journey):
 
 def cond_restore_no_blank(journey, want, cache):
     r = _restore(journey)
-    first_frame, shown, live = r["first_window_frame_committed"], r["launch_frame_shown"], r["first_terminal_frame"]
+    first_frame, live = r["first_window_frame_committed"], r["first_terminal_frame"]
+    # Every visible terminal (the last to show), never the first: one pane's frame says nothing of the others.
+    drawn = r.get("visible_terminals_drawn")
     in_first_frame = first_frame is not None and (
-        (shown is not None and shown <= first_frame + 0.5) or (live is not None and live <= first_frame + 0.5))
+        (drawn is not None and drawn <= first_frame + 0.5) or (live is not None and live <= first_frame + 0.5))
     limit = int((want or {}).get("pill_over_blank", 0)) if isinstance(want, dict) else 0
     ok = r["samples"] > 0 and r["blank_pane_samples"] == 0 and r["pill_over_blank"] <= limit and in_first_frame
     return ok, {"samples": r["samples"], "blank_pane_samples": r["blank_pane_samples"],
                 "pill_over_blank": r["pill_over_blank"], "first_window_frame_committed": first_frame,
-                "launch_frame_shown": shown, "first_terminal_frame": live, "last_content_in_first_frame": in_first_frame}
+                "launch_frame_shown": r["launch_frame_shown"], "visible_terminals_drawn": drawn,
+                "first_terminal_frame": live, "last_content_in_first_frame": in_first_frame}
 
 
 def cond_restore_live(journey, want, cache):

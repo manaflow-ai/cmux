@@ -35,11 +35,21 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: Whether a focus model owns `page`'s keys; if not, the page takes the keyboard itself
     ///   when its WebKit view had it.
     func focusViewChanged(_ page: PageWebView) -> Bool
+    /// Sends every file of a Chromium page to its page host (``PageWebView/chromiumResource(_:range:)``)
+    /// while `live`, so the live web loop (``WebDevOverride``) serves Chromium pages as it serves
+    /// WebKit ones. Returns false when this Chromium cannot (its pages then open in WebKit).
+    func setLivePages(_ live: Bool) -> Bool
+}
+
+extension PageChromiumPage {
+    /// No clip: the page shows as a plain rectangle.
+    public var windowClip: CGPath? { nil }
 }
 
 extension PageChromiumHosting {
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
+    public func setLivePages(_ live: Bool) -> Bool { false }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -52,14 +62,19 @@ public protocol PageChromiumPage: AnyObject {
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
-    /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
+    /// Chromium asks it for every request under one, with the request's `Range` header (nil when
+    /// none; a `<video>` asks one range at a time), and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? { get set }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// The shape the page window shows the page in, in window coordinates (a pane scrolled under
+    /// a docked column shows only its uncovered part); nil when the page shows as a plain
+    /// rectangle. A window image paints the page's image only inside it.
+    var windowClip: CGPath? { get }
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -68,6 +83,12 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Posts native AppKit input to this page, in view points from its top-left. False when no page window is shown.
+    func debugPress(at point: NSPoint) -> Bool
+    #endif
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -82,6 +103,10 @@ public protocol PageChromiumPage: AnyObject {
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
     func setSeeThrough(_ seeThrough: Bool)
+    /// Whether the page's file choosers come to the app's own panel (on: its picks are reported as
+    /// ``PageChromiumEvent/filesChosen(_:)``) or stay Chromium's panel with its accept filters (off,
+    /// the default). Only this page's choosers change.
+    func setAnswersFileChooser(_ on: Bool)
     /// Tears the page down. Idempotent.
     func close()
 }
@@ -104,9 +129,31 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A drag of these files from outside the app entered the page (their paths, which the page
     /// itself never learns). The page still gets the drag.
     case filesDragged([URL])
+    /// The drag of files that entered the page ended natively: in a drop on the page (the pane's
+    /// AppKit `performDragOperation`, with the drop's event in dispatch) or not (it left the page or
+    /// was cancelled). Page script cannot make one; only a drop backs the page's drop message.
+    case dragEnded(dropped: Bool)
     /// A real key or mouse event reached the page (its `systemUptime`): what backs a page call as the
     /// person's gesture (``PageWebView/lastUserEventUptime``). Page script cannot make one.
     case userInput(TimeInterval)
     /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
     case contextMenu(PageChromiumContextMenu)
+    /// The person pressed Cmd-V in the page, before Chromium pastes (an AppKit key event is in
+    /// dispatch: page script cannot make one).
+    case pasted
+    /// The person picked these files in the app's panel for the page's file input
+    /// (``PageChromiumPage/setAnswersFileChooser(_:)``), before the page gets them.
+    case filesChosen([URL])
+}
+
+extension PageChromiumPage {
+    /// Hosts without a separate deadline use their ordinary DevTools transport.
+    public func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
+        try await devTools(method, params: params)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A host must explicitly provide native input; a placement view is not necessarily the renderer's input view.
+    public func debugPress(at point: NSPoint) -> Bool { false }
+    #endif
 }

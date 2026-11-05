@@ -93,4 +93,26 @@ extension PaneContentView {
         backdropState.tintView = view
         return view
     }
+
+    /// The content background under the content only (the strip has its
+    /// own backdrop), or nothing in a translucent window, where the window
+    /// root paints the one sheet (`WindowBackdrop`).
+    func themeDidChange() {
+        needsLayout = true
+        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
+        performWithTheme {
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
+            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
+        }
+        paintStrip()
+        paintPaneBackdrop()
+    }
+
+    /// The strip: clear, or the user's tab bar background (R55). A chat sharing the row never gives it
+    /// a fill: the row, its tabs and the chat's tools sit on the window's own glass (Leo, 2026-11-03,
+    /// on the chat's color behind the header buttons: "it's so obvious to just remove the thing").
+    func paintStrip() {
+        stripView.wantsLayer = true
+        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+    }
 }

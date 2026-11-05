@@ -130,6 +130,8 @@ import Testing
         #expect(spec.buttons.first { $0.id == "allow" }?.key == nil)
         #expect(spec.lines.contains { $0.contains("one") })
         #expect(spec.lines.contains { $0.contains(Self.phone.identityKey) })
+        #expect(Self.phone.shortFingerprint.count == 8)
+        #expect(spec.title.contains("“Phone” (\(Self.phone.shortFingerprint))"))
         #expect(spec.identifier == IPhoneHostService.phoneAccessDialogIdentifier)
     }
 

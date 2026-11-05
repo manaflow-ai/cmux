@@ -100,6 +100,16 @@ export default iconPickerPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".icon-category-menu"));
       },
     },
+    "tone-menu": {
+      note: "The skin tone menu open: a check column and an emoji column, the names on one line.",
+      session,
+      prefs,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-tone-button"));
+        await ctx.click({ selector: ".icon-tone-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] .icon-tone-item'));
+      },
+    },
     actions: {
       note: "The Actions menu (Cmd-K) over the bottom bar.",
       session,

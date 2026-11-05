@@ -31,9 +31,33 @@ public final class WindowControlsAvoiders {
 
     public func add(_ view: any WindowControlsAvoiding & NSView) { entries[ObjectIdentifier(view)] = Entry(view: view) }
 
+    /// Open ``batching(in:_:)`` calls on this window, and whether an update was asked inside them.
+    private var batchDepth = 0
+    private var batchedUpdate = false
+
+    /// Runs `body`; the updates asked for in it (``update(in:)``, ``WindowControlsAvoiders/refresh(in:)``) run once,
+    /// at its end: a layout frame that moves many panes, each of which asks, re-checks every view once, not once per
+    /// pane. Nested calls end at the outermost one.
+    public func batching<T>(in window: NSWindow, _ body: () -> T) -> T {
+        batchDepth += 1
+        defer {
+            batchDepth -= 1
+            if batchDepth == 0, batchedUpdate {
+                batchedUpdate = false
+                update(in: window)
+            }
+        }
+        return body()
+    }
+
     /// Each view still in `window` re-checks its clearance. A hidden one (a workspace not shown)
-    /// waits: it re-checks when it shows again (its `viewDidUnhide`).
+    /// waits: it re-checks when it shows again (its `viewDidUnhide`). Inside ``batching(in:_:)`` it runs at the
+    /// batch's end.
     public func update(in window: NSWindow) {
+        guard batchDepth == 0 else {
+            batchedUpdate = true
+            return
+        }
         for (id, entry) in entries {
             guard let view = entry.view, view.window === window else {
                 entries[id] = nil
@@ -48,6 +72,12 @@ public final class WindowControlsAvoiders {
     public static func refresh(in window: NSWindow?) {
         guard let window, let host = window as? any WindowControlsAvoidanceHosting else { return }
         host.windowControlsAvoiders.update(in: window)
+    }
+
+    /// ``batching(in:_:)`` on `window`'s avoiders; `body` alone when the window keeps none.
+    public static func batching<T>(in window: NSWindow?, _ body: () -> T) -> T {
+        guard let window, let host = window as? any WindowControlsAvoidanceHosting else { return body() }
+        return host.windowControlsAvoiders.batching(in: window, body)
     }
 
     /// Joins `view` to its window's avoiders, when the window keeps them.

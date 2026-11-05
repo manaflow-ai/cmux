@@ -4,7 +4,7 @@
 import { useId, useMemo } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
-import { ChevronRight, Envelope, Spinner, ToolGroup } from "./icons";
+import { ChevronRight, Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useT, type Translate } from "../i18n";
@@ -57,15 +57,9 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         aria-label={line}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : call.kind === "report" ? <Envelope /> : <ToolGroup />}
-        </span>
+        <span className="cv-tool__icon">{call.kind === "report" ? <Envelope /> : <ToolGroup />}</span>
         <span className="cv-tool__text">{line}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {call.kind === "report" && anchor && (
         <a

@@ -400,22 +400,7 @@ final class SettingsPageProvider: PageProvider {
     // MARK: Reads
 
     private func list(section: String?) -> JSONValue {
-        let root = settings.snapshot.root
-        return .array(SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }.map { descriptor in
-            var row: JSONValue = [
-                "key": .string(descriptor.id),
-                "value": descriptor.effectiveValue(in: root) ?? .null,
-                "default": settings.defaultValue(of: descriptor) ?? .null,
-                "customized": .bool(settings.isCustomized(descriptor)),
-                "managed": settings.managedSource(for: descriptor).map(Self.managedInfo) ?? .null,
-            ]
-            if descriptor.path == ChatSettings.rootsPath, case .object(var members) = row {
-                members["folders"] = settings.chatRootRows
-                members["user_roots"] = settings.fileRoot.value(at: ChatSettings.rootsPath) ?? .array([])
-                row = .object(members)
-            }
-            return row
-        })
+        settings.pageRows(section: section, managedInfo: Self.managedInfo)
     }
 
     private func snapshot() -> JSONValue {
@@ -429,7 +414,7 @@ final class SettingsPageProvider: PageProvider {
             "schema_hash": "",
             "effective": settings.snapshot.root,
             "managed": .object(managed),
-            "diagnostics": .array(settings.diagnostics.map { ["path": .string($0.path), "message": .string($0.message)] }),
+            "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
             "domains": .object(published),
         ]
     }

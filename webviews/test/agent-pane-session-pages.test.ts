@@ -92,6 +92,11 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
   const holdAttach = () => {
     attachHeld = new Promise((resolve) => (releaseAttach = resolve));
   };
+  let releaseStatus: () => void = () => {};
+  let statusHeld = Promise.resolve();
+  const holdStatus = () => {
+    statusHeld = new Promise((resolve) => (releaseStatus = resolve));
+  };
   /// A daemon that misbehaves: a cursor that never moves, later pages that fail, and whole-list
   /// reads (watch without `limit`) that fail this many more times. `boundedWhole`: a whole-list read
   /// answers this many rows and a cursor, as acpmux does past its largest reply.
@@ -102,6 +107,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0, boundedWhole: 0 });
     faultSocket = undefined;
     attachHeld = Promise.resolve();
+    statusHeld = Promise.resolve();
   });
   /// What the pane asked, in order; `answered` once the daemon sent the reply (an error too), and `ended` when
   /// that reply was the list's last page (a page with no cursor, or the whole list).
@@ -199,6 +205,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           }
           if (message.method === "_acpmux/sessions") await held;
           if (message.method === "_acpmux/attach") await attachHeld;
+          if (message.method === "_acpmux/status") await statusHeld;
           const text = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
           if (!attached) bytesBeforeAttach += text.length;
           if (message.method === "_acpmux/attach") attached = true;
@@ -324,6 +331,52 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       true,
     );
     await page.close();
+  });
+
+  test("initial status delay preserves live changes before the first page is installed", async () => {
+    holdPages();
+    holdAttach();
+    holdStatus();
+    const page = await open(NEWEST);
+    try {
+      await until("the first page answered while status waits", () =>
+        requests.some((request) => request.method === "_acpmux/watch" && request.answered),
+      );
+      const changed = { ...sessions[900], title: "Changed before initial list", updatedAt: START + 1 };
+      const renamed = { ...sessions[10], title: "Renamed before initial list", updatedAt: START + 2 };
+      const purged = sessions[5]!.sessionId;
+      notify("_acpmux/session_changed", { kind: "updated", session: changed });
+      notify("_acpmux/session_changed", { kind: "updated", session: renamed });
+      notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: purged } });
+      // Observe the notice before allowing the initial list assignment to overwrite it.
+      await page.waitForFunction(
+        (title) =>
+          (window as any).cmuxAcpmuxDebug
+            ?.chatState()
+            .sessions.some((session: { title: string }) => session.title === title),
+        renamed.title,
+        { timeout: 15_000 },
+      );
+      releaseStatus();
+      releaseAttach();
+      await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+      await laterPagesAsked(1);
+      release();
+      await listEnded();
+      await caughtUp(page);
+      const final = await state(page);
+      const rows = final.sessions as { sessionId: string; title: string }[];
+      expect(rows).toHaveLength(COUNT - 1);
+      expect(new Set(rows.map((session) => session.sessionId)).size).toBe(COUNT - 1);
+      expect(rows.find((session) => session.sessionId === changed.sessionId)?.title).toBe(changed.title);
+      expect(rows.find((session) => session.sessionId === renamed.sessionId)?.title).toBe(renamed.title);
+      expect(rows.some((session) => session.sessionId === purged)).toBe(false);
+    } finally {
+      releaseStatus();
+      releaseAttach();
+      release();
+      await page.close();
+    }
   });
 
   test("a link to a chat on a late page opens that chat, not a missing one", async () => {

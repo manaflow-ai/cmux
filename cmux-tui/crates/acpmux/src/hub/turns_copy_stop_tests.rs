@@ -443,3 +443,39 @@ async fn a_stop_while_a_failovers_copies_are_made_keeps_the_prompt_from_the_fall
     stopped(tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap());
     assert_eq!(written(&hub, &s, "slow-limit"), 1, "the fallback got the prompt after the Stop");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workflow_runs_compaction_pause_preserves_queued_person_prompts() {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let mut events = hub.subscribe();
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type":"text","text":"deaf-to-cancel"})], "workflow", false)
+                .await
+        })
+    };
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "running" {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let prompt_id = s.turn().unwrap().prompt_id;
+    s.compacting.store(true, Ordering::SeqCst);
+    let (_queued_id, queued) = queued_prompt(&hub, &s, "slow", false).await;
+    hub.cancel_prompt(&s, &prompt_id).await.unwrap();
+    let stopped = tokio::time::timeout(WAIT, running).await.unwrap().unwrap().unwrap();
+    assert_eq!(stopped["_meta"]["acpmux"]["cancelForced"], true);
+    let next = tokio::time::timeout(WAIT, queued).await.unwrap().unwrap().unwrap();
+    assert_ne!(
+        next["_meta"]["acpmux"]["withdrawn"], true,
+        "workflow pause withdrew the person's queued prompt"
+    );
+    assert_eq!(next["stopReason"], "end_turn");
+    assert_eq!(written(&hub, &s, "slow"), 1);
+}

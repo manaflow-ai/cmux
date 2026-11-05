@@ -909,6 +909,42 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
+### selection-changed
+
+| Field | Value |
+| --- | --- |
+| event | `selection-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to a delta subscriber that reads it, in place of `tree-changed`, when a
+selection change rides with a lifecycle delta (a created workspace takes the
+focus, a created tab becomes its pane's active tab). It is the whole selection
+of that one workspace, read when the event is written. A screen or pane the
+client does not hold yet comes with its own later delta and is skipped. A
+selection change that names no workspace is still `tree-changed`.
+
+```text
+object{event:"selection-changed",workspace:Id,active:bool,active_workspace:Id|null,screens:[object{id:Id,active:bool,active_pane:Id,panes:[object{id:Id,active_tab:usize,focused_at:u64}]}]}
+```
+
+### workspace-presentation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-presentation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to the same subscriber, in place of `tree-changed`, after a
+`workspace.update` of a workspace's title, color or icon (no workspace
+revision). `entity` is the workspace as `list-workspaces` has it when the
+event is written.
+
+```text
+object{event:"workspace-presentation-changed",workspace:Id,entity:Workspace}
+```
+
 ### tab-changed
 
 | Field | Value |
@@ -974,7 +1010,7 @@ object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pan
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1020,7 +1056,7 @@ object{event:"scroll-changed",surface:Id,offset:uint64,at_bottom:boolean}
 
 Meaning: A PTY surface viewport moved within its scrollback. The event is emitted after a settled viewport mutation from user scrolling, `scroll-surface`, input snapping the viewport to the live bottom, or PTY output that changes the viewport position. `offset` is the same row offset used by the scrollbar geometry, and `at_bottom` is true when the viewport is pinned to the live bottom.
 
-Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface. This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
+Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface, whichever connection moved the viewport, plus one at attach when the viewport is scrolled back ([render.md](render.md#stream-ordering)). This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
 
 Example:
 

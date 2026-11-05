@@ -28,7 +28,7 @@
   padding: max(40px, 13vh) 16px 40px;
   background: transparent;
   color: var(--ve-fg);
-  font: 13px/1.45 var(--ve-font);
+  font: var(--text-body)/1.45 var(--ve-font);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
@@ -47,24 +47,24 @@
 }
 
 .ve-title {
-  margin: 0 0 4px;
-  font-size: 17px;
-  font-weight: 600;
+  margin: 0 0 var(--ds-space-1);
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
   line-height: 1.3;
   letter-spacing: -0.01em;
 }
 
 .ve-subtitle {
-  margin: 0 0 18px;
+  margin: 0 0 var(--ds-space-4);
   color: var(--ve-fg-2);
-  font-size: 12.5px;
+  font-size: var(--text-detail);
   text-wrap: pretty;
 }
 
 .ve-actions {
   display: flex;
-  gap: 8px;
-  margin: 0 0 28px;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-5);
 }
 
 .ve-button {
@@ -72,14 +72,14 @@
   align-items: center;
   justify-content: center;
   height: 26px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-3);
   border: 1px solid var(--ve-line);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: var(--ve-surface);
   color: var(--ve-fg);
   font: inherit;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-regular);
   white-space: nowrap;
   cursor: default;
 }
@@ -109,8 +109,8 @@
 
 .ve-button-large {
   height: 30px;
-  padding: 0 16px;
-  font-size: 13px;
+  padding: 0 var(--ds-space-4);
+  font-size: var(--text-body);
 }
 
 .ve-button-quiet {
@@ -120,27 +120,27 @@
 }
 
 .ve-section-title {
-  margin: 0 0 6px;
-  padding: 0 2px;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
   color: var(--ve-fg-3);
-  font-size: 11.5px;
-  font-weight: 400;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
 }
 
 .ve-recents-empty {
   margin: 0;
-  padding: 14px 12px;
+  padding: var(--ds-space-3);
   border: 1px dashed var(--ve-line);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
   color: var(--ve-fg-3);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .ve-recent-list,
 .ve-sources,
 .ve-chosen {
   border: 1px solid var(--ve-line);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
   background: var(--ve-surface);
 }
 
@@ -148,19 +148,22 @@
 .ve-sources {
   max-height: 46vh;
   overflow: auto;
-  padding: 4px;
+  padding: var(--ds-space-1);
   outline: none;
 }
 
+/* One icon column and one text column for the recent, source and chosen rows (design/grid.md
+   section 3): the 16 icon box on lead = highlight + 8, the text on lead + 24. The lists' 4 inset
+   puts both at 12 and 36 from the list edge; the chosen card pads 12 to match. */
 .ve-recent,
 .ve-source,
 .ve-chosen {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 5px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ui-row-radius, 4px);
 }
 
 .ve-recent[aria-selected="true"] {
@@ -188,7 +191,7 @@
   display: flex;
   min-width: 0;
   color: var(--ve-fg-3);
-  font-size: 11.5px;
+  font-size: var(--text-detail);
 }
 
 .ve-tail-path {
@@ -211,12 +214,12 @@
 
 .ve-recent-branch::before {
   content: "·";
-  margin: 0 5px;
+  margin: 0 var(--ds-space-1);
 }
 
 .ve-recent-time {
   color: var(--ve-fg-3);
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -231,20 +234,20 @@
 }
 
 .ve-error {
-  margin: -16px 0 20px;
+  margin: calc(var(--ds-space-3) * -1) 0 var(--ds-space-4);
   color: var(--ve-error);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 /* The source step: the chosen repository, then what to compare. */
 .ve-chosen {
-  margin-bottom: 20px;
-  padding: 8px 6px 8px 10px;
+  margin-bottom: var(--ds-space-5);
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
 }
 
 .ve-source {
-  grid-template-columns: 14px minmax(0, 1fr);
-  padding: 7px 8px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  padding: var(--ds-space-2);
   outline: none;
 }
 
@@ -265,6 +268,7 @@
   width: 13px;
   height: 13px;
   margin: 0;
+  justify-self: center;
   border: 1px solid var(--ve-fg-3);
   border-radius: 50%;
   background: transparent;
@@ -280,13 +284,13 @@
 
 .ve-step .ve-actions {
   justify-content: flex-end;
-  margin: 16px 0 0;
+  margin: var(--ds-space-4) 0 0;
 }
 
 /* The drop target over the whole page. */
 .ve-drop {
   position: fixed;
-  inset: 8px;
+  inset: var(--ds-space-2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -298,7 +302,7 @@
 
 .ve-drop-text {
   color: var(--ve-fg-2);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 /* The path picker: a palette-like modal sheet (ui/Dialog): the backdrop, then the dialog over it. */
@@ -312,13 +316,13 @@
 .ve-sheet-dialog {
   position: fixed;
   inset-block-start: 11vh;
-  inset-inline: 16px;
+  inset-inline: var(--ds-space-4);
   z-index: 51;
   display: flex;
   justify-content: center;
   outline: none;
   color: var(--ve-fg);
-  font: 13px/1.4 var(--ve-font);
+  font: var(--text-body)/1.4 var(--ve-font);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
@@ -331,7 +335,7 @@
   max-height: min(520px, 78vh);
   overflow: hidden;
   border: 1px solid var(--ve-line);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--ve-surface);
   box-shadow: var(--elevation-2);
 }
@@ -339,15 +343,15 @@
 .ve-picker-head {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--ds-space-3);
   min-width: 0;
-  padding: 10px 12px 0;
+  padding: var(--ds-space-3) var(--ds-space-3) 0;
 }
 
 .ve-picker-title {
   flex: none;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
 }
 
 .ve-crumbs {
@@ -357,7 +361,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ve-fg-3);
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
 }
 
@@ -374,7 +378,7 @@
 .ve-crumb {
   padding: 1px 3px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ui-row-radius, 4px);
   background: none;
   color: inherit;
   font: inherit;
@@ -395,10 +399,10 @@
 .ve-picker-field {
   flex: none;
   height: 30px;
-  margin: 8px 12px;
-  padding: 0 10px;
+  margin: var(--ds-space-2) var(--ds-space-3);
+  padding: 0 var(--ds-space-2);
   border: 1px solid var(--ve-line);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--ve-fg);
   font: inherit;
@@ -419,17 +423,17 @@
   flex: 1 1 auto;
   min-height: 132px;
   overflow: auto;
-  padding: 0 6px 6px;
+  padding: 0 var(--ds-space-1) var(--ds-space-1);
 }
 
 .ve-picker-row {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto 12px;
   align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 5px;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ui-row-radius, 4px);
 }
 
 .ve-picker-row[aria-selected="true"] {
@@ -438,17 +442,17 @@
 
 /* The hint under the field (path mode, Cmd-Up). */
 .ve-picker-hint {
-  margin: -4px 12px 6px;
+  margin: calc(var(--ds-space-1) * -1) var(--ds-space-3) var(--ds-space-2);
   color: var(--ve-fg-3);
-  font-size: 11.5px;
+  font-size: var(--text-caption);
 }
 
 /* The Locations section heading above the level. */
 .ve-picker-section {
-  padding: 6px 8px 2px;
+  padding: var(--ds-space-2) var(--ds-space-2) 0;
   color: var(--ve-fg-3);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
 }
 
 .ve-picker-name,
@@ -482,14 +486,14 @@
 .ve-picker-empty,
 .ve-picker-more {
   flex: 1 1 auto;
-  padding: 18px 8px;
+  padding: var(--ds-space-4) var(--ds-space-2);
   color: var(--ve-fg-3);
-  font-size: 12px;
+  font-size: var(--text-detail);
   text-align: center;
 }
 
 .ve-picker-more {
-  padding: 8px;
+  padding: var(--ds-space-2);
 }
 
 .ve-picker[data-phase="loading"] .ve-picker-list {
@@ -500,33 +504,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
   border-top: 1px solid var(--ve-line);
 }
 
 .ve-picker-hints {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--ds-space-1) var(--ds-space-3);
   min-width: 0;
   color: var(--ve-fg-3);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .ve-hint kbd {
-  margin-right: 4px;
-  padding: 0 4px;
+  margin-right: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
   border: 1px solid var(--ve-line);
-  border-radius: 3px;
+  border-radius: var(--ui-row-radius, 4px);
   color: var(--ve-fg-2);
-  font: 10.5px/15px var(--ve-font);
+  font: var(--text-caption) / var(--text-caption--line-height) var(--ve-font);
 }
 
 .ve-picker-actions {
   display: flex;
   flex: none;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 @media (max-width: 480px) {

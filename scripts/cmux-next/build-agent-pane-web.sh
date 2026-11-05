@@ -105,6 +105,9 @@ CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
   printf '<title>cmux Agent</title>\n'
+  # Fetch and parse the entry while the locale scripts and inline styles load. modulepreload
+  # never evaluates it: the module below still runs after the selected language is installed.
+  printf '<link rel="modulepreload" href="pane.js" />\n'
   printf '%s\n' "$LOADER"
   printf '<style>\n'
   cat "$WORK/styles.css"

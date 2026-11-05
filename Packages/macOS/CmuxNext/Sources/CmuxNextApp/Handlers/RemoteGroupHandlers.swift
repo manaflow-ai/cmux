@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -32,7 +33,7 @@ enum RemoteGroupHandlers {
             let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let make = { (text: String) throws in
                 let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive, byPerson: invocation.isPersonsRequest)
-                markWhenNamed(session, name: name)
+                markWhenNamed(session, name: name, doc: context.services.sidebarDoc)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
@@ -52,7 +53,7 @@ enum RemoteGroupHandlers {
             guard let session = session(invocation, context) else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
-            guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
+            guard let store = context.services.sidebarDoc.activeStore else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
             }
             let ops = try removalOps(session: session, records: store.records)
@@ -81,7 +82,7 @@ enum RemoteGroupHandlers {
         }
         // Only a remote group's header offers it.
         ActionTargetVisibility.hide("remote.removeGroup", in: registry) { invocation in
-            guard let session = session(invocation, context), let store = SidebarDocStore.current else { return true }
+            guard let session = session(invocation, context), let store = context.services.sidebarDoc.store else { return true }
             return store.records.sections["sec_m_\(session)"]?.hostGroup != true
         }
     }
@@ -107,13 +108,13 @@ enum RemoteGroupHandlers {
 
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up
     /// when the machine stops connecting.
-    static func markWhenNamed(_ session: SSHMachineSession, name: String? = nil) {
+    static func markWhenNamed(_ session: SSHMachineSession, name: String? = nil, doc: SidebarDocument) {
         let daemon = session.daemon, groupName = name
         // task-owner: ends when the daemon names its session or the machine stops connecting
         Task { @MainActor in
             for await (name, status) in ObservationStream({ (daemon.store.registryID, session.linkStatus) }) {
                 if let registryID = name {
-                    mark(session: registryID, name: groupName)
+                    mark(session: registryID, name: groupName, doc: doc)
                     return
                 }
                 if Self.shouldContinueMarking(status: status) { continue }
@@ -124,7 +125,8 @@ enum RemoteGroupHandlers {
 
     /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
     /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
-    static func mark(session: String?, name: String? = nil) {
-        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle, name: name) }
+    /// `doc`: the app's own sidebar document.
+    static func mark(session: String?, name: String? = nil, doc: SidebarDocument) {
+        if let session { doc.activeStore?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle, name: name) }
     }
 }

@@ -7,10 +7,11 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-The check is advisory (cmuxterm-hq#5745, Leo, 2026-11-01: "keep only what catches real breakage"):
-a held pull request gets a warning in the job summary and the check stays green. What holds a merge is
-the review itself: every pull request lands only on an independent review at its exact head, and a
-BLOCK there keeps it out.
+Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
+for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
+with a BLOCK, gets a warning in the job summary and the check stays green. What holds it is the review
+itself: every pull request lands only on an independent review at its exact head, and the lander
+refuses a BLOCK there.
 
 ## Tiers
 
@@ -34,6 +35,7 @@ reverting the commit, or because it takes out the safety net every other tier re
 | stored-data migrations | `migrations/`, `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
 | release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` and `CmuxUpdater` (except the channel and preference values below) | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
 | the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green`, and `scripts/ci/next_batch.py` with `cmux-next-batch.yml` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no person looking. |
+| the pre-push hook's trust boundary | what decides which check code the pre-push hook runs on a push: the web lint (`scripts/web_lint_prepush.py`) and the cmux-next gate (`scripts/cmux-next/prepush-gate.py`, which picks the reviewed copy or the pushed code for each of its checks), and which commits a push owns (`scripts/cmux-next/push_range.py`), which decides the changes to check code the hook sees; the hook itself (`scripts/git-hooks/pre-push`); and how its reviewed copy of the checks is installed and refreshed (`scripts/install-git-hooks.sh`, `scripts/git-hooks/refresh_checks.py`, and `scripts/git-hooks/post-merge`, which decides when a checkout reinstalls it). The lint rules it runs (`scripts/cmux-next/check-*.py`, `guardrails.py`, the package check scripts, `run-check-pieces.py`) stay normal | The hook runs check code on every contributor's machine before a push. A change here can make it run code the push controls (#34124 finds and closes several such routes), and a revert does not undo what already ran. |
 | new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove from product code (an edited or moved delete isn't new, so retargeting an existing delete is normal: agent review catches that; a cleanup line moved out of a test into product code is new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, inline Rust test modules (`#[cfg(test)]` or `#[cfg(all(..., test, ...))]` on `mod name {` at the top level or in a module body, not in a macro's tokens), CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. For a Rust file that adds or removes a delete, the gate reads the file at the head or the merge base to place the line in or out of a test module; when it can't, an added delete counts and a removed one doesn't pay for another. A file that `#[cfg(test)] mod name;` declares is still graded as product code. |
 
 ### Taking back a recent change
@@ -154,7 +156,8 @@ Adding `risk:human-ok` re-grades on its own.
 
 A high pull request with no verdict on its head passes with a warning in the job summary ("no
 review verdict on the head commit yet"), not a red check. It still lands only after an independent
-review passes. The newest verdict on the head being a BLOCK, FIX or change request is the one hold.
+review passes. A BLOCK, FIX or change request as the newest verdict on the head also only warns here;
+the lander refuses it. An unowned takeback is the one red.
 
 ## Ship risky behavior dark
 

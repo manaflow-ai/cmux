@@ -30,6 +30,10 @@ FAKE_BUN = """#!/usr/bin/env bash
 # The test file is the last argument: the runner passes options such as --timeout before it.
 file="${!#}"
 printf '%s\\n' "$file" >> "$BUN_CALLS"
+# What a browser file would see: whether the lane is on, and where Playwright looks for engines.
+if [ -n "${BUN_ENV_LOG:-}" ]; then
+  printf '%s|%s|%s\\n' "$file" "${CMUX_BROWSER_TESTS-unset}" "${PLAYWRIGHT_BROWSERS_PATH-unset}" >> "$BUN_ENV_LOG"
+fi
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
 if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$file"; then
@@ -122,7 +126,8 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=()):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
+                   uname=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -137,6 +142,10 @@ class PerFileRunner(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
         (bin_dir / "bun").chmod(0o755)
+        if uname is not None:
+            # The host the runner believes it is on (`uname -s`), whatever runs this test.
+            (bin_dir / "uname").write_text(f"#!/usr/bin/env bash\necho {uname}\n", encoding="utf-8")
+            (bin_dir / "uname").chmod(0o755)
         calls = temp / "calls"
         self.calls_file = calls
         calls.write_text("", encoding="utf-8")
@@ -332,16 +341,21 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("retry budget exhausted", output)
 
     def test_a_retry_cannot_outlive_the_remaining_shared_budget(self):
+        # The runner's budget counts whole seconds (bash SECONDS): a 1 s budget let a second
+        # tick before the retry's check leave 0 s and start no retry (run 41462610513). 3 s
+        # leaves room for that tick and a loaded runner; the file's own 20 s limit is far past
+        # it, so the elapsed bound shows the budget, not the limit, cut the hanging retry.
+        budget = 3
         results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
         result, elapsed, calls = self.run_runner(
             ["test/retry-hang.test.ts"],
-            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
-            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1",
+            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 20\n"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": str(budget),
                        "CMUX_WEB_TEST_RESULTS": str(results_path)},
         )
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertLess(elapsed, 3, output)
+        self.assertLess(elapsed, budget + 5, output)
         self.assertEqual(calls, ["./test/retry-hang.test.ts"] * 2)
         self.assertIn("TIMEOUT test/retry-hang.test.ts", output)
 
@@ -502,6 +516,22 @@ class PerFileRunner(unittest.TestCase):
         after = split(list(known) + ["test/new.test.ts", "test/0-first.test.ts"])
         self.assertEqual({name: after[name] for name in before}, before)
         self.assertEqual(len(after), len(known) + 2)
+
+    def test_the_split_weighs_files_on_the_pools_the_runner_really_has(self):
+        """#32224 ran the shards at 8 jobs (2 dev-server files at once) while the split still counted
+        8 at once: it set 81 dev-server files beside nothing and a 456 s alone file beside 3, shards
+        of 8 and 40 min (run 41580824945). Seventeen 8 s dev-server files and a 24 s alone file: on
+        8 dev lanes they balance as 17 against 1; on the runner's 2 they part 11 against 6 + 1."""
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
+        contents = {name: "// cmux-web-test-alone\n// vite.config.acpmux-pane.mjs\n" if "alone" in name
+                    else "// vite.config.acpmux-pane.mjs\n" for name in files}
+        manifest = self.manifest({**{name: 8 for name in files}, "test/alone.test.ts": 24})
+        def split(extra):
+            env = {"CMUX_WEB_TEST_DURATIONS": manifest, **extra}
+            return sorted(len(self.run_runner(files, contents=contents, shard=n, shard_count=2, extra_env=env)[2])
+                          for n in (1, 2))
+        self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8"}), [7, 11])  # 6 plain, 2 browser, 2 dev lanes
+        self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8", "CMUX_WEB_TEST_DEV_JOBS": "8"}), [1, 17])
 
     def test_unrecorded_files_split_by_a_stable_hash_of_their_path(self):
         names = [f"test/{index}.test.ts" for index in range(40)]
@@ -706,23 +736,66 @@ class PerFileRunner(unittest.TestCase):
         engines CI installs (requireBrowserLane.ts); without it the lane skips everywhere but PR CI."""
         cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.web_hook = self.install_fake_playwright()
-        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={
+        result, _, calls = self.run_runner(["test/a.test.ts"], uname="Linux", extra_env={
             "CMUX_BROWSER_TESTS": "1", "CMUX_CI_CACHE_DIR": str(cache)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./test/a.test.ts"])
         lines = self.playwright_calls.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(lines), 1, lines)
+        # WebKit from Playwright; Chromium is the system Chrome (ensure-system-chrome.sh), which
+        # installs Chrome stable only on a host whose Chrome is missing or old.
+        self.assertIn(len(lines), (1, 2), lines)
         args, browsers = lines[0].split("|")
-        self.assertEqual(args, "install --only-shell chromium webkit")
+        self.assertEqual(args, "install webkit")
         self.assertTrue(browsers.startswith(str(cache / "playwright")), browsers)
+        self.assertEqual([line.split("|")[0] for line in lines[1:]], ["install --with-deps chrome"][: len(lines) - 1])
 
     def test_ci_and_plain_runs_install_no_engines(self):
         for env in ({}, {"CMUX_BROWSER_TESTS": "0"}, {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}):
             with self.subTest(env=env):
                 self.web_hook = self.install_fake_playwright()
-                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env)
+                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env, uname="Linux")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+
+    def test_a_mac_never_installs_engines_and_runs_the_lane_without_its_browser_files(self):
+        """No Playwright on Macs (Lawrence, 2026-11-02): a Mac outside GitHub Actions installs no engine,
+        even with CMUX_BROWSER_TESTS=1 (the fleet's step cache held 4.6 GB of them on 10 Macs). It says
+        so in one line, then runs every file with the lane off and Playwright pointed at a folder that
+        cannot hold an engine, so the browser files skip as they do without the variable."""
+        browser_file = 'import { requireBrowserLane } from "./support/requireBrowserLane";\nrequireBrowserLane("x", () => {});\n'
+        files = {"test/a.test.ts": "", "test/b-browser.test.ts": browser_file}
+        for env in ({"CMUX_BROWSER_TESTS": "1"}, {}, {"CMUX_BROWSER_TESTS": "1", "CI": "true", "CMUX_CI_STEP_KEY": "k"}):
+            with self.subTest(env=env):
+                cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+                env_log = cache / "bun-env"
+                self.web_hook = self.install_fake_playwright()
+                result, _, calls = self.run_runner(list(files), contents=files, uname="Darwin", extra_env={
+                    **env, "CMUX_CI_CACHE_DIR": str(cache), "BUN_ENV_LOG": str(env_log)})
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+                self.assertEqual(list(cache.glob("playwright*")), [])
+                self.assertEqual(calls, sorted(f"./{name}" for name in files))
+                seen = sorted(env_log.read_text(encoding="utf-8").splitlines())
+                self.assertEqual(seen, [f"./{name}|unset|/var/empty/cmux-no-playwright-on-macs" for name in sorted(files)])
+                notice = ("browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); "
+                          "run it in CI or on a cloud VM")
+                self.assertEqual(output.count(notice), 1 if env.get("CMUX_BROWSER_TESTS") == "1" else 0, output)
+
+    def test_github_actions_on_a_mac_keeps_its_own_engines(self):
+        """GitHub Actions installs the engines in the workflow, on any runner: the runner leaves its
+        lane and its PLAYWRIGHT_BROWSERS_PATH alone and installs nothing itself."""
+        cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        env_log = cache / "bun-env"
+        self.web_hook = self.install_fake_playwright()
+        result, _, _ = self.run_runner(["test/a.test.ts"], uname="Darwin", extra_env={
+            "CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true", "PLAYWRIGHT_BROWSERS_PATH": "/ci/browsers",
+            "BUN_ENV_LOG": str(env_log)})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+        self.assertNotIn("not on a Mac", output)
+        self.assertEqual(env_log.read_text(encoding="utf-8").splitlines(), ["./test/a.test.ts|1|/ci/browsers"])
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])
@@ -772,6 +845,26 @@ class ShardHelper(unittest.TestCase):
         split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
                                 cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
         self.assertEqual(sorted(len(shard) for shard in split), [1, 17], split)
+
+    def test_the_split_takes_the_runners_widths_and_refuses_bad_ones(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("// cmux-web-test-alone\n" if "alone" in name else "// vite.config.acpmux-pane.mjs\n")
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes((temp / "files").read_bytes())
+        (temp / "d.json").write_text(json.dumps({**{name: 8 for name in files}, "test/alone.test.ts": 24}))
+        def split(*widths):
+            return sorted(len(subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n),
+                                              "2", *widths], cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1])
+                          for n in (1, 2))
+        self.assertEqual(split(), [1, 17])  # the 32 vCPU widths: 8 dev lanes
+        self.assertEqual(split("6,2,8"), [1, 17])
+        self.assertEqual(split("6,2,2"), [7, 11])
+        bad = subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", "1", "2", "6,2"],
+                             cwd=temp, capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2, bad.stderr)
 
     def test_the_plan_counts_each_configs_warming_file_alone(self):
         """One config with files of 100 s and 20 s: the 20 s file warms alone, then the 100 s one runs

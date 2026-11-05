@@ -118,7 +118,12 @@ read `acpmux --json ls`, which is the daemon's rows, unchanged.
 ## Web dashboard
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
-`http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
+`http://127.0.0.1:47811/#token=…`. The token sits in the URL fragment, which a browser never
+sends to a server or in a Referer; the page moves it out of the address bar into the tab's
+session storage. The page itself is static and needs no token; its WebSocket does, and takes it
+only from a header: `Authorization: Bearer <token>` from a native client, or, from a browser,
+the subprotocols `acpmux.v1` and `acpmux.token.<token>` (the upgrade answers with `acpmux.v1`
+only). A token in the URL query is never read. The token is generated on first run and saved in
 `config.json`; `acpmux web` opens the full link and prints it without the token
 (`--show-token` prints it whole, `--json` has it in `url`). Only the local socket ever
 reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
@@ -147,8 +152,11 @@ unfolds every turn, `?session=<name>` opens one, `?session=new` (or `&draft=1`) 
 draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k`) walk the rail,
 `y`/`n` answer a permission, `Esc` in the composer cancels the turn. On a phone the rail is a
 sheet behind a `Sessions` button. To reach it
-from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
-firewall in front. Clients may then connect by IP address; list every host name they use (a
+from another machine, keep the listener on loopback and use ssh (an `ssh://` peer) or a TLS
+proxy. The listener speaks plain `ws://`, so on a network address (a tailnet or VPN address
+too) its token crosses that network in clear: the daemon refuses to bind one unless you opt in
+with `"allowInsecureNetwork": true` under `websocket` (or `daemon run --insecure-network-listen`
+for one run). Clients may then connect by IP address; list every host name they use (a
 tailnet name, for example) in `websocket.allowedHosts`, because any other `Host` is refused.
 
 ### Remote connections (`webRoots`, `webAskingModes`)
@@ -222,8 +230,8 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
-| `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait\|--wait] [-q]` | Prompt and stream the reply. An agent's send (`--from`, the session it runs in, a Claude Code or Codex shell) and one with `--class` are queued as with `--no-wait` unless given `--wait` (or `-q`, `--timeout`). With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply (`--wait`), and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). `--notice --severity info\|warn\|fire --title T [--sender X] [--host H] [--link URL[=LABEL]]...` sends a tool's or reconciler's notice (`_meta.acpmux.notice`, `prompt_provenance.rs`): the text is its body, and the prompt is the rendered `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: URL (LABEL), …` (no tag for info), so an old daemon or page still reads it. The daemon records it with provenance `{kind: "notice", from: "fromAgent", fromName, to, notice: {sender, host?, severity, title, links?}}` and delivers it as a named sender's message (its inbox and digests keep the notice). `--sender` defaults to `--from`, `ACPMUX_FROM`, else the calling session's name, `--host` to this machine; links are https only, at most 16. Accepted over the unix socket and from a peer daemon; a Web client's is refused (`notice.origin_refused`), and a bad field refuses the prompt (`notice.value_refused`, `field` naming it). |
+| `send --status [ID]` | With no ID, every message this daemon still delivers or delivered in the last day, newest first. A queued delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
@@ -351,10 +359,10 @@ acpmux session queue remove NAME PROMPT_ID...                 # take those out; 
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --all --wide                                        # every session, every column (with usage)
-acpmux ls --live --machine cosmic-gray                           # filters, text and --json alike (--machine local: this machine)
+acpmux ls --live --machine my-linux                              # filters, text and --json alike (--machine local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
-acpmux ls 'review-27*' [huge-blue/*] --fields name,status    # sessions whose name matches a glob (`host/glob` for one peer), on any host
+acpmux ls 'review-27*' [my-linux/*] --fields name,status     # sessions whose name matches a glob (`host/glob` for one peer), on any host
 acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
 acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
 acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
@@ -422,7 +430,11 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
-session stays open, and the log gets `agent_start_timed_out`.
+session stays open, and the log gets `agent_start_timed_out`. A person's start has no such
+bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
+no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiting` as it starts,
+and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
+minutes.
 
 `agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
 into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
@@ -441,6 +453,10 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+A turn whose harness retries a failed model request (Claude Code's `system/api_retry`, Codex's
+stream error with `willRetry`) logs `turn_retrying` {turnId, attempt, maxRetries?, error?,
+errorStatus?, retryDelayMs?, source} for each retry, so a client can say the model cannot be
+reached instead of "Thinking"; the model's next sign logs `turn_heard` {turnId}.
 `stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
 flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
@@ -459,21 +475,23 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
-`usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
-those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
+`usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
+`contextTokens` each session is held to its own window: its autocompact cap, else its model's
+window, else 400000 when acpmux knows neither, and `"contextTokens": N` sets one line for every
+session; 0 or false turns a rule off): a session whose usage breaks a rule gets
 `usageWarnings` on its summary, `[{rule, value, limit, text, action}]`, decided from its `usageStats`
 when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session known to run
 with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
-context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
+context is above the limit (past its own window: it did not compact); `subagentsPerHour`: it started more subagents than the limit in the
 last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
 chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
 row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
 to try first first; nothing is done automatically): no cap, rotate onto a capped profile
-(`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
-/compact`) or rotate to a fresh session (`lane-place rotate NAME`); many subagents, open
+(`sessions rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
+/compact`) or rotate to a fresh session (`sessions rotate NAME`); many subagents, open
 the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
 in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
-number and commands (`ctx 412k: acpmux send NAME /compact | lane-place rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
+number and commands (`ctx 412k: acpmux send NAME /compact | sessions rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
@@ -1183,7 +1201,13 @@ machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktr
 and checked out there as a fresh worktree (a plain folder under the home maps to the same path
 under the peer's home), the chat is moved with its history, queue and draft through the peer
 daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
-and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host. With
+`--from PEER` the chats are on that peer and this machine drives the move over ssh to it and to
+the target (the source's checkout is read and its branch pushed there), so two machines that
+cannot reach each other trade chats; `--machine local` makes this machine the target. The bundle
+carries the agent's own store (`src/native.rs`): Claude Code's project file and Codex's rollout
+for any profile of those families, pi's session file (refiled under the target folder), and
+OpenCode's session as `opencode export`, imported in the chat's folder there.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
@@ -1217,11 +1241,21 @@ NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROP
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
-default empty), or (for local launches only, never a remote-origin one) it is a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
-(`cmux cloud deliver-secrets`; its value is never cached). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
+(`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
+private, owned `~/.config/cmux/machine.env` declarations directly: only literal
+`export NAME='value'` entries (including quoted newlines and escaped single quotes), with no shell
+execution. Process-loader and cmux bootstrap names are refused. These declarations override the
+login/daemon values, while explicit profile, preset and session env still win. Values are read again
+for each local launch, so replacement and deletion rotate/revoke them. Only names declared during this
+daemon's lifetime are remembered, so a revoked value it inherited is also removed from local children.
+A value revoked before this daemon first reads the file cannot be identified as machine-owned. Values never enter the login
+cache, nested-session restoration, remote-origin launches or `${env:VAR}` references. A missing,
+non-private, linked, oversized or malformed file contributes no declarations. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
 `ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
-same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
-then the login shell's.
+same allow-list. Precedence: profile, preset and session env, then current machine.env declarations,
+then the daemon's own environment, then the login shell's. Machine file edits trigger a login-shell
+refresh before a local spawn; a failed refresh refuses that spawn to avoid stale delivered secrets.
 `<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
 files: non-secret values and the names of secret ones (their values stay in memory), so a start
 with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
@@ -1240,7 +1274,12 @@ falls back onto one.
 ### Messages to other sessions: the outbox
 
 `acpmux send --no-wait NAME` is how one session (or a person, or a script) messages another,
-here or on any peer, and it acks within a second whatever the target is doing:
+here or on any peer, and it acks within a second whatever the target is doing. An agent's send
+(`--from`, one in an acpmux session, or one from a Claude Code or Codex shell) and any send with
+`--class` take this path by default; `--wait` (or `--quiet`, `--timeout`) waits for the reply
+instead, as the person's own send does. On 2026-11-02 six waiting `--class blocker` sends from a
+machine at load 380 hit `timeout 100` on peers whose links flapped under the load; queued, a send
+returns once the message is on disk here, and the daemon delivers it when the peer answers.
 
 1. **Enqueue.** The CLI sends `_acpmux/send_queue {request}` to its own daemon: the
    `session/prompt` params it would have sent, with a prompt id. The daemon checks that the
@@ -1252,18 +1291,24 @@ here or on any peer, and it acks within a second whatever the target is doing:
    send still prints `steered` or `queued`.
 3. **Deliver.** In the background the daemon sends the prompt over its own connection, as the
    sender's session when the sender proved one, so every rule of a direct send applies; a peer's
-   session is forwarded as usual. An attempt ends on the target's `_acpmux/prompt_accepted`,
+   session is forwarded as usual. Before it queues, the CLI asks the daemon at most 300 ms each
+   whether the target is the sender's parent and whether its machine is paused, since either
+   question may go to a slow peer. An attempt ends on the target's `_acpmux/prompt_accepted`,
    which a peer now passes back as soon as it takes the prompt, not when its turn ends.
 4. **Retry and dedupe.** A connection error, a peer that is down and a target that does not
-   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes (about
-   34 minutes in all), always with the same prompt id and `resend`, so a target that took an
+   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes, then
+   every 15 minutes until a day after it was sent, and at once whenever a peer's session list
+   comes back (its link reconnected), always with the same prompt id and `resend`, so a target that took an
    earlier attempt answers with that one and never runs it twice. Sending the same prompt id
    again returns the first delivery. A refusal (no such session, the folder's trust, a bad
    prompt, a full agent pair) fails the delivery at once. A paused agent pair leaves it `held`:
    the target's daemon runs it when the person resumes the pair, so it is never sent again from
    here. `--no-wait` prints a refusal or a hold that comes within half a second as its error, as
    a direct send did.
-5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
+5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
+   `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
+   first. `acpmux session inbox SESSION` ends with the messages that session sent and their
+   state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
@@ -1334,7 +1379,9 @@ so an agent messages another lane or session with a tool call instead of piping 
   It also takes `class`, `pr`, `thread` and `supersede` (as the CLI's flags), `file` in place of
   `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the
   folder the agent runs in), `tag` in place of `to` (every live session carrying it, at most 32, not the sender),
-  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?}]`, a batch of up
+  `notice: {sender?, host?, severity, title, links?}` sends it as a tool's notice (as `acpmux
+  send --notice`; `text` is its optional body, the sender defaults to this session's name),
+  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?, notice?}]`, a batch of up
   to 32 sent in order, with the top-level fields as each item's defaults. With `messages` or
   `tag` the result is `results: [{index, to, target, tag, ok, promptId, deliveryId, status,
   sessionId, delivery, error?}]` plus `sent` and `failed`: one row per recipient, a bad one its
@@ -1342,7 +1389,9 @@ so an agent messages another lane or session with a tool call instead of piping 
   before it was taken, so they arrive in the order given (one still on its way after the 5 s
   wait holds back the rest to that session, with a row saying why); different sessions go side
   by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
-- `acpmux_ls {status?}`: one line per session on this machine and its peers.
+- `acpmux_ls {status?, query?, limit?}`: one line per session on this machine and its peers,
+  newest first. Closed sessions are left out unless `status` is `closed`; `query` matches name,
+  title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `acpmux session info`.
 
@@ -1407,10 +1456,16 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A session an agent starts from inside its own session (`acpmux new|run`, a local `dispatch`,
-  `--parent`, the `start_session` tool), with no policy or mode of its own, inherits that session's policy (or a narrower
-  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider;
-  a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
+  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
+  its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
+  never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower
+  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider
+  (`hub/start_mode.rs`, "Inherit").
+- The person's pick of a mode that does not ask (bypass, full access) on a chat whose own policy is narrower than
+  approve-all sets that chat's policy to approve-all first, so the chat stops asking at once (`hub/policy_mode.rs`); an
+  agent or script still gets the `policy_mode` refusal, and a deny-all policy still holds.
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
 - `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
@@ -1424,6 +1479,17 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
   `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
+- `store.journal`: `true` sends every event-log line through one append-only journal in
+  `journal/` as well (default `false`, a dogfood switch). A line is then durable within one group
+  commit (an OS crash or a power loss keeps it), and the next start writes back into a chat's log
+  every line it lost. `journal-projected.json` names how far the logs are synced. Lines the start
+  could not write into a log that changed without the journal (a run with the switch off after a
+  crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
+  writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
+  which writes the logs again: it exits with status 74, and its supervisor (or the next client)
+  starts it again. A reply and an acknowledged event wait until what they show is durable. With it
+  on, an event line over 64 MiB (the journal's record limit) is refused, and its log does not get
+  it either; with it off, the log takes it. Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 
@@ -1455,7 +1521,9 @@ Extensions:
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
+| `_acpmux/queue_approve {promptId, turnId, revision}`, `_acpmux/queue_decline {promptId}` | The owner's answer to a person's prompt that waits for them (`_meta.acpmux.author.approval: "owner"`, a link guest's): approve runs it in its place in the queue (never as a steer), for the queued `turnId` and `revision` the owner saw, else `queue.stale`; once approved it runs under the stricter rules of its sender and its approver (an approval from the Web runs it as a Web prompt, checked again at dispatch); decline drops it, and its `session/prompt` answers `queue.declined`. A request with an author gets `queue.owner_only`; an answer to a prompt that no longer waits gets `queue.not_found` with `decided`. The log records `queue_approved` (with the `control` and `trustGate` it runs under) or `queue_declined`. Capability `queue-approval-v1` ([hub/queue_approve.rs](src/hub/queue_approve.rs)). |
 | `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
+| `_acpmux/queue_get {promptId}` | The owner reads a queued prompt whole before answering it: `{promptId, turnId, revision, text, prompt, inlineParts, author, provenance, awaitingOwner}`, `prompt` the full blocks as it would run now. Owner only (`queue.owner_only`); `queue.not_found` with `decided` once it left the queue. Capability `queue-get-v1`, feature `queueGet`, which a peer must list to be forwarded it. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
@@ -1527,6 +1595,40 @@ list with no daemon running, which the cmux app bundle records for its web pages
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
+
+### Fork before an edited prompt
+
+Gate Edit and Resend on `initialize._meta.acpmux.operations` containing
+`acp.session.fork.beforePromptId`. Send the source's recorded prompt identity and a stable
+client-generated retry identity:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"acp.session.fork","params":{"sessionId":"source","beforePromptId":"prompt-id","requestId":"edit-request-id"}}
+```
+
+Both ids must contain 1–512 UTF-8 bytes. Omit `throughSeq` and `live` entirely, including
+`live: false`. The daemon validates the complete source history. For Claude and Codex it
+forks through the preceding completed turn, or creates an empty configured child for the
+true first prompt. The reply's `sessionId` is the child; send the edited prompt there.
+Configuration and parent/boundary lineage follow fork semantics; source history stays unchanged.
+A retry with the same source, request id and boundary returns that child even after a lost reply.
+Reusing the request id for another boundary is refused. An incomplete persisted fork is refused
+without creating another child. Direct `session/fork` cannot supply internal boundary metadata.
+
+Refusals use JSON-RPC `-32602` and `data.reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `fork.invalid_boundary` | Invalid ids or combined boundary selectors. |
+| `fork.unknown_prompt` | No recorded prompt has that identity. |
+| `fork.ambiguous_prompt` | More than one recorded prompt has that identity. |
+| `fork.unsupported` | Unsupported harness or steering boundary. |
+| `fork.unreconstructable` | The full boundary or prompt content cannot be reconstructed. |
+| `fork.request_conflict` | The persisted request identity names a different boundary. |
+| `fork.incomplete` | The persisted fork has not completed safely. |
+
+Existing fork authorization and admission checks still apply. Retain the editor draft on refusal;
+never fall back to a whole-conversation fork when the capability is absent.
 
 ### Typed errors
 

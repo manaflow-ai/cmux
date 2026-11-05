@@ -43,7 +43,7 @@ enum AgentConfigurationHandlers {
                         try await view.setConfiguration(operation, value: value)
                         return nil
                     } catch {
-                        return ActionWorkFailure("\(operation.rawValue): \(error)")
+                        return ActionWorkFailure(log: "\(operation.rawValue): \(error)")
                     }
                 }
             })

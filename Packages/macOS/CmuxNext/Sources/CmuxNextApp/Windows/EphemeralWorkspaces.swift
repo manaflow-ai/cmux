@@ -40,15 +40,16 @@ enum EphemeralWorkspaces {
             }
             guard let connection = daemon.connection else { return }
             do {
-                let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
-                guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
+                guard let (workspace, tab) = try await daemon.createdWorkspace(on: connection, ephemeral: true, focus: true, placed: {
+                    manager.reconcileMembership(); return manager.registry.members(of: windowID) }) else { return } // past its bound: this window's
                 if let space, let key = workspace.key { try await manager.pinToIncognitoSpace(key, space, on: daemon) }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
-                let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
-                guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return }
+                manager.recordIncognitoWorkspaces() // phones hide it now, not at the next membership sync
+                guard let pane = daemon.store.pane(containing: tab.surface) else { return }
                 _ = try await browserTabs.open(choice, in: pane.handle, on: daemon, url: address, incognito: true)
                 try await connection.closeTab(tab.surface)
+            } catch is WorkspaceCreateUnanswered {
+                manager.services.registry.refuse(RefusalStrings.incognitoUnanswered)
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
             }
@@ -72,6 +73,8 @@ enum EphemeralWorkspaces {
             _ = manager.incognitoProfile()
             result[id] = window
         }
+        // A workspace another client made ephemeral: phones hide it as soon as the app knows the flag.
+        if !result.isEmpty { manager.recordIncognitoWorkspaces() }
         return result
     }
 

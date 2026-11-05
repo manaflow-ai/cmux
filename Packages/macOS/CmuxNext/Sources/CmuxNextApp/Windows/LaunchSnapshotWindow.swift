@@ -17,12 +17,14 @@ struct LaunchSnapshotWindow {
         let daemon = manager.services.daemon
         guard daemon.store.isProvisional else { return false }
         if let document = daemon.launchSnapshotWindows, showSaved(document) { return true }
+        // Every saved window was closed at quit: none of their workspaces shows (#31514).
+        if let windows = daemon.launchSnapshotWindows?.windows, !windows.isEmpty, windows.allSatisfy(\.isClosed) { return false }
         return showEveryWorkspace(daemon.store)
     }
 
     private func showSaved(_ document: WindowStateDocument) -> Bool {
         let saved = WindowRegistry(records: document.windows)
-        guard let front = saved.recency.first(where: { id in saved.window(id).map(manager.hasMirroredWorkspace) == true }),
+        guard let front = saved.recency.first(where: { id in saved.window(id).map { $0.isOpen && manager.hasMirroredWorkspace($0) } == true }),
               let record = document.windows.first(where: { $0.id == front }), let window = saved.window(front) else { return false }
         manager.launchWindowID = front
         manager.state(for: front).adopt(record)

@@ -75,7 +75,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
 afterAll(() => {
@@ -216,6 +216,14 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const nameOf = (row: HTMLElement) => row.querySelector(".acpmux-menu-label")?.textContent ?? "";
 const detailOf = (row: HTMLElement) => row.querySelector(".acpmux-quick-value")?.textContent ?? "";
+// A menu with a harness rail (fixed: false) is the columns menu: its rows name their model, and their
+// title adds the provider the row lands.
+const cols = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+const colRows = () => [...(cols()?.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]') ?? [])];
+const colName = (row: HTMLElement) => row.querySelector(".acpmux-cols-name")?.textContent ?? "";
+const colProvider = (row: HTMLElement) => row.title.split(" · ").slice(1).at(-1) ?? "";
+const colTab = (name: string) =>
+  cols()!.querySelector<HTMLElement>(`.acpmux-cols-tab[role="tab"][aria-label="${name}"]`);
 
 test("an OpenCode chat's menu lists each model once, naming the provider its row lands", async () => {
   await mount();
@@ -328,13 +336,24 @@ test("Starred lands an available provider when the running one is unavailable", 
     "cmux.model-picker.favorites",
     JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
   );
-  await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
-  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  const { landed } = await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  const starred = colTab("Starred")!;
   await act(async () => starred.click());
-  const rows = modelRows(menus()[0]!);
-  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-  expect(detailOf(rows[0]!)).toBe("OpenRouter");
+  const rows = colRows();
+  expect(rows.map(colName)).toEqual(["DeepSeek V4 Pro"]);
+  expect(rows[0]!.hasAttribute("aria-disabled")).toBe(false);
+  expect(colProvider(rows[0]!)).toBe("OpenRouter");
+  // The running model's settings column offers its providers; the running one is unavailable.
+  const providers = [...cols()!.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]')];
+  expect(providers.map((row) => [row.textContent, row.getAttribute("aria-disabled")])).toEqual([
+    ["OpenCode", "true"],
+    ["OpenRouter", null],
+  ]);
+  await act(async () => providers[1]!.click());
+  // The menu stays open; the pick lands as the button closes it.
+  expect(cols()).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
 });
 
 test("a New Tab row of a model lands an available provider when the first one is unavailable", async () => {
@@ -349,12 +368,10 @@ test("a New Tab row of a model lands an available provider when the first one is
   // The chat runs another model, so nothing pins the row to the unavailable provider. The menu
   // lists each family's newest available model (relevantModels.ts, #26071), so the row is in it.
   await mount("zai/glm-5.3", { catalog, fixed: false });
-  const pro = menus()
-    .flatMap(modelRows)
-    .find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
+  const pro = colRows().find((row) => colName(row) === "DeepSeek V4 Pro")!;
   expect(pro).toBeDefined();
-  expect(pro.hasAttribute("data-disabled")).toBe(false);
-  expect(detailOf(pro)).toBe("OpenRouter");
+  expect(pro.hasAttribute("aria-disabled")).toBe(false);
+  expect(colProvider(pro)).toBe("OpenRouter");
 });
 
 test("Starred lists a model once when several of its providers are starred", async () => {
@@ -363,13 +380,13 @@ test("Starred lists a model once when several of its providers are starred", asy
     JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
   );
   await mount("zai/glm-5.3", { fixed: false });
-  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  const starred = colTab("Starred")!;
   expect(starred).not.toBeNull();
   await act(async () => starred.click());
-  expect(modelRows(menus()[0]!).map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(colRows().map(colName)).toEqual(["DeepSeek V4 Pro"]);
 });
 
-test("More models names each model's provider and tag", async () => {
+test("Legacy models name each model's provider and tag", async () => {
   const catalog = [
     {
       ...openCode[0]!,
@@ -384,18 +401,15 @@ test("More models names each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
-  // The default symbols layout names More models "Legacy models".
-  const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("Legacy models"),
-  )!;
-  expect(more).toBeDefined();
-  await act(async () => more.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  const rows = modelRows(menus().at(-1)!);
+  // The tab's older models follow its "Legacy models" caption in the same column.
+  const list = [...cols()!.querySelector('[role="listbox"]')!.children] as HTMLElement[];
+  const caption = list.findIndex((item) => item.textContent === "Legacy models");
+  expect(caption).toBeGreaterThan(0);
+  const rows = list.slice(caption + 1).filter((item) => item.getAttribute("role") === "option");
   expect(rows.length).toBeGreaterThan(0);
-  for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
-  expect(rows.map(nameOf).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);
-  const kimi = rows.find((row) => nameOf(row) === "Kimi K2")!;
-  expect(kimi.querySelector(".acpmux-quick-tag")?.textContent).toBe("Preview");
-  expect(detailOf(kimi)).toBe("OpenCode");
+  for (const row of rows) expect(colProvider(row), colName(row)).not.toBe("");
+  expect(rows.map(colName).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);
+  const kimi = rows.find((row) => colName(row) === "Kimi K2")!;
+  expect(kimi.querySelector(".acpmux-cols-tag")?.textContent).toBe("Preview");
+  expect(colProvider(kimi)).toBe("OpenCode");
 });

@@ -46,7 +46,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? densityHeight
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        buttonSize = tokens.resolve(compact: 28, comfortable: 34)
+        buttonSize = tokens.toolbarButtonSize
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).

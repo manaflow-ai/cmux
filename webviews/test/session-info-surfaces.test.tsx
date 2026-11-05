@@ -12,14 +12,22 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
+  FLOAT_MARGIN,
   SessionInfoPanel,
+  pushedWidth,
+  pushedRoom,
+  sessionInfoFits,
   sessionInfoShown,
+  sessionInfoStage,
   paneRoom,
   useSessionInfo,
 } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { setNativeHost } from "../src/agent-session/acpmux/native";
+import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
 import {
   sessionInfoState,
   resetSessionInfoState,
@@ -316,11 +324,13 @@ test("in a wide pane it floats beside the transcript", async () => {
 
 // Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
 // project row asks for its Files tab (App.tsx: right of the chat), and a panel floating over the chat
-// steps aside, still open for its toggle, so the chat and the new tab are what show.
-function FolderPane({ opened }: { opened: string[] }) {
+// steps aside, still open for its toggle, so the chat and the new tab are what show. Where the gutter
+// cannot hold it the panel pushes the chat (#31423), so it floats over the chat only in a short or too
+// narrow pane, as a popover (sessionInfoPopover), which shows only once the person opens it.
+function FolderPane({ opened, chatSnapshot = snapshot }: { opened: string[]; chatSnapshot?: typeof snapshot }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const sessionInfo = useSessionInfo({
-    snapshot,
+    snapshot: chatSnapshot,
     machineName: "Studio",
     shell,
     onOpenFolder: (path) => opened.push(path),
@@ -332,17 +342,24 @@ function FolderPane({ opened }: { opened: string[] }) {
         if (element && element !== shell) setShell(element);
       }}
     >
+      {sessionInfo.button}
       {sessionInfo.panel}
     </section>
   );
 }
 
-async function mountFolderPane(width: number, opened: string[]) {
+async function mountFolderPane(width: number, opened: string[], height = 0) {
   const container = installDom();
   Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
     configurable: true,
     get(this: HTMLElement) {
       return this.classList.contains("acpmux-shell") ? width : 0;
+    },
+  });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("acpmux-shell") ? height : 0;
     },
   });
   await act(async () => setSessionInfoOpen(true));
@@ -358,7 +375,11 @@ const projectRow = (container: HTMLElement) =>
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];
-  const container = await mountFolderPane(480, opened);
+  // A short narrow pane: the panel is a popover over the chat, not a pushed column, and a saved open
+  // state alone never shows it there (cmuxterm-hq#6137); the toggle does.
+  const container = await mountFolderPane(480, opened, 400);
+  expect(panel(container)).toBeNull();
+  await act(async () => toggle(container).click());
   expect(panel(container)).not.toBeNull();
   await act(async () => projectRow(container).click());
   expect(opened).toEqual([snapshot.summary!.cwd!]);
@@ -371,5 +392,111 @@ test("beside the chat, a project click opens its Files tab and the panel stays",
   const container = await mountFolderPane(1600, opened);
   await act(async () => projectRow(container).click());
   expect(opened).toEqual([snapshot.summary!.cwd!]);
+  expect(panel(container)).not.toBeNull();
+});
+
+// cmuxterm-hq#6137 (NEXT nightly 1.0.0-nightly.4150738990701): a new chat in a 370px pane opened with
+// Session Info over the chat's "Not sent" line, Retry and composer. Where the pane cannot hold a readable
+// chat beside the panel at its narrowest (sessionInfoFits), a saved open state leaves the chat clear; the
+// toggle opens it over the chat, stopping above the composer (Leo, 2026-11-03: "but you should still be
+// able to have it be an overlay... gradually pushing into the chat layout -> overlay").
+for (const width of [370, 528]) {
+  test(`in a ${width}px pane a saved open state leaves the chat clear; the toggle opens it over the chat above the composer`, async () => {
+    const opened: string[] = [];
+    const container = await mountFolderPane(width, opened, 960);
+    expect(sessionInfoFits(width)).toBe(false);
+    expect(panel(container)).toBeNull();
+    expect(container.querySelector<HTMLElement>(".acpmux-shell")!.dataset.sessionInfoChatPlacement).toBeUndefined();
+    expect(sessionInfoState().open).toBe(true);
+    await act(async () => toggle(container).click());
+    const card = panel(container) as HTMLElement | null;
+    expect(card).not.toBeNull();
+    expect(card!.dataset.placement).toBe("overlay");
+    expect(card!.hasAttribute("data-over-chat")).toBe(true);
+    expect(card!.hasAttribute("data-popover")).toBe(false);
+    expect(card!.style.width).toBe("320px");
+    expect(container.querySelector<HTMLElement>(".acpmux-shell")!.dataset.sessionInfoChatPlacement).toBe("overlay");
+  });
+}
+
+test("in a 740px pane a saved open state opens it over the chat: a push would narrow the column", async () => {
+  // Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
+  // itself and its text shouldn't be affected by the session info if it would need to be then session
+  // info should be an overlay".
+  const opened: string[] = [];
+  const container = await mountFolderPane(740, opened, 960);
+  expect(sessionInfoFits(740)).toBe(true);
+  const card = panel(container) as HTMLElement | null;
+  expect(card?.dataset.placement).toBe("overlay");
+  expect(card?.hasAttribute("data-over-chat")).toBe(true);
+  expect(card?.style.width).toBe("320px");
+});
+
+test("in a 1100px pane a saved open state opens it, pushing the column left at its own width", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(1100, opened, 960);
+  const card = panel(container) as HTMLElement | null;
+  expect(card?.dataset.placement).toBe("push");
+  expect(card?.style.width).toBe(`${pushedWidth(1100, 320)}px`);
+  const room = pushedRoom(1100, pushedWidth(1100, 320));
+  expect(transcriptColumn(1100 - room).width).toBe(transcriptColumn(1100).width);
+});
+
+// The App draws the panel natively (#32159) over the page at the page's width and margin from the
+// pane's right edge (AgentPaneView+SessionInfo.swift sessionInfoFrame). Pushing, the page keeps the
+// room the panel takes (pushedRoom) in the shell's row, so the chat's column moves left beside the
+// native panel instead of lying under it. Where a push would narrow the column, the native panel lies
+// over the chat: the page keeps none.
+for (const width of [370, 528, 740, 1100, 1420]) {
+  test(`native, in a ${width}px pane the page keeps the room the native panel takes`, async () => {
+    const posted: { open: boolean; width: number; side: number }[] = [];
+    setNativeHost(async (method, params) => {
+      if (method === "pane.sessionInfo" && params.info) posted.push(params.info as (typeof posted)[number]);
+      return {};
+    });
+    setNativeSessionInfoHost(true);
+    try {
+      const opened: string[] = [];
+      const container = await mountFolderPane(width, opened, 960);
+      if (!sessionInfoFits(width)) await act(async () => toggle(container).click());
+      await act(async () => new Promise((resolve) => dom!.window.requestAnimationFrame(() => resolve(undefined))));
+      const room = container.querySelector<HTMLElement>(".acpmux-session-info-room");
+      if (sessionInfoStage("overlay", { width, height: 960 }, 320) !== "push") {
+        expect(room).toBeNull();
+        expect(posted.at(-1)).toMatchObject({ open: true, width: 320, side: 0 });
+        return;
+      }
+      const expected = pushedWidth(width, 320);
+      const taken = pushedRoom(width, expected);
+      expect(taken).toBeGreaterThan(0);
+      expect(parseFloat(room!.style.width) + parseFloat(room!.style.marginRight)).toBe(taken);
+      expect(posted.at(-1)).toMatchObject({ open: true, width: expected, side: 0 });
+      // The column keeps its width: it only moves left.
+      expect(transcriptColumn(width - taken).width).toBe(transcriptColumn(width).width);
+      if (width === 1420) expect(taken).toBeLessThan(expected + FLOAT_MARGIN);
+    } finally {
+      setNativeSessionInfoHost(false);
+      setNativeHost(undefined);
+    }
+  });
+}
+
+test("a narrow pane switched to another chat starts that chat with its transcript clear", async () => {
+  // The person opened the popover for one chat; the pane then shows another chat whose saved state is
+  // open. The ask was for the first chat, so the second starts unasked.
+  const opened: string[] = [];
+  const container = await mountFolderPane(370, opened, 960);
+  await act(async () => toggle(container).click());
+  expect(panel(container)).not.toBeNull();
+  const other = { ...snapshot, sessionId: "other-chat", summary: { ...snapshot.summary!, sessionId: "other-chat" } };
+  await act(async () => root!.render(<FolderPane opened={opened} chatSnapshot={other} />));
+  expect(panel(container)).toBeNull();
+  await act(async () => toggle(container).click());
+  expect(panel(container)).not.toBeNull();
+});
+
+test("a tall pane with room keeps opening Session Info from its saved state", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(1600, opened, 960);
   expect(panel(container)).not.toBeNull();
 });

@@ -9,7 +9,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	k
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	keep	project-local .cmux/context folder, not a state root
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1	move	unreviewed at S7 (cx-is1kf.8)
-Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	unreviewed at S7 (cx-is1kf.8)
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	credentialsDirectory: this build’s own cmux/<bundle id> token files; moving to the resolver needs a migration
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudPaths.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift	2	keep	resolver: BuildIdentity
 Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -22,6 +22,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineLink.swift	1	move	u
 Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFixPriorStore.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-cloud-environment/src/lib.rs	1	keep	resolver: per-bundle NEXT Cloud environment selection; validated bundle component
 cmux-tui/crates/acpmux/src/chats/sources.rs	3	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/cli/hosts.rs	3	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
@@ -51,3 +52,4 @@ cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs	1	keep	~/.acpmux on a rem
 cmux-tui/crates/cmux-git/src/worktree_root.rs	1	keep	resolver: worktree_root, the person's worktrees (~/.cmux/worktrees.noindex on macOS), not per-build state; acpmux sub-sessions and git.worktree.create both ask it
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	1	keep	watches acpmux's machine-wide per-OS-user consent folder (cli/machine_consent.rs), shared across app tags by design; never read or written
 cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	keep	machine-wide per-OS-user consent authority, shared across app tags by design
+cmux-tui/crates/cmux-tui/src/cli/workflow.rs	1	keep	project-owned workflow source directory specified by native workflows; never a per-build daemon state root

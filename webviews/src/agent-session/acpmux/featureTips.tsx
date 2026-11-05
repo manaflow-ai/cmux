@@ -18,7 +18,7 @@ export const PANE_TIP_ANCHORS: Readonly<Record<string, TipAnchor>> = {
     feature: "browser",
   },
   /** The header's Session Info or Summary toggle (header/PanelToggle.tsx). */
-  "agent.inspector": { selector: ".acpmux-header-tools .acpmux-header-panel-toggle", side: "bottom" },
+  "agent.sessionInfo": { selector: ".acpmux-header-tools .acpmux-header-panel-toggle", side: "bottom" },
   /** The composer (ComposerBox.tsx), for a feature typed there (/btw). */
   "composer.prompt": { selector: ".acpmux-composer-box", side: "top" },
 };

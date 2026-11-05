@@ -26,8 +26,9 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// other tabs' minimum is the favicon plus close button width.
     public static let tabMaxWidth = LayoutMetricSetting(name: "tabMaxWidth", range: 120...320, compact: 200, comfortable: 240)
     public static let tabMinActiveWidth = token("tabMinActiveWidth", 32...320) { $0.minActiveWidth }
-    /// Room for the favicon and the close button (`MetricTunables.tabMinInactiveWidth`), not Chrome's 32.
-    public static let tabMinInactiveWidth = LayoutMetricSetting(name: "tabMinInactiveWidth", range: 16...320, compact: 48, comfortable: 50)
+    /// Room for the favicon, a few title characters and the close button (`MetricTunables.tabMinInactiveWidth`),
+    /// not Chrome's 32.
+    public static let tabMinInactiveWidth = LayoutMetricSetting(name: "tabMinInactiveWidth", range: 16...320, compact: 72, comfortable: 74)
     public static let tabPinnedWidth = token("tabPinnedWidth", 24...120) { $0.pinnedWidth }
     public static let tabWidths: [LayoutMetricSetting] = [tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth]
     /// The tab bar's height (its pills follow it, `Metrics.tabHeight`) and the tab titles' text size, apart

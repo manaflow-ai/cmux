@@ -40,4 +40,26 @@ import Testing
         }
         #expect(try await settings.file.value(at: ["custom", "keep"]) == .bool(true))
     }
+
+    /// A renamed row's old key goes too, or it would apply again behind the reset
+    /// (`agentPane.display.inspector.placement`, now `agentPane.display.sessionInfo.placement`).
+    @Test func resetAllPrunesARenamedRowsOldKey() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-reset-renamed-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let url = home.appending(path: "cmux-next.json")
+        try Data(#"{ "agentPane": { "display": { "inspector": { "placement": "push" } } } }"#.utf8).write(to: url)
+        let settings = SettingsController(
+            registry: ActionRegistry(catalog: []),
+            design: DesignSettings(),
+            fileURL: url,
+            managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+            managedWatchFiles: []
+        )
+        await settings.reload()
+
+        try await settings.resetAllSettings(by: .user)
+
+        #expect(try await settings.file.value(at: ["agentPane", "display", "inspector", "placement"]) == nil)
+    }
 }

@@ -59,7 +59,7 @@ jobs:
   # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
   prod-gate:
     if: inputs.channel == 'production'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -81,7 +81,7 @@ jobs:
     needs: prod-gate
     # dev skips prod-gate and runs as before; production runs only after it passed.
     if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.channel == 'dev' && needs.prod-gate.result == 'skipped')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # dev: the cmux-next dev Freestyle account only (D-A7), the bake's environment and key.
     # production: the production account's key and the compat gate's test profile, nothing else.
     # Both environments allow only feat-cmux-next.

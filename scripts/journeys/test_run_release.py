@@ -42,9 +42,11 @@ calls = []
 def remote(host, script, input=None, timeout=600, check=True):
     calls.append(script)
     with open(os.environ["CH_LOG"], "a") as f:
-        f.write("remote " + ("driver" if "driver.py" in script else "download" if "cmux-ci artifact" in script else "other") + "\n")
-        if "cmux-ci artifact" in script:
-            f.write("cache " + ("yes" if ".cache/cmux-journeys/builds/JOB1" in script else "no") + "\n")
+        fill = "build_cache" in script or "cmux-ci artifact" in script
+        f.write("remote " + ("driver" if "driver.py" in script else "download" if fill else "other") + "\n")
+        if fill:
+            f.write("cache " + ("yes" if "JOURNEYS_CACHE_ROOT=\"$HOME/.cache/cmux-journeys\"" in script and "'JOB1'" in script
+                                else "no") + "\n")
     if "driver.py" in script:
         if mode == "raise":
             raise RuntimeError("ssh: the mini went away")

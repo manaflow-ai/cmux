@@ -63,19 +63,28 @@ import Testing
     }
 
     /// Entitlements that cannot be read and a lookup that does not answer:
-    /// starting returns at once and a reader gets "no group" after its timeout.
+    /// starting returns at once and a reader gets "no group" after its timeout,
+    /// while the lookup still hangs.
+    ///
+    /// No wall-clock bound on the read: the main actor is shared with every
+    /// other suite's @MainActor tests, so the hop back here after the read can
+    /// wait seconds on them (it did, 2.7-4.3 s, once heavier Feed tests landed).
+    /// The lookup outlives the whole test instead, so a reader that waited for
+    /// it would see its answer, not nil.
     @MainActor @Test func aLookupThatDoesNotAnswerNeverHoldsTheMainThread() async {
         let lookups = Lookups()
         let gate = DispatchSemaphore(value: 0)
         let resolver = PushAppGroupResolver(environment: Self.environment(entitled: nil, lookups: lookups) {
-            _ = gate.wait(timeout: .now() + 3)
+            _ = gate.wait(timeout: .now() + 60)
         })
         let clock = ContinuousClock()
         let start = clock.now
         resolver.start()
         #expect(clock.now - start < .milliseconds(250))
         #expect(await resolver.resolved(timeout: .milliseconds(200)) == nil)
-        #expect(clock.now - start < .seconds(2))
+        // The reader gave up on its own timeout: the lookup has not answered.
+        #expect(resolver.cached == nil)
+        #expect(lookups.countOnMain == 0)
         gate.signal()
     }
 }

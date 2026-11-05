@@ -148,7 +148,7 @@ extension IPhoneHostService {
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
         lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
         let spec = CmuxDialogSpec(
-            title: IPhoneHostStrings.pairTitle(name), lines: lines,
+            title: IPhoneHostStrings.pairTitle(name, key: request.shortFingerprint), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
             identifier: Self.pairDialogIdentifier)

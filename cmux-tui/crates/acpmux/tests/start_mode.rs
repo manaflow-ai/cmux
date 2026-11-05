@@ -277,6 +277,42 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `defaultPermissionMode: "yolo"` is full access (user 2026-11-03: "default it to be
+/// yolo"), and a harness's own `defaults.<harness>.permissionMode` wins over it for that
+/// harness only, in a new chat and in the answer the app's mode picker reads.
+#[tokio::test]
+async fn yolo_is_full_access_and_a_harness_override_wins_for_that_harness() {
+    let dir = home(
+        "yolo-harness",
+        json!({"defaultPermissionMode": "yolo", "defaults": {"codex": {"permissionMode": "ask"}}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["level"], "fullAccess", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let answer = start_mode(&mut app, &dir, "codex").await;
+    assert_eq!(answer["modeId"], "ask", "{answer}");
+    assert_eq!(answer["level"], "ask", "{answer}");
+    assert_eq!(answer["source"], "harness", "{answer}");
+    drop(app);
+    drop(daemon);
+
+    // The override widens too: a person who asks by default can let one harness skip.
+    let dir2 = home(
+        "harness-yolo",
+        json!({"defaultPermissionMode": "ask", "defaults": {"claude": {"permissionMode": "yolo"}}}),
+    );
+    let daemon = hub(&dir2);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir2, "claude").await.1, "bypassPermissions");
+    assert_eq!(app.chat(&dir2, "codex").await.1, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&dir2);
+}
+
 #[tokio::test]
 async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_none() {
     let dir = home("web", json!({"defaultPermissionMode": "fullAccess"}));
@@ -751,12 +787,16 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     assert!(r.get("error").is_none(), "{r}");
     let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
+    let epoch = begin["result"]["epoch"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
     let r = mover
-        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": transfer, "epoch": epoch}),
+        )
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
@@ -993,5 +1033,57 @@ async fn chief_subagent_chats_follow_an_asking_start_level() {
         .call("session/set_mode", json!({"sessionId": sub, "modeId": "agent-full-access"}))
         .await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// User 20336: "in acpmux/chat ui, changing permissions doesnt work (it was in edits, then i
+/// changed to bypass, and it was still asking me)". A chat whose own narrower policy (approve-edits,
+/// as an agent's start gave it) holds it in an asking mode refused the person's pick of a mode that
+/// does not ask (`policy_mode`), so the harness kept asking. The person's pick now widens that
+/// chat's policy to approve-all first: the switch takes at once, and the next ask is answered
+/// without them, for Claude Code and for Codex.
+#[tokio::test]
+async fn the_persons_bypass_pick_on_an_edits_chat_stops_the_asking() {
+    let dir = home("policy-person-bypass", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for (harness, full) in [("claude", "bypassPermissions"), ("codex", "agent-full-access")] {
+        let (id, mode) = app.chat_with_policy(&dir, harness, "approve-edits").await;
+        assert_ne!(mode, full, "{harness}: the approve-edits chat asks first");
+        let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": full})).await;
+        assert!(r.get("error").is_none(), "{harness}: the person's pick takes: {r}");
+        assert_eq!(app.mode(&id).await, full, "{harness}");
+        let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+        assert_eq!(info["result"]["policy"], "approve-all", "{harness}: {info}");
+    }
+    // The harness asks before a shell command; with the pick, nothing waits for the person.
+    let (claude, _) = app.chat_with_policy(&dir, "claude", "approve-edits").await;
+    let r = app
+        .call("session/set_mode", json!({"sessionId": claude, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": claude, "prompt": [{"type": "text", "text": "always-ask"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "the turn ends with no answer from the person: {r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": claude})).await;
+    assert_eq!(info["result"]["pendingPermissions"], 0, "{info}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A deny-all lockdown still holds: the person's pick of a mode that does not ask is refused
+/// there, as before (`policy_mode.rs`).
+#[tokio::test]
+async fn the_persons_bypass_pick_on_a_deny_all_chat_is_still_refused() {
+    let dir = home("policy-person-deny", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "codex", "deny-all").await;
+    let r =
+        app.call("session/set_mode", json!({"sessionId": id, "modeId": "agent-full-access"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }

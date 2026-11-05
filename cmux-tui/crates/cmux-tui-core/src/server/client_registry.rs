@@ -3,9 +3,11 @@
 //! surfaces and view leases) and the daemon handoff reservation. Attach and
 //! view-lease methods are in `client_registry_views`.
 
+mod facts;
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
+pub(super) use facts::ClientFacts;
 pub(super) use record::ClientRecord;
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
@@ -101,6 +103,22 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
+    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
+    /// lock on the typing path. Kept with the route generation of its id at the lookup (`route_table`): a respawn,
+    /// close, move or other change of that id's route makes the next key look it up again. Goes with this record at
+    /// the last detach and at disconnect.
+    pub(super) input: (Weak<crate::Surface>, u64),
+}
+
+impl AttachedSurface {
+    /// Whether this client can type into the surface: an attach that may own the keyboard (the app's terminal view,
+    /// a legacy attach with no lease, or any view that is not read-only). A client attached only through read-only
+    /// views (`terminal.attach read_only`) watches; its keys are automation's, never the person's
+    /// (server/input_qos.rs).
+    pub(super) fn can_type(&self) -> bool {
+        self.view_sizes.is_empty()
+            || self.view_sizes.keys().any(|lease| !self.read_only_leases.contains(lease))
+    }
 }
 
 pub(super) struct DetachedSurface {
@@ -315,8 +333,14 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs): the
-    /// DEV orphan exit and the lost-paths exit each add one.
+    /// DEV orphan exit, the lost-paths exit and the keepers watch each add
+    /// one. Also called once a connection's role-main hello makes it the
+    /// app's frontend.
     pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+    /// A role-main `client-hello` (the app's frontend) came since this owner
+    /// started: from then on nothing but its keepers holds an app session's
+    /// owner (owner_keepers.rs).
+    pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -335,13 +359,21 @@ pub(crate) struct ClientRegistry {
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
+    pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
-    pub(super) state: Mutex<ClientRegistryState>,
+    /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
+    /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
+    pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
+    /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): the line and key paths read [`ClientFacts`] and the
+    /// session's published routes instead of taking the registry and session locks.
+    pub(crate) input_lane: crate::rds_switch::InputLaneSwitch,
+    /// Who created each live incognito workspace (incognito_orphans.rs).
+    pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -380,10 +412,13 @@ fn validate_resource_client_label(
 }
 
 impl ClientRegistry {
-    pub(crate) fn new() -> Self {
+    /// `input_lane` is the mux's stage S1 switch (R-DAEMON-STATE): on, the registry publishes [`ClientFacts`].
+    pub(crate) fn new(input_lane: crate::rds_switch::InputLaneSwitch) -> Self {
+        let publishing = input_lane.on();
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
+            frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -392,12 +427,13 @@ impl ClientRegistry {
             browser_runtimes: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
-            agent_sessions: Default::default(),
+            agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
+            remote_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -408,7 +444,13 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
-            state: Mutex::new(ClientRegistryState::default()),
+            state: crate::published::Published::new(
+                ClientRegistryState::default(),
+                ClientFacts::of,
+                publishing,
+            ),
+            input_lane,
+            incognito_creators: Default::default(),
         }
     }
 
@@ -441,6 +483,7 @@ impl ClientRegistry {
             client,
             ClientRecord {
                 transport,
+                native_vm_kind: None,
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
@@ -479,11 +522,28 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
+    /// Turns stage S1 on or off for this registry (tests): the switch, and the publications it reads (the facts, the
+    /// proxy authors). Only part of the stage: tests call `Mux::set_input_lane_for_test`, which also publishes the
+    /// session's routes and the link peers and switches the admission budget.
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_publishing_for_test(on);
+        #[cfg(unix)]
+        self.agent_sessions.set_publishing_for_test(on);
+        self.input_lane.set_for_test(on);
+    }
+
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff.is_some();
+        }
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff == Some(true);
+        }
         matches!(
             self.state.lock().recover_poison().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
@@ -678,6 +738,8 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY
+                    || capability == super::TREE_SELECTION_DELTAS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
@@ -690,6 +752,7 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

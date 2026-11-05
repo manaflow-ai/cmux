@@ -46,6 +46,7 @@ final class FeedService {
     /// Told every owner-confirmed item (snapshot and events), never the overlay
     /// (the agent permission feed bridge reads answers here).
     var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
+    private let approvalHolds: CloudApprovalHolds?  // hears each Cloud hold the owner closes (answered on any device)
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
@@ -53,8 +54,8 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, appActive: @escaping @MainActor () -> Bool) {
-        self.auth = auth
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
+        (self.auth, self.approvalHolds) = (auth, approvalHolds)
         self.showcase = showcase
         (self.acpmuxEnvironment, self.appActive) = (acpmuxEnvironment, appActive)
         apiBaseURL = Self.apiBaseURL(auth: auth)
@@ -224,14 +225,10 @@ final class FeedService {
 
     private func applyReports(_ page: AcpmuxMailboxPage) {
         for message in page.messages {
-            reportRows[message.id] = FeedReport(
-                id: message.id,
-                sender: message.sender,
-                body: message.body,
-                createdAt: message.createdAt
-            )
+            reportRows[message.id] = FeedReport(id: message.id, sender: message.sender, body: message.body, createdAt: message.createdAt)
         }
-        model.replaceReports(Array(reportRows.values))
+        // Only what the basket shows stays: a long-lived mailbox is read page by page from its start.
+        reportRows = model.replaceReports(reportRows)
     }
 
     private func observe(_ event: FeedSourceEvent) {
@@ -245,12 +242,14 @@ final class FeedService {
             }
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
+            approvalHolds?.recordAnswered(snapshot.items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
             resumeClosed()
             onConfirmedItems?(snapshot.items)
         case let .event(event):
             switch event.change {
             case let .items(items):
                 for item in items { confirmed[item.id] = item.state }
+                approvalHolds?.recordAnswered(items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
                 onConfirmedItems?(items)
             case let .remove(ids): for id in ids { confirmed[id] = nil }
             }

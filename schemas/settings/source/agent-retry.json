@@ -1,0 +1,95 @@
+{
+  "$comment": "HAND-EDITED source of the Retry After Errors settings: the acpmux daemon's loop that sends a chat's turn again by itself after a rate limit, a capacity error or a lost connection (cmux-tui/crates/acpmux/src/hub/auto_resume.rs). The daemon reads these keys from the settings file at each retry and checks this file's defaults and ranges in its tests; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "agentRetry",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentRetry",
+        "text": "Retry After Errors"
+      },
+      "note": "Settings > Agents > Retry After Errors (Lawrence via Leo, 2026-10-28: \"should have retry button + configurable timer loop retry\"). acpmux's own autoResumeDelaysMs in its config.json, when set, comes before these keys.",
+      "rows": [
+        {
+          "key": "agents.autoRetry.enabled",
+          "name": "autoRetryEnabled",
+          "note": "Off: a failed turn waits for the error card's Retry; acpmux schedules no attempt (autoResumeDelaysMs []).",
+          "title": {
+            "key": "settings.agents.autoRetry.enabled",
+            "text": "Retry Automatically"
+          },
+          "help": {
+            "key": "settings.agents.autoRetry.enabled.help",
+            "text": "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "retry",
+            "rate limit",
+            "capacity",
+            "error",
+            "resume",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.autoRetry.intervalSeconds",
+          "name": "autoRetryInterval",
+          "note": "0: the daemon's growing waits (10 s, 1 min, 5 min, then 20 min each; auto_resume.rs DEFAULT_DELAYS_MS). Any other value: that many seconds before every attempt. A provider's reset time can make a wait longer.",
+          "title": {
+            "key": "settings.agents.autoRetry.interval",
+            "text": "Seconds Between Retries"
+          },
+          "help": {
+            "key": "settings.agents.autoRetry.interval.help",
+            "text": "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 0,
+          "keywords": [
+            "retry",
+            "interval",
+            "timer",
+            "wait",
+            "backoff",
+            "rate limit"
+          ]
+        },
+        {
+          "key": "agents.autoRetry.attempts",
+          "name": "autoRetryAttempts",
+          "note": "Attempts per failed turn, a chain of daemon restarts included (auto_resume.rs MAX_CONFIGURED_ATTEMPTS is the ceiling).",
+          "title": {
+            "key": "settings.agents.autoRetry.attempts",
+            "text": "Retries per Error"
+          },
+          "help": {
+            "key": "settings.agents.autoRetry.attempts.help",
+            "text": "How many times the chat tries again before it stops and waits for you."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 12,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 4,
+          "keywords": [
+            "retry",
+            "attempts",
+            "loop",
+            "rate limit"
+          ]
+        }
+      ]
+    }
+  ]
+}

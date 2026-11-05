@@ -41,6 +41,13 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// A failed turn's error card leads with Continue when the turn had done work (a reply, a
+    /// thought, a tool call) or had no prompt of its own (a turn a notice started), else Retry
+    /// (the Mac's `errorRecovery.ts`). Both send acpmux's turn retry, which picks up where it stopped.
+    public var continuesAfterFailure: Bool {
+        status == .failed && (!items.isEmpty || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     public var duration: TimeInterval? {
         guard let startedAt else { return nil }
         return (endedAt ?? Date()).timeIntervalSince(startedAt)
@@ -72,6 +79,14 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
             byPath[edit.path, default: []].append((edit.oldText, edit.newText))
         }
         return order.map { DiffFile(path: $0, edits: byPath[$0] ?? []) }
+    }
+
+    /// A tool call of this turn wrote a file (`edits` is not empty), without building them.
+    public var hasEdits: Bool {
+        items.contains { item in
+            guard case .tool(let call) = item, call.status != .pending, call.status != .failed else { return false }
+            return call.content.contains { if case .diff = $0 { return true }; return false }
+        }
     }
 
     public func question(_ id: String) -> AgentQuestion? {
@@ -161,13 +176,34 @@ public final class AgentChatStore {
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
+    /// An older page is being read (``loadEarlier()``).
+    public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
+    /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
+    /// (Edit and Resend of an earlier prompt).
+    public private(set) var turnSeqs: [String: Int] = [:]
+    /// Each turn's prompt (`user_message`) record seq, by turn id: what a bookmark on it marks.
+    public private(set) var promptSeqs: [String: Int] = [:]
+    /// The record seqs the chat's bookmarks (prompts) and pins (answers) mark, as acpmux keeps
+    /// them (`_acpmux/bookmark_get`, its `bookmarks` record).
+    public private(set) var bookmarkedSeqs: Set<Int> = []
+    /// The newest permission answer this phone sent, until the Mac decides that ask
+    /// (Check and Retry Permission sends it again when its reply was lost).
+    @ObservationIgnored private var sentPermissionAnswer: (permissionID: String, optionID: String?)?
+    /// The newest call the chat made was that answer (its error, if one comes, is the answer's).
+    @ObservationIgnored private var awaitsPermissionReply = false
+    /// The newest answer failed to reach the Mac while its ask stays open.
+    public private(set) var permissionAnswerUncertain = false
+    /// acpmux holds the waiting prompts (`queue_paused`) until the person resumes them.
+    public private(set) var queuePaused = false
+    /// The pause's reason as acpmux logged it (`stop`: a person's Stop held agent messages).
+    public private(set) var queuePauseReason: String?
 
     /// The chat's title: the agent's session title, else the session's name, else (a new
     /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
     public var displayTitle: String {
-        Self.chatTitle(sessionTitle: sessionTitle, name: summary.name, firstPrompt: turns.first?.prompt)
+        Self.chatTitle(sessionTitle: sessionTitle, name: summary.name, firstPrompt: firstPrompt)
     }
 
     public nonisolated static let untitledName = "New session"
@@ -189,7 +225,7 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
-    /// The allow option waiting for Face ID (nil otherwise).
+    /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
     public var returnedDraft: ReturnedDraft?
@@ -237,6 +273,9 @@ public final class AgentChatStore {
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
     private var task: Task<Void, Never>?
+    /// The chat's edit diffs, computed once each off the main thread (the transcript, its
+    /// grid card and the subagent screens share them).
+    @ObservationIgnored public let diffs = ChatDiffCache()
 
     public init(source: any AgentSessionSource) {
         self.source = source
@@ -245,31 +284,139 @@ public final class AgentChatStore {
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
-                self.apply(event)
+                self.receive(event)
             }
         }
     }
 
     isolated deinit {
         task?.cancel()
+        chunkFlush?.cancel()
     }
 
-    public var isRunning: Bool { turns.last?.status == .running }
+    // MARK: Derived state
+    //
+    // Read by views that must not redraw per streamed token (the composer, the
+    // toolbar, the transcript's host): each is stored and written only when its value
+    // changes, after every applied event, so observing it costs nothing while text streams.
 
-    public var pendingPermission: PermissionRecord? {
-        guard let turn = turns.last else { return nil }
+    /// The chat has turns (the empty state is gone).
+    public private(set) var hasTurns = false
+    /// The newest turn is running.
+    public private(set) var isRunning = false
+    /// The first turn's prompt (the title of an untitled chat).
+    public private(set) var firstPrompt: String?
+    /// An edit by the agent in any turn ("Agent Edits").
+    public private(set) var hasAgentEdits = false
+    /// The newest turn's open permission request.
+    public private(set) var pendingPermission: PermissionRecord?
+    /// The newest turn's open question.
+    public private(set) var pendingQuestion: AgentQuestion?
+    /// The running turn's latest plan.
+    public private(set) var runningPlanEntries: [ACPPlanEntry]?
+    /// Turns before the newest that hold an edit (counted once per new turn).
+    @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
+
+    /// `lastTurnOnly`: only the newest turn changed (streamed text).
+    private func refreshDerived(lastTurnOnly: Bool = false) {
+        let last = turns.last
+        assign(\.hasTurns, !turns.isEmpty)
+        assign(\.isRunning, last?.status == .running)
+        assign(\.firstPrompt, turns.first?.prompt)
+        assign(\.pendingPermission, last.flatMap(Self.openPermission))
+        assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
+        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
+        let earlier = max(turns.count - 1, 0)
+        if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
+            editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
+        }
+        assign(\.hasAgentEdits, editsBeforeLast.any || last?.hasEdits == true)
+    }
+
+    private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
         for case .permission(let record) in turn.items.reversed() where record.resolution == nil {
             return record
         }
         return nil
     }
 
-    public var pendingQuestion: AgentQuestion? {
-        guard let turn = turns.last else { return nil }
+    nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
         }
         return nil
+    }
+
+    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
+        for item in turn.items.reversed() {
+            if case .plan(_, let entries) = item { return entries }
+        }
+        return nil
+    }
+
+    // MARK: Streamed chunks, one store change per frame
+
+    /// Text chunks that arrived since the last frame, applied together at the next one
+    /// (`flushChunks`), so a burst of tokens is one change to `turns`. Any other event
+    /// applies them first, so the order of events never changes.
+    @ObservationIgnored private var pendingChunks: [AgentSessionEvent] = []
+    @ObservationIgnored private var chunkFlush: Task<Void, Never>?
+    /// Waits for the next display frame. nil applies every event at once (tests, macOS).
+    @ObservationIgnored var nextFrame: (@MainActor () async -> Void)? = AgentChatStore.defaultNextFrame
+    /// Coalesced applies (tests: one per frame, not one per chunk).
+    @ObservationIgnored private(set) var chunkFlushes = 0
+
+    func receive(_ event: AgentSessionEvent) {
+        guard let nextFrame, Self.isTextChunk(event) else {
+            flushChunks()
+            apply(event)
+            return
+        }
+        pendingChunks.append(event)
+        guard chunkFlush == nil else { return }
+        chunkFlush = Task { [weak self] in
+            await nextFrame()
+            self?.flushChunks()
+        }
+    }
+
+    /// Applies the waiting chunks now (a merged run of one message's chunks is one append).
+    func flushChunks() {
+        chunkFlush?.cancel()
+        chunkFlush = nil
+        guard !pendingChunks.isEmpty else { return }
+        let chunks = pendingChunks
+        pendingChunks = []
+        chunkFlushes += 1
+        for chunk in Self.merged(chunks) { applyEvent(chunk) }
+        refreshDerived(lastTurnOnly: true)
+    }
+
+    nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
+        switch event {
+        case .update(.agentMessageChunk), .update(.agentThoughtChunk): true
+        default: false
+        }
+    }
+
+    /// Consecutive chunks of the same message (or of thinking) joined into one.
+    nonisolated static func merged(_ chunks: [AgentSessionEvent]) -> [AgentSessionEvent] {
+        var out: [AgentSessionEvent] = []
+        for chunk in chunks {
+            switch (out.last, chunk) {
+            case (.update(.agentMessageChunk(let text, let id))?, .update(.agentMessageChunk(let more, let nextID))) where id == nextID:
+                out[out.count - 1] = .update(.agentMessageChunk(text: text + more, messageId: id))
+            case (.update(.agentThoughtChunk(let text))?, .update(.agentThoughtChunk(let more))):
+                out[out.count - 1] = .update(.agentThoughtChunk(text: text + more))
+            default:
+                out.append(chunk)
+            }
+        }
+        return out
     }
 
     public var currentModelName: String? {
@@ -335,10 +482,107 @@ public final class AgentChatStore {
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
-        // An allow is signed after Face ID: the bar shows "Waiting for Face ID…" until the
-        // decision lands or the signature fails (cancelled Face ID comes back as an error).
+        // An allow is signed with the approval key: the bar shows "Sending…" until the
+        // decision lands or the signature fails.
         approvingOptionID = option?.isAllow == true ? option?.id : nil
+        sentPermissionAnswer = (request.id, option?.id)
+        permissionAnswerUncertain = false
+        awaitsPermissionReply = true
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
+    }
+
+    // MARK: Bookmarks, pins and permissions (chat polish parity)
+
+    /// The prompt's bookmark (the Mac's thread minimap "Bookmark this turn").
+    public func isBookmarked(_ turn: AgentTurn) -> Bool {
+        promptSeqs[turn.id].map(bookmarkedSeqs.contains) ?? false
+    }
+
+    /// The answer's pin (the Mac's message row "Pin"): its `turn_result` record marked.
+    public func isPinned(_ turn: AgentTurn) -> Bool {
+        turnSeqs[turn.id].map(bookmarkedSeqs.contains) ?? false
+    }
+
+    /// Whether the prompt can be bookmarked: acpmux logged it (a replay's chat has none).
+    public func canBookmark(_ turn: AgentTurn) -> Bool { !source.isReadOnly && promptSeqs[turn.id] != nil }
+    /// Whether the answer can be pinned: its turn ended.
+    public func canPin(_ turn: AgentTurn) -> Bool { !source.isReadOnly && turnSeqs[turn.id] != nil }
+
+    public func toggleBookmark(_ turn: AgentTurn) {
+        guard let seq = promptSeqs[turn.id] else { return }
+        setMark(seq, on: !bookmarkedSeqs.contains(seq))
+    }
+
+    public func togglePin(_ turn: AgentTurn) {
+        guard let seq = turnSeqs[turn.id] else { return }
+        setMark(seq, on: !bookmarkedSeqs.contains(seq))
+    }
+
+    /// Shows the mark at once; acpmux's `bookmarks` record (every mark after a change) is what
+    /// stays. A refusal undoes this one mark only, so another change made meanwhile is kept.
+    private func setMark(_ seq: Int, on: Bool) {
+        if on { bookmarkedSeqs.insert(seq) } else { bookmarkedSeqs.remove(seq) }
+        let source = source
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await source.setBookmark(seq: seq, bookmarked: on)
+            } catch {
+                guard let self else { return }
+                if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
+                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+        }
+    }
+
+    /// Reads the chat's marks (the Mac's pane loads them on open): once it is read, later
+    /// changes come as `bookmarks` records. A read that fails (the link was not up yet) is made
+    /// again when the chat connects.
+    public func loadBookmarks() {
+        guard !loadedBookmarks, !loadingBookmarks, summary.status != .disconnected else { return }
+        loadingBookmarks = true
+        let source = source
+        Task { @MainActor [weak self] in
+            let marks = try? await source.bookmarks()
+            guard let self else { return }
+            self.loadingBookmarks = false
+            guard let marks else { return }
+            self.loadedBookmarks = true
+            self.bookmarkedSeqs = Set(marks)
+        }
+    }
+
+    @ObservationIgnored private var loadedBookmarks = false
+    @ObservationIgnored private var loadingBookmarks = false
+    /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
+    @ObservationIgnored private var wantsBookmarks = false
+
+    /// The chat is on screen: its marks are read now, or when it connects.
+    public func showBookmarks() {
+        wantsBookmarks = true
+        loadBookmarks()
+    }
+
+    /// The turns the transcript holds, for Previous/Next Turn; `bookmarkedOnly`: only those
+    /// whose prompt is bookmarked (Previous/Next Bookmarked Prompt).
+    public func navigableTurns(bookmarkedOnly: Bool) -> [AgentTurn] {
+        bookmarkedOnly ? turns.filter(isBookmarked) : turns
+    }
+
+    /// Check and Retry Permission: the answer that did not reach the Mac goes again while
+    /// its ask is still open; when the ask is gone the open asks are read again instead.
+    public func checkAndRetryPermission() {
+        guard let sent = sentPermissionAnswer, let pending = pendingPermission, pending.request.id == sent.permissionID else {
+            permissionAnswerUncertain = false
+            sentPermissionAnswer = nil
+            awaitsPermissionReply = false
+            source.refreshPermissions()
+            return
+        }
+        awaitsPermissionReply = true
+        clientError = nil
+        permissionAnswerUncertain = false
+        approvingOptionID = pending.request.options.first { $0.id == sent.optionID }?.isAllow == true ? sent.optionID : nil
+        source.send(.respondPermission(permissionId: sent.permissionID, optionId: sent.optionID))
     }
 
     /// Declines a pending question with its reject option.
@@ -408,6 +652,33 @@ public final class AgentChatStore {
         return turn.prompt
     }
 
+    /// The turn an edit of `turn`'s prompt forks through (the Mac's Edit and Resend, webviews
+    /// conversation/editPrompt.ts): the seq of the completed turn right before it, or nil when
+    /// its prompt can't be edited that way. A chat's first prompt has no turn before it; a
+    /// failed or cancelled turn before it was never answered whole; only Claude and Codex
+    /// chats fork through an earlier turn (acpmux `fork_through.rs`).
+    public func editForkSeq(for turn: AgentTurn) -> Int? {
+        guard ["claude", "codex"].contains(Self.family(of: summary.harness)),
+              let index = turns.firstIndex(where: { $0.id == turn.id }), index > 0, !turn.prompt.isEmpty else { return nil }
+        let before = turns[index - 1]
+        guard before.status == .completed else { return nil }
+        return turnSeqs[before.id]
+    }
+
+    /// The harness family acpmux forks by: Claude Code's profiles (`claude-sr`, `cmux`) are Claude's.
+    nonisolated static func family(of harness: String) -> String {
+        let id = harness.lowercased()
+        if id == "claude" || id.hasPrefix("claude-") || id == "cmux" { return "claude" }
+        if id == "codex" || id.hasPrefix("codex-") { return "codex" }
+        return id
+    }
+
+    /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    public func resumeQueue() {
+        guard queuePaused else { return }
+        source.send(.resumeQueue)
+    }
+
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
     /// there is never replaced, so the prompt stays queued and this returns nil (the row then
@@ -462,6 +733,11 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        applyEvent(event)
+        refreshDerived()
+    }
+
+    private func applyEvent(_ event: AgentSessionEvent) {
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -512,6 +788,15 @@ public final class AgentChatStore {
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
+        case .turnSeq(let turnId, let seq):
+            turnSeqs[turnId] = seq
+        case .promptSeq(let turnId, let seq):
+            promptSeqs[turnId] = seq
+        case .bookmarks(let seqs):
+            bookmarkedSeqs = Set(seqs)
+        case .queuePaused(let paused, let reason):
+            queuePaused = paused
+            queuePauseReason = paused ? reason : nil
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
                 turn.retry = nil
@@ -557,6 +842,11 @@ public final class AgentChatStore {
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
+            if sentPermissionAnswer?.permissionID == permissionId {
+                sentPermissionAnswer = nil
+                permissionAnswerUncertain = false
+                awaitsPermissionReply = false
+            }
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
@@ -577,7 +867,7 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = isRunning ? .running : .idle
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -585,7 +875,7 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = isRunning ? .running : .idle
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .modelsAvailable(let models, let current):
             self.models = models
             currentModelID = current
@@ -595,16 +885,27 @@ public final class AgentChatStore {
             currentModeID = current
         case .earlierHistory(let earlier):
             hasEarlierHistory = earlier
+        case .earlierPage(let events, let hasEarlier):
+            isLoadingEarlier = false
+            hasEarlierHistory = hasEarlier
+            prependEarlier(events)
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
+            if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
             if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
+            // The error that follows an answer whose ask is still open: it did not reach the
+            // Mac (or its reply was lost). Another call's error says nothing about it.
+            if awaitsPermissionReply, let sent = sentPermissionAnswer, pendingPermission?.request.id == sent.permissionID {
+                permissionAnswerUncertain = true
+            }
+            awaitsPermissionReply = false
             retryRequested = false
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
@@ -616,9 +917,10 @@ public final class AgentChatStore {
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
-            for event in events { apply(event) }
+            for event in events { applyEvent(event) }
             markReplayed()
             lastChangeWasReplay = true
+
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -628,6 +930,36 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// The reader reached the oldest turn shown: the source reads the page before it.
+    public func loadEarlier() {
+        guard hasEarlierHistory, !isLoadingEarlier else { return }
+        isLoadingEarlier = true
+        source.loadEarlierHistory()
+    }
+
+    /// Older turns go in front of the shown ones. They are built on their own: the queue, the
+    /// asks and the status the chat shows are newer than anything in them. Drawn in place, as
+    /// history.
+    private func prependEarlier(_ events: [AgentSessionEvent]) {
+        guard !events.isEmpty else { return }
+        let older = AgentChatStore(source: EarlierHistorySource(summary: summary))
+        older.nextFrame = nil
+        older.apply(.batch(events))
+        turnSeqs.merge(older.turnSeqs) { current, _ in current }
+        promptSeqs.merge(older.promptSeqs) { current, _ in current }
+        let shown = Set(turns.map(\.id))
+        let added = older.turns.filter { !shown.contains($0.id) }
+        guard !added.isEmpty else { return }
+        turns.insert(contentsOf: added, at: 0)
+        let known = Set(subagents.map(\.id))
+        subagents.insert(contentsOf: older.subagents.filter { !known.contains($0.id) }, at: 0)
+        for turn in added {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+        lastChangeWasReplay = true
+    }
 
     /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
     /// so its view appears without an insert transition (and its ask without a haptic).
@@ -688,24 +1020,30 @@ public final class AgentChatStore {
     private func applyUpdate(_ update: ACPSessionUpdate) {
         switch update {
         case .agentMessageChunk(let text, let messageId):
-            guard var turn = turns.last else { return }
-            if !startsNewAttempt, case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
-                turn.items[turn.items.count - 1] = .message(id: id, markdown: existing + text)
+            guard let last = turns.indices.last else { return }
+            // Appended in place: the item's string is taken out first, so it has one
+            // owner and grows without copying the whole message per chunk.
+            if !startsNewAttempt, case .message(let id, var markdown)? = turns[last].items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
+                let item = turns[last].items.count - 1
+                turns[last].items[item] = .message(id: id, markdown: "")
+                markdown += text
+                turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turn.items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
-            turns[turns.count - 1] = turn
         case .agentThoughtChunk(let text):
-            guard var turn = turns.last else { return }
-            if !startsNewAttempt, case .thought(let id, let existing)? = turn.items.last {
-                turn.items[turn.items.count - 1] = .thought(id: id, text: existing + text)
+            guard let last = turns.indices.last else { return }
+            if !startsNewAttempt, case .thought(let id, var existing)? = turns[last].items.last {
+                let item = turns[last].items.count - 1
+                turns[last].items[item] = .thought(id: id, text: "")
+                existing += text
+                turns[last].items[item] = .thought(id: id, text: existing)
             } else {
-                turn.items.append(.thought(id: UUID().uuidString, text: text))
+                turns[last].items.append(.thought(id: UUID().uuidString, text: text))
             }
             startsNewAttempt = false
-            turns[turns.count - 1] = turn
         case .toolCall(var call):
             call.startedAt = call.startedAt ?? Date()
             if call.status == .completed || call.status == .failed { call.endedAt = Date() }
@@ -798,4 +1136,14 @@ public final class AgentChatStore {
             }
         }
     }
+}
+
+/// The source a page of older turns is built from on its own (``AgentChatStore/loadEarlier()``):
+/// nothing streams and nothing is sent.
+@MainActor
+private final class EarlierHistorySource: AgentSessionSource {
+    let summary: AgentSessionSummary
+    init(summary: AgentSessionSummary) { self.summary = summary }
+    func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
+    func send(_ intent: AgentClientIntent) {}
 }

@@ -72,7 +72,7 @@ extension UpdaterService {
         automaticInstallInFlight = false
         automaticInstallFrontmost = nil
         // The app keeps running: any window the relaunch took off the screen comes back.
-        installAbandoned?()
+        abandonInstall()
         controller?.restageAfterDeclinedQuit()
     }
 }

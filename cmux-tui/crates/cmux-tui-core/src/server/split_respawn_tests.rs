@@ -177,6 +177,64 @@ fn only_tab_docks_into_a_new_column_and_leaves_a_fresh_terminal() {
     assert_eq!(columns, vec![None, Some(crate::model::DockEdge::Right)]);
 }
 
+/// `move-tab-to-column` `pane_id` (`tab-column-client-pane-v1`): the lone chat docking left with
+/// a respawn shows its dock before the reply, so the daemon's new column pane carries the id the
+/// app minted for its provisional one; a malformed or used id is refused and nothing moves.
+#[test]
+fn a_column_move_takes_the_callers_pane_id() {
+    assert!(advertised_capabilities(false).contains(&TAB_COLUMN_CLIENT_PANE_CAPABILITY));
+    let mut wire = Wire::new();
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let dock = json!({"edge": "left", "mode": "docked", "role": "agent_chat"});
+    let minted = "pane_0123456789abcdef0123456789abcdef";
+    let malformed = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.5, "dock": dock,
+        "respawn": {"kind": "terminal"}, "pane_id": "not-a-pane",
+    }));
+    assert_eq!(malformed["ok"], false, "{malformed}");
+    assert_eq!(wire.tabs(pane), vec![lone]);
+
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.5, "dock": dock,
+        "respawn": {"kind": "terminal", "cwd": std::env::temp_dir().to_string_lossy()},
+        "pane_id": minted, "transaction": "dock-keyed",
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    let new_pane: PaneId = serde_json::from_value(response["data"]["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(new_pane), vec![lone]);
+    let public = wire.mux.with_state(|state| {
+        state
+            .resource_indexes
+            .panes
+            .iter()
+            .find(|(_, id)| **id == new_pane)
+            .map(|(public, _)| public.as_str().to_string())
+    });
+    assert_eq!(public.as_deref(), Some(minted));
+
+    // The same id again (a second tab of the fresh pane, moved to its own column): refused.
+    let fresh = wire.tabs(pane)[0];
+    let other = wire.mux.new_tab(Some(pane), None, Some((80, 22))).unwrap().id;
+    let reused = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": other, "pane": pane, "pane_id": minted,
+    }));
+    assert_eq!(reused["ok"], false, "{reused}");
+    assert!(reused["error"].to_string().contains("pane_id_exists"), "{reused}");
+    assert_eq!(wire.tabs(pane), vec![fresh, other]);
+
+    // With respawn, a used id is refused before the fresh tab is made: nothing is created.
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let alone = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let refused = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": alone, "width": 0.5, "dock": dock,
+        "respawn": {"kind": "terminal"}, "pane_id": minted,
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused["error"].to_string().contains("pane_id_exists"), "{refused}");
+    assert_eq!(wire.tabs(alone), vec![lone]);
+}
+
 #[test]
 fn a_column_respawn_is_only_for_a_panes_only_tab() {
     let mut wire = Wire::new();

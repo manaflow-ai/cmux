@@ -13,8 +13,14 @@ extension UpdaterService {
     }
 
     /// Why switching to `target` is refused by `UpdateChannel`, or nil.
+    /// cmux NEXT's NIGHTLY counts as `nightly`; DEV follows no channel, so any pin refuses it.
     func managedChannelRefusal(_ target: AppChannelSwitchTarget) -> UpdaterUnavailable? {
-        guard let channel = managedChannel, channel != target else { return nil }
+        let targetChannel: AppChannelSwitchTarget? = switch target {
+        case .stable: .stable
+        case .nightly, .nightlyNext: .nightly
+        case .dev: nil
+        }
+        guard let channel = managedChannel, channel != targetChannel else { return nil }
         return UpdaterUnavailable.managedChannel(UpdaterStrings.channel(channel == .nightly ? .nightly : .stable))
     }
 
@@ -24,7 +30,9 @@ extension UpdaterService {
     /// An unknown channel name pins nothing.
     public func applyManagedPolicy(channel: String?, minimumVersion: String?) {
         let wasRequired = requiredMinimumVersion
+        // `UpdateChannel` names only stable or nightly (spec/enterprise.md 5.2).
         managedChannel = channel.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+            .flatMap { [.stable, .nightly].contains($0) ? $0 : nil }
         managedMinimumVersion = minimumVersion?.trimmingCharacters(in: .whitespaces)
         applyDownloadPolicy()
         if requiredMinimumVersion != wasRequired { recheckRequiredUpdate() }

@@ -46,6 +46,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // takes it, to select and copy the address.
     override var acceptsFirstResponder: Bool { super.acceptsFirstResponder || (isEnabled && isSelectable) }
 
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        // The cell draws the placeholder under the editor: show or hide it with the text.
+        needsDisplay = true
+    }
+
     override func becomeFirstResponder() -> Bool {
         probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
@@ -161,6 +167,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
             editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
             editor.typingAttributes = attributes
+            // The cell draws the placeholder under an empty editor (`EditorAlignedTextFieldCell`).
+            needsDisplay = true
             return
         }
         lastStyle = style

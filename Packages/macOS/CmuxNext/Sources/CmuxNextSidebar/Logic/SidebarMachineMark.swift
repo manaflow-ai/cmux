@@ -2,11 +2,12 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The computer a workspace row runs on (machine identity): its icon, a status
-/// mark's size in one neutral colour, in the row's trailing column, and its name
-/// in the row's label, so rows on different machines tell apart at a glance. Rows
-/// draw it while the sidebar lists more than one machine; this Mac's rows
-/// only with `sidebar.showLocalMachine` (off by default: another machine is the news).
+/// The computer a workspace row runs on (machine identity): its name in the row's
+/// accessibility label. The row draws no glyph for it; the hover card names the
+/// machine once, in its header (Leo 2026-11-02, on a card and row that said Cloud
+/// four times: "the tiny cloud icon the repeated cloud cloud cloud"). Rows carry it
+/// while the sidebar lists more than one machine; this Mac's rows only with
+/// `sidebar.showLocalMachine` (off by default: another machine is the news).
 public nonisolated struct SidebarMachineMark: Hashable, Sendable {
     /// The machine's name: the label.
     public var name: String

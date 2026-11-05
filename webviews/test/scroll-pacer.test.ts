@@ -70,3 +70,37 @@ test("scroll updates commit once per frame and keep the latest offset", () => {
   expect(committed).toEqual([{ top: 80, atLatest: true }]);
   expect(callbacks).toHaveLength(0);
 });
+
+test("motion commits before paint, replaces a queued frame, and deduplicates its native event", () => {
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let handle = 0;
+  const committed: ScrollFrame[] = [];
+  const pacer = createScrollPacer(
+    (frame) => committed.push(frame),
+    (callback) => {
+      callbacks.set(++handle, callback);
+      return handle;
+    },
+    (id) => callbacks.delete(id),
+  );
+  pacer.enqueue({ top: 80, atLatest: true });
+  pacer.flush({ top: 400, atLatest: false });
+  expect(committed).toEqual([{ top: 400, atLatest: false }]);
+  expect(callbacks).toHaveLength(0);
+  pacer.enqueue({ top: 400, atLatest: false });
+  pacer.flush({ top: 400, atLatest: false });
+  expect(committed).toHaveLength(1);
+  expect(callbacks).toHaveLength(0);
+
+  // An intent change at the same offset must survive duplicate suppression.
+  pacer.enqueue({ top: 400, atLatest: true });
+  expect(callbacks).toHaveLength(1);
+  callbacks.get(handle)!(16);
+  callbacks.clear();
+  expect(committed.at(-1)).toEqual({ top: 400, atLatest: true });
+  pacer.flush({ top: 500, atLatest: false });
+  expect(committed.at(-1)).toEqual({ top: 500, atLatest: false });
+  pacer.cancel();
+  pacer.enqueue({ top: 500, atLatest: false });
+  expect(callbacks).toHaveLength(1);
+});

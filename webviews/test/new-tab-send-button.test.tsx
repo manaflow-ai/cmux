@@ -215,11 +215,12 @@ test("classic New Tab intercepts /import before its omnibar can treat it as a pa
       />,
     ),
   );
-  const field = host.querySelector<HTMLInputElement>("input:not([type=file])")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(".acpmux-newtab-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => {
-    setValue.call(field, "/import");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type("/import");
   });
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
@@ -297,28 +298,18 @@ async function commandPage(
     else common.importSandboxed = value;
     await act(async () => renderPage());
   };
-  const field =
-    template === "screen"
-      ? host.querySelector<MarkdownFieldElement>(".nt-field")!
-      : host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
-  const value = () =>
-    template === "screen"
-      ? ((field as MarkdownFieldElement).acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "")
-      : (field as HTMLInputElement).value;
+  // Both templates' fields are the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(template === "screen" ? ".nt-field" : ".acpmux-newtab-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const value = () => (field.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
   const edit = async (text: string) => {
     await act(async () => {
-      if (template === "screen") {
-        const handle = (field as MarkdownFieldElement).acpmuxMarkdownField!;
-        // Keep inline attachment atoms in this synthetic whole-prompt edit.
-        const tokens = inlineTokenIds(handle.value()).map(inlineToken).join("");
-        handle.type(`${text}${tokens}`);
-        handle.setCaret(text.length);
-      } else {
-        const input = field as HTMLInputElement;
-        const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
-        setValue.call(input, text);
-        input.dispatchEvent(new window.Event("input", { bubbles: true }));
-      }
+      const handle = field.acpmuxMarkdownField!;
+      // Keep inline attachment atoms in this synthetic whole-prompt edit.
+      const tokens = inlineTokenIds(handle.value()).map(inlineToken).join("");
+      handle.type(`${text}${tokens}`);
+      handle.setCaret(text.length);
     });
   };
   const send = async (afterDispatch?: () => void) =>
@@ -336,7 +327,7 @@ async function commandPage(
         getData: () => "",
       },
     });
-    const target = template === "screen" ? field.querySelector<HTMLElement>("[contenteditable]")! : field;
+    const target = field.querySelector<HTMLElement>("[contenteditable]")!;
     await act(async () => target.dispatchEvent(event));
     const pendingSelector = ".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']";
     const readySelector =
@@ -454,13 +445,13 @@ for (const template of ["screen", "classic"] as const) {
         }),
     });
     await page.paste(file, true);
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
     await act(async () => resolve(bytes));
     expect(page.prompts).toHaveLength(1);
-    expect(page.prompts[0]!.text).toBe("/login");
+    expect(page.prompts[0]!.text).toBe("/logout");
     expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
   });
 
@@ -661,10 +652,10 @@ for (const template of ["screen", "classic"] as const) {
 
   test(`${template}: a Claude terminal-only refusal preserves its draft`, async () => {
     const page = await commandPage(template, async () => {});
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
-    expect(page.field.value).toBe("/login");
+    expect(page.field.value).toBe("/logout");
     expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
   });
 }

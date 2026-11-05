@@ -1,5 +1,5 @@
 {
-  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
+  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\", \"author\": \"<who wrote it>\", \"owner\": \"<who removes it>\", \"receipt\": \"Review (<reviewer, not the author>): SHIP at <40-hex sha>\", \"expiry\": \"YYYY-MM-DD\"} as a new file plans/cmux-next/arch-exceptions/<id>.json (one entry per file, <id> a short unique slug such as the PR number, so two pushes that add one never conflict; never append to the exceptions list below, whose old entries are read with the files as one list; an entry with no independent receipt, owner or expiry allows nothing); the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Every blocking_allow_escapes site also needs an escape_reviews entry (path, text, owner, author, receipt, expiry, state): a push that adds a site with no reviewed entry is refused, and --audit lists unreviewed and expired ones. Never CI.",
   "method": "arch_counts",
   "method_version": 6,
   "measured_sha": "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4",
@@ -511,6 +511,26 @@
     {
       "date": "2026-10-31",
       "row": "app_lines",
+      "allow": 20,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowController.swift: composition-root wiring only, 20 source lines: the CmuxNextSettings import, two stored properties, making one DisplayBackdropBinding per window with the window's display id, applying the current settings root and following settings.applied.root, and in teardown cancelling that observation and calling stop() on the binding. The logic (per-display picture and cadence, rebinding on screen, clock, day and time zone changes) is in CmuxNextSettings/DisplayBackdropBinding.swift; the window is made here, so this is where the binding is attached and released.",
+      "author": "the adding commits of #27092 (Leo)",
+      "owner": "Performance Lead",
+      "receipt": "Review (codex gpt-6-astra high, next-review): SHIP at 1a78fb8871a9d2f7296f2b5a697ba04acd7a0948",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/DisplayBackdropBinding.swift: one binding per window observes exactly four named notifications (NSWindow.didChangeScreenNotification with object: window, NSSystemClockDidChange, NSCalendarDayChanged and NSSystemTimeZoneDidChange), delivered on the posting thread with an asynchronous hop to the UI actor, so a moved window rebinds its display-specific wallpaper and a clock, day or time zone change re-times its rotation. stop() removes all four tokens and the rotation timer when the window closes. A process-wide observer cannot tell which windows a screen change affects without a new per-window dispatch table, so the per-window shape stays.",
+      "author": "the adding commits of #27092 (Leo)",
+      "owner": "Performance Lead",
+      "receipt": "Review (codex gpt-6-astra high, next-review): SHIP at 1a78fb8871a9d2f7296f2b5a697ba04acd7a0948",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
       "allow": 9,
       "why": "First-click fix (user 2026-10-30: buttons need two clicks). All logic is in CmuxNextDesign (FirstClickPolicy, FirstClickAudit); the App keeps only the one call it must own, in ShellWindow.sendEvent (Windows/ShellWindow+Events.swift, 4 lines: a 2-line comment and the call split over 2 lines; a lower package cannot override the App's NSWindow subclass), and the DEBUG-only `debug.first_click` forward in Control/DebugWindowsControl.swift (5 lines, beside the other debug.* routes the App's control router composes).",
       "author": "first-click subagent (Chief, Buttons respond first click)",
@@ -765,12 +785,102 @@
     {
       "date": "2026-10-31",
       "row": "app_lines",
+      "allow": 264,
+      "why": "PR #28407 integrates power-transition status with the existing native Cloud session lifecycle, sidebar and action gates. Reusable mutation tracking and revision comparison live in CmuxNextCloud; extracting the native lifecycle in this repair would be a separate architectural change. This exception covers only these integration seams.",
+      "author": "aid-78d0322a04112d80addf",
+      "owner": "PR #28407 owner",
+      "receipt": "Review (codex gpt-6.1-sol high): SHIP at febf22522dad9b0b03dc8f0ee2460bec42b26f4a",
+      "expiry": "2026-11-07"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 370,
+      "why": "Temporary Cloud first-send composition from #28111 and the DEV composer stack: CloudStartChat.swift, CloudStartChat+Machine.swift, AgentRecents/AgentPageChats.swift, CloudService.swift and CloudMove.swift directly require AppServices, AgentTabStore, CloudMove, CloudHandlers and window/daemon wiring. Moving these directly into lower packages would invert dependencies. This covers only the measured integration delta; no baseline is raised. Extract reusable policy behind host interfaces in manaflow-ai/cmuxterm-hq#5534.",
+      "author": "Cloud integration",
+      "owner": "Cloud integration (manaflow-ai/cmuxterm-hq#5534)",
+      "receipt": "Review (codex gpt-6.1-sol, architecture exception only): SHIP at 456a550bc831e9caf5c690df590d9660518abfba",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
       "allow": 24,
       "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/TabHandlers+More.swift moveToSpace and the tab.moveToSpace bind (+24 lines): Move Tab to Space moves only the tab (a lone tab pins its workspace; a tab with siblings goes to a new workspace through TabMoves.toNewWorkspace, then that workspace is pinned to the space). It reads App-only types (TabMoves, WindowProfiles, TabPromotion, AppServices, AppActionContext), so it cannot move to a package until those do; the handler folder's destination-map row owns that move.",
       "author": "aid-68ba07270dde07b96ff4",
       "owner": "aid-68ba07270dde07b96ff4",
       "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
       "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 14,
+      "why": "Native chat menu presentation requires PaneContentView owner-checked callback binding and parking/retirement cleanup. These 13 lines are composition-root AppKit view lifecycle wiring; menu construction stays in CmuxNextTabs and publication stays in shared web. Move this wiring with the pane host lifecycle when that shell is extracted, rather than relocating unrelated code for the count.",
+      "author": "teamleaderleo",
+      "owner": "teamleaderleo (pane host lifecycle extraction)",
+      "receipt": "Review (codex gpt-6-astra high): SHIP at a76620cd932f4de840a5c35bd5d5975533275316",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 34,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AgentChatCopyHandlers.swift (+34 lines, Leo's ask ask-70ded0db7b): the five Cmd+Shift+P session-file copy binds (paths, transcript, harness config, harness settings, acpmux session.json), their refusal strings and a filesReader beside the existing infoReader. The reads, labels and stale-clipboard logic live outside the App (CmuxNextAgentPane AgentChatCopyOperations, AgentChatCopyText, AgentPaneSessionCopySocket); the binds use App-only AppActionContext, AgentPaneView and focus checks, so they move with the Handlers folder's destination-map row.",
+      "author": "aid-cd1f8adf631e85594229",
+      "owner": "aid-cd1f8adf631e85594229",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 7c12f1e51b1540c3940e7c8452119fd7c73762b5",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 29,
+      "why": "HomeService+ChiefRoster.swift observeFeedRows and its stored task in HomeService.swift (+29 lines, Leo's ask ask-b9334a120b): the observation that maps the Feed's open notices to the default Chief's transcript rows. The rows, their merge and the store setter live in CmuxHomeCore (HomeFeedRow, HomeStore+FeedRows) and the drawing in MessagesLabHome; the wiring reads App-only AppServices.feed and HomeService.defaultChiefConversation, so it moves with the Home folder's destination-map row.",
+      "author": "aid-a260e311693a0346346f",
+      "owner": "aid-a260e311693a0346346f",
+      "receipt": "Review (subagent claude-opus-5-5 medium): SHIP at 0925c487ce3c270211f6752319dca8432d31dc1a",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 13,
+      "why": "Cloud refresh coalescing (#13325): 13 App lines retain the account snapshot/result fence, service stop forwarding, and the call into CloudRefreshGate. MachineRegistry and auth reconciliation remain App-owned; all new batch coordination lives in CmuxNextCloud. Moving those unrelated app dependencies would broaden this correctness fix.",
+      "author": "cloud refresh implementation",
+      "owner": "cloud refresh implementation",
+      "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 1,
+      "why": "AppServices+WindowHomeHost.swift windowHomeRoom (+1 line, MW-1b, PR #31844): the one-line host forward that tells WindowHomes (CmuxNextHomeEngine) its window's space, so a window's own Home is pinned there before its create. The pin and its retry live in CmuxNextHomeEngine/WindowHomes.swift; the forward reads App-only WindowManager.states, so it stays with the other WindowHomeHost forwards. showHome stays unchanged (its source is a tunable the defaults guard watches).",
+      "author": "mw1-fix (agent)",
+      "owner": "mw1-fix (agent)",
+      "receipt": "Review (independent review subagent): SHIP at 44af799ec686c6f92be23745d25498e581791626",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "#31862 (04cbf79d4c1c, terminal dictation) added 129 CmuxNextApp lines; #31953 moves its TerminalDictation (121) to CmuxNextTerminal. What stays is #31862's call site in AgentHandlers.swift (10 lines: the CmuxNextTerminal import, the stored TerminalDictation, the terminal branch of palette.toggleDictation and its stopIfActive fallback), less 1 line that unrelated commits since fc013e84c65e removed. Those lines read only App types (AppActionContext.visibleContent, PaneController, TerminalEntry, TabModel through pane.pane, AppServices.daemon(for:)), so they leave the App only when the whole dictation toggle bind does.",
+      "author": "arch-red-31862 agent (Claude Opus 5.5, lead session)",
+      "owner": "Performance Lead (PL-arch): removed when palette.toggleDictation moves out of CmuxNextApp",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at e07b8cc0a16dcf5cdbf7f0c11af03bec4f1136fd",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 105,
+      "why": "Port of dogfood 23248fdeba4a/f6646860fad3 (+ review fixes 2be9a0cc33a1, a4c01b0b4036, 80723559628f): the key hold and keyboard claim glue reads App-only types (KeyRouter, FocusCoordinator, WindowController, the newTab handler); the claim state machine, buffer lanes, typed-text decision and ownsTypedText are in CmuxNextFocusUI/CmuxNextFocus.",
+      "author": "dogfood-ports",
+      "owner": "dogfood-ports",
+      "receipt": "Review (independent delta review subagent): SHIP at c701cc115252bdfdeb923018f52336fea3650259",
+      "expiry": "2026-11-16"
     }
   ],
   "escape_reviews": [

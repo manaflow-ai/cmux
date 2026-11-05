@@ -31,8 +31,15 @@ mod wanted;
 use wanted::BackoffWait;
 
 #[cfg(test)]
+#[path = "peer_features_tests.rs"]
+mod features_tests;
+#[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
+
+#[cfg(test)]
+#[path = "peer_prompt_tests.rs"]
+mod prompt_tests;
 
 #[cfg(test)]
 #[path = "peer_restart_tests.rs"]
@@ -44,6 +51,11 @@ mod handshake_tests;
 
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Instances created before this point cannot repopulate a signed-out account's snapshots.
+pub(crate) fn generation_boundary() -> u64 {
+    NEXT_GENERATION.load(Ordering::SeqCst)
+}
 
 /// A peer watch includes the hub's remote sessions as well as its local ones.
 /// A bidirectional pair must not import those already-mirrored rows, or each
@@ -62,6 +74,20 @@ pub const CLIENT_NAME: &str = "acpmux-peer";
 /// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
 pub fn hidden_attach(id: &str) -> Value {
     json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
+}
+
+/// A reconnect attach resumes the mirror after its last delivered event. Keep
+/// the same byte bound as normal pages; the peer's `hasMore` response remains
+/// authoritative and a later reconnect will request the remainder.
+pub fn hidden_attach_after(id: &str, after: u64) -> Value {
+    json!({
+        "sessionId": id,
+        "afterSeq": after,
+        "limit": 2000,
+        "visible": false,
+        "eventStream": true,
+        "maxBytes": crate::hub::page_bytes(&json!({})),
+    })
 }
 
 /// What the hub receives from a peer, tagged with the peer's name and
@@ -116,9 +142,16 @@ pub struct Peer {
     /// The pending keys whose frame `serve` wrote to the live link: when the link drops, only
     /// these may have run on the peer; every other request waiting fails as not sent.
     on_wire: OnWire,
+    /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
+    prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
     /// sessions listed): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
+    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// list): until then a name missing from the rows may only not be listed yet, so a
+    /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
+    /// hub's `Disconnected`.
+    pub rows_ready: AtomicBool,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -169,14 +202,10 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
     native_history: AtomicBool,
-    /// Whether the peer saves a message's attachments (`attach.rs`).
-    send_attach: AtomicBool,
-    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
-    prompt_uploads: AtomicBool,
-    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
-    upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The features the peer listed at its last handshake (`lists`).
+    features: StdMutex<Vec<String>>,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
@@ -198,12 +227,28 @@ pub struct Peer {
     /// take it away (`attach_hidden`).
     attached: StdMutex<HashMap<String, u64>>,
     marks: AtomicU64,
+    /// Per attached chat, the greatest event sequence local clients have already received: a
+    /// reconnect asks the peer for records after it instead of attaching with `limit: 0` (which
+    /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
+    /// baseline yet, and the next link attaches it without history as before.
+    cursors: StdMutex<HashMap<String, u64>>,
+    /// Highest live sequence observed while a session is being replayed. The
+    /// payload is intentionally not retained: the next bounded page fetches it
+    /// from the peer journal, so memory cannot grow with a long turn.
+    replay_highwater: StdMutex<HashMap<String, u64>>,
+    /// Per chat replayed on this link, the last sequence its replay delivered. A live frame the
+    /// peer queued before the final page can still be read after it: one at or below this is a
+    /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
+    /// request about the chat (a `session/load` sends its history again, which is no repeat).
+    replay_tail: StdMutex<HashMap<String, u64>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
+    stop_changed: tokio::sync::watch::Sender<bool>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -290,7 +335,9 @@ impl Peer {
             next_id: AtomicI64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             on_wire: Default::default(),
+            prompts: Default::default(),
             connected: AtomicBool::new(false),
+            rows_ready: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
@@ -310,10 +357,8 @@ impl Peer {
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             native_history: AtomicBool::new(false),
-            send_attach: AtomicBool::new(false),
-            prompt_uploads: AtomicBool::new(false),
-            upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            features: StdMutex::new(Vec::new()),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -322,10 +367,14 @@ impl Peer {
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
+            cursors: StdMutex::new(HashMap::new()),
+            replay_highwater: StdMutex::new(HashMap::new()),
+            replay_tail: StdMutex::new(HashMap::new()),
             notices,
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            stop_changed: tokio::sync::watch::channel(false).0,
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -413,7 +462,17 @@ impl Peer {
     /// What its last handshake would have said of attachments: a test's peer that never ran.
     #[cfg(test)]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
-        self.send_attach.store(takes, Ordering::SeqCst);
+        let mut features = self.features.lock_or_recover();
+        features.retain(|f| f != crate::attach::FEATURE);
+        if takes {
+            features.push(crate::attach::FEATURE.to_owned());
+        }
+    }
+
+    /// What its last handshake listed (`lists`): a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_features(&self, features: &[&str]) {
+        *self.features.lock_or_recover() = features.iter().map(|f| (*f).to_owned()).collect();
     }
 
     pub(crate) fn seed_cached_link(
@@ -464,8 +523,14 @@ impl Peer {
         self.settled.send_modify(|count| *count += 1);
     }
 
+    /// Every explicit stop/replacement, including one with no connect attempt in flight.
+    pub(crate) fn stopped(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.stop_changed.subscribe()
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
         self.stop_signal.notify_one();
@@ -498,7 +563,8 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self
+            .ssh_command()
             .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -523,7 +589,8 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self
+            .ssh_command()
             .args(read_config_argv(&host))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -753,6 +820,7 @@ impl Peer {
 
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
+        self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
     }
@@ -773,11 +841,11 @@ impl Peer {
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
-            "localBuild": crate::hub::BUILD,
+            "localBuild": crate::hub::build(),
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
@@ -794,7 +862,20 @@ impl Peer {
         // The ticket is taken under the lock, so a later mark always holds a newer one.
         let mut marks = self.attached.lock_or_recover();
         let ticket = self.marks.fetch_add(1, Ordering::SeqCst) + 1;
-        marks.insert(session_id.to_owned(), ticket).is_none()
+        let new = marks.insert(session_id.to_owned(), ticket).is_none();
+        if new {
+            // The stream starts now: its baseline is settled by the attach that follows.
+            self.cursors.lock_or_recover().entry(session_id.to_owned()).or_insert(0);
+        }
+        new
+    }
+
+    /// Forget the replay baseline of an attachment whose first baseline request failed. The
+    /// mark stays (`attach_hidden`): the next link attaches it without history, which sets a
+    /// fresh baseline.
+    pub fn clear_attached(&self, session_id: &str) {
+        self.replay_highwater.lock_or_recover().remove(session_id);
+        self.cursors.lock_or_recover().remove(session_id);
     }
 
     /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
@@ -803,21 +884,90 @@ impl Peer {
     /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
     /// next prompt attaches it anew, unless a client marked it again while this attach was out:
     /// that client relies on the mark. Any other failure (the link dropped, a timeout, a full
-    /// queue) keeps the mark, and the next link's handshake attaches it again.
+    /// queue) keeps the mark, and the next link's handshake attaches it again. Its answer, on
+    /// the link it went out on, is the chat's replay baseline.
     pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
         let ticket = self.attached.lock_or_recover().get(id).copied();
-        let attached = self.request(method::MUX_ATTACH, hidden_attach(id)).await;
-        if let Err(e) = &attached {
-            let refused = refuses_attach(e);
-            if refused {
-                let mut marks = self.attached.lock_or_recover();
-                if marks.get(id).copied() == ticket {
-                    marks.remove(id);
+        let link = self.link_epoch();
+        let attached = self.request_on(method::MUX_ATTACH, hidden_attach(id), Some(link)).await;
+        match &attached {
+            Ok(page) if self.link_epoch() == link => self.note_hidden_attach_page(id, page),
+            Ok(_) => self.clear_attached(id),
+            Err(e) => {
+                self.clear_attached(id);
+                let refused = refuses_attach(e);
+                if refused {
+                    let mut marks = self.attached.lock_or_recover();
+                    if marks.get(id).copied() == ticket {
+                        marks.remove(id);
+                    }
                 }
+                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
-            tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
         }
         attached
+    }
+
+    /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
+    /// The page's `lastSeq` includes records filtered out by `kinds`, so only
+    /// the records actually delivered to the client may advance the cursor.
+    pub fn note_attached_page(&self, session_id: &str, page: &Value) {
+        let seq = page_max_seq(page).unwrap_or(0);
+        self.note_baseline(session_id, seq);
+    }
+
+    /// Record an explicit `afterSeq` baseline together with the delivered page.
+    /// An empty page still means the caller has already consumed everything
+    /// through that sequence.
+    pub fn note_attached_page_after(&self, session_id: &str, after: u64, page: &Value) {
+        let seq = page_max_seq(page).unwrap_or(after).max(after);
+        self.note_baseline(session_id, seq);
+    }
+
+    /// A hidden attach deliberately reads no history. Its snapshot is the
+    /// stream baseline even when the page has no events. Keep a newer live cursor
+    /// if notifications raced the response; never move beyond the peer's snapshot.
+    pub fn note_hidden_attach_page(&self, session_id: &str, page: &Value) {
+        // Older peers may sample lastSeq after the page. It cannot establish a
+        // no-history baseline without risking a live event lost in that interval.
+        let Some(seq) = page.get("pageThrough").and_then(Value::as_u64) else {
+            return;
+        };
+        self.note_baseline(session_id, seq);
+    }
+
+    /// Move a marked chat's cursor up to `seq`. A fresh client can read ahead while older
+    /// clients still need the replay gap, so a chat being replayed keeps its cursor.
+    fn note_baseline(&self, session_id: &str, seq: u64) {
+        let replay = self.replay_highwater.lock_or_recover();
+        if replay.contains_key(session_id)
+            || !self.attached.lock_or_recover().contains_key(session_id)
+        {
+            return;
+        }
+        self.cursors
+            .lock_or_recover()
+            .entry(session_id.to_owned())
+            .and_modify(|cursor| *cursor = (*cursor).max(seq))
+            .or_insert(seq);
+    }
+
+    /// Advance the cursor for a live event sent on this peer link.
+    fn note_live(&self, params: &Value) {
+        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+        let seq = params
+            .get("seq")
+            .and_then(Value::as_u64)
+            .or_else(|| params.pointer("/_meta/acpmux/seq").and_then(Value::as_u64));
+        let Some(seq) = seq else { return };
+        if let Some(cursor) = self.cursors.lock_or_recover().get_mut(id) {
+            *cursor = (*cursor).max(seq);
+        }
+    }
+
+    /// This link's deadlines (`peer_link.rs`).
+    pub fn timings(&self) -> LinkTimings {
+        self.timings
     }
 
     /// How many requests wait for the peer's answer now.
@@ -874,16 +1024,48 @@ impl Peer {
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
         let started = tokio::time::Instant::now();
-        let deadline = started + self.timings.request;
+        let turn_wait = waits_on_turn(m)
+            || (m == method::MUX_DISPATCH
+                && params.get("durable").and_then(Value::as_bool) == Some(true)
+                && params.get("wait").and_then(Value::as_bool) == Some(true));
+        // A forwarded session/new gets its dedicated start hazard envelope as
+        // well as the generic request budget. Keep the larger one so a caller
+        // cannot reintroduce the old short start cutoff through
+        // `ACPMUX_PEER_REQUEST_SECS`.
+        let budget = self.timings.request.max(if m == method::SESSION_NEW {
+            self.timings.start
+        } else {
+            Duration::ZERO
+        });
+        let deadline = started + budget;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+            self.replay_tail.lock_or_recover().remove(session);
+        }
+        if m == method::SESSION_PROMPT
+            && let (Some(session), Some(prompt)) = (
+                params.get("sessionId").and_then(Value::as_str),
+                params.pointer("/_meta/acpmux/promptId").and_then(Value::as_str),
+            )
+        {
+            self.prompts.lock_or_recover().insert(
+                key.clone(),
+                PendingPrompt {
+                    session: session.to_owned(),
+                    prompt: prompt.to_owned(),
+                    accepted: false,
+                },
+            );
+        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending {
             pending: self.pending.clone(),
             on_wire: self.on_wire.clone(),
+            prompts: self.prompts.clone(),
             key: Some(key.clone()),
         };
         // The link it was admitted on went down before it was registered: `run`
@@ -914,13 +1096,10 @@ impl Peer {
             Err(_) => return Err(queue_timed_out(&self.name, started.elapsed())),
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
-        // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
-        // and a forwarder whose client left drops it (`server/peer_forward.rs`).
-        let answer = if waits_on_turn(m) {
-            Ok(rx.await)
-        } else {
-            tokio::time::timeout_at(deadline, rx).await
-        };
+        // keepalive drops a link that stops answering. Accepted prompts retain their caller
+        // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
+        let answer =
+            if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
@@ -1025,6 +1204,9 @@ impl Peer {
                 BackoffWait::Stopped => break,
             }
         }
+        // Stopping during backoff (or before the loop starts) also retires
+        // accepted callers retained by the previous link. No reconnect owns them now.
+        self.fail_link_requests(&mut out_rx).await;
     }
 
     /// Publish the link ending before settling requests. Restart neither increments failed
@@ -1060,12 +1242,20 @@ impl Peer {
     /// The link ended. A request that never went out on it (still queued, or waiting for room
     /// in the queue) fails as not sent (`peer_unreachable`, retryable), and its frame is dropped,
     /// never sent on the next link. One that went out fails as `peer_disconnected`: the peer
-    /// may have run it.
+    /// may have run it. An accepted prompt instead keeps its original waiter for recovery.
     async fn fail_link_requests(&self, out_rx: &mut mpsc::Receiver<Outbound>) {
         let mut pending = self.pending.lock().await;
         while out_rx.try_recv().is_ok() {}
         let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
+        let mut survivors = HashMap::new();
         for (key, tx) in pending.drain() {
+            if !self.stop.load(Ordering::SeqCst)
+                && !tx.is_closed()
+                && self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+            {
+                survivors.insert(key, tx);
+                continue;
+            }
             let _ = tx.send(Err(if on_wire.contains(&key) {
                 RpcError::internal("peer disconnected").with_data(json!({
                     "reason": "peer_disconnected",
@@ -1076,6 +1266,33 @@ impl Peer {
                 self.unreachable_error()
             }));
         }
+        *pending = survivors;
+    }
+
+    /// Rebind the original caller to the ledger's result, never resend its prompt.
+    async fn recover_prompts(&self, link: u64) -> Result<(), RpcError> {
+        let prompts: Vec<_> = self
+            .prompts
+            .lock_or_recover()
+            .iter()
+            .filter(|(_, p)| p.accepted)
+            .map(|(k, p)| (k.clone(), p.clone()))
+            .collect();
+        for (key, prompt) in prompts {
+            if !self.pending.lock().await.contains_key(&key) {
+                continue;
+            }
+            let id: Value =
+                serde_json::from_str(&key).map_err(|e| RpcError::internal(e.to_string()))?;
+            let line = Message::request(id, method::MUX_WAIT,
+                json!({"sessionId": prompt.session, "promptId": prompt.prompt, "until": ["promptOutcome"]}))
+                .bounded_line().map_err(RpcError::too_large)?;
+            self.out
+                .send(Outbound { epoch: link, key: Some(key), line })
+                .await
+                .map_err(|_| RpcError::internal("peer connection closed"))?;
+        }
+        Ok(())
     }
 
     async fn connect_once(
@@ -1192,7 +1409,11 @@ impl Peer {
         token: Option<&str>,
         peer_token: Option<&str>,
     ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, String> {
-        let mut req = url.into_client_request().map_err(|e| e.to_string())?;
+        // A peer URL saved with `?token=` in it: the listener takes the token
+        // only from a header, so it moves there and out of the URL.
+        let (url, query_token) = lift_query_token(url);
+        let token = token.or(query_token.as_deref());
+        let mut req = url.as_str().into_client_request().map_err(|e| e.to_string())?;
         if let Some(t) = token {
             req.headers_mut().insert(
                 "authorization",
@@ -1224,10 +1445,15 @@ impl Peer {
         let link = self.link_epoch();
         self.admitting.store(true, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
+        // Gate existing streams before initialize/watch or outcome recovery can
+        // produce events. A live record must not move the replay cursor past a gap.
+        let replay_cursors = replayable(&self.cursors.lock_or_recover());
+        *self.replay_highwater.lock_or_recover() = replay_cursors.into_iter().collect();
+        self.replay_tail.lock_or_recover().clear();
         *self.last_error.lock_or_recover() = None;
         self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
-        tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
+        tracing::info!(peer = %self.name, "link open to {}; handshaking", lift_query_token(&self.url).0);
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
@@ -1280,12 +1506,14 @@ impl Peer {
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
             set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
-            set(&me.send_attach, crate::attach::FEATURE);
-            set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
-            set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
             set(&me.watch_delta, crate::watch_delta::FEATURE);
+            // The rest are read from the list (`lists`): attachments, uploads, upload status,
+            // and holding a prompt for the owner.
+            let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
+            let listed = listed.into_iter().flatten().filter_map(Value::as_str);
+            *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init
@@ -1353,7 +1581,118 @@ impl Peer {
             // Read whole (its last page too, or the delta): the next delta is asked for as this
             // list was read (`watch_delta.rs`).
             me.known_tools.store(tools, Ordering::SeqCst);
+            me.recover_prompts(link).await?;
+            let attached = replayable(&me.cursors.lock_or_recover());
+            // Forwarders can register an attachment during the handshake before
+            // request_on refuses their request. Gate those sessions too, without
+            // replacing high-water marks already observed on this connection.
+            {
+                let mut highwater = me.replay_highwater.lock_or_recover();
+                for (sid, cursor) in &attached {
+                    highwater.entry(sid.clone()).or_insert(*cursor);
+                }
+            }
+            for (sid, cursor) in attached {
+                let mut after = cursor;
+                let mut rewound = false;
+                loop {
+                    // Pin every bounded page to this connection. Replay its records through
+                    // the same hub path as live events before releasing this session's gate.
+                    let ticket = me.attached.lock_or_recover().get(&sid).copied();
+                    let page = match me
+                        .link_request_on(
+                            method::MUX_ATTACH,
+                            hidden_attach_after(&sid, after),
+                            Some(link),
+                        )
+                        .await
+                    {
+                        Ok(page) => page,
+                        // One chat must not fail replay and reconnect every other chat forever.
+                        // It loses its baseline and is attached without history after connect,
+                        // as `attach_hidden` does; one the peer refused is no longer marked,
+                        // unless a client marked it again meanwhile.
+                        Err(e) => {
+                            let refused = refuses_attach(&e);
+                            tracing::warn!(peer = %me.name, session = %sid, refused, "the peer's chat was not replayed: {}", e.message);
+                            me.clear_attached(&sid);
+                            if refused {
+                                let mut marks = me.attached.lock_or_recover();
+                                if marks.get(&sid).copied() == ticket {
+                                    marks.remove(&sid);
+                                }
+                            }
+                            break;
+                        }
+                    };
+                    // A restored journal may be shorter than the copy we saw on
+                    // the previous link. Reset both cursors before requesting its
+                    // bounded pages, or every new live event below `after` is lost.
+                    if page.get("lastSeq").and_then(Value::as_u64).is_some_and(|last| last < after)
+                    {
+                        if rewound {
+                            tracing::warn!(peer = %me.name, session = %sid, "the peer's journal kept moving backwards during replay");
+                            me.clear_attached(&sid);
+                            break;
+                        }
+                        let mut highwater = me.replay_highwater.lock_or_recover();
+                        me.cursors.lock_or_recover().insert(sid.clone(), 0);
+                        highwater.insert(sid.clone(), 0);
+                        after = 0;
+                        rewound = true;
+                        continue;
+                    }
+                    let mut progressed = false;
+                    if let Some(events) = page.get("events").and_then(Value::as_array) {
+                        for event in events {
+                            if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
+                                progressed |= seq > after;
+                                after = after.max(seq);
+                            }
+                            if me
+                                .notices
+                                .send((
+                                    me.name.clone(),
+                                    me.generation,
+                                    PeerNotice::Notification {
+                                        method: method::MUX_EVENT.to_owned(),
+                                        params: event.clone(),
+                                        link,
+                                    },
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                return Err(RpcError::internal(
+                                    "peer replay notice channel closed",
+                                ));
+                            }
+                            me.note_live(event);
+                        }
+                    }
+                    let caught_up = {
+                        let mut highwater = me.replay_highwater.lock_or_recover();
+                        let caught_up = page.get("hasMore") != Some(&Value::Bool(true))
+                            && highwater.get(&sid).copied().unwrap_or(after) <= after;
+                        if caught_up {
+                            highwater.remove(&sid);
+                            me.replay_tail.lock_or_recover().insert(sid.clone(), after);
+                        }
+                        caught_up
+                    };
+                    if caught_up {
+                        break;
+                    }
+                    if !progressed {
+                        tracing::warn!(peer = %me.name, session = %sid, "a replay page made no progress");
+                        me.clear_attached(&sid);
+                        break;
+                    }
+                }
+            }
             // Connected only now, and ready with it, so its state note follows `connected`.
+            // Admit new requests only after all replay pages have reached subscribers.
+            // Otherwise a fresh attach can return those pages before replay emits them again.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
             // left reading connected.
@@ -1370,11 +1709,23 @@ impl Peer {
                 return Ok(());
             }
             let (frames, text) = me.received.read();
-            tracing::info!(peer = %me.name, frame_bytes = frames, text_bytes = text, "connected to {}", me.url);
+            tracing::info!(
+                peer = %me.name,
+                frame_bytes = frames,
+                text_bytes = text,
+                "connected to {}",
+                lift_query_token(&me.url).0
+            );
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
-            let attached: Vec<String> = me.attached.lock_or_recover().keys().cloned().collect();
+            // Chats with a cursor were replayed above; the rest have no baseline yet.
+            let attached: Vec<String> = {
+                let marks = me.attached.lock_or_recover();
+                let cursors = me.cursors.lock_or_recover();
+                let replayed = |sid: &String| cursors.get(sid).is_some_and(|c| *c > 0);
+                marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
+            };
             let link = &me;
             futures::stream::iter(attached.iter())
                 .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
@@ -1591,6 +1942,46 @@ impl Peer {
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
+                            if matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE) {
+                                let mut highwater = self.replay_highwater.lock_or_recover();
+                                let id = p.get("sessionId").and_then(Value::as_str);
+                                let seq = p.get("seq").and_then(Value::as_u64)
+                                    .or_else(|| p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64));
+                                if let (Some(id), Some(seq)) = (id, seq)
+                                    && let Some(high) = highwater.get_mut(id)
+                                {
+                                    *high = (*high).max(seq);
+                                    continue;
+                                }
+                                drop(highwater);
+                            }
+                            // Record before publishing the acceptance: a link can drop before the
+                            // hub consumes its notice, but the original client still owns the turn.
+                            if m == method::MUX_PROMPT_ACCEPTED {
+                                let mut prompts = self.prompts.lock_or_recover();
+                                for prompt in prompts.values_mut() {
+                                    if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
+                                        && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
+                                    { prompt.accepted = true; }
+                                }
+                            }
+                            let cursor_event = matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE)
+                                .then(|| {
+                                    let id = p.get("sessionId")?.as_str()?.to_owned();
+                                    let seq = p.get("seq").and_then(Value::as_u64)
+                                        .or_else(|| p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64))?;
+                                    Some((id, seq))
+                                }).flatten();
+                            // A live frame can have been queued before the final replay page,
+                            // yet be read after the gate opens. Its sequence already arrived.
+                            if let Some((id, seq)) = &cursor_event {
+                                let mut tails = self.replay_tail.lock_or_recover();
+                                match tails.get(id) {
+                                    Some(tail) if *seq > 0 && tail >= seq => continue,
+                                    Some(_) => { tails.remove(id); }
+                                    None => {}
+                                }
+                            }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
@@ -1617,6 +2008,9 @@ impl Peer {
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(LinkEnd::Stopped);
                             }
+                            if let Some((id, seq)) = cursor_event
+                                && let Some(last) = self.cursors.lock_or_recover().get_mut(&id)
+                            { *last = (*last).max(seq); }
                         }
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
                             // Refused here, before anything is spawned, unless this Mac lends the
@@ -1659,13 +2053,24 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
-                    if let Some(key) = key {
-                        self.on_wire.lock_or_recover().insert(key);
+                    let prompt_key = key.as_ref();
+                    if let Some(key) = prompt_key {
+                        self.on_wire.lock_or_recover().insert(key.clone());
                     }
                     let text = line.trim_end_matches('\n').to_owned();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
-                        Ok(Ok(())) => {}
+                        Ok(Ok(())) => {
+                            // Once the prompt frame reaches the socket, the remote may have
+                            // accepted it even if its acceptance notification is still queued
+                            // behind the frame that caused this link to drop. Retain it for the
+                            // durable outcome lookup across reconnects.
+                            if let Some(key) = prompt_key
+                                && let Some(prompt) = self.prompts.lock_or_recover().get_mut(key)
+                            {
+                                prompt.accepted = true;
+                            }
+                        }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
@@ -1695,6 +2100,23 @@ fn lends_over(url: &str) -> bool {
 
 /// How many of a link's chats its handshake attaches again at once after a reconnect.
 const REATTACHES_AT_ONCE: usize = 16;
+
+/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet (its
+/// first attach did not answer, or an older peer gave no `pageThrough`): replaying it would send
+/// its whole history again as live events, so it is attached without history after connect.
+fn replayable(cursors: &HashMap<String, u64>) -> Vec<(String, u64)> {
+    cursors.iter().filter(|(_, c)| **c > 0).map(|(sid, c)| (sid.clone(), *c)).collect()
+}
+
+/// The greatest event sequence an `_acpmux/attach` page holds, if it holds any.
+fn page_max_seq(page: &Value) -> Option<u64> {
+    page.get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.get("seq").and_then(Value::as_u64))
+        .max()
+}
 
 /// Whether the peer itself refused an attach (`Peer::attach_hidden`): the chat is not there, or
 /// the peer takes no such request. The link's own failures (dropped, timed out, too large, a
@@ -1862,13 +2284,13 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux host ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
         waited.as_secs()
     ))
     .with_data(json!({
         "reason": "peer_unreachable",
         "retryable": true,
-        "try": "acpmux host ls",
+        "try": "acpmux machine ls",
         "detail": "the request was not sent",
         "peer": name,
         "queuedMs": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
@@ -2101,11 +2523,19 @@ type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Rp
 /// `Peer::on_wire`.
 type OnWire = Arc<StdMutex<HashSet<String>>>;
 
+#[derive(Clone)]
+struct PendingPrompt {
+    session: String,
+    prompt: String,
+    accepted: bool,
+}
+
 /// Removes a request's pending entry when `Peer::request` returns or is
 /// dropped; the reader has already removed it when the reply came.
 struct ForgetPending {
     pending: PendingReplies,
     on_wire: OnWire,
+    prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     key: Option<String>,
 }
 
@@ -2113,6 +2543,7 @@ impl Drop for ForgetPending {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else { return };
         self.on_wire.lock_or_recover().remove(&key);
+        self.prompts.lock_or_recover().remove(&key);
         if let Ok(mut map) = self.pending.try_lock() {
             map.remove(&key);
         } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
@@ -2124,6 +2555,35 @@ impl Drop for ForgetPending {
     }
 }
 
+/// `url` without its `token=` query items, and the first one's value.
+pub fn lift_query_token(url: &str) -> (String, Option<String>) {
+    let (rest, fragment) = url.split_once('#').map_or((url, None), |(r, f)| (r, Some(f)));
+    let Some((base, query)) = rest.split_once('?') else { return (url.to_owned(), None) };
+    let mut token = None;
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|item| match item.strip_prefix("token=") {
+            Some(t) => {
+                if token.is_none() && !t.is_empty() {
+                    token = Some(t.to_owned());
+                }
+                false
+            }
+            None => true,
+        })
+        .collect();
+    let mut out = base.to_owned();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    if let Some(f) = fragment {
+        out.push('#');
+        out.push_str(f);
+    }
+    (out, token)
+}
+
 #[cfg(test)]
 #[path = "peer_attach_tests.rs"]
 mod attach_tests;
@@ -2131,6 +2591,23 @@ mod attach_tests;
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn a_query_token_moves_out_of_a_peer_url() {
+        assert_eq!(
+            lift_query_token("ws://h:1/?token=abc"),
+            ("ws://h:1/".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(
+            lift_query_token("ws://h:1/acp?x=1&token=abc&y=2"),
+            ("ws://h:1/acp?x=1&y=2".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(lift_query_token("ws://h:1/"), ("ws://h:1/".to_owned(), None));
+        assert_eq!(
+            lift_query_token("ws://h:1/?mytoken=a"),
+            ("ws://h:1/?mytoken=a".to_owned(), None)
+        );
+    }
 
     #[test]
     fn the_links_own_attach_names_its_byte_limit() {

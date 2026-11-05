@@ -48,7 +48,7 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// such session or does not answer.
     static func runs(_ session: String, socketPath: String) async -> Bool {
         guard !session.isEmpty,
-              let found = try? await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: session, deadline: .seconds(2))
+              let found = try? await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: session, deadline: AcpmuxEnvironment.answerDeadline)
         else { return false }
         return (found["peer"] as? String)?.isEmpty != false
     }
@@ -92,6 +92,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
             throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: socketPath, reason: reason,
                                                    executable: executable, owner: nil)
         }
+    }
+
+    /// Peer copies belong to this Mac's daemon; reading one never waits for Chief routing.
+    public func peerSnapshot(sessionId: String) async -> Data? {
+        await local.peerSnapshot(sessionId: sessionId)
     }
 
     public func prewarm() async throws {

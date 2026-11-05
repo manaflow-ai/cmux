@@ -94,7 +94,7 @@ root = "services/iroh-relay-minter"
 run = true
 
 [[workspace]]
-root = "workers/cmux-vm/mesh/agent"
+root = "scripts/journeys/tui-kit/rust"
 run = true
 
 [[workspace]]
@@ -135,6 +135,10 @@ run = true
 root = "cmux-tui/crates/cmux-rd-host"
 run = true
 args = ["--no-default-features", "--features", "bench"]
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-cellgrid-bench"
+skip = "measurement tool run by hand (cell grid against video, HQ#7146 G5); not linked into the app"
 
 [[workspace]]
 root = "cmux-tui/crates/cmux-remote-browser-host"

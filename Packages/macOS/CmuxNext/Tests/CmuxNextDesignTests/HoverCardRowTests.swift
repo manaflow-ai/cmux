@@ -38,11 +38,14 @@ import CmuxNextDesignTokens
         #expect(view.layer?.backgroundColor == nil)
     }
 
-    @Test func mergedIsTheThemesMagenta() throws {
+    /// Merged is the fixed purple in every theme, never the theme's ANSI magenta, which some themes
+    /// draw pink or red (Leo 2026-11-02: "the merged colour should not be red").
+    @Test func mergedIsPurpleInEveryTheme() throws {
         let view = NSView()
         let scope = try scoped(view)
-        let magenta = try #require(scope.tokens.ansi.dropFirst(5).first).nsColor
-        #expect(Self.same(view.performWithTheme { HoverCardTone.merged.color }, magenta))
+        let purple = scope.perform { GroupColor.purple.markColor }
+        #expect(Self.same(view.performWithTheme { HoverCardTone.merged.color }, purple))
+        #expect(!Self.same(view.performWithTheme { HoverCardTone.merged.color }, view.performWithTheme { Palette.danger }))
     }
 
     @Test func theMarksSizeToTheirKind() {

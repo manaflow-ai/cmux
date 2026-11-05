@@ -13,8 +13,9 @@
 # job fails, publish-nightly publishes nothing of it, and the feed keeps serving the build it has.
 #
 #   pass        exit 0.
-#   crash       exit 1: the app launched and then exited, wrote a crash report, or never rendered
-#               Home, on both of two attempts (nightly_next_launch_smoke.py verdict).
+#   crash       exit 1: the app launched and then exited, wrote a crash report or recorded an
+#               uncaught exception, on both of two attempts (nightly_next_launch_smoke.py verdict).
+#               A live app that never renders Home is a failed smoke but does not trigger rollback.
 #   cannot-run  exit 0 with a warning: no GUI session, a harness or infrastructure error before the
 #               app launched, or a check cut short. The smoke never holds a build the harness could
 #               not launch (Leo, 2026-10-23: a smoke must never block the whole nightly); the

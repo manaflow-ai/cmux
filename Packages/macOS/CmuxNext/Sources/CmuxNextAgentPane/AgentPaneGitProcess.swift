@@ -64,7 +64,8 @@ nonisolated enum AgentPaneGitProcess {
         // and a timeout returns only once git has exited and removed index.lock.
         let request = ProcessRequest(URL(fileURLWithPath: executable), arguments, environment: environment,
                                      directory: directory.map { URL(fileURLWithPath: $0) }, input: input,
-                                     errorOutput: .merge, timeout: timeout, onCancel: .finish)
+                                     errorOutput: .merge, timeout: timeout, onCancel: .finish,
+                                     terminationScope: .processGroup)
         do {
             let outcome = try await AsyncProcess().run(request)
             return Outcome(status: outcome.status, text: outcome.text)

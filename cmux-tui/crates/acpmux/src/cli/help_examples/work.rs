@@ -120,6 +120,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "group",
+        &[
+            ("List sidebar groups, duplicates marked", "acpmux group ls"),
+            ("Put a session in the Leads group", "acpmux group move coord Leads"),
+            ("Merge same-named groups", "acpmux group tidy --apply"),
+        ],
+    ),
+    ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
+    ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "group tidy",
+        &[
+            ("See which groups a tidy would merge", "acpmux group tidy"),
+            ("Merge them", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),

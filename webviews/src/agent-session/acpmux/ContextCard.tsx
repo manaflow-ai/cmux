@@ -2,6 +2,7 @@
 // breakdown gets Codex's compact three-line tooltip; Claude's reported breakdown keeps the richer
 // card with its stacked bar and Details link. Both use the shared glass hover card (.ui-card.ui-glass).
 import "./contextCard.css";
+import { useEffect, useState } from "react";
 import { useT } from "./i18n";
 import { contextBreakdown, type Breakdown, type BreakdownRow } from "./session-info/ContextSection";
 
@@ -69,17 +70,63 @@ export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[
   }));
 }
 
+/// Under this much left, the cache line says it is about to lapse.
+export const CACHE_SOON_MS = 60_000;
+
+/// "3:12", or "52:10" for an hour's cache: the time left, rounded up to the second.
+export function cacheTimeLeft(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/// The time until `expiresAt` (unix ms), ticking each second while it is ahead. The tick stops at
+/// the expiry, when `expiresAt` changes, and when the card unmounts. Undefined without an expiry.
+export function useCacheTimeLeft(expiresAt: number | undefined, now: () => number = Date.now): number | undefined {
+  const [at, setAt] = useState(now);
+  useEffect(() => {
+    if (expiresAt === undefined) return;
+    setAt(now());
+    if (expiresAt <= now()) return;
+    const tick = window.setInterval(() => {
+      const current = now();
+      setAt(current);
+      if (current >= expiresAt) window.clearInterval(tick);
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [expiresAt, now]);
+  return expiresAt === undefined ? undefined : Math.max(0, expiresAt - at);
+}
+
+/// The prompt cache's line: a countdown while warm, then "Cache expired". acpmux sends the expiry
+/// (claude_stdio/prompt_cache.rs) only for a harness that reports its cache and a known TTL.
+function CacheLine({ expiresAt, now }: { expiresAt: number; now?: () => number }) {
+  const t = useT();
+  const left = useCacheTimeLeft(expiresAt, now) ?? 0;
+  const state = left <= 0 ? "expired" : left <= CACHE_SOON_MS ? "soon" : "warm";
+  return (
+    <div className="acpmux-context-card-cache" data-state={state}>
+      {state === "expired" ? t("context.cacheExpired") : t("context.cacheWarm", { left: cacheTimeLeft(left) })}
+    </div>
+  );
+}
+
 export function ContextCardBody({
   used,
   size,
   onOpenDetails,
   breakdown: reported,
+  cacheExpiresAt,
+  now,
 }: {
   used: number;
   size: number;
   setup?: number;
   onOpenDetails?(): void;
   breakdown?: unknown;
+  /// When the chat's prompt cache lapses (unix ms, from acpmux); no line without it.
+  cacheExpiresAt?: number;
+  /// The clock the countdown reads (the gallery pins it).
+  now?: () => number;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, {
@@ -91,43 +138,63 @@ export function ContextCardBody({
   const compactRows = breakdown ? compactBreakdownRows(breakdown) : [];
   return (
     <>
-      <div className="acpmux-context-card-title">{t("context.title")}</div>
-      <div className="acpmux-context-card-line">
-        <span className="acpmux-context-card-compact-tokens">
-          {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        </span>
+      {/* The summary sits on the card's text inset; Details below runs edge to edge (contextCard.css). */}
+      <div className="acpmux-context-card-body">
+        <div className="acpmux-context-card-title">{t("context.title")}</div>
+        <div className="acpmux-context-card-line">
+          <span className="acpmux-context-card-compact-tokens">
+            {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          </span>
+        </div>
+        <progress
+          className="acpmux-context-card-bar"
+          aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+          value={percent}
+          max={100}
+        />
+        {cacheExpiresAt !== undefined && <CacheLine expiresAt={cacheExpiresAt} now={now} />}
+        {compactRows.length > 0 && (
+          <ul className="acpmux-context-card-parts">
+            {compactRows.map((row) => (
+              <li className="acpmux-context-card-part" key={row.name}>
+                <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
+                <span>
+                  {row.group === "messages"
+                    ? t("context.messages")
+                    : row.group === "tools"
+                      ? t("sessionInfo.context.mcpTools")
+                      : row.group === "system"
+                        ? t("context.setup")
+                        : row.name}
+                </span>
+                <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      <progress
-        className="acpmux-context-card-bar"
-        aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        value={percent}
-        max={100}
-      />
-      {compactRows.length > 0 && (
-        <ul className="acpmux-context-card-parts">
-          {compactRows.map((row) => (
-            <li className="acpmux-context-card-part" key={row.name}>
-              <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
-              <span>
-                {row.group === "messages"
-                  ? t("context.messages")
-                  : row.group === "tools"
-                    ? t("sessionInfo.context.mcpTools")
-                    : row.group === "system"
-                      ? t("context.setup")
-                      : row.name}
-              </span>
-              <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
       {onOpenDetails && (
         <div className="acpmux-context-card-foot">
           <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
             {t("context.details")}
-            <span aria-hidden="true">›</span>
+            {/* The composer's chevron-right path (ComposerPickers ChevronRightIcon), drawn as an icon so
+                its box, not a font's › glyph, centres on the label. */}
+            <svg
+              className="acpmux-context-card-details-chevron"
+              width={14}
+              height={14}
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
+            </svg>
           </button>
         </div>
       )}

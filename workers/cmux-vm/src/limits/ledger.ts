@@ -14,15 +14,11 @@ import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-cr
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
+import { Reservation, type LedgerStorage } from "./storage.ts";
+import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
+export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
-export interface LedgerStorage {
-  transaction<A>(run: (storage: LedgerStorage) => Promise<A>): Promise<A>;
-  get(key: string): Promise<unknown>;
-  put(key: string, value: unknown): Promise<void>;
-  delete(key: string): Promise<boolean>;
-  list(options: { readonly prefix: string; readonly startAfter?: string; readonly limit?: number }): Promise<Map<string, unknown>>;
-}
 
 export type RateClass = "read" | "write" | "exec" | "files";
 
@@ -106,7 +102,6 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
-const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean) });
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
@@ -156,6 +151,8 @@ const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
+
+  meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
 
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return snapshotCapture(this.storage, command, nowMs); }
 

@@ -34,8 +34,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly-sign.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 TOOL = ROOT / "scripts" / "ci" / "nightly_sign_admit.py"
 sys.path.insert(0, str(TOOL.parent))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import nightly_sign_admit  # noqa: E402
+from nightly_workflow_text import nightly_text  # noqa: E402
 
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
 CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
@@ -45,8 +47,8 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+# The route stays on the declared 4-vCPU Linux pool (a fork still uses the hosted image).
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
@@ -55,7 +57,7 @@ WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"
 ALLOWED_CONTEXTS = re.compile(
     r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
-    r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
+    r"inputs\.source_run_(id|attempt)|vars\.(NIGHTLY_SIGN|RUNNER_POOLS))$"
 )
 FORBIDDEN_IN_TOOL = re.compile(
     r"\b(subprocess|os\.system|os\.exec\w*|os\.spawn\w*|popen|tarfile|extractall|codesign|notary\w*|"
@@ -190,8 +192,10 @@ def check_prepare_job(jobs: dict, job: str) -> None:
 
 
 def check_nightly_producer() -> None:
-    text = NIGHTLY.read_text(encoding="utf-8")
-    check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
+    text = nightly_text()
+    # A whole word: CI_NIGHTLY_SIGN_RUNNER (the nightly-next signing runner label) is another variable.
+    check(re.search(r"\bNIGHTLY_SIGN\b", text) is None,
+          "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
     # The preparation runs as a primary job and a fallback job with the same steps.
     jobs = yaml.safe_load(text)["jobs"]
     for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):

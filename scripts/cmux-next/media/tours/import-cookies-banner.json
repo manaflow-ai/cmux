@@ -55,7 +55,6 @@
         "method": "debug.browser_import_offer",
         "params": {}
       },
-      "record": true,
       "shot": false
     },
     {
@@ -75,7 +74,6 @@
         "method": "debug.browser_import_offer",
         "params": {}
       },
-      "record": true,
       "shot": false
     },
     {
@@ -92,7 +90,6 @@
         "method": "debug.browser_import_offer",
         "params": {}
       },
-      "record": true,
       "shot": false
     }
   ]

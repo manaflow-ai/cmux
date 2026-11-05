@@ -89,7 +89,7 @@ type RenderOptions = {
 };
 
 async function render(
-  template: ScreenTemplate,
+  template: ScreenTemplate | undefined,
   widgets: readonly PageWidget[] | undefined,
   startCwd?: string,
   options: RenderOptions = {},
@@ -100,8 +100,7 @@ async function render(
   await act(async () =>
     root.render(
       <NewTabScreen
-        template={template}
-        pageWidgets={shownPageWidgets(template, widgets)}
+        {...(template ? { template, pageWidgets: shownPageWidgets(template, widgets) } : {})}
         now={MORNING}
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
@@ -156,6 +155,23 @@ test("by default Minimal is the composer alone", async () => {
     // No time-of-day greeting.
     expect(host.querySelector(".nt-greeting")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("an unset NewTabScreen template uses Minimal instead of the old Default stage", async () => {
+  const root = await render(undefined, undefined);
+  try {
+    expect(parts()).toEqual({
+      minimal: true,
+      headline: null,
+      stage: 0,
+      projects: 0,
+      actions: 0,
+      chats: 0,
+      strip: 1,
+    });
   } finally {
     await act(async () => root.unmount());
   }

@@ -79,7 +79,7 @@ enum RemoteHandlers {
                 }
             }
             if daemon === home && direction == nil && cwd == nil {
-                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
+                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)).onMachine(home.machineID))
                 return
             }
             if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {

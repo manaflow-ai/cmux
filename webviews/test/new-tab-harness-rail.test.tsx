@@ -140,8 +140,9 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
     const trigger = window.document.querySelector<HTMLElement>("[data-menu=Model]");
     expect(trigger).not.toBeNull();
     await act(async () => trigger!.click());
-    expect(window.document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-    return [...window.document.querySelectorAll(".acpmux-quick-rail-tab")].map(
+    // A menu with a rail is the columns menu; one with no rail is the list menu.
+    expect(window.document.querySelector(".acpmux-cols, .acpmux-quick-menu")).not.toBeNull();
+    return [...window.document.querySelectorAll(".acpmux-cols-tab[role=tab]")].map(
       (tab) => tab.getAttribute("aria-label") ?? "",
     );
   } finally {

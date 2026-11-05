@@ -6,15 +6,20 @@ use super::*;
 
 /// The wire name of every catalog op.
 pub mod op_names {
+    pub const AUTOMATION_AUDIT_LIST: &str = "automation.audit.list";
     pub const AUTOMATION_CREATE: &str = "automation.create";
     pub const AUTOMATION_DELETE: &str = "automation.delete";
     pub const AUTOMATION_DEPLOY: &str = "automation.deploy";
     pub const AUTOMATION_GET: &str = "automation.get";
+    pub const AUTOMATION_IMPORT: &str = "automation.import";
     pub const AUTOMATION_LIST: &str = "automation.list";
     pub const AUTOMATION_RUN: &str = "automation.run";
     pub const AUTOMATION_RUNS_LIST: &str = "automation.runs.list";
     pub const AUTOMATION_SETTINGS_GET: &str = "automation.settings.get";
     pub const AUTOMATION_SETTINGS_SET: &str = "automation.settings.set";
+    pub const AUTOMATION_TELEPORT_ABORT: &str = "automation.teleport.abort";
+    pub const AUTOMATION_TELEPORT_BEGIN: &str = "automation.teleport.begin";
+    pub const AUTOMATION_TELEPORT_COMPLETE: &str = "automation.teleport.complete";
     pub const AUTOMATION_UPDATE: &str = "automation.update";
     pub const AUTOMATION_WEBHOOK_GET: &str = "automation.webhook.get";
     pub const CALENDAR_CALENDARS_LIST: &str = "calendar.calendars.list";
@@ -52,7 +57,10 @@ pub mod op_names {
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
     pub const CLOUD_SNAPSHOT_LIST: &str = "cloud.snapshot.list";
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
+    pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
+    pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
+    pub const CLOUD_VM_RECEIVER_LIFECYCLE: &str = "cloud.vm.receiver.lifecycle";
     pub const CLOUD_VM_SELF_GET: &str = "cloud.vm.self.get";
     pub const CLOUD_VM_STATUS_REPORT: &str = "cloud.vm.status.report";
     pub const CONVERSATION_CREATE: &str = "conversation.create";
@@ -101,6 +109,8 @@ pub mod op_names {
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_NETWORK_BIND: &str = "host.network.bind";
+    pub const HOST_NETWORK_POLICY: &str = "host.network.policy";
+    pub const HOST_NETWORK_TARGET: &str = "host.network.target";
     pub const HOST_REMOVE: &str = "host.remove";
     pub const HOST_REPLICA_PURGE: &str = "host.replica.purge";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
@@ -157,6 +167,7 @@ pub mod op_names {
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
+    pub const SERVER_PAIR_INVITE: &str = "server.pair.invite";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
@@ -220,15 +231,20 @@ pub mod op_names {
 
     /// Every catalog op name, sorted.
     pub const ALL: &[&str] = &[
+        AUTOMATION_AUDIT_LIST,
         AUTOMATION_CREATE,
         AUTOMATION_DELETE,
         AUTOMATION_DEPLOY,
         AUTOMATION_GET,
+        AUTOMATION_IMPORT,
         AUTOMATION_LIST,
         AUTOMATION_RUN,
         AUTOMATION_RUNS_LIST,
         AUTOMATION_SETTINGS_GET,
         AUTOMATION_SETTINGS_SET,
+        AUTOMATION_TELEPORT_ABORT,
+        AUTOMATION_TELEPORT_BEGIN,
+        AUTOMATION_TELEPORT_COMPLETE,
         AUTOMATION_UPDATE,
         AUTOMATION_WEBHOOK_GET,
         CALENDAR_CALENDARS_LIST,
@@ -266,7 +282,10 @@ pub mod op_names {
         CLOUD_SNAPSHOT_DELETE,
         CLOUD_SNAPSHOT_LIST,
         CLOUD_SNAPSHOT_RESTORE,
+        CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
+        CLOUD_VM_NETWORK_POLICY,
+        CLOUD_VM_RECEIVER_LIFECYCLE,
         CLOUD_VM_SELF_GET,
         CLOUD_VM_STATUS_REPORT,
         CONVERSATION_CREATE,
@@ -315,6 +334,8 @@ pub mod op_names {
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_NETWORK_BIND,
+        HOST_NETWORK_POLICY,
+        HOST_NETWORK_TARGET,
         HOST_REMOVE,
         HOST_REPLICA_PURGE,
         INBOX_ARCHIVE,
@@ -371,6 +392,7 @@ pub mod op_names {
         RUN_LIST,
         SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
+        SERVER_PAIR_INVITE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
         SLACK_POST_AS_BOT,
@@ -437,15 +459,20 @@ pub mod op_names {
 /// Runs `visitor` with the op named `name`; `None` when the catalog has no such op.
 pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output> {
     Some(match name {
+        "automation.audit.list" => visitor.visit::<AutomationAuditListOp>(),
         "automation.create" => visitor.visit::<AutomationCreateOp>(),
         "automation.delete" => visitor.visit::<AutomationDeleteOp>(),
         "automation.deploy" => visitor.visit::<AutomationDeployOp>(),
         "automation.get" => visitor.visit::<AutomationGetOp>(),
+        "automation.import" => visitor.visit::<AutomationImportOp>(),
         "automation.list" => visitor.visit::<AutomationListOp>(),
         "automation.run" => visitor.visit::<AutomationRunOp>(),
         "automation.runs.list" => visitor.visit::<AutomationRunsListOp>(),
         "automation.settings.get" => visitor.visit::<AutomationSettingsGetOp>(),
         "automation.settings.set" => visitor.visit::<AutomationSettingsSetOp>(),
+        "automation.teleport.abort" => visitor.visit::<AutomationTeleportAbortOp>(),
+        "automation.teleport.begin" => visitor.visit::<AutomationTeleportBeginOp>(),
+        "automation.teleport.complete" => visitor.visit::<AutomationTeleportCompleteOp>(),
         "automation.update" => visitor.visit::<AutomationUpdateOp>(),
         "automation.webhook.get" => visitor.visit::<AutomationWebhookGetOp>(),
         "calendar.calendars.list" => visitor.visit::<CalendarCalendarsListOp>(),
@@ -483,7 +510,10 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
         "cloud.snapshot.list" => visitor.visit::<CloudSnapshotListOp>(),
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
+        "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
+        "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),
+        "cloud.vm.receiver.lifecycle" => visitor.visit::<CloudVmReceiverLifecycleOp>(),
         "cloud.vm.self.get" => visitor.visit::<CloudVmSelfGetOp>(),
         "cloud.vm.status.report" => visitor.visit::<CloudVmStatusReportOp>(),
         "conversation.create" => visitor.visit::<ConversationCreateOp>(),
@@ -532,6 +562,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.network.bind" => visitor.visit::<HostNetworkBindOp>(),
+        "host.network.policy" => visitor.visit::<HostNetworkPolicyOp>(),
+        "host.network.target" => visitor.visit::<HostNetworkTargetOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
         "host.replica.purge" => visitor.visit::<HostReplicaPurgeOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
@@ -588,6 +620,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "run.list" => visitor.visit::<RunListOp>(),
         "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
+        "server.pair.invite" => visitor.visit::<ServerPairInviteOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),

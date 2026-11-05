@@ -12,7 +12,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 
@@ -86,7 +87,7 @@ $out"
 $out"
 grep -qF "no Windows daemon published for tree $key" <<<"$out" || fail "the refusal does not say the tree has no Windows daemon:
 $out"
-grep -q 'trusted feat-cmux-next publication' <<<"$out" || fail "the refusal does not say how to republish:
+grep -qF 'include_windows=true' <<<"$out" || fail "the refusal does not say how to publish it:
 $out"
 ! grep -qi '404\|error 22\|curl:' <<<"$out" || fail "the refusal is a bare download error:
 $out"

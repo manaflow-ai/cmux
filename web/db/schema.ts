@@ -1830,14 +1830,44 @@ export const stripeSubscriptions = pgTable(
   ],
 );
 
-export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
-  id: text("id").primaryKey(),
-  type: text("type").notNull(),
-  payloadHash: text("payload_hash"),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * The Stripe webhook inbox and idempotency ledger: one row per verified
+ * event, answered 2xx once stored and processed from here
+ * (services/billing/stripeWebhookInbox.ts).
+ */
+export const stripeWebhookEvents = pgTable(
+  "stripe_webhook_events",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    payloadHash: text("payload_hash"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Stripe object the event changes; one event per object is processed at a time. */
+    objectKey: text("object_key"),
+    /** Stripe's `event.created`. */
+    eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    /**
+     * The holder's lease. Defaults to 15 minutes from the insert: a row the
+     * pre-inbox build writes is held while that build applies it.
+     */
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true })
+      .default(sql`now() + interval '15 minutes'`),
+    /** Why a processed event changed nothing; null when it was applied. */
+    skipReason: text("skip_reason"),
+  },
+  (table) => [
+    index("stripe_webhook_events_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.processedAt} is null`),
+    index("stripe_webhook_events_object_key_idx")
+      .on(table.objectKey, table.eventCreatedAt)
+      .where(sql`${table.objectKey} is not null`),
+  ],
+);
 
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",

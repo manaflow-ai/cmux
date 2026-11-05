@@ -14,10 +14,6 @@ import CmuxNextCompat
 /// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
-    /// A longer text is not kept (acpmux's own draft limit, `Hub::MAX_COMPOSER_DRAFT_CHARS`; the web's
-    /// composerDraft.ts `MAX_DRAFT_CHARS`, pinned equal by composer-draft-orderings.test.tsx).
-    public static let maximumCharacters = 1_000_000
-
     nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
     let file: URL?
     /// Saves leave the main thread: typing in a new chat saves every settled edit.
@@ -28,6 +24,9 @@ public final class AgentUnsentDrafts {
     private var undelivered: [String: String]
     /// The file exists but could not be read: the first save that runs sets it aside first.
     private let unreadable: UnreadableFile
+    /// The window tab `key` shows in (its workspace's window), for its new chat's leftover
+    /// (``leave(_:inWindow:)``): the window's next New Tab page takes it (cmux#32276).
+    public var windowOfTab: (String) -> String? = { _ in nil }
 
     /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
     public init(file: URL?, files: AgentPaneStateFiles) {
@@ -67,15 +66,65 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
-    /// has a session. Call it after the tab's own `onSessionChange` is set.
+    /// has a session. Call it after the tab's own `onSessionChange` is set. It also hands the model
+    /// its tab (``AgentPaneModel/tabKey``), which what a pane keeps per view is kept by: every tab's
+    /// model is wired here, a spare's when a tab adopts it.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
+        model.tabKey = { key() }
         model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
+        model.onNewChatLeftover = { [weak self] text in
+            guard let self, let window = windowOfTab(key()) else { return }
+            leave(text, inWindow: window)
+        }
+        model.onNewChatLeftoverTaken = { [weak self] text in
+            guard let self, let window = windowOfTab(key()) else { return }
+            tookLeftover(text, inWindow: window)
+        }
+        // A New Tab page the host gave no leftover (the first page of a workspace, a restored one)
+        // reads its window's as its context reaches it.
+        model.newChatLeftoverDraft = { [weak self] in
+            guard let self, let window = windowOfTab(key()) else { return nil }
+            return leftover(inWindow: window)
+        }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
             started?(session)
         }
     }
+
+    /// A new chat of `window` left `text` when its tab opened another chat (cmux#32276): kept in the
+    /// window's one slot, on disk with the tabs' drafts, after what an earlier one left (never
+    /// over it), for the window's next New Tab page (``leftover(inWindow:)``). Nothing sends it.
+    public func leave(_ text: String, inWindow window: String) {
+        guard !Self.isBlank(text) else { return }
+        let slot = Self.leftoverKey(window)
+        set(drafts[slot].map { $0 + "\n\n" + text } ?? text, for: slot)
+    }
+
+    /// What new chats of `window` left, for the New Tab page about to show there: the page's field
+    /// shows it as a draft. A Cmd-T or split page reads it as the app makes it (`NewTabPage.open`,
+    /// `NewTabPage.split`); any other reads it through ``AgentPaneModel/newTabForPage``. It stays in the
+    /// slot until a page reports it showed it (``tookLeftover(_:inWindow:)``): a page that never shows (its
+    /// tab failed to open) leaves it for the next one.
+    public func leftover(inWindow window: String) -> String? { drafts[Self.leftoverKey(window)] }
+
+    /// A New Tab page of `window` showed `text` from the window's slot as its draft
+    /// (`chat.leftoverTaken`): the slot gives it up, once, keeping what another new chat left after
+    /// it was read. Other windows' slots are never touched.
+    public func tookLeftover(_ text: String, inWindow window: String) {
+        let slot = Self.leftoverKey(window)
+        guard !text.isEmpty, let left = drafts[slot] else { return }
+        let shown = Array((text + "\n\n").utf8)
+        if left == text {
+            set("", for: slot)
+        } else if left.utf8.starts(with: shown) {
+            set(String(decoding: left.utf8.dropFirst(shown.count), as: UTF8.self), for: slot)
+        }
+    }
+
+    /// A window's slot among the tabs' drafts: no tab id has this prefix.
+    static func leftoverKey(_ window: String) -> String { "left-in-new-chat:" + window }
 
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
@@ -93,21 +142,14 @@ public final class AgentUnsentDrafts {
             set(text, for: key)
             return
         }
-        // A merge past the limit is refused (`set`): the tab keeps what it had.
         set(Self.isBlank(text) ? kept : Self.merged(typed: text, kept: kept), for: key)
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
-    /// or its page cleared a draft it had). A text past ``maximumCharacters`` is refused, as acpmux
-    /// refuses one: the tab keeps the draft it had. Before (cmux#28204 review at b7cddbbf), it was
-    /// taken as no draft, so a merge past the limit removed the saved draft.
-    /// Returns false when the text was refused.
+    /// or its page cleared a draft it had). Draft text is written whole, with no user-facing size
+    /// ceiling. The return value remains true for compatibility with callers.
     @discardableResult
     public func set(_ text: String, for key: String) -> Bool {
-        guard text.unicodeScalars.count <= Self.maximumCharacters else {
-            Self.logger.error("unsent draft past the limit not kept; the previous one stays")
-            return false
-        }
         let value = Self.isBlank(text) ? nil : text
         guard drafts[key] != value else { return true }
         drafts[key] = value

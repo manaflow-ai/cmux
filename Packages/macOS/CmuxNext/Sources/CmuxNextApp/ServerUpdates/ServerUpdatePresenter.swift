@@ -7,7 +7,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
 
-/// Shows "Restart cmux-tui to use new features" as a toast on the active window, asks the confirm
+/// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window, asks the confirm
 /// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
 /// It never restarts on its own: skew only shows the toast.
 @MainActor
@@ -102,8 +102,8 @@ final class ServerUpdatePresenter {
     }
 
     private func show(_ notice: ServerUpdateNotice, in window: NSWindow) {
-        let toast = CmuxToast(id: "server-update.\(notice.id)", message: notice.toastMessage,
-                              action: CmuxToast.Action(title: notice.restartButtonTitle), duration: CmuxToast.untilClosed)
+        let toast = CmuxToast(id: "server-update.\(notice.id)", message: notice.toastMessage, detail: notice.toastDetail,
+                              action: CmuxToast.Action(title: notice.toastButtonTitle), duration: CmuxToast.untilClosed)
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         shown[notice.id] = handle
         handle.onAction = { [weak self] in self?.confirm(notice, in: window) }

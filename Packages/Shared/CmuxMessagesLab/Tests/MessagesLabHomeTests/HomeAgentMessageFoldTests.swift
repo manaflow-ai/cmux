@@ -47,7 +47,7 @@ import Testing
         func rowsPlaced() {}
     }
 
-    @Test func foldAndNotesRowsAreMutedLinesWithNoLink() {
+    @Test func foldRowsAreMutedLinesWithNoLink() {
         let folded = HomeMapping.agentMessageText(.init(group: Self.group, kind: .fold(count: 3, peers: ["a917", "a_1"], expanded: false)))
         #expect(folded.hasPrefix("*▸ "))
         #expect(folded.hasSuffix("a917, a\\_1"))
@@ -55,11 +55,6 @@ import Testing
         #expect(!folded.contains("]("))
         let open = HomeMapping.agentMessageText(.init(group: Self.group, kind: .fold(count: 3, peers: ["a917"], expanded: true)))
         #expect(open.hasPrefix("*▾ ") && !open.contains("a917") && !open.contains("]("))
-        let notes = HomeMapping.agentMessageText(.init(group: Self.group, kind: .notes(
-            count: 5, peers: ["a1", "a2"], reason: .stopped(session: "Disconnected"), expanded: false)))
-        #expect(notes.hasPrefix("*▸ ") && notes.contains("5") && notes.hasSuffix("`a1` `a2`") && !notes.contains("]("))
-        let mixed = HomeMapping.agentMessageText(.init(group: Self.group, kind: .notes(count: 2, peers: ["a1"], reason: nil, expanded: true)))
-        #expect(mixed.hasPrefix("*▾ ") && mixed.contains("2") && !mixed.contains("a1"))
         let note = HomeMapping.agentMessageText(.init(group: Self.group, kind: .note(
             peer: "a1", reason: .gone, text: "gone: its session no longer exists, so no report will come")))
         #expect(note == "`a1` *gone: its session no longer exists, so no report will come*")
@@ -70,7 +65,7 @@ import Testing
 
     /// User 2026-10-31 (msg 19414): the fold header is a muted caption line with a chevron and plain
     /// chips, not a link in a gray bubble.
-    @Test func foldAndNotesRowsAreCaptionLinesNotBubbles() throws {
+    @Test func foldRowsAreDrawnRowsNotBubbles() throws {
         let fold = HomeAgentMessageRow(group: Self.group, kind: .fold(count: 3, peers: ["a957", "a958"], expanded: false))
         let part = try #require(HomeAgentFoldRowProvider.part(fold))
         guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
@@ -78,16 +73,14 @@ import Testing
         let provider = try #require(HomeAgentFoldRowProvider.installed)
         #expect(provider.layout(for: custom) == .fullWidth)
         #expect(provider.plainText(custom) == "\(CmuxStrings.showAgentMessages(3)) · a957, a958")
-        #expect(provider.measure(custom, maxWidth: 400).height == HomeAgentFoldRowProvider.height)
+        // Since 2026-11-03 (msg 19960) the shipped agents row is one pill per agent (HomeAgentPillRowTests).
+        #expect(provider.measure(custom, maxWidth: 400).height == HomeAgentPills(try #require(HomeAgentFoldRowProvider.payload(custom)),
+                                                                                  shape: .pill, width: 400).height)
         let open = try #require(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .fold(count: 3, peers: ["a957"], expanded: true))))
         guard case let .custom(openCustom) = open else { Issue.record("not a drawn row"); return }
         #expect(provider.plainText(openCustom) == CmuxStrings.hideAgentMessages(3))
-        let notes = try #require(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .notes(
-            count: 5, peers: ["a1", "a2", "a3", "a4", "a5"], reason: .stopped(session: "Disconnected"), expanded: false))))
-        guard case let .custom(notesCustom) = notes else { Issue.record("not a drawn row"); return }
-        #expect(provider.plainText(notesCustom) == "\(CmuxStrings.agentNotes(.stopped(session: "Disconnected"), 5)) · a1, a2, a3, a4, a5")
         #expect(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .message(from: "a1", to: "Chief", outgoing: false, text: "hi"))) == nil)
-        // An opened note is a caption line too, with no chevron, so opening the notes brings back no bubbles.
+        // An opened note is a caption line too, with no chevron, so opening an agents row brings back no bubbles.
         let note = try #require(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .note(peer: "a1", reason: .gone, text: "gone: no report will come"))))
         guard case let .custom(noteCustom) = note else { Issue.record("not a drawn row"); return }
         #expect(provider.plainText(noteCustom) == "a1 · gone: no report will come")
@@ -114,6 +107,21 @@ import Testing
         let image = try #require(ctx.makeImage())
         let data = try #require(image.dataProvider?.data as Data?)
         #expect(data.contains { $0 > 0 }, "the caption drew nothing")
+    }
+
+    @Test func threeHundredAgentNamesFitOneCompactFoldLabel() {
+        let names = (0..<300).map { "a\($0)" }
+        let folded = HomeMapping.agentMessageText(.init(group: Self.group,
+            kind: .fold(count: 300, peers: names, expanded: false)))
+        #expect(folded.contains("300"))
+        #expect(folded.contains("a0, a1, a2, …"))
+        #expect(!folded.contains("a299"))
+        #expect(!folded.contains("]("))
+        #expect(folded.count < 140)
+        let expanded = HomeMapping.agentMessageText(.init(group: Self.group,
+            kind: .fold(count: 300, peers: names, expanded: true)))
+        #expect(expanded.contains("300"))
+        #expect(!expanded.contains("a299"))
     }
 
     @Test func aClickOnTheFoldRowTogglesItsGroupAndOpensNothingElse() throws {

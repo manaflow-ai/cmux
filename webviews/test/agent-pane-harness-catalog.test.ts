@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPACT_MODEL_MENU } from "./support/compactModelMenu";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
@@ -334,7 +335,13 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       data.items.add(new File([new Uint8Array([0x00, 0x01, 0x02])], "first-chat.mov", { type: "video/quicktime" }));
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    await page.locator(".acpmux-attachment-link-name").filter({ hasText: "first-chat.mov" }).waitFor();
+    // A video is its square tile (spinning while the host reads it), never a chip with its name.
+    await page
+      .locator(
+        '.acpmux-attachment-video[title="first-chat.mov"], .acpmux-attachment-pending[aria-label="first-chat.mov"]',
+      )
+      .first()
+      .waitFor();
     await page.waitForFunction(() => typeof (window as unknown as FirstRunWindow).finishFirstRunVideo === "function");
   }
 
@@ -512,9 +519,10 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.keyboard.press("Meta+Control+m");
-    const menu = page.locator(".acpmux-quick-menu").first();
+    // The rail makes it the columns menu; Add harness… ends its rail.
+    const menu = page.locator(COMPACT_MODEL_MENU).first();
     await menu.waitFor();
-    await menu.locator(".acpmux-quick-rail-add").click();
+    await menu.locator(".acpmux-cols-tab-add, .acpmux-quick-rail-add").click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });
     await claude.waitFor();
     expect(await claude.getAttribute("data-harness-status")).toBe("ready");

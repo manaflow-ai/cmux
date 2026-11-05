@@ -27,6 +27,7 @@ pub struct AnswerContext {
     pub exclude_cgnat: bool,
     /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
     pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 #[derive(Clone)]
@@ -154,11 +155,12 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             config.services.acpmux.clone(),
             Some(config.services.daemon_socket()),
             sealer,
+            config.session_exposure.clone(),
         ))))
     } else {
         None
     };
-    let mailbox = mailbox_for(&services);
+    let mailbox = mailbox_for(&services, config.session_exposure.clone());
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -271,6 +273,7 @@ async fn connect_once(
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
         mailbox: mailbox.clone(),
+        session_exposure: config.session_exposure.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     if let Some(task) = refresher {
@@ -323,7 +326,10 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
 
 /// The mailbox of a supervised hostd: its pairing's keys and trust, the
 /// services a link reaches, and the replies already spent (on disk).
-fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+fn mailbox_for(
+    services: &ServiceConfig,
+    session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Arc<crate::mailbox::Mailbox>> {
     let pairing = services.pairing.as_ref()?;
     let daemon_socket = services
         .default_socket
@@ -339,6 +345,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
             acpmux: services.acpmux.clone(),
             daemon_socket,
             chief_socket: services.chief_socket.clone(),
+            session_exposure,
         }),
     }))
 }
@@ -497,7 +504,12 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
+    let mut peer = Peer {
+        device_id: first.from.clone(),
+        session_id: first.session_id.clone(),
+        video: None,
+        session_exposure: context.session_exposure.clone(),
+    };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");

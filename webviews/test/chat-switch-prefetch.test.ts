@@ -81,11 +81,48 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     return { sessionId, marker, listed, events, say };
   };
   const chats = [...Array(CHAT_COUNT).keys()].map(chat);
+  // One completed turn fills more than a newest-page read. Its prompt must be prepared with
+  // the read-ahead: otherwise the cached frame draws raw work, then attach folds that same work.
+  const longChat = chats[CHAT_COUNT - 1]!;
+  longChat.listed.family = "codex";
+  longChat.listed.harness = "codex";
+  longChat.listed.turnCount = 1;
+  longChat.events.length = 0;
+  const longEvent = (dir: string, kind: string, msg: Record<string, unknown>) => {
+    const seq = longChat.events.length + 1;
+    longChat.events.push({ sessionId: longChat.sessionId, seq, at: START + seq * 1000, dir, kind, msg });
+  };
+  longEvent("mux", "user_message", { text: "Keep this completed turn folded", promptId: "long-turn" });
+  longEvent("mux", "turn_started", {});
+  for (let index = 0; index < 420; index += 1)
+    longEvent("in", "tool_call", {
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: `long-${index}`,
+          title: `Inspect file ${index}`,
+          kind: "read",
+          status: "completed",
+        },
+      },
+    });
+  longChat.say(longChat.marker);
+  longEvent("mux", "turn_result", { status: "completed" });
+  let fullLongAttach = false;
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
   /// Every read the daemon answered, in order, for the test that reads them.
   const calls: { method: string; sessionId?: string }[] = [];
   /// Chats whose newest page the daemon answered a read-ahead for, and who waits on that.
   const readAhead = new Set<string>();
+  const pendingReadAhead = new Set<string>();
+  /// The page whose reads `readAhead` holds (`openPage` moves it on). A socket is tagged with the
+  /// page that was current when it connected: an answer that reaches a page the test closed already
+  /// (its read went out just before the close) is that page's, never the next one's. Counting it
+  /// let a test switch before its own page had read the chat ahead, so the switch waited on the
+  /// attach.
+  let currentPage = 0;
+  let staleReadAheads = 0;
   const readAheadWaiters = new Set<() => void>();
 
   function answer(method: string, params: Record<string, any>): unknown {
@@ -96,6 +133,14 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: chats.map((c) => c.listed) };
       case "_acpmux/attach":
+        if (entry === longChat && !fullLongAttach)
+          return {
+            session: entry.listed,
+            lastSeq: entry.events.length,
+            events: entry.events.slice(-400),
+            hasMore: true,
+            turnOpener: entry.events[0],
+          };
         return { session: entry!.listed, lastSeq: entry!.events.length, events: entry!.events, hasMore: false };
       case "_acpmux/events": {
         if (!entry) return { events: [], hasMore: false, lastSeq: 0 };
@@ -131,7 +176,9 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: { page: currentPage } })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
@@ -139,12 +186,20 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
           if (message.id === undefined) return;
           calls.push({ method: message.method, sessionId: message.params?.sessionId });
           const result = answer(message.method, message.params ?? {});
+          const reading = message.method === "_acpmux/events" && typeof message.params?.beforeSeq === "number";
+          const readKey = `${(ws.data as { page: number }).page}:${message.id}`;
+          if (reading) pendingReadAhead.add(readKey);
           setTimeout(
             () => {
               ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
               // A read ahead: an event page of the newest records, outside any attach.
-              if (message.method === "_acpmux/events" && typeof message.params?.beforeSeq === "number") {
-                readAhead.add(String(message.params.sessionId));
+              if (reading) {
+                pendingReadAhead.delete(readKey);
+                if ((ws.data as { page: number }).page !== currentPage) {
+                  staleReadAheads += 1;
+                  return;
+                }
+                readAhead.add(String(message.params?.sessionId));
                 for (const waiter of readAheadWaiters) waiter();
               }
             },
@@ -163,6 +218,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
+    console.log(`chat-switch-prefetch: ${staleReadAheads} read-ahead answers reached a page the test had closed`);
     await browser?.close();
     await vite?.close();
     await daemon?.stop(true);
@@ -204,27 +260,37 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   /// Resolves once the daemon answered a read-ahead of every chat in `entries` and the page has
   /// painted twice since (the answers are in, the frames that follow ran).
   const readAheadOf = async (page: Page, entries: (typeof chats)[number][]) => {
-    const all = () => entries.every((entry) => readAhead.has(entry.sessionId));
-    if (!all())
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          readAheadWaiters.delete(check);
-          reject(new Error(`no read-ahead of ${entries.filter((e) => !readAhead.has(e.sessionId)).length} chats`));
-        }, 20_000);
-        const check = () => {
-          if (!all()) return;
-          clearTimeout(timeout);
-          readAheadWaiters.delete(check);
-          resolve();
-        };
-        readAheadWaiters.add(check);
-      });
+    const all = () =>
+      entries.every((entry) => readAhead.has(entry.sessionId)) &&
+      ![...pendingReadAhead].some((key) => key.startsWith(`${currentPage}:`));
+    const answered = async () => {
+      if (!all())
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            readAheadWaiters.delete(check);
+            reject(new Error(`no read-ahead of ${entries.filter((e) => !readAhead.has(e.sessionId)).length} chats`));
+          }, 20_000);
+          const check = () => {
+            if (!all()) return;
+            clearTimeout(timeout);
+            readAheadWaiters.delete(check);
+            resolve();
+          };
+          readAheadWaiters.add(check);
+        });
+    };
+    await answered();
+    await page.evaluate("window.cmuxPaintFrame().then(() => window.cmuxPaintFrame())");
+    // A tail response can cause one opener read. Drain it if present; the unfixed baseline
+    // makes no opener read and can still reach the measurement and report its swap numbers.
+    await answered();
     await page.evaluate("window.cmuxPaintFrame().then(() => window.cmuxPaintFrame())");
   };
   const openPage = async (first: (typeof chats)[number]) => {
     // What the daemon read ahead belongs to the page that asked: each test opens its own.
     readAhead.clear();
-    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    currentPage += 1;
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
     await installPaintedFrames(page);
     await page.goto(url(first.sessionId));
     await page.getByText(first.marker).waitFor({ timeout: 30_000 });
@@ -283,6 +349,158 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
         .getByText(fresh)
         .waitFor({ timeout: ATTACH_MS + 5_000 });
     } finally {
+      await page.close();
+    }
+  });
+
+  test("cold prefetched and warm capped turns keep their first painted layout through attach", async () => {
+    let page = await openPage(chats[0]!);
+    try {
+      await page.evaluate(
+        `window.cmuxAcpmuxActions?.["chat.prefetch"]?.(${JSON.stringify({ sessionId: longChat.sessionId })})`,
+      );
+      await readAheadOf(page, [longChat]);
+      const measure = () =>
+        page.evaluate(
+          async ({ sessionId, marker }) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const visible = () => scroller.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+            const snapshot = () => ({
+              visible: visible(),
+              composer: document.querySelector(".acpmux-composer")!.getBoundingClientRect().toJSON(),
+              rows: [...scroller.querySelectorAll<HTMLElement>("[data-row-id]")].map((row) => {
+                const rect = row.getBoundingClientRect();
+                return {
+                  id: row.dataset.rowId,
+                  text: row.innerText,
+                  top: rect.top,
+                  left: rect.left,
+                  width: rect.width,
+                  height: rect.height,
+                };
+              }),
+              scrollTop: scroller.scrollTop,
+              scrollHeight: scroller.scrollHeight,
+              width: scroller.clientWidth,
+            });
+            const shifts: { at: number; value: number }[] = [];
+            const observe = (entries: PerformanceEntry[]) => {
+              for (const entry of entries)
+                // Recent-input entries still count: a click must not hide the subsequent swap.
+                shifts.push({ at: entry.startTime, value: (entry as PerformanceEntry & { value: number }).value });
+            };
+            const observer = new PerformanceObserver((list) => observe(list.getEntries()));
+            observer.observe({ type: "layout-shift" });
+            const started = performance.now();
+            const samples: { frame: number; at: number; view: ReturnType<typeof snapshot> }[] = [];
+            let attachedAt: number | undefined;
+            let stop = () => {};
+            let fail: (reason: unknown) => void = () => {};
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+            const measured = new Promise<void>((resolve, reject) => {
+              fail = reject;
+              timeout = setTimeout(
+                () => reject(new Error("switch did not paint and finish attach within 8 seconds")),
+                8_000,
+              );
+              stop = window.cmuxAfterPaint((frame) => {
+                if (samples.length || (visible() && scroller.innerText.includes(marker)))
+                  samples.push({ frame, at: performance.now() - started, view: snapshot() });
+                // Cover attach plus a rendering opportunity for its asynchronous layout work.
+                if (attachedAt !== undefined && frame > attachedAt && samples.length) {
+                  resolve();
+                  return false;
+                }
+                return true;
+              });
+            });
+            try {
+              const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+                .cmuxAcpmuxActions!;
+              void actions["chat.select"]!({ sessionId })
+                .then(async () => {
+                  await window.cmuxPaintFrame();
+                  attachedAt = await window.cmuxPaintFrame();
+                })
+                .catch(fail);
+              await measured;
+              observe(observer.takeRecords());
+              const cached = samples[0]!;
+              const final = samples.at(-1)!.view;
+              const finalKey = JSON.stringify(final);
+              const lastChanged = samples.reduce(
+                (last, sample, index) => (JSON.stringify(sample.view) !== finalKey ? index : last),
+                -1,
+              );
+              return {
+                cached,
+                final,
+                sampleCount: samples.length,
+                swapFrames: lastChanged + 1,
+                shiftScore: shifts
+                  // The first target frame replaces the previous chat. Its shift belongs to
+                  // that deliberate switch, not a later movement of text already painted.
+                  // LayoutShift timestamps fall after rAF, so use the post-paint observation.
+                  .filter((shift) => shift.at > started + cached.at)
+                  .reduce((sum, shift) => sum + shift.value, 0),
+                allShiftScore: shifts.reduce((sum, shift) => sum + shift.value, 0),
+              };
+            } finally {
+              clearTimeout(timeout);
+              stop();
+              observer.disconnect();
+            }
+          },
+          { sessionId: longChat.sessionId, marker: longChat.marker },
+        );
+      const cold = await measure();
+      await page.close();
+      // The warm visit starts with all events loaded: its prompt was in the history, not stored
+      // separately as turnOpener. Switching away must preserve it before capping that history.
+      fullLongAttach = true;
+      page = await openPage(longChat);
+      fullLongAttach = false;
+      await page.evaluate(
+        `window.cmuxAcpmuxActions["chat.select"](${JSON.stringify({ sessionId: chats[0]!.sessionId })})`,
+      );
+      const warm = await measure();
+      const out = process.env.FAST_CHECKS_OUT;
+      if (out) {
+        await Bun.write(path.join(out, "chat-switch-one-render.json"), JSON.stringify({ cold, warm }, null, 2));
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+          await page.locator(".acpmux-scroll").screenshot({ path: path.join(out, `completed-turn-${theme}.png`) });
+        }
+      }
+      for (const [mode, frames] of [
+        ["cold-prefetched", cold],
+        ["warm", warm],
+      ] as const) {
+        console.log(
+          `chat-switch-one-render: ${JSON.stringify({
+            mode,
+            firstTextMs: frames.cached.at,
+            swapFrames: frames.swapFrames,
+            shiftScore: frames.shiftScore,
+            allShiftScore: frames.allShiftScore,
+            sampleCount: frames.sampleCount,
+            firstScrollTop: frames.cached.view.scrollTop,
+            finalScrollTop: frames.final.scrollTop,
+            firstScrollHeight: frames.cached.view.scrollHeight,
+            finalScrollHeight: frames.final.scrollHeight,
+          })}`,
+        );
+      }
+      for (const frames of [cold, warm]) {
+        expect(frames.cached.at).toBeLessThan(SWITCH_DRAWN_MS);
+        expect(frames.cached.view.rows.some((row) => row.id?.startsWith("worked-"))).toBe(true);
+        expect(frames.swapFrames).toBe(0);
+        expect(frames.shiftScore).toBe(0);
+        expect(frames.final).toEqual(frames.cached.view);
+      }
+    } finally {
+      fullLongAttach = false;
       await page.close();
     }
   });

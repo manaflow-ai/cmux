@@ -114,6 +114,8 @@ import Testing
             }
         }
 
+        var layout: ScreenLayout? { content.layoutModel.screens.first?.layout }
+
         func width(_ column: UInt64) -> Double? {
             content.layoutModel.screens.first?.layout.columns.first { $0.id == LayoutColumnID("column:\(column)") }?.width
         }
@@ -325,6 +327,116 @@ import Testing
         shown.echo(Self.chain([1, 2], [0.25]))
         #expect(Self.near(shown.ratio(1), 0.5))
         #expect(shown.ratioIntents == ["split:1=0.5000"], "sent \(shown.ratioIntents)")
+    }
+
+    // MARK: Rows
+
+    private static func row(_ id: UInt64, _ height: Int, _ layout: LayoutNode) -> RowSnapshot {
+        RowSnapshot(id: DaemonRowID(rawValue: id), height: height, layout: layout)
+    }
+
+    /// A column of `rows` as cmux-tui sends it (`LayoutColumn::normalize_rows`, `fold`): the compat
+    /// chain folds rows 2..n into Down splits whose ids are the row ids and whose ratios are the
+    /// heights above over the heights through, in f32; one row is a plain column with that row's tree.
+    private static func column(_ id: UInt64, width: Double, rows: [RowSnapshot]) -> ColumnSnapshot {
+        guard rows.count > 1 else { return ColumnSnapshot(id: DaemonColumnID(rawValue: id), width: width, layout: rows[0].layout) }
+        var layout = rows[0].layout
+        var before = Float(rows[0].height)
+        for row in rows.dropFirst() {
+            let height = Float(row.height)
+            layout = .split(id: DaemonSplitID(rawValue: row.id.rawValue), resourceID: nil, direction: .down,
+                            ratio: Double(before / (before + height)), a: layout, b: row.layout)
+            before += height
+        }
+        return ColumnSnapshot(id: DaemonColumnID(rawValue: id), width: width, layout: layout, rows: rows)
+    }
+
+    private static func right(_ split: UInt64, _ ratio: Double, _ a: LayoutNode, _ b: LayoutNode) -> LayoutNode {
+        .split(id: DaemonSplitID(rawValue: split), resourceID: nil, direction: .right, ratio: ratio, a: a, b: b)
+    }
+
+    /// Rows beside c11 (p3): row 21 (p1, 500) over row 22 (p2, 500) in c10.
+    private static let rowStrip = [column(10, width: 0.5, rows: [row(21, 500, .leaf(1)), row(22, 500, .leaf(2))]),
+                                   ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(3))]
+
+    /// The bottom row's only pane closes: it leaves in the key's turn (it used to wait for the
+    /// daemon's tree), c10 is a plain column of p1, and the daemon's echo shows exactly that.
+    @Test func aRowsOnlyPaneLeavesInTheKeysTurnAndItsEchoShowsTheSame() throws {
+        let shown = try Shown(Self.rowStrip)
+        defer { shown.end() }
+        let closing = LayoutPaneID(try shown.key(2))
+        _ = try #require(try shown.controller(2).showPaneClose(), "the row's pane waited for the daemon's tree")
+        let shownLayout = try #require(shown.layout)
+        #expect(!shownLayout.contains(closing))
+        let column = try #require(shownLayout.columns.first { $0.id == LayoutColumnID("column:10") })
+        let kept = LayoutPaneID(try shown.key(1))
+        #expect(column.rows.isEmpty && column.root == .leaf(kept), "c10: \(column)")
+        shown.echo([ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), Self.rowStrip[1]])
+        #expect(shown.layout == shownLayout, "the echo moved the layout: \(String(describing: shown.layout)) after \(shownLayout)")
+    }
+
+    /// A lone column of three rows: the top row's pane closes (the next row is the top, its id and
+    /// height kept; the chain refolds), then, after its echo, the bottom row's: the column is the
+    /// screen's split tree again. Each echo shows what the close showed.
+    @Test func closingRowsOfALoneColumnShowWhatTheDaemonsTreeShows() throws {
+        let middle = Self.right(30, 0.5, .leaf(2), .leaf(3))
+        let shown = try Shown([Self.column(10, width: 1, rows: [Self.row(21, 300, .leaf(1)), Self.row(22, 300, middle), Self.row(23, 400, .leaf(4))])])
+        defer { shown.end() }
+        _ = try #require(try shown.controller(1).showPaneClose(), "the top row's pane waited for the daemon's tree")
+        let afterTop = try #require(shown.layout)
+        let column = try #require(afterTop.columns.first)
+        #expect(column.rows.map(\.id.rawValue) == ["row:22", "row:23"] && column.rows.map(\.height) == [300, 400], "rows: \(column.rows)")
+        shown.echo([Self.column(10, width: 1, rows: [Self.row(22, 300, middle), Self.row(23, 400, .leaf(4))])])
+        #expect(shown.layout == afterTop, "the echo moved the layout: \(String(describing: shown.layout)) after \(afterTop)")
+
+        _ = try #require(try shown.controller(4).showPaneClose(), "the bottom row's pane waited for the daemon's tree")
+        let afterBottom = try #require(shown.layout)
+        guard case let .splits(root) = afterBottom else { Issue.record("not a split tree: \(afterBottom)"); return }
+        let left = [LayoutPaneID(try shown.key(2)), LayoutPaneID(try shown.key(3))]
+        #expect(root.panes == left)
+        shown.echo(middle)
+        #expect(shown.layout == afterBottom, "the echo moved the layout: \(String(describing: shown.layout)) after \(afterBottom)")
+    }
+
+    /// Under even sizing, a pane leaving a row's split chain gives the chain even halves in the
+    /// key's turn; the daemon's echo (the old ratio) keeps them, and the ratio goes once.
+    @Test func aPaneLeavingARowsChainEvensTheChainThroughItsEcho() throws {
+        let chain = Self.right(31, 1.0 / 3, .leaf(1), Self.right(32, 0.5, .leaf(2), .leaf(3)))
+        let shown = try Shown([Self.column(10, width: 1, rows: [Self.row(21, 500, chain), Self.row(22, 500, .leaf(4))])])
+        defer { shown.end() }
+        _ = try #require(try shown.controller(3).showPaneClose())
+        #expect(Self.near(shown.ratio(31), 0.5), "s31 \(String(describing: shown.ratio(31)))")
+        shown.echo([Self.column(10, width: 1, rows: [Self.row(21, 500, Self.right(31, 1.0 / 3, .leaf(1), .leaf(2))), Self.row(22, 500, .leaf(4))])])
+        #expect(Self.near(shown.ratio(31), 0.5), "the echo resized s31 to \(String(describing: shown.ratio(31)))")
+        #expect(shown.ratioIntents == ["split:31=0.5000"], "sent \(shown.ratioIntents)")
+    }
+
+    /// Close to gone from the shown layout, 20 rounds each: the pane leaving with the daemon's tree
+    /// (the echo's apply alone, without the daemon's round trip) against the close in the key's turn.
+    @Test func aRowsPaneLeavesFasterThanTheDaemonsTreeBringsIt() throws {
+        func millis(_ duration: Duration) -> Double { Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1e3 }
+        var echo: [Double] = [], key: [Double] = []
+        for _ in 0..<20 {
+            let before = try Shown(Self.rowStrip)
+            let gone = LayoutPaneID(try before.key(2))
+            let start = ContinuousClock.now
+            before.echo([ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), Self.rowStrip[1]])
+            echo.append(millis(ContinuousClock.now - start))
+            #expect(before.layout?.contains(gone) == false)
+            before.end()
+
+            let after = try Shown(Self.rowStrip)
+            let closing = LayoutPaneID(try after.key(2))
+            let controller = try after.controller(2)
+            let begin = ContinuousClock.now
+            _ = controller.showPaneClose()
+            key.append(millis(ContinuousClock.now - begin))
+            #expect(after.layout?.contains(closing) == false)
+            after.end()
+        }
+        func percentile(_ values: [Double], _ p: Double) -> Double { values.sorted()[min(values.count - 1, Int(Double(values.count) * p))] }
+        print(String(format: "pane-close-rows: daemon's tree p50 %.3f ms p95 %.3f ms; key's turn p50 %.3f ms p95 %.3f ms",
+                     percentile(echo, 0.5), percentile(echo, 0.95), percentile(key, 0.5), percentile(key, 0.95)))
     }
 
     /// The first close refused while the second is pending: c13 comes back, and c11 and c13 share.

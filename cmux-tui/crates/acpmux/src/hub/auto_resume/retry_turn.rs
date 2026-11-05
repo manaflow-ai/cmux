@@ -217,6 +217,8 @@ impl Hub {
             resend: true,
             control: by.control,
             trust_gate: by.trust_gate,
+            // A retry inherits the durable floor of the failed Cloud-mobile turn.
+            cloud_mobile: session.floor.cloud_mobile_turn.load(std::sync::atomic::Ordering::SeqCst),
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
@@ -326,7 +328,7 @@ impl Hub {
                 return Err(if stopped_here { super::stopped() } else { super::superseded() });
             }
         }
-        if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+        if session.turn().is_some() || session.queue().iter().any(|q| !q.aside()) {
             return Err(busy());
         }
         let last = session.meta().last_turn.unwrap_or(Value::Null);
@@ -366,6 +368,26 @@ impl Hub {
     /// (whose joined messages went back to the queue, `digest.rs`), it carried no hidden context
     /// (`prompt_context.rs`, never recorded), and its blocks can be rebuilt. The log is read from
     /// its end back to that prompt.
+    /// The blocks of the prompt logged as `msg` (a `user_message`), rebuilt as `resend_of` does;
+    /// None when it cannot be sent again whole (hidden context, an inbox digest, a part not kept).
+    pub(in crate::hub) fn logged_prompt_blocks(
+        &self,
+        session: &Session,
+        msg: &Value,
+    ) -> Option<Vec<Value>> {
+        let kind = msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
+        if msg.get("hiddenContext").is_some() || kind == Some(DIGEST_KIND) {
+            return None;
+        }
+        let image = |id: &str| {
+            let kept = self.prompt_image(&session.id, id).ok()?;
+            Some(
+                json!({"type": "image", "mimeType": kept.get("mimeType")?, "data": kept.get("data")?}),
+            )
+        };
+        prompt_blocks(msg, image)
+    }
+
     fn resend_of(&self, session: &Session, cut_turn: &str, prompt_id: &str) -> Option<Vec<Value>> {
         let mut prompt = None;
         let skip = |_: &[u8], _: &[u8]| false;

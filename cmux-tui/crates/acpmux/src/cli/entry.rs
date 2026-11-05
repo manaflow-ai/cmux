@@ -214,12 +214,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
             person_key_fd,
             allow_dev_origin,
             dev,
+            take_over,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -227,15 +229,20 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::qos::enter(crate::qos::Role::Daemon);
+            // With `store.journal` on, an acknowledged reply waits on the journal's sync, which a
+            // utility disk tier throttles 15-30x under another app's disk work (STATUS 11554):
+            // the daemon stays at the default tier, and only its background threads yield.
+            crate::qos::enter_daemon(crate::config::store_journal_enabled());
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
+                take_over,
             })
             .await;
             if let Err(error) = result {
@@ -243,7 +250,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // this home. Keep its lock refusal a distinct, prevented
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
-                if error.to_string().starts_with("another acpmux daemon holds ") {
+                // A supervised owner (`--take-over`) exits 1 instead: the unit restarts it
+                // (`Restart=always`) until the home is its own, never leaving the unit failed.
+                if !take_over && error.to_string().starts_with("another acpmux daemon holds ") {
                     let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",
@@ -257,8 +266,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,
@@ -360,6 +370,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::TriggerChat { protocol, principal_fd }) => {
+            match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::Capabilities) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());

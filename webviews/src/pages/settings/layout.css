@@ -20,20 +20,20 @@
   /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
      lines up with the rows around it and its selected label never resizes it. */
   --row-popup-width: 200px;
-  --row-pad-y: calc(3px * var(--settings-scale));
-  --row-pad-x: calc(12px * var(--settings-scale));
-  --row-min: calc(28px * var(--settings-scale));
-  --card-radius: 10px;
+  --row-pad-y: var(--grid-base);
+  --row-pad-x: var(--grid-cards-padding);
+  --row-min: var(--grid-row);
+  --card-radius: var(--ds-radius-xl);
   --sidebar-width: 208px;
   /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
      anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
      collapsing row's own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-quick, 80ms);
-  --motion-focus: var(--cmux-motion-quick, 80ms);
-  --motion-in: var(--cmux-motion-micro, 120ms);
-  --motion-out: var(--cmux-motion-quick, 80ms);
-  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
-  font-size: calc(12.5px * var(--settings-scale));
+  --motion-hover: var(--cmux-motion-quick);
+  --motion-focus: var(--cmux-motion-quick);
+  --motion-in: var(--cmux-motion-micro);
+  --motion-out: var(--cmux-motion-quick);
+  --motion-ease: var(--cmux-ease-out);
+  font-size: var(--text-body);
 }
 
 
@@ -42,13 +42,13 @@
 }
 
 .sidebar {
-  gap: calc(12px * var(--settings-scale));
-  padding: calc(12px * var(--settings-scale)) calc(10px * var(--settings-scale));
+  gap: var(--grid-cards-padding);
+  padding: var(--grid-cards-padding);
 }
 
 .content {
-  --content-pad-end: calc(56px * var(--settings-scale));
-  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
+  --content-pad-end: calc(var(--grid-row) * 2);
+  padding: var(--grid-gap-block) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -68,10 +68,10 @@
   min-width: 0;
 }
 
-.search .search-input {
-  border-radius: 7px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+.search .search-input:not(.ui-input) {
+  border-radius: var(--ds-radius-lg);
+  padding-top: var(--ds-space-1);
+  padding-bottom: var(--ds-space-1);
 }
 
 /* The filter sits on the search field's line at the field's height: icon and count centered on one
@@ -82,10 +82,10 @@
   align-self: stretch;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 26px;
-  border-radius: 7px;
-  padding: 0 6px;
+  gap: var(--ds-space-1);
+  min-width: var(--ds-control-row);
+  border-radius: var(--ds-radius-lg);
+  padding: 0 var(--ds-space-2);
 }
 
 .filter-button[aria-pressed="true"] {
@@ -94,16 +94,16 @@
 }
 
 .filter-count {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .section-link {
-  gap: 9px;
-  padding: 5px 8px;
-  border-radius: 7px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-lg);
   color: var(--text);
 }
 
@@ -122,26 +122,26 @@
 
 
 .section-title {
-  font-size: calc(22px * var(--settings-scale));
-  font-weight: 650;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
-  margin: 0 0 20px;
+  margin: 0 0 var(--ds-space-5);
 }
 
 
 .result-section-title {
-  font-size: 13px;
-  margin: 0 0 8px;
+  font-size: var(--text-body);
+  margin: 0 0 var(--ds-space-2);
   color: var(--muted-text);
 }
 
 .group {
-  margin-bottom: 22px;
+  margin-bottom: var(--ds-space-5);
 }
 
 .group-title {
-  margin: 0 0 7px 2px;
-  font-size: 12.5px;
+  margin: 0 0 var(--ds-space-2);
+  font-size: var(--text-detail);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -156,10 +156,9 @@
   border-radius: var(--card-radius);
 }
 
-/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
-   line of text is --row-min tall; a row with help text takes a second line. */
-.row :is(.field, .segment, .button, .theme-button) {
-  line-height: 16px;
+/* Shared controls own their line height; legacy controls use the same control type scale. */
+.row :is(.field, .segment, .button, .theme-button):not(.ui-input, .ui-btn) {
+  line-height: var(--text-control--line-height);
 }
 
 .row {
@@ -244,7 +243,7 @@
 
 
 .row-main {
-  gap: 20px;
+  gap: var(--ds-space-5);
 }
 
 .row-title {
@@ -253,7 +252,7 @@
 
 .row-help,
 .row-key {
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   line-height: 1.35;
 }
 
@@ -261,20 +260,20 @@
 /* P4: a scope override or an MDM lock, inline on its setting. */
 .row-managed {
   display: inline-flex;
-  margin-top: 3px;
-  padding: 1px 7px 1px 5px;
+  margin-top: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: var(--ds-radius-sm);
+  font-size: var(--text-caption);
 }
 
 .row.row-note {
   flex-direction: row;
   justify-content: flex-start;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  font-size: 11.5px;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -288,45 +287,19 @@
   text-decoration: none;
 }
 
-.field {
-  border-radius: 6px;
+.field:not(.ui-input) {
+  border-radius: var(--ds-radius-md);
 }
 
-/* Native switch: the accent track when on, a light knob on a quiet track when off. */
-.switch {
-  width: 28px;
-  height: 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--input-bg);
-}
-
-.switch .knob {
-  top: 1px;
-  left: 1px;
-  border-width: 6px;
-  border-color: var(--muted-text);
-}
-
-.switch[aria-checked="true"] {
-  border-color: transparent;
-  background: var(--accent);
-}
-
-.switch[aria-checked="true"] .knob {
-  border-color: var(--on-accent);
-  transform: translateX(12px);
-}
-
-.button {
+.button:not(.ui-btn) {
   border-color: var(--border);
   background: var(--input-bg);
-  border-radius: 6px;
-  padding: 2px 10px;
+  border-radius: var(--ds-radius-md);
+  padding: var(--ds-space-1) var(--ds-space-3);
 }
 
 /* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
-.button:hover:not(:disabled) {
+.button:not(.ui-btn):hover:not(:disabled) {
   background: var(--accent-soft);
 }
 
@@ -350,6 +323,19 @@
 .link-button,
 .channel-link {
   color: var(--accent-text);
+}
+
+/* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
+   and kept while its switch runs, so the track reads as a list, not a column of buttons. */
+.channel-build .channel-switch {
+  opacity: 0;
+}
+
+.channel-build:hover .channel-switch,
+.channel-build:focus-within .channel-switch,
+.channel-build:has([data-popup-open]) .channel-switch,
+.channel-build .channel-switch[data-busy] {
+  opacity: 1;
 }
 
 /* P3: the Theme section. */
@@ -549,7 +535,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -658,11 +644,14 @@
 .theme-button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--ds-space-2);
   box-sizing: border-box;
   width: var(--row-popup-width);
   max-width: 100%;
-  padding: 2px 6px 2px 3px;
+}
+
+.theme-button:not(.ui-btn) {
+  padding: var(--ds-space-1) var(--ds-space-2);
 }
 
 .theme-button-name {
@@ -744,6 +733,60 @@
   color: var(--accent-text);
 }
 
+/* A group's first row carries its heading (Starred, All Themes) in the space above it, outside the
+ * row's highlight; the pointer passes through it. */
+.theme-option:has(> [data-group-start]) {
+  position: relative;
+  margin-top: 20px;
+}
+
+.theme-group-heading {
+  position: absolute;
+  top: -18px;
+  left: 6px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--muted-text);
+  pointer-events: none;
+}
+
+/* The star: shown on the highlighted or hovered row and always once starred. Its slot is always
+ * there, so the name never moves; only the star itself takes the hover fill. */
+.theme-option-star {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -3px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-text);
+  visibility: hidden;
+}
+
+.theme-option[data-highlighted] .theme-option-star,
+.theme-option:hover .theme-option-star,
+.theme-option:has([data-popup-open]) .theme-option-star,
+.theme-option-star[data-starred] {
+  visibility: visible;
+}
+
+.theme-option-star:hover {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
+}
+
+.theme-option-star[data-starred] {
+  color: var(--accent-text);
+}
+
+.theme-option-star[data-starred] .icon {
+  fill: currentColor;
+}
+
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
@@ -763,12 +806,15 @@
 .reset-slot {
   display: inline-flex;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
 }
 
-.reset-button {
+.reset-slot:not([data-shown]) .reset-button {
   opacity: 0;
+}
+
+.reset-slot .reset-button {
   transition:
     opacity var(--motion-out) var(--motion-ease),
     background var(--motion-hover);
@@ -861,7 +907,7 @@
   .sidebar {
     max-height: none;
     gap: 8px;
-    padding: 10px 12px 8px;
+    padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-2);
     overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -869,7 +915,7 @@
 
   .section-list {
     flex-direction: row;
-    gap: 2px;
+    gap: var(--ds-space-1);
     overflow-x: auto;
   }
 
@@ -885,8 +931,8 @@
   }
 
   .content {
-    --content-pad-end: 40px;
-    padding: 14px var(--page-edge) var(--content-pad-end);
+    --content-pad-end: var(--ds-space-40);
+    padding: var(--ds-space-4) var(--page-edge) var(--content-pad-end);
     --content-fade-top: 12px;
   }
 }

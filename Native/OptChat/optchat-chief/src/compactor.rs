@@ -1666,6 +1666,7 @@ impl AcpmuxCompactor {
             "node",
             json!({
                 "node": node_label(node),
+                "usage_key": format!("{}:{}", node.name(), live.id),
                 "harness": live.route,
                 "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,

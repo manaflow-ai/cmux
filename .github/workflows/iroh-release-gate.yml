@@ -30,7 +30,7 @@ jobs:
     # with the legacy iOS app; the rewritten app (ios/CmuxiOS) has no Iroh
     # transport yet.
     needs: resolve-ref
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -51,6 +51,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -84,6 +85,7 @@ jobs:
         id: pool
         if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true'
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -147,7 +149,7 @@ jobs:
     name: Tailscale version-skew compatibility
     # Attempt 1 takes the runner job's owned label when it named one; every
     # re-run (the owned-pool rescue's included) takes Blacksmith macOS 15.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
     timeout-minutes: 75
     env:
       # An owned Mac carries only the lane's Xcode pin, which its label names.

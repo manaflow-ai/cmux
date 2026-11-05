@@ -33,6 +33,20 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim_end().to_string()
 }
 
+/// Whether a blob is present in this local Git object store.
+fn git_has_blob(work: &Path, oid: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(work)
+        .args(["cat-file", "-e", &format!("{oid}^{{blob}}")])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("git cat-file runs")
+        .success()
+}
+
 fn write(path: &Path, text: impl AsRef<[u8]>) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -231,6 +245,84 @@ fn the_same_tree_gives_the_same_commits() {
     assert_eq!(std::fs::read_to_string(machine.join("notes.txt")).unwrap(), "untracked\n");
 }
 
+/// A secret whose name is not UTF-8 is left out by its raw name: its
+/// contents never reach WORK.
+#[test]
+fn a_secret_with_a_non_utf8_name_is_left_out() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let f = Fixture::new();
+    let secret = std::ffi::OsStr::from_bytes(b".env-\xff");
+    // APFS (macOS) refuses a name that is not UTF-8 (EILSEQ), so no folder there can hold
+    // such a secret; ext4 and the other Linux filesystems take raw bytes, and the Linux runs
+    // of the cmux-tui tests cover this case (as git_seed/secrets.rs since #32091).
+    match std::fs::write(f.work.join(secret), "SECRET=1\n") {
+        Err(e) if cfg!(target_os = "macos") && e.raw_os_error() == Some(libc::EILSEQ) => return,
+        written => written.unwrap(),
+    }
+    let hashed =
+        Command::new("git").arg("-C").arg(&f.work).arg("hash-object").arg(secret).output().unwrap();
+    assert!(hashed.status.success());
+    let secret_oid = String::from_utf8_lossy(&hashed.stdout).trim().to_string();
+    assert!(!git_has_blob(&f.work, &secret_oid));
+    write(&f.work.join("README.md"), "changed\n");
+    let planned = plan(&f.work, &f.path("one.bundle")).unwrap();
+    assert_eq!(planned.skipped.len(), 1, "{:?}", planned.skipped);
+    let names = git(&f.work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(!names.contains(".env"), "{names}");
+    assert!(!git_has_blob(&f.work, &secret_oid), "non-UTF8 secret blob was written locally");
+}
+
+#[test]
+fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
+    let f = Fixture::new();
+    let work = &f.work;
+    // Tracked secrets stay included under the existing Git seed contract.
+    write(&work.join(".env.tracked"), "TRACKED_FIXTURE_ONLY\n");
+    git(work, &["add", ".env.tracked"]);
+    write(&work.join("README.md"), "staged README\n");
+    git(work, &["add", "README.md"]);
+    write(&work.join("README.md"), "unstaged README\n");
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+
+    let excluded = [
+        (".env.local", "FAKE_ENV_TOKEN_UNTRACKED\n"),
+        ("config/with[glob].pem", "FAKE_PEM_UNTRACKED\n"),
+        ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
+        ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
+        (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+    ];
+    for &(path, contents) in &excluded {
+        write(&work.join(path), contents);
+    }
+    let secret_ids: Vec<String> =
+        excluded.iter().map(|(path, _)| git(work, &["hash-object", path])).collect();
+    assert!(secret_ids.iter().all(|id| !git_has_blob(work, id)), "fixture blobs already existed");
+    let before = snapshot(work);
+    let bundle = f.path("seed.bundle");
+    let planned = plan(work, &bundle).unwrap();
+    assert_eq!(snapshot(work), before, "the real index/refs/status changed");
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"));
+    assert!(work_paths.lines().any(|path| path == ".env.tracked"));
+    for ((path, _), id) in excluded.iter().zip(&secret_ids) {
+        assert!(
+            planned.skipped.iter().any(|skipped| skipped.path == *path),
+            "{path} was not classified as skipped"
+        );
+        assert!(!work_paths.lines().any(|present| present == *path), "{path} entered WORK");
+        assert!(!git_has_blob(work, id), "{path} left a blob in the local Git object store");
+    }
+
+    let machine = f.machine(&planned, &bundle, "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(
+        std::fs::read_to_string(machine.join("notes.txt")).unwrap(),
+        "ordinary untracked work\n"
+    );
+    assert_eq!(std::fs::read_to_string(machine.join("README.md")).unwrap(), "unstaged README\n");
+    assert!(excluded.iter().all(|(path, _)| !machine.join(path).exists()));
+}
+
 #[test]
 fn detached_head_has_no_head_ref() {
     let f = Fixture::new();
@@ -285,6 +377,9 @@ fn sparse_patterns_are_sent() {
     assert!(!f.work.join("gone.txt").exists());
     write(&f.work.join("src/new.rs"), "new\n");
     write(&f.work.join("outside.txt"), "untracked outside the patterns\n");
+    write(&f.work.join("src/.env.local"), "FAKE_SPARSE_SECRET_ONLY\n");
+    let secret_id = git(&f.work, &["hash-object", "src/.env.local"]);
+    assert!(!git_has_blob(&f.work, &secret_id));
     let before = snapshot(&f.work);
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     let sparse = planned.params.sparse.clone().expect("sparse patterns");
@@ -295,6 +390,11 @@ fn sparse_patterns_are_sent() {
     assert!(tree.lines().any(|path| path == "gone.txt"), "{tree}");
     assert!(tree.lines().any(|path| path == "src/new.rs"), "{tree}");
     assert!(tree.lines().any(|path| path == "outside.txt"), "{tree}");
+    assert!(!tree.lines().any(|path| path == "src/.env.local"), "{tree}");
+    assert!(
+        !git_has_blob(&f.work, &secret_id),
+        "sparse seed wrote an excluded secret blob into local Git"
+    );
     assert_eq!(snapshot(&f.work), before);
 }
 

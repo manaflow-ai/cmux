@@ -7,7 +7,7 @@ import Testing
 /// Opt-in fleet measurements for the classic upgrade simulation. The functional
 /// simulation deliberately checks only migration behavior; this harness keeps
 /// launch timing visible without turning host load into a PR failure.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(15)),
+@MainActor @Suite(.serialized, .timeLimit(.minutes(15)),
                   .enabled(if: ProcessInfo.processInfo.environment["CMUX_CLASSIC_UPGRADE_PERF"] == "1"
                                && SameTreeDaemonBinary.url != nil,
                            "set CMUX_CLASSIC_UPGRADE_PERF=1 on a fleet run"))

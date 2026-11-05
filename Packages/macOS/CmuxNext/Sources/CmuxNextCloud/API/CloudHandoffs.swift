@@ -123,7 +123,7 @@ extension SandboxRunFollower.Source {
     /// or when it has not changed for three days while no turn runs.
     public static func handoffs(wait: @escaping @Sendable (_ id: String, _ after: Int?) async throws -> Data) -> Self {
         Self(wait: { id, _, cursor in try await wait(id, cursor) }, read: readHandoff, defaultsKey: handoffsKey,
-             maximumAge: 3 * 86_400, tells: [], path: "/v1/handoffs")
+             maximumAge: 3 * 86_400, tells: [], path: "/v1/handoffs", relisted: true)
     }
 
     /// One wait's `{handoff}`. A body of another shape, or a status the store has not, is unreadable.

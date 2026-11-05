@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAppCore
 import Foundation
 
 /// Upgrade to cmux Pro (`palette.pro.upgrade`): the one paid-plan path (``PaidPlanUpgrade``), a

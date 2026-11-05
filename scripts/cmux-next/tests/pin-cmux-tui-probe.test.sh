@@ -13,7 +13,8 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
 source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
 fake_clock_install "$TMP/clock"
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 git_q init "$TMP/src"
 mkdir -p "$TMP/src/cmux-tui" "$TMP/src/scripts/cmux-next" "$TMP/src/scripts/ci"

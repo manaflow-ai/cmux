@@ -361,10 +361,7 @@ final class NewTabInputCoordinator {
     }
 
     /// Ends the window's hold and gives its keys, in typing order, to whatever has focus.
-    private func release(in window: NSWindow, why: String = "replaced") {
-        guard let entry = entry(for: window) else { return }
-        release(entry, why: why)
-    }
+    private func release(in window: NSWindow, why: String = "replaced") { if let entry = entry(for: window) { release(entry, why: why) } }
 
     private func release(_ entry: Entry, why: String) {
         remove(entry)
@@ -390,10 +387,12 @@ final class NewTabInputCoordinator {
     }
 
     /// Whether `window` holds keys for an opening (debug and tests).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
+
+    /// A creation that moves `window`'s focus opened its hold (``CreationInputCoordinator/begin``), the person's newer intent: this
+    /// hold ends, and its keys run again in typing order through the key router, into that hold. Before, keys typed after Cmd-N
+    /// then Ctrl-` waited for the New Tab page and went to its field (#30271 smoke, step 16).
+    func creationTookKeys(in window: NSWindow) { release(in: router?.focus(for: window).0?.window ?? window, why: "a creation took the keys") }
 }
 
 /// The shown native New Tab page under `view`, depth first.

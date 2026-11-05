@@ -1186,127 +1186,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to connect to this Mac?"
+            "value": "Allow “%1$@” (%2$@) to connect to this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تريد السماح لـ «%@» بالاتصال بهذا الـ Mac؟"
+            "value": "هل تريد السماح لـ «%1$@» (%2$@) بالاتصال بهذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da se „%@“ poveže s ovim Macom?"
+            "value": "Dozvoliti da se „%1$@“ (%2$@) poveže s ovim Macom?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillade, at “%@” forbinder til denne Mac?"
+            "value": "Vil du tillade, at “%1$@” (%2$@) forbinder til denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, sich mit diesem Mac zu verbinden?"
+            "value": "„%1$@“ (%2$@) erlauben, sich mit diesem Mac zu verbinden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” se conecte a este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à se connecter à ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à se connecter à ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di connettersi a questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di connettersi a questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac への接続を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac への接続を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” តភ្ជាប់ទៅ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) តភ្ជាប់ទៅ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» kobler til denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) kobler til denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na połączenie z tym Makiem?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na połączenie z tym Makiem?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” se conecte a este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» подключаться к этому Mac?"
+            "value": "Разрешить «%1$@» (%2$@) подключаться к этому Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’e bağlanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’e bağlanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» підключатися до цього Mac?"
+            "value": "Дозволити «%1$@» (%2$@) підключатися до цього Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” kết nối với máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) kết nối với máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”连接到这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）连接到这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」連線到這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）連線到這台 Mac 嗎？"
           }
         }
       }
@@ -1317,127 +1317,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to use this Mac?"
+            "value": "Allow “%1$@” (%2$@) to use this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "السماح لـ «%@» باستخدام هذا الـ Mac؟"
+            "value": "السماح لـ «%1$@» (%2$@) باستخدام هذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da „%@“ koristi ovaj Mac?"
+            "value": "Dozvoliti da „%1$@“ (%2$@) koristi ovaj Mac?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillade “%@” at bruge denne Mac?"
+            "value": "Tillade “%1$@” (%2$@) at bruge denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, diesen Mac zu verwenden?"
+            "value": "„%1$@“ (%2$@) erlauben, diesen Mac zu verwenden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” use este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) use este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à utiliser ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à utiliser ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di usare questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di usare questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac の使用を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac の使用を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” ប្រើ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) ប្រើ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» bruker denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) bruker denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na korzystanie z tego Maca?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na korzystanie z tego Maca?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” use este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) use este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» использовать этот Mac?"
+            "value": "Разрешить «%1$@» (%2$@) использовать этот Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” ใช้ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) ใช้ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’i kullanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’i kullanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» використовувати цей Mac?"
+            "value": "Дозволити «%1$@» (%2$@) використовувати цей Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” sử dụng máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) sử dụng máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”使用这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）使用这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」使用這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）使用這台 Mac 嗎？"
           }
         }
       }
@@ -4582,6 +4582,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "狀態"
+          }
+        }
+      }
+    },
+    "iphone.status.keychainLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the login keychain to unlock. iPhones connect once it does."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار فتح سلسلة مفاتيح تسجيل الدخول. تتصل أجهزة iPhone بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka se otključavanje login keychaina. iPhone uređaji se tada povezuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at login-nøgleringen låses op. iPhones forbinder derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Warten auf das Entsperren des Anmeldeschlüsselbunds. Danach verbinden sich iPhones."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que se desbloquee el llavero de inicio de sesión. Los iPhone se conectarán entonces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du déverrouillage du trousseau de session. Les iPhone se connecteront ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa dello sblocco del portachiavi di login. Poi gli iPhone si collegheranno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ログインキーチェーンのロック解除を待っています。解除されると iPhone が接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំការដោះសោ login keychain។ បន្ទាប់មក iPhone នឹងភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 키체인 잠금 해제를 기다리는 중입니다. 해제되면 iPhone이 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at påloggingsnøkkelringen låses opp. Deretter kobler iPhone til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oczekiwanie na odblokowanie pęku kluczy logowania. Potem iPhone’y się połączą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o desbloqueio das chaves de login. Os iPhones se conectam em seguida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание разблокировки связки ключей входа. После этого iPhone подключатся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้พวงกุญแจเข้าสู่ระบบปลดล็อก จากนั้น iPhone จะเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giriş anahtar zincirinin kilidinin açılması bekleniyor. Ardından iPhone’lar bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування розблокування в’язки ключів входу. Після цього iPhone під’єднаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mở khóa chuỗi khóa đăng nhập. Sau đó iPhone sẽ kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登录钥匙串解锁。解锁后 iPhone 即可连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登入鑰匙圈解鎖。解鎖後 iPhone 即可連線。"
           }
         }
       }

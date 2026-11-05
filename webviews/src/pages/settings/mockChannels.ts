@@ -27,6 +27,8 @@ function build(
     installed: false,
     kept: false,
     prs: [{ number: number * 7, url: `${repo}/pull/${number * 7}` }],
+    // This Mac follows a feed: every build but the installed and pulled ones offers Switch.
+    switch: health !== "pulled" && !extra.installed,
     ...extra,
   };
 }
@@ -61,6 +63,7 @@ export const mockChannels: ChannelsState = {
     compare: "Changes Since Yours",
     commit: "Commit",
     release: "Release Page",
+    switch: "Switch",
   },
   tracks: [
     { ring: "stable", title: "Stable", followed: false, release_url: null, empty, builds: [] },

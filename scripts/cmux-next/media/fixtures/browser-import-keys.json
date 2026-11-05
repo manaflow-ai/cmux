@@ -1,0 +1,19 @@
+{
+  "Chrome Safe Storage": "fixture",
+  "Chrome Beta Safe Storage": "fixture",
+  "Chrome Canary Safe Storage": "fixture",
+  "Chrome Dev Safe Storage": "fixture",
+  "Helium Storage Key": "fixture",
+  "Brave Safe Storage": "fixture",
+  "Arc Safe Storage": "fixture",
+  "Microsoft Edge Safe Storage": "fixture",
+  "Vivaldi Safe Storage": "fixture",
+  "Opera Safe Storage": "fixture",
+  "Dia Safe Storage": "fixture",
+  "Comet Safe Storage": "fixture",
+  "BrowserOS Safe Storage": "fixture",
+  "ChatGPT Atlas Safe Storage": "fixture",
+  "Codex Safe Storage": "fixture",
+  "Claude Safe Storage": "fixture",
+  "Slack Safe Storage": "fixture"
+}

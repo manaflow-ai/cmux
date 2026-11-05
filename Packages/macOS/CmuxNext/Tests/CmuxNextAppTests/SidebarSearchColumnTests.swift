@@ -51,7 +51,7 @@ import Testing
                             #expect(!marks.isEmpty)
                             for mark in marks {
                                 let x = h.sidebar.convert(NSPoint(x: mark.midX, y: 0), from: h.list).x
-                                #expect(h.sidebar.convert(row.tabCount.bounds, from: row.tabCount).maxX < x - SidebarStyle.unreadDotSize / 2,
+                                #expect(h.sidebar.convert(row.tabCount.bounds, from: row.tabCount).maxX < x - SidebarStyle.statusDotSize / 2,
                                         "the resting count must not cover the unread dot")
                                 #expect(abs(x - homeX) <= tolerance, "Home and regular workspace dots must align")
                                 #expect(abs(x - column) <= tolerance,

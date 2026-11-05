@@ -7,6 +7,8 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
+import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
+import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
 import { toolFailure } from "../src/agent-session/acpmux/conversation/toolFailure";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -195,6 +197,41 @@ test("a folded run says how many of its calls failed", () => {
     </ToolRun>,
   );
   expect(words(html)).toContain("1 failed");
+});
+
+test("a failed step of an opened group is one plain line, its error output behind its own disclosure", () => {
+  // Leo said yes (2026-11-02) to a "Scheduled check" whose opened "Ran 4 commands 1 failed" drew a
+  // raw "(eval):1: ==== not found" line under a step and "Exit 1" at its edge.
+  const failing = item(
+    call("Exit code 1\n(eval):1: ==== not found", { id: "f", description: "Read NOW.md and summarize stuck lanes" }),
+  );
+  const ok = (id: string, description: string) =>
+    item(call("done", { id, description, status: "completed", exitCode: 0 }));
+  const html = renderToStaticMarkup(
+    <ToolGroupRow
+      kind="commands"
+      items={[ok("a", "Check states of my routed lanes"), failing, ok("b", "Summarize live lane states")]}
+      disclosureKey="steps"
+    />,
+  );
+  // The group's head counts it; the step says "failed", never the shell's words.
+  expect(words(html)).toContain("1 failed");
+  expect(html).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(words(html)).not.toContain("Exit 1");
+  expect(words(html)).not.toContain("(eval):1");
+  expect(html).not.toContain('class="cv-tool-error"');
+  // A command drawn under InStep reads the same.
+  const step = renderToStaticMarkup(
+    <InStep.Provider value>
+      <CommandRow item={failing} />
+    </InStep.Provider>,
+  );
+  expect(step).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(words(step)).not.toContain("(eval):1");
+  // A lone command, not in a group, still says its exit and why.
+  const lone = renderToStaticMarkup(<CommandRow item={failing} />);
+  expect(lone).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
+  expect(words(lone)).toContain("(eval):1: ==== not found");
 });
 
 test("a failed test run that quotes a denial is its exit, not a denial", () => {

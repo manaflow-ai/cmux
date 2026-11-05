@@ -36,9 +36,13 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// `frontend-browser-tab-keys-v1`: a request with the same key answers
     /// the tab the first one made (`replayed`), so a retry never makes two.
     public var idempotencyKey: String?
+    /// `frontend-browser-tab-split-v1`, with `pane`: the tab opens in a new pane split from it, in
+    /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
+    public var split: ConversationTabSplit?
 
     public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
-                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil) {
+                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
+                split: ConversationTabSplit? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
@@ -49,6 +53,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         self.rows = size?.rows
         self.activate = activate
         self.after = after
+        self.split = split
     }
 }
 

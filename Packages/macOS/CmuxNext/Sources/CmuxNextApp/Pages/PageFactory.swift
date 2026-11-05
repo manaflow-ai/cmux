@@ -44,7 +44,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -100,7 +100,7 @@ struct PageFactory {
     /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = Self.cloudProvider(cloud: services.cloud, registry: services.machines)
+        let cloud = Self.cloudProvider(cloud: services.cloud)
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -113,21 +113,15 @@ struct PageFactory {
         return page
     }
 
-    /// The Cloud page's provider for `cloud`'s link. The Cloud app server reaches its backend only
-    /// through the credential relay, which the classic link never registers (cx-t2rz P3-1): there
-    /// the page reads Cloud's own `/api/vm` list (``CloudClassicPageOps``), as the CLI and the
-    /// sidebar do, instead of answering "not available until cmux reconnects" for good.
-    static func cloudProvider(cloud account: CloudService, registry: MachineRegistry) -> CloudPageProvider {
-        let classic = account.configuration.linkSource == .legacy
-            ? CloudClassicPageOps(backend: .app(cloud: account, registry: registry)) : nil
-        return CloudPageProvider(op: classic.map(CloudAppLinks.ops(classic:)) ?? account.appOps,
-                                 signIn: { [weak account] in await account?.auth.signIn() ?? false },
-                                 signOut: { [weak account] in await account?.signOut() },
-                                 feed: classic.map(CloudAppLinks.feed(classic:)),
-                                 account: { [weak account] in
-                                     CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
-                                                                    team: account?.auth.teamID)
-                                 })
+    /// The Cloud page's provider for `cloud`: the Cloud app server's ops through the credential relay.
+    static func cloudProvider(cloud account: CloudService) -> CloudPageProvider {
+        CloudPageProvider(op: account.appOps,
+                          signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                          signOut: { [weak account] in await account?.signOut() },
+                          account: { [weak account] in
+                              CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
+                                                             team: account?.auth.teamID)
+                          })
     }
 
     /// The Settings page's engine options.
@@ -155,14 +149,9 @@ struct PageFactory {
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
         let accounts = services.accounts.model
-        provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
-        provider.accountsRun = { params in
-            guard let action = AccountsPageAction(field: { params[$0]?.stringValue }) else {
-                throw PageError.invalidParams("unknown accounts action")
-            }
-            if let error = await accounts.perform(action) { return ["error": .string(error)] }
-            return .object([:])
-        }
+        let github = services.accounts.github
+        provider.accountsState = { github.accountsPageState(accounts) }
+        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
@@ -172,13 +161,14 @@ struct PageFactory {
                 return try await updates.runPage(params, context: context, registry: services.registry)
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
-            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
+            unsupported: { AgentHarnessStrings.unsupported }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
-            available: { [weak cloud] in cloud.map { $0.configuration.linkSource == .appServer && $0.auth.isSignedIn } ?? false },
+            available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
             list: { [weak cloud] in
                 guard let cloud else { throw PageError.closed }
                 return try JSONEncoder().encode(await cloud.appOps("cloud.environment.list", .object([:]), nil, .script))
@@ -220,7 +210,7 @@ struct PageFactory {
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
+        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -295,6 +285,7 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).

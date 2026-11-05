@@ -64,8 +64,10 @@ extension AuthCoordinator {
             ))
             return
         }
+        #endif
 
-        if autoLoginCredentials != nil {
+        // After the DEBUG-only mock and fixture states, as before; a capture build (`environmentAutoLogin`) too.
+        if launch.environmentAutoLogin, autoLoginCredentials != nil {
             authLog.debug("Auto-login credentials detected")
             apply(.primed(
                 clearAuthRequested: false,
@@ -78,7 +80,6 @@ extension AuthCoordinator {
             ))
             return
         }
-        #endif
 
         apply(.primed(
             clearAuthRequested: false,
@@ -168,8 +169,10 @@ extension AuthCoordinator {
             }
             return
         }
+        #endif
 
-        if let credentials = autoLoginCredentials,
+        if launch.environmentAutoLogin,
+           let credentials = autoLoginCredentials,
            AuthLaunchOptions.shouldStartAutoLogin(
                hasCredentials: true,
                hasStoredTokens: hasStoredTokens
@@ -179,7 +182,6 @@ extension AuthCoordinator {
             await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
-        #endif
 
         if hasStoredTokens {
             sessionCache.setHasTokens(true)

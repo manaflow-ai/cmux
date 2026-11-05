@@ -55,12 +55,12 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     row(`t${index}-end`, "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
   ]).flat();
 
-  async function open(reduce: boolean): Promise<Page> {
+  async function open(reduce: boolean, wave?: string): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
     await installPaintedFrames(page);
     await page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" });
-    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html${wave ? `?wave=${wave}` : ""}`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
@@ -96,38 +96,48 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       }
     });
 
-  /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
-  /// offset, with the time.
-  const sample = (page: Page, ms: number) =>
-    page.evaluate((duration) => {
-      const samples: { t: number; width: number; scroll: number }[] = [];
-      (window as unknown as { __samples: typeof samples }).__samples = samples;
-      const start = performance.now();
-      return new Promise<void>((resolve) => {
-        window.cmuxAfterPaint(() => {
-          const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar');
-          const matrix = bar ? new DOMMatrixReadOnly(getComputedStyle(bar).transform) : undefined;
-          samples.push({
-            t: performance.now(),
-            width: 26 * (matrix?.a ?? 0),
-            scroll: document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop,
-          });
-          if (performance.now() - start < duration) return true;
-          resolve();
-          return false;
-        });
-      });
-    }, ms);
-  const samples = (page: Page) =>
-    page.evaluate(() => (window as unknown as { __samples: { t: number; width: number; scroll: number }[] }).__samples);
   /// The center of row `index`'s tick, in page coordinates.
   const tickPoint = (page: Page, index: number) =>
     page.evaluate((at) => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
       return { x: box.left + 8, y: box.top + box.height / 2 };
     }, index);
-  test("hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
-    const page = await open(false);
+  test("a one-screen chat shows its first prompt tick and clicking it highlights without scrolling", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    try {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      const show = (shown: typeof rows) =>
+        page.evaluate((value) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(value), shown);
+      await show([]);
+      await page.waitForSelector(".acpmux-scroll");
+      expect(await page.locator(".acpmux-minimap__tick").count()).toBe(0);
+      await show(rows.slice(0, 3));
+      await page.waitForSelector(".acpmux-minimap__tick", { timeout: 5_000 });
+      expect(await page.locator(".acpmux-minimap__tick").count()).toBe(1);
+      const scroll = () =>
+        page.evaluate(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          return { top: node.scrollTop, room: node.scrollHeight - node.clientHeight };
+        });
+      expect(await scroll()).toEqual({ top: 0, room: 0 });
+      await page.locator(".acpmux-minimap__tick").click();
+      await page.waitForFunction(() =>
+        document
+          .querySelector('[data-row-id="t0-user"] .cv-user__bubble')
+          ?.getAnimations()
+          .some((animation) => animation.id === "acpmux-landing"),
+      );
+      expect(await scroll()).toEqual({ top: 0, room: 0 });
+    } finally {
+      await page.close();
+    }
+  });
+  test("stepped arm: hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
+    // The stepped fisheye (wave.experiment.ts `stepped`) grows each tick on its own CSS transition.
+    const page = await open(false, "stepped");
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return {
@@ -211,6 +221,123 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
+  // The hover wave (the cosine arm, hoverWave.ts): one loop grows the bump in on the rail's spring
+  // over the micro step and eases it toward the pointer, then stops; leaving hands the ticks back to
+  // the rail's own transforms. Frames are read as painted; a CI runner's headless WebKit paces them
+  // unevenly, so the checks hold at any pace.
+  test("the wave grows the hovered tick to 26 px on the spring, stops when still, and clears on leave", async () => {
+    const page = await open(false, "cosine-4");
+    const point = await tickPoint(page, 5);
+    await page.mouse.move(point.x + 300, point.y);
+    await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over?: number };
+      probe.__frames = [];
+      document.addEventListener("pointerover", () => (probe.__over = performance.now()), { once: true, capture: true });
+      const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!;
+      window.cmuxAfterPaint(() => {
+        probe.__frames.push({
+          t: performance.now(),
+          width: 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a,
+        });
+        return probe.__frames.length < 40;
+      });
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.waitForFunction(() => (window as unknown as { __frames: unknown[] }).__frames.length >= 40);
+    await page.waitForSelector('.acpmux-minimap__rail[data-wave-state="still"]', { timeout: 5_000 });
+    const { over, frames } = await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over: number };
+      return { over: probe.__over, frames: probe.__frames.filter((frame) => frame.t >= probe.__over) };
+    });
+    expect(over).toBeGreaterThan(0);
+    // Through the lengths between (no jump from 6 to 26), never past the spring's 0.8% overshoot.
+    expect(frames.some((frame) => frame.width > 8 && frame.width < 25)).toBe(true);
+    for (const frame of frames) expect(frame.width).toBeLessThan(26 * 1.012);
+    // At 26 px once the micro step has run (a frame painted at least 120 ms after the pointer came).
+    const late = frames.filter((frame) => frame.t - over >= 140);
+    expect(late.length).toBeGreaterThan(0);
+    for (const frame of late) expect(Math.abs(frame.width - 26)).toBeLessThan(0.3);
+    // Leaving: no wave and no property left on any tick, and the tick eases back to rest.
+    await page.mouse.move(point.x + 300, point.y);
+    const left = await page.evaluate(() => ({
+      wave: document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"),
+      written: [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick, .acpmux-minimap__tick *")].filter(
+        (tick) => tick.style.getPropertyValue("--acpmux-minimap-wave") !== "",
+      ).length,
+    }));
+    expect(left).toEqual({ wave: false, written: 0 });
+    await settled(page);
+    const rest = await page.evaluate(
+      () =>
+        26 *
+        new DOMMatrixReadOnly(
+          getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!).transform,
+        ).a,
+    );
+    expect(Math.round(rest)).toBe(6);
+    await page.close();
+  });
+
+  // The zipper (the default, hoverWave.ts `ZipperWave`): the hovered tick grows to 26 px on its own
+  // ease, the loop stops when every tick is there, and leaving shrinks the ticks back to rest before
+  // the rail's own transforms take over again, with no property left behind.
+  test("the zipper grows the hovered tick to 26 px, stops when still, and clears once back at rest", async () => {
+    const page = await open(false);
+    const point = await tickPoint(page, 5);
+    await page.mouse.move(point.x + 300, point.y);
+    await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over?: number };
+      probe.__frames = [];
+      document.addEventListener("pointerover", () => (probe.__over = performance.now()), { once: true, capture: true });
+      const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!;
+      window.cmuxAfterPaint(() => {
+        probe.__frames.push({
+          t: performance.now(),
+          width: 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a,
+        });
+        return probe.__frames.length < 40;
+      });
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.waitForFunction(() => (window as unknown as { __frames: unknown[] }).__frames.length >= 40);
+    await page.waitForSelector('.acpmux-minimap__rail[data-wave-state="still"]', { timeout: 5_000 });
+    const { over, frames } = await page.evaluate(() => {
+      const probe = window as unknown as { __frames: { t: number; width: number }[]; __over: number };
+      return { over: probe.__over, frames: probe.__frames.filter((frame) => frame.t >= probe.__over) };
+    });
+    expect(over).toBeGreaterThan(0);
+    // Never past 26 px (the ease does not overshoot), at 26 once its quick step has run.
+    for (const frame of frames) expect(frame.width).toBeLessThan(26.1);
+    const late = frames.filter((frame) => frame.t - over >= 140);
+    expect(late.length).toBeGreaterThan(0);
+    for (const frame of late) expect(Math.abs(frame.width - 26)).toBeLessThan(0.3);
+    await page.mouse.move(point.x + 300, point.y);
+    await page.waitForFunction(
+      () => !document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"),
+      undefined,
+      {
+        timeout: 5_000,
+      },
+    );
+    const written = await page.evaluate(
+      () =>
+        [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick, .acpmux-minimap__tick *")].filter(
+          (tick) => tick.style.getPropertyValue("--acpmux-minimap-wave") !== "",
+        ).length,
+    );
+    expect(written).toBe(0);
+    await settled(page);
+    const rest = await page.evaluate(
+      () =>
+        26 *
+        new DOMMatrixReadOnly(
+          getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!).transform,
+        ).a,
+    );
+    expect(Math.round(rest)).toBe(6);
+    await page.close();
+  });
+
   test("a click lands the bubble 35 px down at once, with no glide, and highlights it 1400 ms", async () => {
     const page = await open(false);
     // The mounted prompt about 650 px down.
@@ -225,23 +352,38 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     // The hover settles: the tick grown and its preview card open.
     await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
     await settled(page);
-    const sampling = sample(page, 900);
     // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
-    const mounted = await page.evaluate((index) => {
+    // Capture painted frames after the click rather than waiting for a wall-clock sample window:
+    // the click writes the landing in its task, and two held paints are the state we need.
+    const clickResult = await page.evaluate((index) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const row = document.querySelector(`.acpmux-row[data-row-id="t${index}-user"]`);
-      (window as unknown as { __over: number }).__over = performance.now();
-      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
-      return row !== null;
+      const frames: number[] = [];
+      return new Promise<{ mounted: boolean; frames: number[] }>((resolve) => {
+        let previous = node.scrollTop;
+        let steady = 0;
+        document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+        window.cmuxAfterPaint(() => {
+          const current = node.scrollTop;
+          frames.push(current);
+          if (Math.abs(current - previous) <= 1) steady += 1;
+          else steady = 0;
+          previous = current;
+          if (steady >= 2) {
+            resolve({ mounted: row !== null, frames });
+            return false;
+          }
+          return true;
+        });
+      });
     }, target);
-    expect(mounted).toBe(true);
-    await sampling;
-    const clicked = await page.evaluate(() => (window as unknown as { __over: number }).__over);
-    const scrolls = (await samples(page)).filter((entry) => entry.t >= clicked);
-    const final = scrolls.at(-1)!.scroll;
+    expect(clickResult.mounted).toBe(true);
+    const scrolls = clickResult.frames;
+    const final = scrolls.at(-1)!;
     expect(final).toBeGreaterThan(500);
-    // Every frame after the click already shows the landing: the scroll was set in the click's task.
+    // Every painted frame after the click already shows the landing: the scroll was set in the click's task.
     expect(scrolls.length).toBeGreaterThan(0);
-    for (const entry of scrolls) expect(Math.abs(entry.scroll - final)).toBeLessThanOrEqual(1);
+    for (const scroll of scrolls) expect(Math.abs(scroll - final)).toBeLessThanOrEqual(1);
     const landing = await page.evaluate((index) => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
@@ -264,20 +406,40 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const page = await open(false);
     await page.mouse.move(900, 400);
     await settled(page);
-    const sampling = sample(page, 900);
-    await page.evaluate(() => {
-      (window as unknown as { __over: number }).__over = performance.now();
-      window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+    // Observe the motion's own per-frame event and then wait for the painted scroll position to hold.
+    // This checks that Next Turn glides without making the result depend on elapsed milliseconds or
+    // how many WebKit frames a loaded runner happened to paint.
+    const glide = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const motionFrames: number[] = [];
+      const painted: number[] = [];
+      const recordMotion = () => motionFrames.push(node.scrollTop);
+      return new Promise<{ before: number; painted: number[]; motion: number[] }>((resolve) => {
+        let previous = node.scrollTop;
+        let steady = 0;
+        node.addEventListener("acpmux-motion-scroll", recordMotion);
+        const before = node.scrollTop;
+        window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+        window.cmuxAfterPaint(() => {
+          const current = node.scrollTop;
+          painted.push(current);
+          if (Math.abs(current - previous) <= 1) steady += 1;
+          else steady = 0;
+          previous = current;
+          if (steady >= 2) {
+            node.removeEventListener("acpmux-motion-scroll", recordMotion);
+            resolve({ before, painted, motion: motionFrames });
+            return false;
+          }
+          return true;
+        });
+      });
     });
-    await sampling;
-    const started = await page.evaluate(() => (window as unknown as { __over: number }).__over);
-    const scrolls = (await samples(page)).filter((entry) => entry.t >= started);
-    const final = scrolls.at(-1)!.scroll;
+    const final = glide.painted.at(-1)!;
     expect(final).toBeGreaterThan(0);
-    // Some painted frame shows the scroll part of the way there, and it lands after a few frames.
-    expect(scrolls.some((entry) => entry.scroll > 1 && entry.scroll < final - 1)).toBe(true);
-    const landed = scrolls.find((entry) => Math.abs(entry.scroll - final) <= 1)!;
-    expect(landed.t - started).toBeGreaterThan(50);
+    // The explicit step emits a changing motion frame before it holds at the destination.
+    expect(new Set(glide.motion).size).toBeGreaterThan(1);
+    expect(glide.motion.some((scroll) => scroll > glide.before && scroll < final - 1)).toBe(true);
     await page.close();
   });
 

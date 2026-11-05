@@ -129,14 +129,18 @@ function stack(container: HTMLElement, heights: Record<string, number>) {
 const pointer = (type: string, clientY: number) =>
   new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
 
+// Leo, 2026-11-03: "1. Machines showing up so I know if it's cloud or not 2. context 3.
+// Subagents/background tasks running 4. Sources". Usage stays after Context; the rest follow Sources.
 const DEFAULT = [
-  { group: "about", sections: ["environment", "context", "connectors"] },
-  { group: "made", sections: ["changes", "sources", "outputs"] },
+  { group: "about", sections: ["environment", "context", "usage"] },
   { group: "running", sections: ["subagents", "tasks"] },
+  { group: "made", sections: ["sources", "changes", "outputs"] },
+  { group: "about", sections: ["connectors"] },
 ];
 const HEIGHTS = {
   environment: 100,
   context: 28,
+  usage: 28,
   connectors: 28,
   changes: 120,
   sources: 80,
@@ -145,7 +149,7 @@ const HEIGHTS = {
   tasks: 70,
 };
 
-test("the default layout: three blocks and their sections, in order", async () => {
+test("the default layout: the machine, Context, what it runs, then Sources, in order", async () => {
   const { container, root } = await mount();
   expect(layout(container)).toEqual(DEFAULT);
   // A handle is the only thing each section gained, first in it, and it takes no text.
@@ -164,52 +168,57 @@ test("the default layout: three blocks and their sections, in order", async () =
 test("a section drags into another block, lifted while held, and the order stays", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  // Grab Outputs (top 356) and carry it up past Context's middle (114) into where it runs.
-  await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 400)));
+  // Grab Outputs (top 516) and carry it up past Context's middle (114) into where it runs.
+  await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 560)));
   expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
   expect(container.querySelector('section[data-section="outputs"]')!.hasAttribute("data-dragging")).toBe(true);
-  // It looks for its place 24px below its top, 356 - 260 + 24 = 120: below Context's middle (114),
-  // above Connectors' (142).
-  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 140)));
+  // Its place is set by its top, the edge it leads with (`heldPlace`): 516 - 396 = 120, past Usage's middle (142)
+  // but not Context's (114).
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 164)));
   expect(order(container)).toEqual([
     "environment",
     "context",
     "outputs",
-    "connectors",
-    "changes",
-    "sources",
+    "usage",
     "subagents",
     "tasks",
+    "sources",
+    "changes",
+    "connectors",
   ]);
   // Its block shows by the hairlines around it; nothing is saved until the drop.
   expect(layout(container)).toEqual([
     { group: "about", sections: ["environment", "context"] },
     { group: "made", sections: ["outputs"] },
-    { group: "about", sections: ["connectors"] },
-    { group: "made", sections: ["changes", "sources"] },
+    { group: "about", sections: ["usage"] },
     { group: "running", sections: ["subagents", "tasks"] },
+    { group: "made", sections: ["sources", "changes"] },
+    { group: "about", sections: ["connectors"] },
   ]);
   expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
-  // The section is drawn under the pointer, whatever its place: 356 + (140 - 400) - its new top 128.
-  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-32px)");
-  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 140)));
+  // The section is drawn under the pointer, whatever its place: 516 + (164 - 560) - its new top 128.
+  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-8px)");
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 164)));
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual(order(container));
+  // The saved order is the drawn one, with Progress (no plan here, so not drawn) in its slot.
+  expect(
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "progress"),
+  ).toEqual(order(container));
   await act(async () => root.unmount());
 
   // A fresh page reads the saved order.
   resetSectionOrderForTests();
   const again = await mount();
-  expect(order(again.container).slice(0, 4)).toEqual(["environment", "context", "outputs", "connectors"]);
+  expect(order(again.container).slice(0, 5)).toEqual(["environment", "context", "outputs", "usage", "subagents"]);
   await act(async () => again.root.unmount());
 });
 
 test("Escape during a drag puts the section back and saves nothing", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 580)));
+  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 260)));
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 10)));
   expect(order(container)[0]).toBe("tasks");
   await act(async () => {
@@ -228,8 +237,8 @@ test("a section taller than the panel still drags above the first one", async ()
   const { container, root } = await mount();
   // Sources expanded far past the panel's height: its middle can never reach the top.
   stack(container, { ...HEIGHTS, sources: 2000 });
-  // Sources' top is 276; the pointer goes from its handle to the panel's top edge.
-  await act(async () => handle(container, "sources").dispatchEvent(pointer("pointerdown", 290)));
+  // Sources' top is 316; the pointer goes from its handle to the panel's top edge.
+  await act(async () => handle(container, "sources").dispatchEvent(pointer("pointerdown", 330)));
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 14)));
   expect(order(container)[0]).toBe("sources");
   await act(async () => dom.window.dispatchEvent(pointer("pointerup", 14)));
@@ -240,7 +249,7 @@ test("a section taller than the panel still drags above the first one", async ()
 test("an arrow key during a pointer drag changes nothing, so Escape still restores the order", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 580)));
+  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 260)));
   await act(async () => {
     const up = new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true });
     handle(container, "tasks").dispatchEvent(up);
@@ -262,13 +271,13 @@ test("Up and Down Arrow on a handle move the section one place, across a block's
     });
   handle(container, "subagents").focus();
   await key("subagents", "ArrowUp");
-  expect(order(container).slice(4, 7)).toEqual(["sources", "subagents", "outputs"]);
+  expect(order(container).slice(1, 4)).toEqual(["context", "subagents", "usage"]);
   expect(dom.window.document.activeElement).toBe(handle(container, "subagents"));
   await key("subagents", "ArrowDown");
   expect(layout(container)).toEqual(DEFAULT);
   // Already first or last: it stays.
   await key("environment", "ArrowUp");
-  await key("tasks", "ArrowDown");
+  await key("connectors", "ArrowDown");
   expect(layout(container)).toEqual(DEFAULT);
   await act(async () => root.unmount());
 });
@@ -280,8 +289,9 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
   );
   const { container, root } = await mount();
   expect(layout(container)).toEqual([
-    { group: "about", sections: ["context", "environment", "connectors"] },
-    // Sources, missing, takes its place after Changes, the section it follows by default.
+    // Usage and Sources, missing, take their places after the sections they follow by default:
+    // Usage after Context, Sources after Changes.
+    { group: "about", sections: ["context", "usage", "environment", "connectors"] },
     { group: "made", sections: ["outputs", "changes", "sources"] },
     { group: "running", sections: ["subagents", "tasks"] },
   ]);
@@ -294,11 +304,13 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
   });
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "context",
+    "usage",
     "environment",
     "connectors",
     "outputs",
     "changes",
     "sources",
+    "progress",
     "tasks",
     "subagents",
   ]);
@@ -312,10 +324,12 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
   expect(parseOrder(JSON.stringify({ running: ["tasks", "subagents"] }))).toEqual([
     "environment",
     "context",
+    "usage",
     "connectors",
     "changes",
     "sources",
     "outputs",
+    "progress",
     "tasks",
     "subagents",
   ]);
@@ -329,17 +343,18 @@ test("another pane's drag reaches this one", async () => {
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
-  // A section the saved order lacks takes the place after the one it follows by default: Subagents
-  // after Outputs, Context after Environment.
+  // A section the saved order lacks takes the place after the one it follows by default: Connectors
+  // after Outputs, Context after Environment, Usage after Context, Subagents after Usage.
   expect(order(container)).toEqual([
     "outputs",
-    "subagents",
-    "tasks",
+    "connectors",
     "environment",
     "context",
-    "connectors",
-    "changes",
+    "usage",
+    "subagents",
+    "tasks",
     "sources",
+    "changes",
   ]);
   await act(async () => root.unmount());
 });
@@ -348,7 +363,17 @@ test("a panel closed while another pane reorders shows that order when it opens 
   const first = await mount();
   await act(async () => first.root.unmount());
   // Another pane's drag, while no panel here listens.
-  const moved = ["tasks", "environment", "context", "connectors", "changes", "sources", "outputs", "subagents"];
+  const moved = [
+    "tasks",
+    "environment",
+    "context",
+    "usage",
+    "connectors",
+    "changes",
+    "sources",
+    "outputs",
+    "subagents",
+  ];
   dom.window.localStorage.setItem(ORDER_KEY, JSON.stringify(moved));
   const again = await mount();
   expect(order(again.container)).toEqual(moved);
@@ -367,10 +392,10 @@ test("an order storage refused stays when the panel opens again", async () => {
         new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
       );
     });
-    expect(order(first.container).slice(-2)).toEqual(["tasks", "subagents"]);
+    expect(order(first.container).slice(3, 5)).toEqual(["tasks", "subagents"]);
     await act(async () => first.root.unmount());
     const again = await mount();
-    expect(order(again.container).slice(-2)).toEqual(["tasks", "subagents"]);
+    expect(order(again.container).slice(3, 5)).toEqual(["tasks", "subagents"]);
     await act(async () => again.root.unmount());
   } finally {
     dom.window.Storage.prototype.setItem = setItem;
@@ -393,15 +418,18 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
       new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
     );
   });
+  // Background tasks, hidden, keeps its slot after the place Subagents left.
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "environment",
     "context",
-    "connectors",
-    "changes",
-    "sources",
     "subagents",
-    "outputs",
+    "progress",
+    "usage",
     "tasks",
+    "sources",
+    "changes",
+    "outputs",
+    "connectors",
   ]);
   await act(async () => root.unmount());
 });

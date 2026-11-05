@@ -116,6 +116,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
+            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
+            // the window, so they show the App Theme's one veil like the terminals; else the page
+            // color made opaque, so desktop text never reads through a document (#30818).
+            "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
+                ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
@@ -151,6 +156,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+            // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
+            .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]

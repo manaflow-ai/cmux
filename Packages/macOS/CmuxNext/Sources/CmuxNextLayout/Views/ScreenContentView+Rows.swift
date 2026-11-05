@@ -58,6 +58,7 @@ extension ScreenContentView {
               let column = layout.columns.first(where: { $0.id == id }) else { return }
         let splits = Set(column.trees.flatMap(\.splits))
         for pane in column.trees.flatMap(\.panes) { paneFrames[pane]?.y.value -= offset }
+        closingPanes.shiftY(inRowColumn: id, by: -offset) // FRAME OWNER S3c: closing panes there keep where they show
         for kind in Array(dividerFrames.keys) {
             let inColumn: Bool = switch kind {
             case let .split(split): splits.contains(split)

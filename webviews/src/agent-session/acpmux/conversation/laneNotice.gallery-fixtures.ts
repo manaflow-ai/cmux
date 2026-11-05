@@ -41,3 +41,25 @@ export function notice(index: number, prefix: string): AcpmuxRow {
     },
   };
 }
+
+/// The screenshot-shaped notice: one harness wrapper carrying many deliveries, with no prose that
+/// should survive in the transcript. The inbox gallery renders these through flattenInboxRows.
+export function inboxMany(prefix: string): AcpmuxRow {
+  const lines = Array.from(
+    { length: 13 },
+    (_, index) =>
+      `- 1 new in #${29626 + index} from lane-${index}: merged #${29626 + index} (thread from:lane-${index}/pr:${29626 + index})`,
+  );
+  const text = ["New messages from other agents in 13 threads.", ...lines].join("\n");
+  return {
+    id: `${prefix}-inbox-many`,
+    version: 1,
+    at: 1_800_000_000_000,
+    kind: "user",
+    text,
+    incoming: {
+      kind: "message",
+      message: { name: "inbox", text, raw: `[inbox] ${text}` },
+    },
+  };
+}

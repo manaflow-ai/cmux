@@ -38,7 +38,7 @@ const TEXT_FIELDS = new Set([
 ]);
 /** Files that are not shipped pane UI: the dev loop, fixtures, measurement and automation. */
 const SKIP =
-  /\.test\.|\.d\.ts$|^(mock|mockFixture|mockFiles|mockGit|devHost|devRecents|dev|synthetic|workedTurn|debug|automation|perf|streamDebug|promptFieldTesting)\.tsx?$/;
+  /\.test\.|\.d\.ts$|^(mock|mockFixture|mockFiles|mockGit|devHost|devRecents|dev|synthetic|workedTurn|debug|debugFixtures|automation|perf|streamDebug|promptFieldTesting)\.tsx?$/;
 const SKIP_DIRS = new Set(["prototype", "shiki", "generated"]);
 const ALLOW = /l10n-allow:\s*\S/;
 /** A file whose header says `l10n-allow-file: <reason>` is exempt as a whole (a wire validator). */

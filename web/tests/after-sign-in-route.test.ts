@@ -231,6 +231,35 @@ describe("after sign-in native handoff", () => {
     expect(response.headers.get("location")).toBe("https://cmux.com/");
   });
 
+  for (const scheme of ["cmux-dev", "cmux-dev-pr-28950-next-cloud-dev-v1"]) {
+    test(`redirects verified ${scheme} handoffs on staging`, async () => {
+      // Debug and tagged fleet builds sign in on staging by default (CloudConfiguration.resolve).
+      handoffCookie = "handoff-nonce";
+      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
+
+      const response = await GET(
+        signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux-staging.vercel.app"),
+      );
+
+      expect(response.status).toBe(307);
+      const callbackURL = new URL(response.headers.get("location")!);
+      expect(callbackURL.protocol).toBe(`${scheme}:`);
+      expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-dev");
+    });
+
+    test(`rejects ${scheme} handoffs on production`, async () => {
+      handoffCookie = "handoff-nonce";
+      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
+
+      const response = await GET(
+        signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux.com"),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.com/");
+    });
+  }
+
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";

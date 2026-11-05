@@ -2,7 +2,6 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
-import os
 
 /// Creates a workspace and its first terminal with two daemon requests
 /// (create-workspace, then create-terminal), and never leaves a
@@ -11,29 +10,6 @@ import os
 /// daemon's single atomic `workspace.create` cannot take a caller key, cwd,
 /// env, terminal id or keep yet (plans: the workspace.create extension).
 enum WorkspaceCreation {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.workspace-create")
-
-    static func withTerminal<T>(
-        _ key: WorkspaceKey,
-        createWorkspace: () async throws -> Void,
-        createTerminal: (WorkspaceKey) async throws -> T,
-        closeWorkspace: (WorkspaceKey) async throws -> Void
-    ) async throws -> T {
-        var refused = false // a refused create made nothing (the key may name a live workspace)
-        do {
-            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
-            return try await createTerminal(key)
-        } catch {
-            if !refused { do {
-                try await closeWorkspace(key)
-            } catch let closeError {
-                // The create failure stays the one error the user sees.
-                logger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
-            } }
-            throw error
-        }
-    }
-
     /// Closes a workspace whose first terminal failed; when the close fails
     /// too, `repair` releases it (it stays, empty, with the terminal error).
     /// Only while it is empty: a first tab the daemon made after its reply's
@@ -64,7 +40,7 @@ enum WorkspaceCreation {
         // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
         // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
         try await repair.populating(key) {
-            try await withTerminal(
+            try await repair.withTerminal(
                 key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
@@ -95,7 +71,7 @@ enum WorkspaceCreation {
     ) async throws -> T {
         try await repair.populating(key) {
             var created: WorkspaceMutationResult?
-            return try await withTerminal(
+            return try await repair.withTerminal(
                 key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
@@ -137,7 +113,8 @@ enum WorkspaceCreation {
     /// Returns the tab's key.
     @MainActor
     static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
-                           on daemon: DaemonService, tabs: AgentTabStore) async throws -> String {
+                           mutationID: String? = nil, until giveUp: ContinuousClock.Instant? = nil, on daemon: DaemonService,
+                           tabs: AgentTabStore) async throws -> String {
         guard let connection = daemon.connection, let localHost = tabs.localHost else { throw DaemonError.notConnected }
         guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
         // A session of this Mac never opens in a workspace of another machine (cx-k21v).
@@ -148,9 +125,11 @@ enum WorkspaceCreation {
         // A chat of that acpmux: its tab shows it as soon as the tree lists it.
         let record = AgentSessionRef(host: host ?? localHost, hostName: tabs.localHostName, session: session)
         let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
-                                                origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
+                                                origin: AgentTabStore.createOrigin, mutationID: mutationID ?? UUID().uuidString)
         // One mutation id for every send: a tab the daemon made after the deadline replays.
-        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) {
+            try await connection.request(request)
+        }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if linked {
             tabs.sessions[key] = session

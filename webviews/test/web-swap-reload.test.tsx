@@ -20,6 +20,7 @@ import {
   WEB_SWAP_KEPT_SCROLL,
   WEB_SWAP_KEPT_TEXT,
   installWebSwap,
+  pageReleaseHold,
   takeWebSwapFocus,
 } from "../src/pages/shared/webSwap";
 
@@ -440,6 +441,44 @@ test("a focused field that restores itself gives the keyboard back after the rel
   expect(takeWebSwapFocus("composer")).toBe(false);
 });
 
+test("hibernation retains composition, popups and queued edits, including a cleared prompt", () => {
+  expect(pageReleaseHold()).toBeNull();
+  document.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true }));
+  expect(pageReleaseHold()).toBe("ime");
+  document.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true }));
+  expect(pageReleaseHold()).toBeNull();
+
+  const popup = fixture('<div role="menu"></div>');
+  expect(pageReleaseHold()).toBe("popup");
+  popup.remove();
+
+  const queuedEdit = fixture("<textarea>queued prompt</textarea>");
+  const field = queuedEdit.querySelector("textarea")!;
+  expect(pageReleaseHold()).toBe("field");
+  // The queue owns the old prompt, but the unsaved removal lives only in its editor.
+  field.value = "";
+  expect(pageReleaseHold()).toBe("field");
+  queuedEdit.remove();
+  expect(pageReleaseHold()).toBeNull();
+});
+
+test("hibernation keeps a New Tab's uncheckpointed scroll and text selection", () => {
+  const page = fixture("<div><p>selected page text</p></div>");
+  const scroller = page.firstElementChild as HTMLElement;
+  scroller.scrollTop = 40;
+  expect(pageReleaseHold()).toBe("scroll");
+  scroller.setAttribute(WEB_SWAP_KEPT_SCROLL, "kept");
+  expect(pageReleaseHold()).toBeNull();
+  scroller.removeAttribute(WEB_SWAP_KEPT_SCROLL);
+  scroller.scrollTop = 0;
+  const range = document.createRange();
+  range.selectNodeContents(scroller.querySelector("p")!);
+  window.getSelection()!.addRange(range);
+  expect(pageReleaseHold()).toBe("selection");
+  window.getSelection()!.removeAllRanges();
+  expect(pageReleaseHold()).toBeNull();
+});
+
 test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the update waiting", async () => {
   let setReason: (reason: string | null) => void = () => undefined;
   function Page() {
@@ -452,13 +491,48 @@ test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the
   root = createRoot(host);
   await act(async () => root!.render(<Page />));
   expect(hold()).toBe("newtab.attachments");
+  expect(pageReleaseHold()).toBe("newtab.attachments");
+  await act(async () => setReason("newtab.draft"));
+  expect(pageReleaseHold()).toBe("newtab.draft");
+  await act(async () => setReason("composer.send-untaken"));
+  expect(pageReleaseHold()).toBe("composer.send-untaken");
   await act(async () => setReason("home.sending"));
   expect(hold()).toBe("home.sending");
   await act(async () => setReason(null));
   expect(hold()).toBeNull();
+  expect(pageReleaseHold()).toBeNull();
   await act(async () => setReason("home.send-failed"));
   await act(async () => root!.unmount());
   root = undefined;
   // Gone with its page.
   expect(hold()).toBeNull();
+  expect(pageReleaseHold()).toBeNull();
+});
+
+// Leo 2026-10-29 (ask-57e1c63246): "it seems that new updates overwrite the text portion of the
+// draft and it becomes empty". The page an update reloads into opens before acpmux's actions are
+// back: the chip comes back from the host at once, and the text must wait for acpmux's answer
+// instead of reading the missing answer as an empty draft and writing that over the saved one.
+test("an update's reload keeps a chat's text when acpmux answers after the page opens", async () => {
+  const store = new Host();
+  // What the page before the update left: acpmux holds the text, the host the pasted chip, and the
+  // origin's remount cache is gone (a fresh web view).
+  const text = 'how have you been "thinking" for 1h+?';
+  store.chats.set("chat-reloaded", [screenshot(1)]);
+  const page = await openPage("chat-reloaded", store);
+  expect(chips(page).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(words()).toBe("");
+  // acpmux reconnects: its draft fills the prompt beside the chip, and nothing cleared it meanwhile.
+  const drafts = connectDaemon();
+  drafts.set("chat-reloaded", text);
+  const { notifyDraftActionsChanged } = await import("../src/agent-session/acpmux/composerDraft");
+  await act(async () => notifyDraftActionsChanged());
+  await settle();
+  expect(words()).toBe(text);
+  expect(withoutInlineTokens(drafts.get("chat-reloaded") ?? "").trim()).toBe(text);
+  expect(chips(page).map((chip) => chip.id)).toEqual(["shot-1"]);
+  // Streaming updates re-render the composer: the text stays.
+  await settle();
+  expect(words()).toBe(text);
+  expect(withoutInlineTokens(drafts.get("chat-reloaded") ?? "").trim()).toBe(text);
 });

@@ -1,11 +1,11 @@
 // A session's status line (on a started chat's row, StartedSessionCard.tsx, and on its hover card),
 // as Claude Code's PR rows read: the status first, its glyph and word in its colour (a running one
-// the bare working spinner), then `· repo #N` (and how many more) in the dim colour. Styled in
-// startedSessions.css.
+// the bare working spinner), then `· repo #N` in the dim colour, and every other pull request the
+// chat opened on its own after it, never a "+N" count. Styled in startedSessions.css.
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { Spinner } from "../conversation/icons";
-import type { SessionStatus, StartedPullRequests } from "./startedSessions";
+import type { SessionStatus, StartedPullRequestName, StartedPullRequests } from "./startedSessions";
 import "./startedSessions.css";
 
 /// Each status's word and glyph; running draws the bare working spinner instead.
@@ -24,7 +24,7 @@ const STATUS: Record<SessionStatus, { word: StringKey; glyph?: string }> = {
 };
 
 /// `repo #N`, or `#N` when acpmux names no repository.
-export const pullRequestName = (prs: StartedPullRequests): string =>
+export const pullRequestName = (prs: StartedPullRequestName): string =>
   prs.repo ? `${prs.repo} #${prs.number}` : `#${prs.number}`;
 
 /// The status line. Without a status (a done chat on its row), only the pull request.
@@ -41,9 +41,9 @@ export function SessionStatusLine({
       {status && (
         <span className="acpmux-session-status" data-status={status}>
           {STATUS[status].glyph ? (
-            <Icon name={STATUS[status].glyph!} size={11} />
+            <Icon name={STATUS[status].glyph!} size={12} />
           ) : (
-            <Spinner size={11} className="acpmux-session-status-spinner" />
+            <Spinner size={12} className="acpmux-session-status-spinner" />
           )}
           <span>{t(STATUS[status].word)}</span>
         </span>
@@ -51,7 +51,12 @@ export function SessionStatusLine({
       {pullRequests && (
         <span className="acpmux-session-status-pr">
           <span>{pullRequestName(pullRequests)}</span>
-          {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
+          {pullRequests.others?.map((pr, index) => (
+            // By place: a fork and its upstream can share `repo #N`.
+            <span key={index} className="acpmux-session-status-pr-other">
+              {pullRequestName(pr)}
+            </span>
+          ))}
         </span>
       )}
     </span>

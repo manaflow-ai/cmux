@@ -39,6 +39,9 @@ extension SettingsController {
             linked.append((path: customDensity, value: nil))
         }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
+        // the whole edits map it shows, which holds the file's colors).
+        let value = strippingThemeFileEntries(descriptor, value)
         // Before the write, so an observer of the new value already sees what the hook recorded;
         // the hook's undo runs if the write fails.
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
@@ -89,6 +92,8 @@ extension SettingsController {
         let managed = file.managedGuard.managedKeys
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
+            // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
+            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { try await removePruning(legacy) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
             try await removePruning(CmuxConfigFile.keyPath(from: key))

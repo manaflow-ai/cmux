@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 import { recordedMessageBodyParseCountForTests, resetRecordedMessageBodyCacheForTests } from "./acpmuxSends";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -139,13 +139,13 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
     startedAt: 3,
     endedAt: 4,
   });
-  const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+  const group = sendEntries(toolGroups([writer, send])).find((entry) => entry.type === "send");
   expect(group?.type).toBe("send");
   if (group?.type === "send") {
     expect(group.send.text).toBe("## Ready\n\n- checks pass\n");
     expect(group.send.others).toBeUndefined();
   }
-  const standalone = toolGroups([send]).find((entry) => entry.type === "send");
+  const standalone = sendEntries(toolGroups([send])).find((entry) => entry.type === "send");
   expect(standalone?.type).toBe("send");
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
 });
@@ -180,11 +180,11 @@ test("nonmutating read search fetch and MCP tools preserve recorded message bodi
     // A read that failed or is still running cannot overwrite the file or block an ordered writer.
     for (const status of ["completed", "failed", "in_progress"]) {
       const read = item({ ...observer, status });
-      const group = toolGroups([writer, read, send]).find((entry) => entry.type === "send");
+      const group = sendEntries(toolGroups([writer, read, send])).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
       if (group?.type === "send") expect(group.send.text).toBe("recorded body\n");
       const later = { ...writer, tool: { ...writer.tool!, startedAt: 3, endedAt: 4 } };
-      const after = toolGroups([writer, read, later, send]).find((entry) => entry.type === "send");
+      const after = sendEntries(toolGroups([writer, read, later, send])).find((entry) => entry.type === "send");
       expect(after?.type).toBe("send");
       if (after?.type === "send") expect(after.send.text).toBe("recorded body\n");
     }
@@ -215,7 +215,7 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
       },
     ]) {
       const observer = item(fields);
-      const group = toolGroups([writer, observer, send]).find((entry) => entry.type === "send");
+      const group = sendEntries(toolGroups([writer, observer, send])).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
       if (group?.type === "send") {
         try {
@@ -244,7 +244,7 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
     { title: "mcp__fs__read_file", command: "truncate -s 0 /tmp/mcp-read.md" },
   ]) {
     const mutation = item({ ...fields, startedAt: 3, endedAt: 4 });
-    const group = toolGroups([writer, mutation, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([writer, mutation, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBeUndefined();
   }
@@ -279,7 +279,7 @@ test("a mutating MCP name overrides observational ACP kinds for recorded message
         },
       ]) {
         const call = item({ ...fields, kind, startedAt: 3, endedAt: 4 });
-        const group = toolGroups([writer, call, send]).find((entry) => entry.type === "send");
+        const group = sendEntries(toolGroups([writer, call, send])).find((entry) => entry.type === "send");
         expect(group?.type).toBe("send");
         if (group?.type === "send") {
           try {
@@ -320,7 +320,7 @@ test("mutation capable and ambiguous tools still invalidate recorded message bod
   for (const mutation of mutations) {
     for (const status of ["completed", "failed", "in_progress"]) {
       const tool = item({ ...mutation, status, startedAt: 3, endedAt: 4 });
-      const group = toolGroups([writer, tool, send]).find((entry) => entry.type === "send");
+      const group = sendEntries(toolGroups([writer, tool, send])).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
       if (group?.type === "send") expect(group.send.text).toBeUndefined();
     }
@@ -342,7 +342,7 @@ test("wrapped sends retain a prior same-turn recorded message body", () => {
     `reach box "bash -c 'acpmux send lane -'" < /tmp/wrapped.md`,
   ]) {
     const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
-    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([writer, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBe("wrapped body\n");
   }
@@ -363,7 +363,7 @@ test("reach keeps remote file paths separate from locally opened recorded stdin"
     `bash -c "reach box 'acpmux send lane - < /tmp/shared.md'"`,
   ]) {
     const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
-    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([writer, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBeUndefined();
   }
@@ -373,7 +373,7 @@ test("reach keeps remote file paths separate from locally opened recorded stdin"
     ["reach box \"acpmux send lane - <<'EOF'\nremote literal\nEOF\"", "remote literal\n"],
   ]) {
     const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
-    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([writer, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBe(text);
   }
@@ -401,7 +401,7 @@ test("bare cat pipelines forward inherited wrapper stdin and preserve the produc
       startedAt: 5,
       endedAt: 6,
     });
-    const groups = toolGroups([writer, send, after]).filter((entry) => entry.type === "send");
+    const groups = sendEntries(toolGroups([writer, send, after])).filter((entry) => entry.type === "send");
     expect(groups.map((group) => group.send.text)).toEqual(["forwarded body\n", "forwarded body\n"]);
   }
   for (const command of [
@@ -412,7 +412,7 @@ test("bare cat pipelines forward inherited wrapper stdin and preserve the produc
     "bash -c 'false && cat | acpmux send lane -' < /tmp/pipeline.md",
   ]) {
     const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
-    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([writer, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBeUndefined();
   }
@@ -441,7 +441,7 @@ test("quoted Markdown links and braces remain recorded message content", () => {
     startedAt: 5,
     endedAt: 6,
   });
-  const sends = toolGroups([writer, direct, file]).filter((entry) => entry.type === "send");
+  const sends = sendEntries(toolGroups([writer, direct, file])).filter((entry) => entry.type === "send");
   expect(sends.map((group) => group.send.text)).toEqual(["[review](https://example.com) {pass}", body]);
 });
 
@@ -461,7 +461,7 @@ test("successive sends retain a recorded body until a later uncertain mutation",
   ].map((command, index) =>
     item({ title: "Bash", kind: "execute", command, startedAt: index * 2 + 3, endedAt: index * 2 + 4 }),
   );
-  const groups = toolGroups([writer, ...sends]).filter((entry) => entry.type === "send");
+  const groups = sendEntries(toolGroups([writer, ...sends])).filter((entry) => entry.type === "send");
   expect(groups.map((group) => group.send.text)).toEqual(Array(4).fill("reused body\n"));
   const after = item({
     title: "Bash",
@@ -476,7 +476,9 @@ test("successive sends retain a recorded body until a later uncertain mutation",
     "bash -c 'true || acpmux send unsafe -' < /tmp/reused.md",
   ]) {
     const unsafe = item({ title: "Bash", kind: "execute", command, startedAt: 11, endedAt: 12 });
-    const invalidated = toolGroups([writer, ...sends, unsafe, after]).filter((entry) => entry.type === "send");
+    const invalidated = sendEntries(toolGroups([writer, ...sends, unsafe, after])).filter(
+      (entry) => entry.type === "send",
+    );
     expect(invalidated.slice(-2).map((group) => group.send.text)).toEqual([undefined, undefined]);
   }
   for (const fields of [{ status: "failed" }, { exitCode: 1 }, { startedAt: undefined }, { startedAt: 1 }]) {
@@ -488,7 +490,9 @@ test("successive sends retain a recorded body until a later uncertain mutation",
       endedAt: 12,
       ...fields,
     });
-    const groups = toolGroups([writer, ...sends, uncertain, after]).filter((entry) => entry.type === "send");
+    const groups = sendEntries(toolGroups([writer, ...sends, uncertain, after])).filter(
+      (entry) => entry.type === "send",
+    );
     expect(groups.at(-1)?.send.text).toBeUndefined();
   }
 });
@@ -509,7 +513,7 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
     endedAt: 4,
   });
   const send = item({ title: "Bash", kind: "execute", command: "acpmux send lane - < /tmp/a", startedAt: 5 });
-  const body = toolGroups([first, alias, send]).find((entry) => entry.type === "send");
+  const body = sendEntries(toolGroups([first, alias, send])).find((entry) => entry.type === "send");
   expect(body?.type).toBe("send");
   if (body?.type === "send") expect(body.send.text).toBeUndefined();
   const unknownOrder = toolGroups([first, { ...send, tool: { ...send.tool!, startedAt: undefined } }]).find(
@@ -518,11 +522,13 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
   expect(unknownOrder?.type).toBe("send");
   if (unknownOrder?.type === "send") expect(unknownOrder.send.text).toBeUndefined();
 
-  const overlap = toolGroups([
-    first,
-    { ...alias, tool: { ...alias.tool!, endedAt: 8 } },
-    { ...send, tool: { ...send.tool!, startedAt: 5 } },
-  ]).find((entry) => entry.type === "send");
+  const overlap = sendEntries(
+    toolGroups([
+      first,
+      { ...alias, tool: { ...alias.tool!, endedAt: 8 } },
+      { ...send, tool: { ...send.tool!, startedAt: 5 } },
+    ]),
+  ).find((entry) => entry.type === "send");
   expect(overlap?.type).toBe("send");
   if (overlap?.type === "send") expect(overlap.send.text).toBeUndefined();
 });
@@ -554,13 +560,13 @@ test("overlapping writer intervals invalidate bodies until a later ordered overw
       startedAt: 5,
       endedAt: 6,
     });
-    const group = toolGroups([slow, fast, send]).find((entry) => entry.type === "send");
+    const group = sendEntries(toolGroups([slow, fast, send])).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBeUndefined();
     if (first.endedAt !== undefined) {
       const ordered = { ...fast, tool: { ...fast.tool!, startedAt: 11, endedAt: 12 } };
       const after = { ...send, tool: { ...send.tool!, startedAt: 13, endedAt: 14 } };
-      const recovered = toolGroups([slow, fast, ordered, after]).find((entry) => entry.type === "send");
+      const recovered = sendEntries(toolGroups([slow, fast, ordered, after])).find((entry) => entry.type === "send");
       expect(recovered?.type).toBe("send");
       if (recovered?.type === "send") expect(recovered.send.text).toBe("fast\n");
     }
@@ -583,7 +589,7 @@ test("background writers use their completion time for send provenance", () => {
     command: "acpmux send lane - < /tmp/background.md",
     startedAt: 5,
   });
-  const unresolved = toolGroups([writer, beforeBackgroundEnds]).find((entry) => entry.type === "send");
+  const unresolved = sendEntries(toolGroups([writer, beforeBackgroundEnds])).find((entry) => entry.type === "send");
   expect(unresolved?.type).toBe("send");
   if (unresolved?.type === "send") expect(unresolved.send.text).toBeUndefined();
 
@@ -593,7 +599,7 @@ test("background writers use their completion time for send provenance", () => {
     command: "acpmux send lane - < /tmp/background.md",
     startedAt: 11,
   });
-  const resolved = toolGroups([writer, afterBackgroundEnds]).find((entry) => entry.type === "send");
+  const resolved = sendEntries(toolGroups([writer, afterBackgroundEnds])).find((entry) => entry.type === "send");
   expect(resolved?.type).toBe("send");
   if (resolved?.type === "send") expect(resolved.send.text).toBe("finished later\n");
 });
@@ -676,12 +682,12 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
     ...writer,
     tool: { ...writer.tool!, command: "true || cat > /tmp/review.md <<'EOF'\nskipped\nEOF" },
   };
-  const skipped = toolGroups([writer, skippedWriter, send]).find((entry) => entry.type === "send");
+  const skipped = sendEntries(toolGroups([writer, skippedWriter, send])).find((entry) => entry.type === "send");
   expect(skipped?.type).toBe("send");
   if (skipped?.type === "send") expect(skipped.send.text).toBeUndefined();
 
   const failedWriter = { ...writer, tool: { ...writer.tool!, status: "failed" } };
-  const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
+  const failed = sendEntries(toolGroups([writer, failedWriter, send])).find((entry) => entry.type === "send");
   expect(failed?.type).toBe("send");
   if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
 });
@@ -689,8 +695,9 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
 const sendMessage = (to: string, message: string, status = "completed") =>
   item({ title: "SendMessage", kind: "other", status, inputSummary: JSON.stringify({ to, message }) });
 
-test("sent messages are never summed up: each, of any kind, is its own entry in order", () => {
-  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately".
+test("sent messages in a row are one group, each of any kind still its own entry in order", () => {
+  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately"; then
+  // 2026-11-04: "why arent these collapsed/collapsible". The group opens to each message's own row.
   const shell = item({ title: "Bash", kind: "execute", command: "acpmux send tests 'cover retries'" });
   const subsession = item({
     title: "mcp__cmux-subsessions__send_message",
@@ -700,7 +707,9 @@ test("sent messages are never summed up: each, of any kind, is its own entry in 
   });
   const failed = sendMessage("Picker", "lost", "failed");
   const groups = toolGroups([sendMessage("Picker", "brief"), shell, subsession, sendMessage("Picker", "more"), failed]);
-  expect(groups.map((group) => group.type)).toEqual(["message", "send", "subsession", "message", "message"]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  const entries = groups[0]?.type === "sendGroup" ? groups[0].entries : [];
+  expect(entries.map((entry) => entry.type)).toEqual(["message", "send", "subsession", "message", "message"]);
   // A sub-session start keeps its own card between two messages.
   const start = item({
     title: "mcp__cmux-subsessions__start_session",
@@ -713,4 +722,39 @@ test("sent messages are never summed up: each, of any kind, is its own entry in 
     "subsession",
     "message",
   ]);
+});
+
+test("a later Bash send renders the message file a Write tool made (Leo's raw-only row)", () => {
+  const writer = item({
+    title: "Write /tmp/coord/m1276.txt",
+    kind: "edit",
+    diffs: [{ path: "/tmp/coord/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command:
+      "bash -c '\"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux\" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'",
+    output: "queued for delivery 01a17aa5",
+    startedAt: 3,
+    endedAt: 4,
+  });
+  const sent = (items: AcpmuxActivity[]) => {
+    const group = sendEntries(toolGroups(items)).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    return group?.type === "send" ? group.send : undefined;
+  };
+  expect(sent([writer, send])?.text).toBe("## Composer\n\n- **ship** it\n");
+  expect(sent([writer, send])?.target).toBe("build-box/composer");
+  // An edit's hunk is not the file; a write to another path, or one after the send, says nothing.
+  const edit = item({ ...writer.tool!, diffs: [{ path: "/tmp/coord/m1276.txt", oldText: "a", newText: "b" }] });
+  expect(sent([edit, send])?.text).toBeUndefined();
+  const other = item({ ...writer.tool!, diffs: [{ path: "/tmp/other.txt", newText: "other" }] });
+  expect(sent([other, send])?.text).toBeUndefined();
+  const late = item({ ...writer.tool!, startedAt: 5, endedAt: 6 });
+  expect(sent([late, send])?.text).toBeUndefined();
+  const failed = item({ ...writer.tool!, status: "failed" });
+  expect(sent([failed, send])?.text).toBeUndefined();
 });

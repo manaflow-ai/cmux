@@ -143,5 +143,8 @@ enum TerminalHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
         })
+        ActionTargetTitles.setPaletteState("toggleTerminalCopyMode", in: registry) {
+            if case .terminal(let entry)? = ctx.services.windows.active?.focusedPane?.currentContent { entry.session.surfaceView.isCopyModeActive } else { false }
+        }
     }
 }

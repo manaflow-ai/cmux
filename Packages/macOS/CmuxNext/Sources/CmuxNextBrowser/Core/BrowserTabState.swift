@@ -126,3 +126,15 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         return nil
     }
 }
+
+extension BrowserTabState {
+    /// What a picture of the page shows, as navigation and load events tell it: its URL, title and whether its
+    /// load finished. Scrolling or typing in the page does not move it (a cached thumbnail stays current).
+    public var pictureVersion: Int {
+        var hasher = Hasher()
+        hasher.combine(url)
+        hasher.combine(title)
+        hasher.combine(phase == .finished)
+        return hasher.finalize()
+    }
+}

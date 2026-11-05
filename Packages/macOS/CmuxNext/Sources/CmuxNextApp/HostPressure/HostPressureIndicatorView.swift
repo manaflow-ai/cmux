@@ -13,9 +13,8 @@ import CmuxNextHostPressure
 /// closed in that window until the next critical spell. The banner has no timer of its
 /// own: it follows the same level observation, and ends with it.
 ///
-/// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
+/// Off by default (`HostPressureTunables.enabled`): it subscribes to the app's `HostPressureService` only
+/// while `HostPressureSampling.samples` holds (the toggle is on and its window can be seen). Stop condition: the
 /// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
 /// closing, unsubscribes it, and the service stops the monitor and its one 15 s
 /// timer when no window is subscribed. Cleanup: leaving the window, and deinit,

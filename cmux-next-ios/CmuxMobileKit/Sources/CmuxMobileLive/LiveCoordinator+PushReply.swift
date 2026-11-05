@@ -26,8 +26,6 @@ extension LiveCoordinator {
             case unreachable
             /// The Mac refused or the prompt moved on: Retry won't help.
             case refused(String)
-            /// Face ID was cancelled.
-            case cancelled
         }
 
         public var reason: Reason
@@ -84,8 +82,6 @@ extension LiveCoordinator {
             case .chief, .terminal:
                 break
             }
-        } catch is AcpmuxHub.ApprovalCancelled {
-            throw PushReplyFailure(reason: .cancelled)
         } catch let error as LinkError {
             log.error("push reply failed on the link: \(error.message, privacy: .public)")
             throw PushReplyFailure(reason: .unreachable)
@@ -131,6 +127,19 @@ extension LiveCoordinator {
             return ConversationComposeImage(data: data, width: Int(size.width), height: Int(size.height), mimeType: mime)
         }
         chief.send(ConversationComposeMessage(text: text, images: images))
+    }
+
+    /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
+    /// focused Mac's link, so that Mac becomes the focus first, and the message goes only once
+    /// its Chief is connected (never to the Chief of the Mac that was focused). False when the
+    /// Mac can't be reached within `budget`; nothing was sent then.
+    public func sendToChief(_ text: String, on macID: String, budget: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        if focusedMacID != macID { select(macID: macID) }
+        let chief = ChiefSession.shared
+        guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
+        chief.send(text: text)
+        return true
     }
 
     /// Text into the terminal that posted the notification, over the Mac's
@@ -180,7 +189,7 @@ extension LiveCoordinator {
 
     /// Sends `reply` through the service's mailbox, sealed to its Mac's box
     /// key and signed by this phone's identity key (PROTOCOL.md "Reply
-    /// mailbox"). An Allow is signed by the approval key first (Face ID).
+    /// mailbox"). An Allow is signed by the approval key first.
     /// Throws `PushReplyFailure` (`unreachable` when the Mac has no box key or
     /// the service is out of reach, `refused` when the reply can't go this way).
     public func deliverViaMailbox(_ reply: PushReply, now: Date = Date()) async throws -> MailboxOutcome {
@@ -203,10 +212,8 @@ extension LiveCoordinator {
                                           permission: permission, option: optionID, nonce: nonce,
                                           expiresAt: Int(now.timeIntervalSince1970 + Self.mailboxApprovalLifetime))
             do {
-                let sign = try await pairing.keys.authorizeApproval(reason: String(localized: "Allow this request on your Mac"))
+                let sign = try pairing.keys.approvalSigner()
                 approval = Self.pushJSON(payload.meta(signature: try sign(payload.message)))
-            } catch PhoneKeys.Failure.cancelled {
-                throw PushReplyFailure(reason: .cancelled)
             } catch {
                 throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message ?? String(describing: error)))
             }

@@ -1,7 +1,8 @@
 // A prewarmed spare page adopted by Cmd-T (plans/cmux-next/new-tab.md section 2.2). The spare
-// loads, renders and connects before any tab exists; the host then dispatches the real context
-// (AgentPaneView.adoptNewTab). WebKit runs that script before any key the user types after Cmd-T,
-// so the remounted screen gets every key.
+// loads, renders and connects before any tab exists; the host gives it the context a Cmd-T would
+// (NewTabSparePool) and dispatches the real one at the key (AgentPaneView.adoptNewTab). WebKit runs
+// that script before any key the user types after Cmd-T, so the screen (kept, or remounted for
+// another context) gets every key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
@@ -13,6 +14,34 @@ export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
 /// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
 export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
+
+/// A tab opening an existing chat adopted this prewarmed page (AgentPaneView.adoptSession): the
+/// page leaves its New Tab screen and switches to that chat in place.
+export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
+
+/// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
+export type SessionAdoption = { sessionId: string; revealTurn?: string };
+
+/// The adoption an event's detail names; undefined when it names no session.
+export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
+  if (typeof sessionId !== "string" || !sessionId) return undefined;
+  return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+}
+
+/// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
+/// frame never draws its New Tab screen again.
+export function useSessionAdoption(onAdopt: (adoption: SessionAdoption) => void): void {
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const adoption = sessionAdoption((event as CustomEvent).detail);
+      if (adoption) flushSync(() => onAdopt(adoption));
+    };
+    window.addEventListener(SESSION_ADOPT_EVENT, handle);
+    return () => window.removeEventListener(SESSION_ADOPT_EVENT, handle);
+  }, [onAdopt]);
+}
 
 /// The context the host gave as the document committed (AgentPaneNavigation), for the first
 /// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
@@ -84,24 +113,49 @@ export function withHandshakeNewTab(
   };
 }
 
+/// The screen two contexts draw is the same: they differ at most in the input token (each Cmd-T has
+/// its own), the chat's start folder and the bar's places (the open tabs, workspaces and actions, which a places event
+/// updates in place). A spare prepared with the tab's context (NewTabSparePool) gets such an adopt.
+export function sameNewTabScreen(a: NewTabHost | undefined, b: NewTabHost): boolean {
+  if (!a) return false;
+  // The start folder is the chat's, not the screen's: an adopt applies it in place (App adoptNewTab).
+  const { inputToken: _a1, omnibar: _a2, start: _a3, ...left } = a;
+  const { inputToken: _b1, omnibar: _b2, start: _b3, ...right } = b;
+  return sameValue(left, right);
+}
+
+/// Deep equality of plain JSON values, key order ignored (a later update re-adds a key at the end).
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = Object.entries(a as Record<string, unknown>).filter(([, v]) => v !== undefined);
+  const right = new Map(Object.entries(b as Record<string, unknown>).filter(([, v]) => v !== undefined));
+  return left.length === right.size && left.every(([key, value]) => right.has(key) && sameValue(value, right.get(key)));
+}
+
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that
-/// remounts the screen so it starts from the new context.
-export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
+/// remounts the screen so it starts from the new context. An adopt whose context draws the screen
+/// `current()` already shows (``sameNewTabScreen``) takes the token and places in place, with no
+/// remount: the spare's first frame after Cmd-T is its final one (SHORTCUT FRAMES F2: a remount
+/// dropped the sign-in line and the folder's trust card, which came back frames later).
+export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void, current?: () => NewTabHost | undefined): number {
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
     const handle = (event: Event) => {
       const host = newTabHost({ newTab: (event as CustomEvent).detail });
       if (!host) return;
+      const remount = !sameNewTabScreen(current?.(), host);
       // Render the adopted screen inside this event, before WebKit delivers the next key: a
       // render left for later would let typed keys land in the old field and be dropped.
       flushSync(() => {
         onAdopt(host);
-        setGeneration((value) => value + 1);
+        if (remount) setGeneration((value) => value + 1);
       });
     };
     window.addEventListener(NEW_TAB_ADOPT_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);
-  }, [onAdopt]);
+  }, [onAdopt, current]);
   return generation;
 }
 

@@ -68,6 +68,10 @@ struct CloudIdlePauseTests {
         let appServer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
         let next = try #require(CloudMachine(next: appServer))
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
+
+        let nextPolicy = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
+        let policyMachine = try #require(CloudMachine(next: nextPolicy))
+        #expect(policyMachine.idlePauseMinutes == 30)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {

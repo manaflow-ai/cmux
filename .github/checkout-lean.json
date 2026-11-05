@@ -1,0 +1,63 @@
+{
+  "schema": "checkout-lean/v1",
+  "about": "Full-tree `filter: blob:none` checkouts leave out the paths below: the job reads none of them, and each checkout otherwise downloads their blobs (about 470 MB of media and QA evidence under cmux-next-ios/verify/). actions/checkout runs before any repository file exists, so a composite action cannot hold the patterns; this file does, and tests/test_ci_checkout_lean.py keeps every listed step's `sparse-checkout` equal to it and fails on a new full-tree blob:none checkout that is in neither list.",
+  "sparse_checkout": ["/*", "!/cmux-next-ios/verify/"],
+  "lean": {
+    "backend.yml": {
+      "deploy-staging": "works in backend/; worker-release.ts globs backend/apps/api only",
+      "deploy-development": "works in backend/; worker-release.ts globs backend/apps/api only"
+    },
+    "ci-compile-attribution.yml": {
+      "analyze": "main_compile_attribution.py reads git objects (rev-list, diff-tree, show), never the worktree"
+    },
+    "ci.yml": {
+      "changes": "routing reads names, trees and the CI scripts and workflows it opens (scripts/ci, .github, tests); build_input_fingerprint.py hashes `git ls-tree -r`, which lists verify/ from the tree; the change-area walk's `git grep` no longer sees verify/ files, which run no CI helper, so they no longer send a helper change to every area"
+    },
+    "cmux-next-batch.yml": {
+      "batch": "next_batch.py merges in a worktree that inherits the sparse patterns; regenerate() adds with `git add -A -- .`, which skips skip-worktree paths; touches_tree reads scripts/cmux-next/cmux-tui-tree-inputs.txt"
+    },
+    "cmux-vm.yml": {
+      "migrate-production": "works in scripts/cmux-next/release; the rails read workers/cmux-vm/migrations, the lock and schema-requirements.ts from git objects (git archive) and git grep a release tag, never cmux-next-ios/verify/"
+    },
+    "cmux-next-car-guards.yml": {
+      "plan": "focused_tests.plan reads Package.swift files, webviews/ and tests/; verify/ holds none of them",
+      "mac": "fast-tier-cache-key.sh hashes `git ls-files -s` of Package.swift/Package.resolved (index, unchanged); the Swift packages built here do not include verify/"
+    },
+    "cmux-next-generated-catch-up.yml": {
+      "catch-up": "the generated patterns and regenerate-web-bundles.sh cover webviews and resources only; a conflict under verify/ is written out and left to the author as before"
+    },
+    "cmux-next-pr-autofix.yml": {
+      "action-exports": "web-bundle-key.py inputs are webviews, schemas and CmuxNext xcstrings; nothing there imports cmux-next-ios",
+      "repair": "repairs are scoped to Swift sources, Packages, cmux-tui and webviews; the patch diff and add are limited to the changed paths computed before read-tree"
+    },
+    "cmux-next-web.yml": {
+      "web-bisect": "web-bisect-probe.sh checks out --force (keeps the patterns) and builds webviews; run-webviews-tests.sh lists tests from cwd=webviews"
+    },
+    "cmux-tui-testbox-warmup.yml": {
+      "cmux-tui-rust": "builds cmux-tui; the source-mtimes helper walks only files that exist"
+    },
+    "cmux-tui.yml": {
+      "go-pane": "reads cmux-tui/bindings and cmux-tui/crates/cmux-pane-protocol/spec only"
+    },
+    "gallery-advisory.yml": {
+      "capture": "gallery tools read webviews/src and webviews/dev-server; the base worktree builds webviews only"
+    },
+    "gallery-health.yml": {
+      "health": "gallery tools read webviews/; `git restore ... -- .` respects the sparse patterns"
+    },
+    "nightly-next-train.yml": {
+      "drive": "object-level git only (merge-tree --write-tree, commit-tree, cat-file, diff-tree, push)"
+    },
+    "r2-binaries-prune.yml": {
+      "prune": "git rev-list/log on three pin files and R2 listings"
+    }
+  },
+  "full": {
+    "cmux-next-car-guards.yml": {
+      "linux": "runs tests/test_ci_fleet_rule_lints.py, whose allowlist names cmux-next-ios/verify/ scripts; with them absent its git grep skips them and it reports 20 stale entries"
+    },
+    "ci-guard-attribution.yml": {
+      "analyze": "runs the CI guards (the fleet rule lints among them) in scratch worktrees that would inherit the patterns; it checks out main, which has no cmux-next-ios/, so leaving it out saves nothing"
+    }
+  }
+}

@@ -71,9 +71,8 @@ struct ContextMenuStandardTests {
         }
     }
 
-    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. The catalog
-    /// also places Inspect Element (#24707) last, in its own group; the app leaves that row out
-    /// until Debug Settings' UI pointer inspector is on (PointerInspectorMenuGateTests).
+    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. No Inspect
+    /// Element: it inspects web content only (InspectElementScopeTests).
     @Test func newTabMenuListsTheKindsFirst() {
         let entries = menus.entries(for: .newTab)
         let ids = entries.map { entry -> String in
@@ -83,8 +82,7 @@ struct ContextMenuStandardTests {
             default: "?"
             }
         }
-        #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "macScreen.open", "—", "browserProfile.newTab", "newTab.page",
-                        "—", "agentPane.togglePointerInspector"])
+        #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "macScreen.open", "—", "browserProfile.newTab", "newTab.page"])
     }
 
     /// Delete, Remove and Forget rows (a trash icon) end their menu, after a separator.

@@ -22,12 +22,15 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod chief_inbox;
+pub use chief_inbox::name as chief_inbox_name;
 mod children;
 mod control;
 mod drafts;
 mod engine_control;
 pub mod files;
 mod harness_offer;
+mod home_approvals;
 mod image_fit;
 pub mod images;
 mod inbox;
@@ -41,15 +44,17 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+mod rights_gate;
+pub use rights_gate::RightsCtx;
 mod screen;
-pub use outcome_ledger::UNTOLD_TAG;
+pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
-mod session_tell;
 mod side;
 mod spawns;
 mod steer;
 mod transcript;
+mod turn_actions;
 mod turns;
 mod wakes;
 mod watches;
@@ -139,6 +144,12 @@ pub enum Input {
     /// The compactor's start-up probe: Err with the text the user must
     /// hear (the compactor cannot build a node), Ok when it built one.
     CompactorStatus(Result<(), String>),
+    /// The turn loop's view of stuck lines (`stuck_notice`): Some with the
+    /// notice for a line that cannot be built as things stand; None when no
+    /// such line is left, which retracts only a notice this posted, never
+    /// the probe's (https://github.com/manaflow-ai/cmux/issues/36026: a
+    /// line stuck only on timeouts kept another line's notice up).
+    CompactorStuck(Option<String>),
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
@@ -146,6 +157,10 @@ pub enum Input {
         peer: Option<String>,
         /// `spawn(place)`: `cloud`, `local` or None (the saved default).
         place: Option<String>,
+        /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
+        harness: Option<String>,
+        /// Acpmux's health and login snapshot, read off the brain thread.
+        machines: Vec<crate::place_route::Machine>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -159,6 +174,8 @@ pub enum Input {
         session_id: String,
         /// The effective session policy (configured policy or spawn floor).
         policy: Option<String>,
+        /// The harness its session runs on.
+        harness: Option<String>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -217,13 +234,6 @@ pub enum Input {
     /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
     AgentKeyRevokeFailed {
         id: String,
-    },
-    /// The answer of acpmux session `name` to the Chief's `tell(id:
-    /// "session:NAME")` (session_tell.rs): another agent's words, queued as
-    /// its report under the ask floor.
-    SessionReply {
-        name: String,
-        text: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -376,6 +386,13 @@ pub enum Input {
     SpawnPolicy {
         reply: Sender<Option<String>>,
     },
+    /// The turn session's tool hook (`optchat-chief rights-hook`): `phase`
+    /// `pre` or `post`, Claude Code's hook input; answers the hook's output.
+    RightsHook {
+        phase: String,
+        payload: serde_json::Value,
+        reply: Sender<serde_json::Value>,
+    },
     /// Whether the turn may run a Chief tool with these arguments
     /// (`Brain::turn_gate`).
     TurnGate {
@@ -455,6 +472,14 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
@@ -495,6 +520,7 @@ pub enum EngineRequest {
         compactor_speed: Option<String>,
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
+        turn_routing: Option<String>,
         /// The reaction classifier's fields (reaction_wake.rs).
         reactions: Box<ReactionFields>,
     },
@@ -609,6 +635,11 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// This Chief's display name, when it keeps a stable acpmux session on
+    /// the `chief` harness that relays into its conversation
+    /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
+    /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
+    pub chief_inbox: Option<String>,
     /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
     /// its inbox becomes a note at each turn start. None: not read.
     pub screen_share: Option<PathBuf>,
@@ -618,6 +649,11 @@ pub struct Settings {
 /// (chief 2026-10-10: 10 s; hq-6d 2026-10-14, Lawrence "the chief responds
 /// too slow": 1 s, the turn starts and the compactor catches up after);
 /// then it reads them unsummarized and the next turn gets their summaries.
+/// The key prefix of the probe's compactor notice.
+const COMPACTOR_NOTICE: &str = "notice:optchat:compactor:";
+/// The key prefix of a stuck line's compactor notice (`compactor_stuck`).
+const STUCK_NOTICE: &str = "notice:optchat:compactor:stuck:";
+
 pub const SETTLE_BOUND: Duration = Duration::from_secs(1);
 /// How often a turn waiting for the compactor updates `settle.json`.
 const PROGRESS_TICK: Duration = Duration::from_secs(2);
@@ -659,30 +695,48 @@ impl Queued {
         !matches!(&self.source, Source::Spawn(r) if r.quiet)
     }
 
+    /// A waking message of the owner (a person's own words): it never waits
+    /// for a turn adopted from before a restart (`adopt_orphans`).
+    fn is_owner_message(&self) -> bool {
+        self.wakes()
+            && matches!(
+                self.source,
+                Source::Message {
+                    requires_approval: false,
+                    ..
+                }
+            )
+    }
+
+    /// The trusted agent session that sent this item, when it is one that
+    /// takes the ask floor only because a trusted agent sent it.
+    fn trusted_relay(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message {
+                requires_approval: true,
+                relay: Some(name),
+                ..
+            } => Some(name),
+            _ => None,
+        }
+    }
+
     fn requires_approval(&self) -> bool {
         matches!(
             self.source,
             Source::Message {
                 requires_approval: true,
                 ..
+            } | Source::OwnerAction {
+                requires_approval: true
             } | Source::Resume {
                 requires_approval: true,
                 ..
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            }) | Source::Agent { .. }
+            }) | Source::Peer { .. }
         )
-    }
-
-    /// The acpmux session that wrote it: a message another agent sent
-    /// through the CLI, or a session's answer to the Chief's tell.
-    fn agent(&self) -> Option<&str> {
-        match &self.source {
-            Source::Message { agent, .. } => agent.as_deref(),
-            Source::Agent { from } => Some(from),
-            _ => None,
-        }
     }
 }
 
@@ -698,17 +752,21 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
-        /// The acpmux session that sent it through the CLI
-        /// (`cmux_conversation::agent_sender`), None for a person's.
-        agent: Option<String>,
+        /// The trusted acpmux session that sent it through the owner's CLI
+        /// (`relay.trustedAgents`): its turn may tell and spawn the Chief's
+        /// own subagents. None for every other message.
+        relay: Option<String>,
     },
-    /// The answer of acpmux session `from` to the Chief's tell
-    /// (session_tell.rs): another agent's words, so its turn asks.
-    Agent { from: String },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// Another person's Chief's message through the agent hub
+    /// (peer_chiefs.rs): `from` is its hub name. Always under the floor; the
+    /// rights table holds it to `chief:<from>`'s grants (rights_gate.rs).
+    Peer { from: String },
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
@@ -763,6 +821,9 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// Pending attachment jobs of this process; persisted manifests resume
+    /// when this set is empty after a restart.
+    media_uploads: HashSet<String>,
     /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
     last_agent_send: Option<u64>,
     fatal: Option<String>,
@@ -820,13 +881,19 @@ pub struct Brain {
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Sign-ins waiting on the person, as open Feed requests (needs_you_feed.rs).
+    sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
-    /// pauses, the peers paused by this host and since when each idles.
+    /// pauses, and since when each idles (the paused peers are saved in
+    /// `state.cloud_paused`).
     cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
     cloud_idle: std::time::Duration,
-    cloud_paused: std::collections::BTreeSet<String>,
+    /// Subagent sessions another acpmux link reports (a move handed them to
+    /// this machine's default daemon, placed_agents.rs): the home daemon's
+    /// list never judges them gone.
+    reported_elsewhere: std::collections::HashSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Peers whose last pause failed: when the next try may run and the
     /// error last logged. The waits come from `cloud_pause_backoff`.
@@ -875,31 +942,54 @@ pub struct Brain {
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
     /// A Chief that is not the default: a compactor fault is also its message.
     compactor_messages: bool,
+    /// The compactor fault shown now came from a stuck line
+    /// (`compactor_stuck`).
+    stuck_fault: bool,
+    /// The compactor fault shown now came from the start-up probe: a stuck
+    /// line's clear leaves it.
+    probe_fault: bool,
     turn_clock: Option<Instant>,
+    /// When each queued human message was posted (its `created_at`), by
+    /// message id, until a turn takes it: the trace's posted-to-first-words
+    /// time (`turns::FirstWords`).
+    posted: HashMap<String, String>,
+    /// The running turn's first-words clock (`turn.end`'s `first_draft_ms`
+    /// and `posted_to_first_draft_ms`).
+    first_words: turns::FirstWords,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
     /// turn's own messages and tool calls).
     turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
+    turn_route: Option<crate::turn_route::RoutePick>,
+    /// The configured engine before own-turn routing; subagents keep their defaults.
+    turn_spawn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// The acpmux sessions whose messages the running turn carries
-    /// (`Queued::agent`): an ask turn may `tell` them back, no other session.
-    turn_agents: std::collections::BTreeSet<String>,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
     last_turn_ask: bool,
+    /// The last ask turn's other-person text came only from trusted agent
+    /// sessions (`relay.trustedAgents`), named here: it may tell and spawn
+    /// the Chief's own subagents (Leo, 2026-11-02). Set at each turn start.
+    turn_relay: Option<String>,
     /// Requests refused in the running turn (`approval::signature`): a
     /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
+    /// The rights table and the audit (rights_gate.rs); None: off.
+    rights: Option<RightsCtx>,
+    /// The owner's change book for this Chief's memory (inspect/edit.rs): a
+    /// message the person deletes in the chat is written over with its
+    /// tombstone there, journaled and undoable like an inspector delete.
+    memory_editor: Option<Arc<crate::inspect::edit::Editor>>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// A user's reaction that may wake the Chief (reaction_wake.rs).
@@ -951,6 +1041,10 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// One of the cut tries in a row reached a harness (`TurnOutcome::unstarted`
+    /// false): its work may have run, so the try that ends the row is never
+    /// treated as one that did not start.
+    cut_ran: bool,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -995,6 +1089,9 @@ impl Brain {
         stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
         let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
+        let cloud_idle = std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs);
+        let cloud_reap =
+            std::time::Duration::from_secs(chief.cloud_delete_after_paused_days * 86_400);
         let mut brain = Brain {
             chat,
             agents,
@@ -1015,6 +1112,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            media_uploads: HashSet::new(),
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
@@ -1038,8 +1136,8 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
-            turn_agents: std::collections::BTreeSet::new(),
             last_turn_ask: false,
+            turn_relay: None,
             turn_denied: Vec::new(),
             repeat_denials: 0,
             after_turn: None,
@@ -1047,16 +1145,15 @@ impl Brain {
             noticed: HashSet::new(),
             trace: crate::trace::Trace::off(),
             workspaces: None,
+            sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
             cloud_vms: None,
-            cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
-            cloud_paused: Default::default(),
+            cloud_idle,
+            reported_elsewhere: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
             cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
-            cloud_reap: std::time::Duration::from_secs(
-                chief.cloud_delete_after_paused_days * 86_400,
-            ),
+            cloud_reap,
             cloud_reaping: Default::default(),
             fleet: None,
             fleet_every: std::time::Duration::from_secs(30),
@@ -1081,9 +1178,15 @@ impl Brain {
             settle_clock: None,
             settle_status: None,
             compactor_messages: false,
+            stuck_fault: false,
+            probe_fault: false,
             turn_clock: None,
+            posted: HashMap::new(),
+            first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
+            turn_route: None,
+            turn_spawn_engine: None,
             describer: None,
             reaction_wake: reaction_wake::State::default(),
             describing: HashSet::new(),
@@ -1101,6 +1204,7 @@ impl Brain {
             approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
+            cut_ran: false,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
@@ -1110,6 +1214,8 @@ impl Brain {
             steer_deadline: None,
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
+            rights: None,
+            memory_editor: None,
         };
         // A host can exit after sub_done persists Done but before deliver
         // queues the report. Recover that durable outbox before accepting new
@@ -1144,6 +1250,22 @@ impl Brain {
         self
     }
 
+    /// The memory's change book (`inspect/edit.rs`): a deleted chat message
+    /// becomes its tombstone in the memory, so the Memory Inspector and the
+    /// next re-rendered view no longer hold its text.
+    pub fn with_memory_editor(
+        mut self,
+        editor: Option<Arc<crate::inspect::edit::Editor>>,
+    ) -> Brain {
+        self.set_memory_editor(editor);
+        self
+    }
+
+    /// `with_memory_editor` on a built brain.
+    pub fn set_memory_editor(&mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) {
+        self.memory_editor = editor;
+    }
+
     /// Writes the monitoring trace (`trace.rs`).
     /// A turn that waits for the compactor writes how far it is here.
     pub fn with_settle_status(mut self, status: crate::settle_status::SettleStatus) -> Brain {
@@ -1170,6 +1292,27 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Posts sign-ins that wait on the person to the Feed through `feed`
+    /// (needs_you_feed.rs); None (the default) posts nothing.
+    pub fn set_feed(&mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) {
+        self.sign_ins = crate::needs_you_feed::SignInRequests::new(
+            &self.settings.chief_id,
+            feed,
+            self.log.clone(),
+        );
+    }
+
+    /// `set_feed` while building the brain.
+    pub fn with_feed(mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) -> Brain {
+        self.set_feed(feed);
+        self
+    }
+
+    /// The dedupe keys of the sign-in requests open in the Feed.
+    pub fn open_sign_ins(&self) -> Vec<String> {
+        self.sign_ins.open_keys()
     }
 
     /// Finished subagents' workspaces close (true) or stay with the done
@@ -1206,6 +1349,12 @@ impl Brain {
             control::start_ticker(self.tx.clone());
         }
         self.sub_starter = starter;
+    }
+
+    /// The subagent sessions another acpmux link reports (placed_agents.rs):
+    /// a home daemon list without one of them does not end it.
+    pub fn set_reported_elsewhere(&mut self, sessions: std::collections::HashSet<String>) {
+        self.reported_elsewhere = sessions;
     }
 
     /// The VMs behind cloud peers: resumed before a cloud subagent starts,
@@ -1408,10 +1557,13 @@ impl Brain {
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
+            Input::CompactorStuck(notice) => self.compactor_stuck(notice),
             Input::SpawnRegister {
                 tasks,
                 peer,
                 place,
+                harness,
+                machines,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1422,7 +1574,27 @@ impl Brain {
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
-                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                        let engine = self.spawn_engine();
+                        let family = self.family_of(
+                            harness
+                                .as_deref()
+                                .or_else(|| engine.as_ref().map(|e| e.harness.as_str()))
+                                .unwrap_or(&self.settings.harness),
+                        );
+                        self.register_spawn_sized(
+                            &tasks,
+                            &peers,
+                            place.as_deref(),
+                            size.as_deref(),
+                            &machines,
+                            family,
+                        )
+                    })
+                    .map(|mut plan| {
+                        if let Some(h) = harness.as_deref() {
+                            plan.engine = Some(self.engine_on(h));
+                        }
+                        plan
                     });
                 let _ = reply.send(plan);
             }
@@ -1431,7 +1603,8 @@ impl Brain {
                 id,
                 session_id,
                 policy,
-            } => self.sub_started(&id, session_id, policy),
+                harness,
+            } => self.sub_started(&id, session_id, policy, harness),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1452,7 +1625,6 @@ impl Brain {
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
             Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
-            Input::SessionReply { name, text } => self.session_reply(&name, &text),
             Input::AutoResume {
                 id,
                 attempt,
@@ -1480,6 +1652,11 @@ impl Brain {
                 queue,
                 reply,
             } => {
+                // The subagent sees who asked for a tell a trusted agent drove.
+                let message = match self.relay_sender() {
+                    Some(from) => format!("[relayed from {from}] {message}"),
+                    None => message,
+                };
                 let answer = self.tell_with(&id, &message, key.as_deref(), queue);
                 let _ = reply.send(answer);
             }
@@ -1514,7 +1691,7 @@ impl Brain {
                 let _ = reply.send(self.watch(call));
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
-            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
+            Input::PeerChiefNote { text } => self.peer_chief_note(text),
             Input::EscalateAuth {
                 agent,
                 request,
@@ -1575,6 +1752,13 @@ impl Brain {
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
+            Input::RightsHook {
+                phase,
+                payload,
+                reply,
+            } => {
+                let _ = reply.send(self.rights_hook(&phase, &payload));
+            }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
             }
@@ -1585,6 +1769,12 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(self.owner_continue());
+            }
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
@@ -1643,44 +1833,84 @@ impl Brain {
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     fn compactor_status(&mut self, status: Result<(), String>) {
+        self.stuck_fault = false;
+        self.probe_fault = status.is_err();
         if let Some(settle) = &self.settle_status {
             settle.compactor_fault(status.as_ref().err().map(String::as_str));
         }
         match status {
-            Err(text) if self.compactor_messages && self.state.compactor_notice.is_none() => {
-                let key = format!("notice:optchat:compactor:{}", now_ms());
-                self.state.compactor_notice = Some(crate::state::PostedNotice {
-                    key: key.clone(),
-                    message_id: None,
-                });
-                self.save();
-                self.notice(key, text);
-            }
-            Err(text) => (self.log)(&text),
-            Ok(()) => {
-                let Some(posted) = self.state.compactor_notice.take() else {
-                    return;
-                };
-                // Not sent yet: it never shows.
-                self.notices.retain(|(k, _)| *k != posted.key);
-                self.state
-                    .outbox
-                    .retain(|e| e.idempotency_key != posted.key || e.attempted);
-                match (posted.message_id, self.state.conversation.clone()) {
-                    (Some(id), Some(conversation)) => {
-                        (self.log)("the memory compactor works again; its notice is retracted");
-                        self.state.outbox.push(op_entry(
-                            conversation,
-                            &format!("{}:retract", posted.key),
-                            Op::MessageRetract { message_id: id },
-                        ));
+            Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
+            Ok(()) => self.retract_compactor_notice(),
+        }
+    }
+
+    /// A stuck line's notice (`Input::CompactorStuck`): posted like the
+    /// probe's, but cleared only while the fault shown is its own.
+    fn compactor_stuck(&mut self, notice: Option<String>) {
+        match notice {
+            Some(text) => {
+                if !self.probe_fault && !self.stuck_fault {
+                    self.stuck_fault = true;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(Some(&text));
                     }
-                    _ => (self.log)("the memory compactor works again"),
                 }
-                self.save();
-                self.flush_outbox();
+                self.post_compactor_notice(STUCK_NOTICE, text);
+            }
+            None => {
+                let ours = self
+                    .state
+                    .compactor_notice
+                    .as_ref()
+                    .is_some_and(|p| p.key.starts_with(STUCK_NOTICE));
+                if self.stuck_fault {
+                    self.stuck_fault = false;
+                    if let Some(settle) = &self.settle_status {
+                        settle.compactor_fault(None);
+                    }
+                }
+                if ours {
+                    self.retract_compactor_notice();
+                }
             }
         }
+    }
+
+    fn post_compactor_notice(&mut self, prefix: &str, text: String) {
+        if !self.compactor_messages || self.state.compactor_notice.is_some() {
+            return (self.log)(&text);
+        }
+        let key = format!("{prefix}{}", now_ms());
+        self.state.compactor_notice = Some(crate::state::PostedNotice {
+            key: key.clone(),
+            message_id: None,
+        });
+        self.save();
+        self.notice(key, text);
+    }
+
+    fn retract_compactor_notice(&mut self) {
+        let Some(posted) = self.state.compactor_notice.take() else {
+            return;
+        };
+        // Not sent yet: it never shows.
+        self.notices.retain(|(k, _)| *k != posted.key);
+        self.state
+            .outbox
+            .retain(|e| e.idempotency_key != posted.key || e.attempted);
+        match (posted.message_id, self.state.conversation.clone()) {
+            (Some(id), Some(conversation)) => {
+                (self.log)("the memory compactor works again; its notice is retracted");
+                self.state.outbox.push(op_entry(
+                    conversation,
+                    &format!("{}:retract", posted.key),
+                    Op::MessageRetract { message_id: id },
+                ));
+            }
+            _ => (self.log)("the memory compactor works again"),
+        }
+        self.save();
+        self.flush_outbox();
     }
 
     /// The owner confirmed the message sent under `key`.
@@ -1768,12 +1998,49 @@ impl Brain {
     /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT,
-            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_reply_threads, parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, CONTACT, REPLY_THREADS, SHOW_AFTER_REPORT,
+            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_contact, parse_reply_threads, parse_ttl,
         };
+        if key == CONTACT {
+            let contact = parse_contact(value)?;
+            let mut next = self.chief.clone();
+            next.contact = contact.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!(
+                "setting {key} = {}",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+            return Ok(format!(
+                "{key} = {}; applies after host restart",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+        }
+        if key == crate::chief_settings::TRUST_AGENTS {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.trust_agents = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::TRUSTED_AGENTS {
+            let list = crate::chief_settings::parse_trusted_agents(value)?;
+            let mut next = self.chief.clone();
+            next.trusted_agents = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_delete_after_paused_days = days;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1782,9 +2049,19 @@ impl Brain {
             (self.log)(&format!("setting {key} = {days}"));
             return Ok(format!("{key} = {days}"));
         }
+        if key == crate::chief_settings::CLOUD_AUTO_PAUSE {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.cloud_auto_pause = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_auto_pause_idle_secs = secs;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1795,7 +2072,7 @@ impl Brain {
         }
         if key == crate::chief_settings::TRACE_FULL {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.trace_full = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1809,7 +2086,7 @@ impl Brain {
                 .trim()
                 .parse()
                 .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_max_words = words;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1819,7 +2096,7 @@ impl Brain {
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.show_after_report = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1831,7 +2108,7 @@ impl Brain {
             // From the next spawn on; a subagent already running keeps its
             // workspace or stays hidden (`control show|hide ID` changes one).
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.show_subagent_workspaces = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1841,7 +2118,7 @@ impl Brain {
         }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_threads = threads;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1852,7 +2129,7 @@ impl Brain {
         if key == CACHE_TTL {
             // From the next turn on (the native engine: the next host start).
             let ttl = parse_ttl(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cache_ttl = Some(ttl);
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1864,7 +2141,10 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE,
+            crate::chief_settings::TRUST_AGENTS,
+            crate::chief_settings::TRUSTED_AGENTS
         ))
     }
 
@@ -1899,9 +2179,20 @@ impl Brain {
             conversation,
         };
         let wakes = item.wakes();
+        let owner = item.is_owner_message();
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();
+        }
+        // A person's message never waits behind a turn adopted from before
+        // a restart (an update relaunch, `orphan_wait`): that turn cannot
+        // take it, so it is folded and ended as at its deadline, and the
+        // next turn reads the message at once, as a running turn is
+        // interrupted for one (steer.rs; user 2026-10-21). Another agent's
+        // message waits for it, as for any running turn.
+        if owner && self.orphan_wait.is_some() {
+            (self.log)("a new message: folding and ending the adopted turn session it waited for");
+            self.adopt_orphans(true);
         }
         self.maybe_start_turn();
     }
@@ -1968,6 +2259,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 
@@ -2015,6 +2307,7 @@ fn answer_entry(
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 

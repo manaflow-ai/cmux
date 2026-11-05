@@ -18,6 +18,7 @@ export function TranscriptActivityRow({
   attributes,
   headerRef,
   expanded = false,
+  chevron = true,
 }: {
   icon: ReactNode;
   before?: ReactNode;
@@ -32,6 +33,8 @@ export function TranscriptActivityRow({
   attributes?: Record<string, string | undefined>;
   headerRef?: Ref<HTMLButtonElement>;
   expanded?: boolean;
+  /** Whether the row draws its disclosure chevron; a row with nothing to open draws none. */
+  chevron?: boolean;
 }) {
   const content = (
     <>
@@ -43,12 +46,11 @@ export function TranscriptActivityRow({
         {children}
       </span>
       {meta !== undefined && <span className="cv-tool__trail cv-agent-activity__trail">{meta}</span>}
-      <span
-        className={`cv-tool__chevron cv-agent-activity__chevron cv-rotor${expanded ? " is-open" : ""}`}
-        aria-hidden="true"
-      >
-        <ChevronRight size={14} strokeWidth={1.2} />
-      </span>
+      {chevron && (
+        <span className="cv-tool__chevron cv-agent-activity__chevron" aria-hidden="true">
+          <ChevronRight size={14} className={`cv-rotor${expanded ? " is-open" : ""}`} />
+        </span>
+      )}
     </>
   );
   const classes = `cv-tool cv-agent-activity__control${className ? ` ${className}` : ""}`;

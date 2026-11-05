@@ -268,6 +268,13 @@ private final class CloudLinkCredentialServer: Sendable {
 /// registration, socket and key never meet another build's link; it binds
 /// any free UDP port (`--port 0`) and reads no `~/.config/cmux/server.json`
 /// (the tag's own `server.json`, normally absent).
+@MainActor
+public protocol CloudLinkLaunching: Sendable {
+    func ensure(install: String) async throws -> CloudLinkLauncher.Ensured
+    func stop(install: String?) async
+    func archive(install: String?) async
+}
+
 public nonisolated struct CloudLinkLauncher: Sendable {
     /// What `link ensure` answered.
     public struct Ensured: Decodable, Equatable, Sendable {
@@ -275,6 +282,10 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         public var status: String
         public var pid: Int32?
         public var socket: String?
+
+        public init(status: String, pid: Int32?, socket: String? = nil) {
+            self.status = status; self.pid = pid; self.socket = socket
+        }
     }
 
     public enum Failure: Error, Equatable {
@@ -315,24 +326,36 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     }
 
     /// This app's launcher: only the app bundle's own `bin/cmux-tui` (never
-    /// a `CMUX_NEXT_TUI_BIN` override) and its build's state: a kept tag's
-    /// (`tags/<tag>/tui`), names of the build key (`builds/<key>/tui`, as the
-    /// daemon's, per-build isolation S3), else cmux-tui's default root
-    /// (release, the untagged channels). A DEBUG build without its own state
-    /// gets no link: it would share the release app's state directory.
+    /// a `CMUX_NEXT_TUI_BIN` override) and its build's state (``linkStateRoot(build:applicationSupport:)``).
+    /// A DEBUG build without its own state gets no link: it would share the
+    /// release app's state directory.
     public static func forApp(bundle: Bundle = .main, build: BuildIdentity, relay: CloudCredentialRelay? = nil) -> CloudLinkLauncher? {
         guard let resources = bundle.resourceURL else { return nil }
         let binary = resources.appendingPathComponent("bin/cmux-tui")
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { return nil }
-        let own = build.keepsAppNames
-            ? build.tag.map { DaemonLauncher.tagStateDirectory(tag: $0) }
-            : DaemonLauncher.appNames(build: build).stateDirectory
+        guard let state = linkStateRoot(build: build) else { return nil }
         #if DEBUG
-        guard own != nil else { return nil }
+        guard state.own else { return nil }
         #endif
-        let stateRoot = own ?? defaultStateRoot()
-        guard let stateRoot else { return nil }
-        return CloudLinkLauncher(binary: binary, stateRoot: stateRoot, tagged: own != nil, relay: relay)
+        return CloudLinkLauncher(binary: binary, stateRoot: state.root, tagged: state.own, relay: relay)
+    }
+
+    /// The link's state root: always the app daemon's own state directory
+    /// (``DaemonLauncher/appNames(build:applicationSupport:log:)``), because the
+    /// daemon finds the link only through `link.json` in its own state
+    /// directory (`cmux.host.link.get`); a link registered anywhere else reads
+    /// as "not running" to the Cloud server. Release and an adopted legacy
+    /// channel session use cmux-tui's default root (`own` false: UDP 4101 and
+    /// the user's `server.json`); every build with its own state directory (a
+    /// kept channel such as the untagged NIGHTLY's `tags/nightly/tui`, a DEV
+    /// tag, names of the build key) uses it (`own` true: any free UDP port and
+    /// that directory's `server.json`, so it never meets another build's link).
+    static func linkStateRoot(build: BuildIdentity,
+                              applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()) -> (root: URL, own: Bool)? {
+        if let own = DaemonLauncher.appNames(build: build, applicationSupport: applicationSupport).stateDirectory {
+            return (own, true)
+        }
+        return defaultStateRoot().map { ($0, false) }
     }
 
     /// cmux-tui's default daemon state root on macOS
@@ -344,7 +367,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     }
 
     /// The link's state directory.
-    var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
+    public var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
 
     /// The private credential socket passed to `cmux-tui link`; it carries no
     /// token and is only useful while this app's relay is serving.
@@ -452,3 +475,5 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         return Data(line.utf8)
     }
 }
+
+extension CloudLinkLauncher: CloudLinkLaunching {}

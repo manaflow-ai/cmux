@@ -4,6 +4,253 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingPreview {
+    pub code: PairingCode,
+    pub info: PairingInfo,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub country: Option<String>,
+    pub expires_at: i64,
+}
+
+/// user_<id>, agent_<name> or addr_<26> (an invited address).
+pub type ParticipantId = String;
+
+wire_enum! {
+    Platform {
+        Macos = "macos",
+        Ios = "ios",
+        Linux = "linux",
+        Windows = "windows",
+        Web = "web",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChange {
+    pub key: PolicyKey,
+    pub value: Option<PolicyChangeValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChangeValue {
+    pub value: Value,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    /// A team policy key (spec/enterprise.md 4.2).
+    PolicyKey {
+        GithubRepoScope = "github.repoScope",
+        GithubRequireOrgAdmin = "github.requireOrgAdmin",
+        GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
+        IntegrationsAllowedProviders = "integrations.allowedProviders",
+        McpServer = "mcp.server",
+        McpRemoteTransport = "mcp.remoteTransport",
+        AppsInstall = "apps.install",
+        AppsAllowedTiers = "apps.allowedTiers",
+        AppsAllowList = "apps.allowList",
+        AppsForcedInstalls = "apps.forcedInstalls",
+        ComputerUseAllowed = "computerUse.allowed",
+        BrowserAutomationRawCdp = "browserAutomation.rawCdp",
+        CloudSandboxes = "cloud.sandboxes",
+        CloudConnectServices = "cloud.connectServices",
+        CloudIdlePause = "cloud.idlePause",
+        TelemetryLevel = "telemetry.level",
+        UpdatesChannel = "updates.channel",
+        UpdatesMinimumVersion = "updates.minimumVersion",
+        RetentionCuaEventsDays = "retention.cuaEventsDays",
+        RetentionCuaFramesDays = "retention.cuaFramesDays",
+        RetentionTranscriptDays = "retention.transcriptDays",
+        RetentionAuditDays = "retention.auditDays",
+        SsoEnforce = "sso.enforce",
+        SsoEnforceForOwners = "sso.enforceForOwners",
+        SsoAllowGuests = "sso.allowGuests",
+        SsoSessionMaxAgeHours = "sso.sessionMaxAgeHours",
+        SsoIdleTimeoutHours = "sso.idleTimeoutHours",
+        AgentsAllowedClasses = "agents.allowedClasses",
+        DeviceSettings = "device.settings",
+    }
+}
+
+wire_enum! {
+    PolicyMode {
+        Enforced = "enforced",
+        Default = "default",
+    }
+}
+
+/// ES256 (P-256) public key of an install.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PublicJwk {
+    pub kty: LitEc,
+    pub crv: LitP256,
+    pub x: String,
+    pub y: String,
+}
+
+/// One device's APNs registration.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTarget {
+    pub token: PushToken,
+    pub topic: String,
+    pub environment: PushTargetEnvironment,
+    pub install: String,
+    pub device_name: String,
+    pub registered_at: i64,
+}
+
+wire_enum! {
+    PushTargetEnvironment {
+        Development = "development",
+        Production = "production",
+    }
+}
+
+/// An APNs device token (hex).
+pub type PushToken = String;
+
+pub type RepoPattern = String;
+
+/// Decimal per-object revision (the owner's event sequence).
+pub type Revision = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Run {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunError {
+    pub code: String,
+    pub message: String,
+}
+
+/// One automation run; also its Workflow instance id.
+pub type RunId = String;
+
+wire_enum! {
+    RunState {
+        Queued = "queued",
+        Running = "running",
+        Sleeping = "sleeping",
+        Waiting = "waiting",
+        Succeeded = "succeeded",
+        Failed = "failed",
+        Cancelled = "cancelled",
+        Skipped = "skipped",
+        Dead = "dead",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBody {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunWithBodyTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunWithBodyOutcome>,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyTrigger {
+    pub id: Option<TriggerId>,
+    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBodyOutcome {
+    pub goal_met: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+pub type ServerCapability = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkBinding {
+    pub state: LitConfirmed,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub confirmed_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_grant: Option<GrantId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkProof {
+    #[serde(rename = "signedAt")]
+    pub signed_at: i64,
+    pub nonce: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkReservation {
+    pub state: LitReserved,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ServerNetworkState {
@@ -11,6 +258,13 @@ pub enum ServerNetworkState {
     ServerNetworkBinding(ServerNetworkBinding),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
+}
+
+wire_enum! {
+    Sharing {
+        Team = "team",
+        Private = "private",
+    }
 }
 
 /// A Cloud machine snapshot.
@@ -646,255 +900,4 @@ pub struct TeamPolicyVersion {
     pub at: i64,
     pub reason: Option<String>,
     pub rollback_of: Option<i64>,
-}
-
-wire_enum! {
-    TeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-        Billing = "billing",
-        Guest = "guest",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountUser {
-    pub user: String,
-    pub uid: i64,
-    pub class: SshCertClass,
-    pub principals: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmError {
-    pub code: String,
-    pub message: String,
-    pub at: i64,
-}
-
-pub type TeamVmLeaseId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetired {
-    pub vm: String,
-    pub epoch: i64,
-    pub state: TeamVmRetiredState,
-    pub at: i64,
-    pub by: String,
-    pub tainted_by: Vec<String>,
-}
-
-wire_enum! {
-    TeamVmRetiredState {
-        Pausing = "pausing",
-        Paused = "paused",
-    }
-}
-
-wire_enum! {
-    /// Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries.
-    TeamVmStatus {
-        None = "none",
-        Provisioning = "provisioning",
-        Starting = "starting",
-        Running = "running",
-        Paused = "paused",
-        Failed = "failed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaint {
-    pub epoch: i64,
-    pub at: i64,
-    pub users: Vec<String>,
-    pub accepted_by: Option<String>,
-    pub accepted_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmView {
-    pub team: TeamId,
-    pub status: TeamVmStatus,
-    pub vm: Option<String>,
-    pub epoch: i64,
-    pub leases: Vec<TeamVmViewLeasesItem>,
-    pub last_error: Option<TeamVmError>,
-    pub updated_at: i64,
-    pub taint: Option<TeamVmTaint>,
-    pub retired: Vec<TeamVmRetired>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub no_owner: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmViewLeasesItem {
-    pub lease: TeamVmLeaseId,
-    pub holder: String,
-    pub reason: String,
-    pub expires_at: i64,
-}
-
-/// RFC 3339 UTC with milliseconds.
-pub type Timestamp = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Trigger {
-    pub id: TriggerId,
-    pub status: TriggerStatus,
-    pub spec: TriggerInput,
-    pub next_at: Option<i64>,
-}
-
-wire_enum! {
-    TriggerStatus {
-        Active = "active",
-        NotYetSupported = "not_yet_supported",
-    }
-}
-
-/// One trigger of an automation; assigned by the owner.
-pub type TriggerId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TriggerInput {
-    Cron(TriggerInputCron),
-    Manual(TriggerInputManual),
-    Webhook(TriggerInputWebhook),
-    Event(TriggerInputEvent),
-    Message(TriggerInputMessage),
-    Continue(TriggerInputContinue),
-    Presence(TriggerInputPresence),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputCron {
-    pub r#type: LitCron,
-    pub expr: String,
-    pub tz: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputManual {
-    pub r#type: LitManual,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputWebhook {
-    pub r#type: LitWebhook,
-}
-
-wire_enum! {
-    TriggerInputEventSource {
-        Integration = "integration",
-        Machine = "machine",
-        Store = "store",
-        Task = "task",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputEvent {
-    pub r#type: LitEvent,
-    pub source: TriggerInputEventSource,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connection: Option<String>,
-    pub event: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<BTreeMap<String, String>>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputMessage {
-    pub r#type: LitMessage,
-    pub conversation: String,
-    pub rule: String,
-}
-
-wire_enum! {
-    TriggerInputContinueUntilItem {
-        GoalMet = "goal_met",
-        Budget = "budget",
-        Stop = "stop",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputContinue {
-    pub r#type: LitContinue,
-    pub until: Vec<TriggerInputContinueUntilItem>,
-    pub cooldown_seconds: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_runs: Option<i64>,
-}
-
-wire_enum! {
-    TriggerInputPresenceWhen {
-        UserActive = "user_active",
-        UserReturnsAfter = "user_returns_after",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputPresence {
-    pub r#type: LitPresence,
-    pub when: TriggerInputPresenceWhen,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle_minutes: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub earliest: Option<CronSpec>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageMeterLine {
-    pub meter: Meter,
-    pub unit: String,
-    pub quantity: WireNumber,
-    pub usd: WireNumber,
-}
-
-wire_enum! {
-    UsageStopReason {
-        CapReached = "cap.reached",
-        CapNotConfigured = "cap.not_configured",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummary {
-    pub owner: Option<TeamId>,
-    pub month: String,
-    pub meters: Vec<UsageMeterLine>,
-    pub total_usd: WireNumber,
-    pub cap_usd: Option<WireNumber>,
-    pub ceiling_usd: Option<WireNumber>,
-    pub team_cap_usd: Option<WireNumber>,
-    pub stopped: Option<UsageStopReason>,
-}
-
-/// A cmux user (Stack user id kept as an external id).
-pub type UserId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserProfile {
-    pub id: UserId,
-    pub stack_user_id: String,
-    pub email: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_verified: Option<bool>,
-    pub display_name: String,
-    pub personal_team: TeamId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeam {
-    pub id: TeamId,
-    pub display_name: String,
-    pub kind: UserTeamKind,
-    pub role: TeamRole,
-    pub sso_required: bool,
 }

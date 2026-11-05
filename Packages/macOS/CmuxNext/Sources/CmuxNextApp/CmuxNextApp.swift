@@ -63,21 +63,17 @@ public struct CmuxNextApp {
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
-        // The daemon connect overlaps AppKit's start (off the main thread).
-        let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                                              resolvesShellIntegration: environment.resolvesShellIntegration,
-                                              echoesPlacementShift: SidebarMirror.isLinked)
-        DebugTimings.markLaunch("main.prestart")
+        // The daemon starts after the bundled CLI resolves this launch's Cloud environment,
+        // so its share room and credential-bearing services agree with the native app.
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
                                    launchReads: (work, launchImages, relaunchWake))
         app.delegate = delegate
         app.setActivationPolicy(.regular)

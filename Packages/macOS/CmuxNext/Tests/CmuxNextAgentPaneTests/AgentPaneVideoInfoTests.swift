@@ -123,6 +123,48 @@ struct AgentPaneVideoInfoTests {
         #expect((reply["frames"] as? [[String: Any]])?.count == 4)
     }
 
+    /// Leo, 2026-11-01: "i feel like cmux-next should give u better tools to deal with this kind of
+    /// thing". The answer carries small gray probes for the page's scene pick, and `video.frames`
+    /// decodes the picked times large enough to read a screen recording's text.
+    @Test func theAnswerCarriesGrayProbesThatSeeTheCut() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("cut.mov")
+        try await Self.movie(at: clip, width: 320, height: 180)
+
+        let info = try #require(await AgentPaneVideoInfo.read(clip))
+        // Two a second, at least 12: a 2 s clip gives 12, in order, inside it.
+        #expect(info.probes.count == 12)
+        #expect(info.probes.map(\.atMs) == info.probes.map(\.atMs).sorted())
+        let cells = try info.probes.map { try #require(Data(base64Encoded: $0.cells)) }
+        #expect(cells.allSatisfy { $0.count == AgentPaneVideoInfo.probeGrid * AgentPaneVideoInfo.probeGrid })
+        // Red, then blue: the first and last probes' grays differ well past a cell's step.
+        let first = Int(cells[0][cells[0].count / 2]), last = Int(cells[11][cells[11].count / 2])
+        #expect(abs(first - last) > 24, "\(first) \(last)")
+        #expect((info.reply["probes"] as? [[String: Any]])?.count == 12)
+        #expect(AgentPaneVideoInfo.probeTimes(duration: 60).count == 48)
+        #expect(AgentPaneVideoInfo.probeTimes(duration: 0).isEmpty)
+    }
+
+    @Test func pickedFramesComeAtTheirTimesAt1280() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("wide.mov")
+        try await Self.movie(at: clip, width: 1920, height: 1080)
+
+        let frames = try #require(await AgentPaneVideoInfo.frames(clip, at: [200, 1800]))
+        #expect(frames.count == 2)
+        #expect(abs(frames[0].atMs - 200) <= 150 && abs(frames[1].atMs - 1800) <= 150, "\(frames.map(\.atMs))")
+        let images = try frames.map { try Self.image($0.jpeg) }
+        #expect(images.allSatisfy { $0.width == 1280 && $0.height == 720 })
+        #expect(try Self.isRed(images[0]))
+        #expect(try !Self.isRed(images[1]))
+        // Not a movie: nothing.
+        let text = folder.appendingPathComponent("notes.mov")
+        try Data("not a movie".utf8).write(to: text)
+        #expect(await AgentPaneVideoInfo.frames(text, at: [0]) == nil)
+    }
+
     @Test func aRotatedVideoShowsUpright() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -197,6 +239,42 @@ struct AgentPaneVideoInfoTests {
         #expect(shown != clip && shown.lastPathComponent == "clip.mov")
         try Data(contentsOf: pointer).write(to: clip)
         #expect(await AgentPaneVideoInfo.isSelfContained(shown))
+    }
+
+    @Test func anAttachedVideoOutsideTheRootsPlaysInlineButNeverAsAReferenceMovie() async throws {
+        // A screen recording on the Desktop plays in the pane (`media.load`), from the same scope its
+        // poster and Quick Look read; a pointer there is refused as Quick Look refuses it.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 320, height: 180, seconds: 1)
+        let clip = desktop.appendingPathComponent("clip.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let pointer = desktop.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
+
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        let videos = folder.appendingPathComponent("videos", isDirectory: true)
+        model.replyLinks.videoFolder = videos
+        let played = await Self.ask(model, "media.load", ["src": clip.path])
+        #expect(Self.errorCode(played) == nil, "\(played)")
+        let src = try #require((played["value"] as? [String: Any])?["src"] as? String)
+        #expect(src.hasPrefix("cmux-agent://pane/__media/") && src.hasSuffix(".mov"))
+        let url = try #require(URL(string: src))
+        // The grant is a private copy, never the path: what the player reads is the clip as it was checked.
+        let granted = try #require(AgentPaneMediaGrants.shared.file(for: url))
+        #expect(granted.path.hasPrefix(videos.path + "/") && granted.lastPathComponent == "clip.mov")
+        let bytes = try Data(contentsOf: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        // Rewritten into a reference movie after the grant, the clip never reaches the player.
+        try Data(contentsOf: pointer).write(to: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        #expect(await AgentPaneVideoInfo.isSelfContained(granted))
+        #expect(Self.errorCode(await Self.ask(model, "media.load", ["src": pointer.path])) == AgentPaneReplyError.mediaRefused.rawValue)
     }
 
     @Test func whatIsReadAndPlayedIsAPrivateCopyTakenFromTheFileAsItWasOpened() async throws {
@@ -370,5 +448,16 @@ struct AgentPaneVideoInfoTests {
         #expect(!AgentPaneReplyRequest.quickLookVideo("/a.mov").isPassive)
         #expect(AgentPageOps.method(for: "cmux.agent.video.info") == "video.info")
         #expect(AgentPageOps.method(for: "cmux.agent.video.quickLook") == "video.quickLook")
+        // `video.frames`: 1 to 16 whole milliseconds within a day; nothing else.
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [0, 7200]])
+            == .videoFrames("/a.mov", times: [0, 7200]))
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": []]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": Array(0...16)]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [1.5]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [-1]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov", "times": [true]]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov"]) == nil)
+        #expect(AgentPaneReplyRequest.videoFrames("/a.mov", times: [0]).isPassive)
+        #expect(AgentPageOps.method(for: "cmux.agent.video.frames") == "video.frames")
     }
 }

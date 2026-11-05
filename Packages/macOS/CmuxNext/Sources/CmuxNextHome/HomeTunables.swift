@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 import MessagesLabHome
+import MessagesLabSidebar
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight

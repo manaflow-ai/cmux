@@ -8,9 +8,6 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
-            // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
-            // setting-driven New Tab stays in the File menu and the palette.
-            "newTab.default",
             // The tab's menu has New Tab to the Right (this, Chrome's name) and, in New, at Start and at End.
             "newTab.afterCurrent",
             // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
@@ -47,11 +44,11 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart", "computerUseStop",
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
-            "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
+            "accounts.connect", "accounts.remove", "accounts.githubConnect", "reloadConfiguration", "palette.openCmuxSettingsFile",
             "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
-            "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "palette.pro.upgrade",
+            "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.pro.upgrade",
             "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.density.ultraCompact", "appearance.density.cozy", "appearance.density.spacious", "appearance.density.set", "appearance.density.create", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none", "appearance.animations.toggle", "appearance.animations.sidebar.toggle", "appearance.animations.tabs.toggle", "appearance.animations.panes.toggle", "appearance.animations.overlays.toggle", "appearance.animations.hoverCards.toggle", "appearance.animations.home.toggle", "appearance.animations.cursor.toggle", "appearance.animations.indicators.toggle", "appearance.animations.feedback.toggle", "appearance.animations.web.toggle",
@@ -81,7 +78,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
             "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop",
-            "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
+            "toggleFileEditorWordWrap", "toggleFileEditorMinimap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
             "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction",
@@ -102,6 +99,7 @@ nonisolated extension ActionSurfaceCatalog {
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "browser.focusSearch", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
+            "agent.jumpToNextNeedingInput",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
             "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],

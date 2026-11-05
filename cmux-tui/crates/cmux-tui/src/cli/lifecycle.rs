@@ -277,6 +277,20 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
             unreachable!("ensure and compact-registry return before the lifecycle exchange")
         }
+        // A wedged owner answers identify, but serves no workspace change: the
+        // app runs `server status` first and ensures only when it fails, so
+        // say it is not running and the app's ensure replaces it (#32621).
+        ServerAction::Status
+            if cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+                .is_ok_and(|stream| crate::local_owner::is_wedged(stream, None)) =>
+        {
+            local_error(
+                "server.wedged",
+                crate::localization::catalog().local_server.wedged,
+                global.output,
+                3,
+            )
+        }
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -762,7 +776,10 @@ fn run_ensure(
             }
         }
     } else {
-        None
+        // A wedged owner answers `identify`, so the app never sees it stuck and
+        // never asks for the replace: every ensure replaces it (#32621). A
+        // replace that fails leaves the normal ensure to report the owner.
+        crate::local_owner::replace_if_wedged(&spec).ok().flatten().map(|replaced| replaced.pid)
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {
@@ -797,30 +814,20 @@ fn run_ensure(
             print_success(result, output)
         }
         Err(error) => {
-            let (code, message, exit_code) = match error {
-                crate::local_owner::EnsureError::Spawn(_error) => {
-                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
-                }
-                crate::local_owner::EnsureError::NotReady => {
-                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::RestoreTimeout => {
-                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
-                }
-                crate::local_owner::EnsureError::WrongOwner => {
-                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
-                }
+            let message = messages.ensure_failed(&error);
+            let (code, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => ("server.spawn_failed", 3),
+                crate::local_owner::EnsureError::NotReady => ("server.unavailable", 3),
+                crate::local_owner::EnsureError::RestoreTimeout => ("server.restore_timeout", 3),
+                crate::local_owner::EnsureError::Busy => ("server.busy", 3),
+                crate::local_owner::EnsureError::WrongOwner => ("server.wrong_owner", 1),
                 crate::local_owner::EnsureError::DifferentSession => {
-                    ("server.different_session", messages.different_session.to_string(), 1)
+                    ("server.different_session", 1)
                 }
-                crate::local_owner::EnsureError::DifferentState => {
-                    ("server.different_state", messages.different_state.to_string(), 1)
-                }
-                crate::local_owner::EnsureError::InvalidIdentity => {
-                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
-                }
+                crate::local_owner::EnsureError::DifferentState => ("server.different_state", 1),
+                crate::local_owner::EnsureError::InvalidIdentity => ("server.invalid_identity", 3),
                 crate::local_owner::EnsureError::UnsupportedProtocol => {
-                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                    ("server.unsupported_protocol", 3)
                 }
             };
             // The app learns that the old owner is gone even when the new

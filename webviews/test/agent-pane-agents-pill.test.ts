@@ -10,6 +10,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -232,10 +233,13 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
     const page = await open(BUSY, "Read app.ts", true);
     await tray(page).waitFor({ timeout: 5_000 });
-    // Reviewer and Tester run; the Linter ended and stays as a finished card under them
-    // (49acdd1d589d keeps finished cards mounted in the tray).
+    // It starts folded to its header (cmux#28875); the person opens it.
+    await openRunningTray(page);
+    // Reviewer and Tester run, newest first (#33364): the Tester started last, so it is on top. The
+    // Linter ended and stays as a finished card under them (49acdd1d589d keeps finished cards
+    // mounted in the tray).
     const running = tray(page).locator("li:not([data-finished])");
-    expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
+    expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Tester", "Reviewer"]);
     expect(await running.locator(".acpmux-agent-line__time").count()).toBe(2);
     expect(await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).toEqual([
       "Linter",
@@ -261,13 +265,15 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).waitFor({ timeout: 5_000 });
     await page.locator(".cv-subagent-done", { hasText: "Tester" }).waitFor({ timeout: 5_000 });
     await page.close();
-    // An agent spawned by another sits right under it in the tray.
+    // An agent spawned by another sits right under it in the tray, and moves with it: the newer
+    // Tester is on top, then Reviewer with its Scout (#33364).
     const nested = await open(NESTED, "Read app.ts", true);
     await tray(nested).waitFor({ timeout: 5_000 });
+    await openRunningTray(nested);
     expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
+      "Tester",
       "Reviewer",
       "Scout",
-      "Tester",
     ]);
     await nested.close();
     // The turn is over: an agent left "running" by a cancel or a reconnect pins no running row; the

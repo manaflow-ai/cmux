@@ -193,7 +193,8 @@ class DriftReportingOverVariables(unittest.TestCase):
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by runner_pools.py --check on main, which writes it (as main's copy of this test says).
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# CI_RUNNER_STATE is an encoded observation, never a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS", "CI_RUNNER_STATE"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -206,8 +207,8 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
-        # These hold runner names matched against runner.name, not a runs-on
-        # label, so the label policy does not apply to them.
+        # Explicit non-label values hold structured state or configuration,
+        # so scalar runs-on label reporting does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
             read |= {
@@ -221,7 +222,7 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             missing,
             set(),
             f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
-            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
+            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it is not a label",
         )
 
 
@@ -289,6 +290,23 @@ class NightlyNextBuildVariable(unittest.TestCase):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
         for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
                       "glaeda-nightly-nonsense", "glaeda-nightly-std"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
+class NightlySigningPoolVariable(unittest.TestCase):
+    def test_only_the_signers_label_is_allowed(self) -> None:
+        for name in ("CI_NIGHTLY_SIGNING_POOL", "CI_NIGHTLY_SIGN_RUNNER"):
+            with self.subTest(name=name):
+                self.only_the_signer(name)
+
+    def only_the_signer(self, name: str) -> None:
+        for label in ("glaeda-trusted-next-signing", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-std-xcode-26.6",
+                      "blacksmith-6vcpu-macos-26", "glaeda-signing-xcode-26.6", "glaeda-trusted-std-xcode-26.6",
+                      "glaeda-root-std-xcode-26.6", "glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing self-hosted"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
 

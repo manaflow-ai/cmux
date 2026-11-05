@@ -33,6 +33,13 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
     ("BASH_MAX_TIMEOUT_MS", "2147483647"),
 ];
 
+/// The autocompact window acpmux starts a Claude Code session with when the person set none
+/// (`usage_stats::claude_autocompact_unset`). Claude Code compacts only near the model's own
+/// window, 1M for a `[1m]` model; Leo runs his sessions at 400k (Leo 2026-10-20: "I think I
+/// usually have, like, 400K on my typical [Claude] sessions"), and Claude Code's /context then
+/// reads against 400k too.
+pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
+
 /// Codex's config keys (`-c key=value`) and their values (defaults are
 /// codex 0.162.1's).
 pub const CODEX_CONFIG: &[(&str, &str)] = &[
@@ -40,6 +47,9 @@ pub const CODEX_CONFIG: &[(&str, &str)] = &[
     ("agents.max_concurrent_threads_per_session", "1000"),
     // How deep agent threads may nest (default 1).
     ("agents.max_depth", "16"),
+    // The plan tool (`update_plan`, off by default in 0.164): the turn's task
+    // list, which the bridge sends as the ACP `plan` the agent pane pins.
+    ("tools.update_plan.enabled", "true"),
 ];
 
 /// A session's Claude Code (`agent::harness_command`) gets each knob its env
@@ -59,7 +69,31 @@ pub fn lift_claude(
         for (key, value) in claude_env(&have) {
             cmd.env(key, value);
         }
+        let source = crate::usage_stats::Source {
+            family: "claude".into(),
+            argv: Some(command_line(cmd)),
+            cwd: cmd
+                .as_std()
+                .get_current_dir()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default(),
+            env: have.into_iter().collect(),
+            ..Default::default()
+        };
+        if crate::usage_stats::claude_autocompact_unset(&source) {
+            let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
+            cmd.env(key, value);
+        }
     }
+}
+
+/// `cmd`'s program and arguments.
+fn command_line(cmd: &tokio::process::Command) -> Vec<String> {
+    let cmd = cmd.as_std();
+    std::iter::once(cmd.get_program())
+        .chain(cmd.get_args())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
 }
 
 /// The arguments a session's harness, started in `cwd` with the profile's

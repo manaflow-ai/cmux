@@ -31,7 +31,7 @@ jobs:
   # 9 s on GitHub-hosted Ubuntu), so it takes hosted Ubuntu and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32
   # vCPU (Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing").
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     environment: ci-routing-agent
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
@@ -81,6 +81,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           OWNED_LABELS: ${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -344,7 +345,7 @@ jobs:
     needs: [sign, sign-blacksmith]
     if: "!cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && ((needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true')"
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -365,6 +366,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -398,6 +400,7 @@ jobs:
         id: pool
         if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}

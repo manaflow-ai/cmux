@@ -49,6 +49,36 @@ struct CloudMachineChangeStateTests {
         func close(_ key: CloudLinkKey) async {}
     }
 
+    /// The first open waits for `release`, then fails; later opens fail at once.
+    private actor HeldFailingLinkResolver: CloudLinkResolver {
+        private(set) var attempts = 0
+        private var opened: CheckedContinuation<Void, Never>?
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
+        private var next: (Int, CheckedContinuation<Void, Never>)?
+        func waitForOpen() async {
+            if attempts > 0 { return }
+            await withCheckedContinuation { opened = $0 }
+        }
+        func release() { releaseWaiter?.resume(); releaseWaiter = nil }
+        func waitForAttempts(_ count: Int) async {
+            if attempts >= count { return }
+            await withCheckedContinuation { next = (count, $0) }
+        }
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            attempts += 1
+            if attempts == 1 {
+                opened?.resume()
+                opened = nil
+                await withCheckedContinuation { releaseWaiter = $0 }
+            } else if let (count, continuation) = next, attempts >= count {
+                next = nil
+                continuation.resume()
+            }
+            throw CloudLinkError.disconnected(reason: "provider still provisioning")
+        }
+        func close(_ key: CloudLinkKey) async {}
+    }
+
     private actor ResumeLinkResolver: CloudLinkResolver {
         private(set) var attempts = 0
         private var opened: CheckedContinuation<Void, Never>?
@@ -109,6 +139,40 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
     }
 
+    /// A machine made for a send reads provisioning (live) before its daemon can answer: a connect
+    /// that failed then is retried once the record runs, and the start waits for running first.
+    @Test(.timeLimit(.minutes(1)))
+    func runningRetriesAnAppLinkThatFailedWhileProvisioning() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "new-machine", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "new-machine"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        #expect(await resolver.attempts == 1)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2, "provisioning -> running did not retry the failed connect")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runningWhileAConnectIsInFlightRetriesItWhenItFails() async throws {
+        let services = MachineIconTests.services()
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "racing", status: .provisioning),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "racing"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        await resolver.waitForOpen()
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.release()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2, "the running edge was lost behind the in-flight connect")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func runningBeforeResumeAcknowledgementConnectsWhenPendingClears() async throws {
         let services = MachineIconTests.services()
@@ -137,14 +201,14 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 1, "later identical records do not restart the connection")
     }
 
-    @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
+    @Test func transitionsKeepPauseAndDeleteClosedToUserConnect() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
         let session = CloudMachineSession(machine: CloudMachine(id: "transition-gate", status: .running),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "transition-gate"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
-        for status: CloudMachine.Status in [.pausing, .starting, .deleting] {
+        for status: CloudMachine.Status in [.pausing, .deleting] {
             session.machine.pendingChange = status
             session.connect(origin: .user)
             session.attach(origin: .user)
@@ -153,6 +217,43 @@ struct CloudMachineChangeStateTests {
             #expect(throws: ActionFailure.self) { try CloudHandlers.requireAttachableState(session) }
         }
         #expect(await resolver.attempts == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func userConnectRetriesAnAppLinkDuringPassiveStarting() async throws {
+        let services = MachineIconTests.services()
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .starting),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "passive-start"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+
+        // This is the authoritative raw `starting` record from a passive wake. The user's
+        // connect must survive the provider's asynchronous failure, rather than being treated
+        // as a transition cancellation with no mutation id to recover.
+        session.connect(origin: .user)
+        await resolver.waitForOpen()
+        #expect(await resolver.attempts == 1)
+        await resolver.release()
+
+        // The old cancellation guard settles at idle with no link-ended error. Observe the
+        // phase directly so that regression fails immediately instead of waiting for timeout.
+        for await phase in ObservationStream({ session.linkPhase }) where phase != .starting { break }
+        #expect(session.linkEnded != nil, "the user retry failure must remain visible")
+        guard case .failed = session.linkPhase else {
+            Issue.record("an explicit retry during passive starting was treated as cancellation: \(session.linkPhase)")
+            return
+        }
+
+        // The provider's failed resume is now authoritative: the machine is paused with its
+        // reason, and the same app link remains available for an explicit retry.
+        session.applyRecord(CloudMachine(id: session.machineID, status: .paused,
+                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused")))
+        #expect(session.machine.status == .paused)
+        #expect(session.machine.lastChangeFailure?.text == "provider refused")
+        session.retryNow()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
     }
 
     @Test func killAcknowledgementReportsPendingDeletion() {

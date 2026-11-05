@@ -7,9 +7,11 @@ package import CmuxNextCompat
 ///
 /// Owner: the config layer of this Mac (OWNERSHIP-PRINCIPLES.md,
 /// "Preferences"), client-side only: nothing here reaches the daemon or the
-/// workspace store. It is inert until `activate` runs, which the App does in
-/// DEV and NIGHTLY builds only, so Release and RC always use the defaults
-/// and never read the override file.
+/// workspace store. It is inert until `activate` runs, which the App does at
+/// launch in DEV and NIGHTLY builds only, so Release and RC always use the
+/// defaults and never read the override file. A bench build (Release with
+/// CMUX_BENCH_HOOKS) turns it on only when a client asks (`debug.tunables`
+/// `activate`), for that launch, with no file.
 ///
 /// Reads are thread-safe (Motion tokens are read off the main actor) and
 /// observable per key: a view that read `drop.overlay.style` re-renders
@@ -74,7 +76,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     // MARK: Lifecycle
 
-    /// Whether overrides apply (DEV and NIGHTLY after launch).
+    /// Whether overrides apply (DEV and NIGHTLY after launch; a bench build after `debug.tunables activate`).
     public var isActive: Bool { active.load(ordering: .relaxed) }
 
     /// Declares the tunables the window lists and the store accepts.

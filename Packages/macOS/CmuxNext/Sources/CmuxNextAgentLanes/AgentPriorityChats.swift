@@ -126,6 +126,29 @@ public final class AgentPriorityChats {
         ranking.entries(snapshot.lanes, marks: marks.state, now: now, failingChecks: snapshot.failingChecks) { snapshot.tags[$0.id] }
     }
 
+    /// The chats waiting for the person, in the order Go to Next Agent Needing Input visits them
+    /// (``AgentPriorityRanking/needingInput(_:marks:now:)``). Reads each store's waiting index
+    /// (``AgentLaneStore/waiting``) and the other machines' tabs with an unread question, never
+    /// every lane's row: this runs on the action's own turn and for the menu bar's count. A
+    /// session an earlier store lists is that store's, as in ``snapshot()``.
+    public func needingInput(now: Date = Date()) -> [AgentActivityLane] {
+        var waiting: [AgentActivityLane] = []
+        var seen = Set<String>()
+        for (index, store) in stores.enumerated() {
+            let lanes = store.lanes
+            for id in store.waiting.sorted() where !stores[..<index].contains(where: { $0.lanes[id] != nil }) {
+                if let lane = lanes[id], seen.insert(id).inserted { waiting.append(lane) }
+            }
+        }
+        for machine in machines.remote() {
+            for lane in machine.waitingLanes() where seen.insert(lane.id).inserted
+                && !stores.contains(where: { $0.lanes[lane.id] != nil }) {
+                waiting.append(lane)
+            }
+        }
+        return AgentPriorityRanking.needingInput(waiting, marks: marks.state, now: now)
+    }
+
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).
     public func entry(_ id: String, now: Date = Date()) -> SidebarPriorityEntry? {
         entries(now: now).first { $0.id == id }

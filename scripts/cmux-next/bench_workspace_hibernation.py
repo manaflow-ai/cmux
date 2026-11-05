@@ -19,6 +19,23 @@ workspaces). Then --wake workspaces are shown again, one by one, and timed:
   terminal_ms       until the terminal shows its marker again (tab.focus to text)
 
 A wake passes when the page has its URL and scroll and the terminal its marker.
+
+--hidden-spaces K (leo-workspace design/spaces.md, "Hibernation and the perf plan") measures
+hidden-space hibernation instead: K new spaces of --workspaces workspaces each (the same terminal
+and page; K is 1 to 7, as `space.selectByNumber` reaches spaces 2 to 8), then the window goes back
+to the default space, so the K spaces are hidden. A new space's own first workspace stays empty and is
+not counted. Space k's hidden clock starts when the window leaves it, so --hidden-minutes must exceed
+the setup time: shown-settled records how many were already hibernated (app_counts). Nothing asks
+for hibernation: cmux.json sets `workspaces.hibernation.idleMinutes` to a week and
+`hiddenSpaceMinutes` to --hidden-minutes (default 5, the setting's minimum). Phases, each with
+--idle-seconds of idle CPU and wakeups:
+
+  shown-settled   right after the switch back, every hidden space still mounted
+  hidden-waited   after --hidden-minutes plus the first-pass delay and a margin
+
+Then each hidden space is switched to and timed until its selected workspace's page answers with
+its scroll (switch_page_usable_ms). A build without hidden-space hibernation ignores the setting,
+so the same harness gives the before and the after.
 macOS only: run it through scripts/measure/tab-hibernation.sh --arg=--workspaces=50
 (bench_hibernation.py hands --workspaces to this file), never on a laptop.
 """
@@ -157,6 +174,146 @@ def wake(app: bm.App, sock: str, entry: dict, port: int) -> dict:
     return row
 
 
+def build_workspace(app: bm.App, sock: str, port: int, index: int) -> dict | None:
+    """One bench workspace in the window's current space: a terminal with a marker and a scrolled page.
+    The typed command does not contain the marker (printf builds it), so only its output shows it."""
+    created = app.run("workspace.newAtBottom")
+    workspace = next((str(i) for i in created.get("created", []) if str(i).startswith("ws_")), None)
+    if workspace is None:
+        print(f"   workspace {index}: {created}", file=sys.stderr)
+        return None
+    app.action("goToWorkspace", workspace=workspace)
+    terminal = created_tab(app.run("newSurface"))
+    marker = f"WSHIB-{index}-DONE"
+    if terminal:
+        bp.rpc(sock, "action.run", {"action": "terminal.sendText", "target": f"tab:{terminal}",
+                                    "args": {"text": f"seq 1 400; printf 'WSHIB-%s-DONE\\n' {index}\r"}})
+    url = f"http://s{index}.localhost:{port}/?w={index}"
+    page = created_tab(app.run("openBrowser.chromium", url=url))
+    if page is None or terminal is None:
+        print(f"   workspace {index}: terminal={terminal} page={page}", file=sys.stderr)
+        return None
+    if evaluate(sock, page, SET_SCROLL) is None:
+        print(f"   {page}: page did not answer", file=sys.stderr)
+    return {"workspace": workspace, "terminal": terminal, "page": page, "url": url, "marker": marker}
+
+
+def idle_phase(pid: int, bundle: str, sock: str, label: str, count: int, report: dict, seconds: float) -> dict:
+    result = bm.sample(pid, bundle, label, count, measure=seconds)
+    status = surfaces(sock)
+    result["app_counts"] = {key: status.get(key) for key in ("live_terminals", "parked_workspaces", "hibernated_workspaces", "workspace_pages",
+                                                             "workspaces_hibernated_total")}
+    kinds = result["kinds"]
+    cpu = round(sum(r.get("cpu_pct", 0.0) for r in result["processes"]), 3)
+    wakeups = round(sum(r.get("wakeups_per_s", 0.0) for r in result["processes"]), 2)
+    result["total_cpu_pct"], result["total_wakeups_per_s"] = cpu, wakeups
+    print(f"PERF-WSHIB-SPACES-PHASE label={label} workspaces={count} total_footprint_mb={result['total_footprint_mb']} "
+          f"total_rss_mb={result['total_rss_mb']} app_footprint_mb={kinds.get('app', {}).get('footprint_mb')} "
+          f"app_rss_mb={kinds.get('app', {}).get('rss_mb')} renderers={kinds.get('cef-renderer', {}).get('count', 0)} "
+          f"renderer_rss_mb={kinds.get('cef-renderer', {}).get('rss_mb', 0)} idle_cpu_pct={cpu} wakeups_per_s={wakeups} "
+          f"counts={json.dumps(result['app_counts'])}", flush=True)
+    report["phases"].append(result)
+    return result
+
+
+def run_hidden_spaces(args) -> int:
+    port = serve(args.heap_mb)
+    config = {"workspaces": {"hibernation": {"enabled": True, "idleMinutes": 10080, "hiddenSpaceMinutes": args.hidden_minutes}},
+              "browser": {"keepNeighborTabsAwake": 0}}
+    bundle = os.path.realpath(args.app)
+    signal.signal(signal.SIGTERM, bm.interrupted)
+    bp.wipe_state(bundle)
+    pid, sock, scratch = bm.launch(bundle, config)
+    app = bm.App(bundle, sock)
+    report = {"app": bundle, "mode": "hidden-spaces", "spaces": args.hidden_spaces, "workspaces_per_space": args.workspaces,
+              "heap_mb": args.heap_mb, "config": config, "phases": [], "switches": []}
+    spaces: list[list[dict]] = []
+    try:
+        index = 0
+        for space in range(args.hidden_spaces):
+            app.run("space.new", name=f"bench-{space + 1}")
+            time.sleep(1)  # test script: the home store mirrors the new space before the window enters it
+            app.action("space.selectByNumber", index=space + 2)
+            made = []
+            for _ in range(args.workspaces):
+                entry = build_workspace(app, sock, port, index)
+                index += 1
+                if entry:
+                    made.append(entry)
+            spaces.append(made)
+        app.action("space.selectByNumber", index=1)
+        front = app.run("workspace.newAtBottom")
+        front_ws = next((str(i) for i in front.get("created", []) if str(i).startswith("ws_")), None)
+        if front_ws:
+            app.action("goToWorkspace", workspace=front_ws)
+        total = sum(len(made) for made in spaces)
+        report["made"] = total
+        time.sleep(45)  # test script: pages load and freeze, the app settles
+        shown = idle_phase(pid, bundle, sock, "shown-settled", total, report, args.idle_seconds)
+        # The first pass comes a minute after launch, then a pass is due when the hidden clock runs out.
+        waited = time.monotonic()
+        wait_s = args.hidden_minutes * 60 + 90
+        hibernated = wait_for(lambda: (surfaces(sock).get("hibernated_workspaces") or 0) >= total, wait_s, 5)
+        report["hidden_wait_s"] = round(time.monotonic() - waited)
+        print(f"PERF-WSHIB-SPACES-WAIT all_hibernated={bool(hibernated)} waited_s={report['hidden_wait_s']}", flush=True)
+        if not hibernated:
+            time.sleep(max(0, wait_s - (time.monotonic() - waited)))  # test script: a build that does not hibernate waits the full time
+        time.sleep(15)  # test script: renderers exit and the app settles
+        after = idle_phase(pid, bundle, sock, "hidden-waited", total, report, args.idle_seconds)
+        for number, made in enumerate(spaces):
+            if not made:
+                continue
+            entry = made[-1]  # the space's selected workspace: the one built last
+            started = time.monotonic()
+            app.action("space.selectByNumber", index=number + 2)
+            usable = None
+            state = evaluate(sock, entry["page"], READ_STATE)
+            while state is not None:
+                got = json.loads(state) if isinstance(state, str) else {}
+                if abs((got.get("y") or 0) - SCROLL_Y) <= 2:
+                    usable = time.monotonic()
+                    break
+                if time.monotonic() - started > 15:
+                    break
+                time.sleep(0.02)  # test script: the page restores its scroll after it loads
+                state = evaluate(sock, entry["page"], READ_STATE, 5)
+            row = {"space": number + 2, "workspace": entry["workspace"],
+                   "switch_page_usable_ms": round((usable - started) * 1000) if usable else None}
+            print(f"PERF-WSHIB-SPACES-SWITCH {json.dumps(row)}", flush=True)
+            report["switches"].append(row)
+            app.action("space.selectByNumber", index=1)
+            time.sleep(1)  # test script: the space is hidden again before the next switch
+        rows = report["switches"]
+        summary = {
+            "spaces": len(spaces), "workspaces": total,
+            "footprint_shown_mb": shown["total_footprint_mb"], "footprint_hidden_waited_mb": after["total_footprint_mb"],
+            "rss_shown_mb": shown["total_rss_mb"], "rss_hidden_waited_mb": after["total_rss_mb"],
+            "app_footprint_shown_mb": shown["kinds"].get("app", {}).get("footprint_mb"),
+            "app_footprint_hidden_waited_mb": after["kinds"].get("app", {}).get("footprint_mb"),
+            "renderer_rss_shown_mb": shown["kinds"].get("cef-renderer", {}).get("rss_mb", 0),
+            "renderer_rss_hidden_waited_mb": after["kinds"].get("cef-renderer", {}).get("rss_mb", 0),
+            "idle_cpu_shown_pct": shown["total_cpu_pct"], "idle_cpu_hidden_waited_pct": after["total_cpu_pct"],
+            "wakeups_shown_per_s": shown["total_wakeups_per_s"], "wakeups_hidden_waited_per_s": after["total_wakeups_per_s"],
+            "hibernated_after_wait": (after.get("app_counts") or {}).get("hibernated_workspaces"),
+            "switch_page_usable_p50_ms": percentile([r["switch_page_usable_ms"] for r in rows], 0.5),
+            "switch_page_usable_max_ms": max((r["switch_page_usable_ms"] for r in rows if r["switch_page_usable_ms"] is not None), default=None),
+            "switched": sum(1 for r in rows if r["switch_page_usable_ms"] is not None), "switches": len(rows),
+        }
+        report["summary"] = summary
+        print("PERF-WSHIB-SPACES-SUMMARY " + " ".join(f"{k}={v}" for k, v in summary.items()), flush=True)
+    finally:
+        app.run("quit")
+        bm.wait_gone(pid, 20)
+        bm.end_bundle(bundle)
+        shutil.rmtree(scratch, ignore_errors=True)
+        if args.out:
+            with open(args.out, "w") as handle:
+                json.dump(report, handle, indent=1)
+            print(f"bench-workspace-hibernation: wrote {args.out}")
+    summary = report.get("summary") or {}
+    return 0 if summary and summary["switched"] == summary["switches"] else 1
+
+
 def run(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
@@ -164,9 +321,16 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--wake", type=int, default=12, help="workspaces shown again and timed")
     parser.add_argument("--heap-mb", type=int, default=40)
     parser.add_argument("--out")
+    parser.add_argument("--hidden-spaces", type=int, default=0, help="hidden-space mode: this many spaces of --workspaces each")
+    parser.add_argument("--hidden-minutes", type=float, default=5, help="workspaces.hibernation.hiddenSpaceMinutes for the run")
+    parser.add_argument("--idle-seconds", type=float, default=30, help="idle CPU and wakeups window of each hidden-space phase")
     args, _ignored = parser.parse_known_args(argv)  # tab-hibernation.sh's own flags (--tabs, --pressure...) do not apply
     if sys.platform != "darwin":
         raise SystemExit("bench-workspace-hibernation: macOS only (a fleet or capture mini)")
+    if args.hidden_spaces > 7:
+        raise SystemExit("bench-workspace-hibernation: --hidden-spaces is at most 7 (space.selectByNumber reaches spaces 2 to 8)")
+    if args.hidden_spaces > 0:
+        return run_hidden_spaces(args)
     port = serve(args.heap_mb)
     # Nothing hibernates on its own during the run (the bench asks); pages freeze as usual.
     config = {"workspaces": {"hibernation": {"enabled": True, "idleMinutes": 10080}}, "browser": {"keepNeighborTabsAwake": 0}}
@@ -179,26 +343,9 @@ def run(argv: list[str]) -> int:
     made: list[dict] = []
     try:
         for index in range(args.workspaces):
-            created = app.run("workspace.newAtBottom")
-            workspace = next((str(i) for i in created.get("created", []) if str(i).startswith("ws_")), None)
-            if workspace is None:
-                print(f"   workspace {index}: {created}", file=sys.stderr)
-                continue
-            app.action("goToWorkspace", workspace=workspace)
-            terminal = created_tab(app.run("newSurface"))
-            # The typed command does not contain the marker (printf builds it), so only its output shows it.
-            marker = f"WSHIB-{index}-DONE"
-            if terminal:
-                bp.rpc(sock, "action.run", {"action": "terminal.sendText", "target": f"tab:{terminal}",
-                                            "args": {"text": f"seq 1 400; printf 'WSHIB-%s-DONE\\n' {index}\r"}})
-            url = f"http://s{index}.localhost:{port}/?w={index}"
-            page = created_tab(app.run("openBrowser.chromium", url=url))
-            if page is None or terminal is None:
-                print(f"   workspace {index}: terminal={terminal} page={page}", file=sys.stderr)
-                continue
-            if evaluate(sock, page, SET_SCROLL) is None:
-                print(f"   {page}: page did not answer", file=sys.stderr)
-            made.append({"workspace": workspace, "terminal": terminal, "page": page, "url": url, "marker": marker})
+            entry = build_workspace(app, sock, port, index)
+            if entry:
+                made.append(entry)
         front = app.run("workspace.newAtBottom")
         front_ws = next((str(i) for i in front.get("created", []) if str(i).startswith("ws_")), None)
         if front_ws:

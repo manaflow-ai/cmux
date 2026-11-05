@@ -989,6 +989,7 @@ fn personal_change(
             collapsed: fields.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
             room: string(fields, "room"),
             index: index(fields, "index"),
+            reuse: fields.get("reuse").and_then(Value::as_bool).unwrap_or(false),
         },
         Op::WorkspaceGroupUpdate => {
             require_any(
@@ -1080,7 +1081,8 @@ fn screen_change(
         Op::ScreenGroupCreate => ScreenChange::GroupCreate {
             screens: strings(fields, "screens"),
             name: string(fields, "name").unwrap_or_default(),
-            color: string(fields, "color").unwrap_or_else(|| "grey".into()),
+            color: string(fields, "color")
+                .unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.into()),
         },
         Op::ScreenGroupAddScreens => ScreenChange::GroupAdd {
             group: string(fields, "screen_group").unwrap_or_default(),

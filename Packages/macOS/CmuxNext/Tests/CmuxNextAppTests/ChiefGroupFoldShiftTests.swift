@@ -28,11 +28,8 @@ import Testing
     static func withDocument(_ body: (SidebarModel) throws -> Void) rethrows {
         let store = SidebarDocStore(remote: nil, mirror: nil)
         store.shown = SidebarDocPinnedGroupTests.projection()
-        let previous = SidebarDocStore.current
-        SidebarDocStore.current = store
-        defer { SidebarDocStore.current = previous }
         let model = SidebarModel()
-        model.docDrag = SidebarDocDrag(item: { key in
+        model.docDrag = SidebarDocDrag(document: store, item: { key in
             if case let .workspace(id) = key { return "itm_" + id.rawValue.dropFirst(3) }
             return nil
         }, section: { id in id == .machine(.local) ? SidebarDocPinnedGroupTests.machine : nil },

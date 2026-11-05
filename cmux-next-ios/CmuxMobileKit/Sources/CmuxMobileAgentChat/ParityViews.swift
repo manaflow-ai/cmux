@@ -12,6 +12,14 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
     case subagent(String)
     case checkpoints
     case handoff
+    /// `/continue <harness>`: the review of a continuation to that agent, straight away.
+    case handoffTo(AgentHandoffTarget)
+    /// Session Info (the Mac's Toggle Session Info).
+    case sessionInfo
+    /// The raw records this phone received (the Mac's Toggle Event Inspector).
+    case eventInspector
+    /// Replay Conversation.
+    case replay
 
     public var id: String {
         switch self {
@@ -19,6 +27,10 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
         case .subagent(let id): "subagent-\(id)"
         case .checkpoints: "checkpoints"
         case .handoff: "handoff"
+        case .handoffTo(let target): "handoff-\(target.id)"
+        case .sessionInfo: "session-info"
+        case .eventInspector: "event-inspector"
+        case .replay: "replay"
         }
     }
 }
@@ -57,6 +69,12 @@ struct AgentParityDestination: View {
         case .subagent(let id): SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
         case .checkpoints: CheckpointsScreen(store: store, surface: surface)
         case .handoff: HandoffScreen(store: store, surface: surface)
+        case .handoffTo(let target): HandoffReviewScreen(store: store, surface: surface, target: target)
+        case .sessionInfo: SessionInfoScreen(store: store, surface: surface)
+            // Popped together with the chat (to the list): what the chat was reading stops.
+            .onDisappear { if surface.parityRoute == .sessionInfo { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
+        case .eventInspector: EventInspectorScreen(journal: store.source.eventJournal, sessionID: store.summary.id)
+        case .replay: ReplayConversationScreen(store: store)
         }
     }
 }
@@ -216,7 +234,8 @@ struct SubagentTranscriptScreen: View {
             let turn = agent.asTurn
             let rows = turn.rows
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                // Lazy: a long subagent run builds the rows on screen only.
+                LazyVStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
                         Text("Subagent of \(agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name)")
@@ -235,7 +254,7 @@ struct SubagentTranscriptScreen: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
-                        SubagentRowView(row: row, turn: turn, store: store, isLast: row.id == rows.last?.id) { nested = $0 }
+                        SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)
@@ -267,6 +286,8 @@ struct SubagentRowView: View {
     let row: TurnRow
     let turn: AgentTurn
     let store: AgentChatStore
+    /// Diffs computed once each off the main thread (not per body).
+    let diffs: ChatDiffCache
     let isLast: Bool
     let open: (String) -> Void
 
@@ -286,7 +307,9 @@ struct SubagentRowView: View {
             if call.isRunning {
                 ToolRowView(call: call)
             } else {
-                DiffSnippet(call: call, changeSet: turn.changeSet ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: []))
+                DiffSnippet(call: call, previews: diffs.files(for: call)) {
+                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
+                }
             }
         case .plan(_, let entries):
             PlanCard(entries: entries)
@@ -338,7 +361,7 @@ struct CheckpointsScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let checkpoints):
                 List {
@@ -476,7 +499,7 @@ struct HandoffScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let targets):
                 List {

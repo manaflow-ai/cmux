@@ -48,7 +48,7 @@ jobs:
   app-source:
     name: Resolve the app source commit (main)
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
@@ -460,7 +460,7 @@ jobs:
     name: Publish the iOS source archive
     needs: [app-source, upload-and-validate, source-archive]
     if: ${{ !cancelled() && needs.upload-and-validate.result == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
     permissions:
       contents: write

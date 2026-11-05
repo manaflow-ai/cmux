@@ -68,6 +68,14 @@ import Testing
         defer { window.closeAfterTest() }
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
+        // The case this guards needs a share between the two minimums. Since 9d31a6eb78b the default inactive
+        // minimum (the favicon, the close button and 24 pt of title room) equals the active one, so a crowded
+        // strip scrolls at that width; the strip pins the two minimums apart here, as a person's
+        // `appearance.metrics.tabMinInactiveWidth` can.
+        var metrics = TabStripMetrics()
+        metrics.minInactiveTabWidth = 32
+        metrics.minActiveTabWidth = 72
+        strip.customMetrics = metrics
         // 30 tabs in 1200 pt: 40 each, under the selected minimum and over the inactive one.
         strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)
         window.contentView = strip

@@ -15,6 +15,21 @@ impl Hub {
         self.catalog_ready.send_replace(false);
     }
 
+    /// The daemon's work once startup is done: chats start (after the login env import: it names
+    /// harness homes), startup is marked done, then the opt-in artifacts sync runs
+    /// (`artifacts_sync.rs`). It returns only when the sync is off; the daemon aborts it at shutdown.
+    pub async fn run_after_startup(self: &Arc<Self>) {
+        let sources = crate::chats::ChatSources::daemon(&*self.config.read().await);
+        if let Some(sources) = sources
+            && let Err(e) = self.start_chats(sources).await
+        {
+            tracing::warn!("{e}");
+        }
+        // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
+        self.end_startup_work();
+        crate::artifacts_sync::run_background(self.clone()).await;
+    }
+
     /// Background startup: import the login environment (when requested),
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
@@ -60,8 +75,17 @@ impl Hub {
         }
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
+        // The person's vault (`crate::vault`): a joined machine with no vault
+        // state pulls it before the first agent spawns (at most a few seconds),
+        // then every 15 minutes; its env goes to every local agent.
+        crate::vault::start_worker().await;
         self.startup_ready.send_replace(true);
         self.care_worker();
+        // A spare for each harness this machine used (`pool/spare.rs`).
+        {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.restore_spares().await });
+        }
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(|| {

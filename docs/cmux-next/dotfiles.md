@@ -82,13 +82,18 @@ the schema only asks for a string there.
     "showSpaces": false,
   },
 
-  "layout": { "panePadding": 6, "paneCornerRadius": 10 },
+  // One corner radius for panes and tabs; tabs and other nested corners
+  // are that radius less cornerPadding (the gap to the first tab).
+  "layout": { "panePadding": 6, "paneCornerRadius": 10, "cornerPadding": 2 },
 }
 ```
 
 `cmux settings list` shows every key with the value that applies now and its
 default. Add `--section appearance` for one section, or `--keys` for just the
-names.
+names. Value listings read the session daemon directly, using `--socket` or
+`--session` to select it; the app does not need to be running. JSON output
+includes the daemon's `customized` and `managed` fields. `--keys`, `schema`
+and `validate` still work offline.
 
 ## Example `keybindings.json`
 

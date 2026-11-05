@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 300
 // The composer's + menu in the real gallery stages, laid out by Chromium (Leo, 2026-10-31: "our +
 // button is ass" / "inside chat and in the composer it's ass"; the reference is ChatGPT's + menu):
-// - skills are not rows of +: a chat with 30 skills shows one Skills… row, which opens the slash list;
+// - skills are not rows of +: a chat with 30 skills shows one Commands and skills… row, which opens the slash list;
 // - each row's title and muted description sit on one line with a gap between them;
 // - the menu's height is bounded, and it scrolls inside past that;
 // - New Tab's + covers the project and machine pills behind it: it is on top where they overlap, and
@@ -59,11 +59,13 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
     const { entry, variant, plus, width } = STATES[state];
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width, height: HEIGHT }, deviceScaleFactor: 2 });
+    // No recent commands carried in (recentCommands.ts): the + menu's commands group is the one row.
+    await page.addInitScript(() => localStorage.removeItem("cmux.acpmux.recentSlashCommands"));
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, reducedMotion: "true", width, height: HEIGHT })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
-    await page.waitForSelector(`${plus} .acpmux-menu .acpmux-menu-item`);
+    await page.waitForSelector(`${plus}.acpmux-menu .acpmux-menu-item`);
     return page;
   }
 
@@ -74,7 +76,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
         const rect = node.getBoundingClientRect();
         return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, height: rect.height };
       };
-      const popup = document.querySelector<HTMLElement>(`${plus} .acpmux-menu`)!;
+      const popup = document.querySelector<HTMLElement>(`${plus}.acpmux-menu`)!;
       const css = getComputedStyle(popup);
       const rows = [...popup.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => {
         const label = row.querySelector(".acpmux-menu-label");
@@ -152,12 +154,12 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       }
   });
 
-  test("a chat with 30 skills lists no skill in +: one Skills… row opens the slash list", async () => {
+  test("a chat with 30 skills lists no skill in +: one Commands and skills… row opens the slash list", async () => {
     const page = await opened("chat");
     const { rows } = await read(page, "chat");
     expect(rows.filter((row) => row.id.startsWith("add.skill.") || row.text.startsWith("/"))).toEqual([]);
     const skills = rows.filter((row) => row.id === "add.commands");
-    expect(skills.map((row) => row.text)).toEqual(["Skills…"]);
+    expect(skills.map((row) => row.text)).toEqual(["Commands and skills…"]);
     // Attach on top, then the other actions; none is removed.
     expect(rows.slice(0, 3).map((row) => row.id)).toEqual(["add.files", "add.screenshot", "add.window"]);
     for (const id of ["add.mode.plan", "add.goal", "add.mention", "files.search"])
@@ -169,7 +171,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       .catch(() => false);
     if (!slash)
       console.log(
-        `composer-plus-menu-shape: no slash list after Skills… ${JSON.stringify(
+        `composer-plus-menu-shape: no slash list after Commands and skills… ${JSON.stringify(
           await page.evaluate(() => {
             const active = document.activeElement;
             const selection = document.getSelection();
@@ -177,7 +179,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
               active: active ? `${active.tagName}.${active.className}` : null,
               prompt: document.querySelector(".acpmux-composer-prompt")?.textContent ?? null,
               caret: selection?.anchorOffset ?? null,
-              plusOpen: !!document.querySelector(".acpmux-composer-plus .acpmux-menu"),
+              plusOpen: !!document.querySelector(".acpmux-composer-plus.acpmux-menu"),
               escaped: document.querySelector("[data-escaped]")?.className ?? null,
             };
           }),
@@ -231,7 +233,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       const x = (Math.max(pill.left, menu.popup.left) + Math.min(pill.right, menu.popup.right)) / 2;
       const y = (Math.max(pill.top, menu.popup.top) + Math.min(pill.bottom, menu.popup.bottom)) / 2;
       const onTop = await page.evaluate(
-        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus} .acpmux-menu`),
+        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus}.acpmux-menu`),
         [x, y, STATES.newTab.plus] as const,
       );
       expect(onTop).toBe(true);

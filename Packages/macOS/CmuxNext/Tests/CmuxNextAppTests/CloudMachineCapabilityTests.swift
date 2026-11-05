@@ -56,22 +56,13 @@ struct CloudMachineCapabilityTests {
         #expect(!machine.allows(.snapshot))
     }
 
-    /// A Worker machine offers what the app reaches for it (app server ops, the Worker's exec and
-    /// file routes) and refuses what would only go to `/api/vm`, where it has no record.
-    @Test func cmuxNextBackendRecordsOfferOnlyWorkerActions() throws {
+    @Test func cmuxNextBackendRecordsKeepCloudActions() throws {
         let record = JSONValue.object([
             "id": .string("m-1"), "status": .string("running"), "capabilities": .array([.string("agent_session")]),
         ])
         let machine = try #require(CloudMachine(next: record))
 
-        for operation in [CloudMachine.Capabilities.Operation.snapshot, .restore, .exec, .sizing] { #expect(machine.allows(operation)) }
-        for operation in [CloudMachine.Capabilities.Operation.fork, .ports, .stats, .desktop, .restart] { #expect(!machine.allows(operation)) }
-    }
-
-    @Test func cmuxNextBackendIdlePolicyReadsAsIdlePauseMinutes() throws {
-        let record = JSONValue.object([
-            "id": .string("m-2"), "status": .string("running"), "idle_policy": .object(["idle_seconds": .number(1800)]),
-        ])
-        #expect(try #require(CloudMachine(next: record)).idlePauseMinutes == 30)
+        #expect(machine.allows(.ports))
+        #expect(machine.allows(.fork))
     }
 }

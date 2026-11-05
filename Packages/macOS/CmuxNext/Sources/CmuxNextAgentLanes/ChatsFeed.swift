@@ -3,27 +3,21 @@ public import CmuxNextAgentPane
 public import CmuxNextWakeups
 public import Foundation
 
-/// The app's connection to acpmux's device-wide chat index: the windows native lists show
-/// (``AcpmuxChatWindows``: acpmux sorts, filters and pages; the main thread holds only visible rows
-/// and applies row diffs), and, until the palette, Open Chat and the New Tab cards ask acpmux
-/// themselves (P-RUST step 2), the index mirror they read.
+/// The app's connection to acpmux's device-wide chat index. acpmux owns the list (P-RUST,
+/// layer-ownership.md rules 1-3): native lists show windows over it (``AcpmuxChatWindows``: acpmux
+/// sorts, filters and pages; the main thread holds only visible rows and applies row diffs), and
+/// every other reader asks acpmux for what it needs (`_acpmux/chats`, `_acpmux/chat_open`,
+/// `_acpmux/chat_projects`). This feed holds no chat of the index: an index change reaches the main
+/// actor as a signal for its observers (the projects relay), never as the chat.
 @MainActor
 public final class ChatsFeed {
-    /// The windows over the index that native lists show (the sidebar's chat history).
+    /// The windows over the index that native lists show (the sidebar's chat history, the New Tab
+    /// page's cards).
     public let windows = AcpmuxChatWindows()
-    /// The mirror. Only this feed holds it: a change applies in place (O(log n)), never a copy of
-    /// every chat (v2.2.9: 1,148 ms in `apply` while the sidebar history held the same storage).
-    /// No reader may keep it; whole-index work runs in acpmux (`_acpmux/chat_projects`).
-    private var store = AcpmuxChatsStore()
-    /// Every chat, newest first. O(n) per read: per-change readers use
-    /// `chat(id:)` and `newest(_:)`; a publish no longer builds this list.
-    public var chats: [AcpmuxChat] { store.chats }
-    public private(set) var isEnabled = true
-    public private(set) var isReady = false
     private let socket: String
     /// Each drain's line count and main-actor time (the App's debug timings).
     private let drained: @MainActor (Int, Duration) -> Void
-    /// The acpmux socket this feed reads (ProjectsImport asks it for the grouped projects).
+    /// The acpmux socket this feed reads (readers that ask acpmux themselves use it).
     public var socketPath: String { socket }
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
@@ -32,18 +26,8 @@ public final class ChatsFeed {
     private var reconnect: Task<Void, Never>?
     private var requestID = 2
     /// The open window requests by JSON-RPC id, so an error answer names its window.
-    private var windowRequests: [Int: String] = [:]
-    /// The seq of the last index change in the mirror (acpmux numbers every change; the page
-    /// names the last one it holds). Nil from a daemon that does not number them.
-    private var seq: UInt64?
-    /// A page request (the watch's own, or a list again) has no answer yet.
-    private var pageInFlight = false
-    /// Another list was asked for while one was in flight: send it when that page lands.
-    private var listAgain = false
-    /// Changes that arrived while a page was in flight: the daemon may send a change numbered
-    /// past the page before the page's line (it serializes megabytes after reading the index).
-    /// They are replayed on top of the page; those it holds are dropped by their seq.
-    private var early: [(change: AcpmuxChatsStore.Change, seq: UInt64?)] = []
+    /// Each window request in flight: its window and the spec generation it sent.
+    private var windowRequests: [Int: (window: String, generation: UInt64?)] = [:]
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
 
     /// - Parameters:
@@ -54,12 +38,6 @@ public final class ChatsFeed {
         self.drained = drained
     }
 
-    /// One chat by key, O(1).
-    public func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
-
-    /// The newest `limit` chats, O(limit).
-    public func newest(_ limit: Int) -> [AcpmuxChat] { store.newest(limit) }
-
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
@@ -68,14 +46,15 @@ public final class ChatsFeed {
         directoryWatch?.cancel()
     }
 
-    /// Starts one long-lived watch for the first live observer.
+    /// Calls `changed` after each index change (a chat added, changed or removed; not a chat's
+    /// activity) while `owner` lives, and starts the one long-lived connection for the first.
     public func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
-    /// Keeps the mirror current for the palette chats page and Open Chat while
-    /// no sidebar shows Chats: one idle push connection, no timers.
+    /// Keeps the connection up for the windows while nothing else observes: one idle push
+    /// connection, no timers.
     public func keepCurrent() {
         observe(self) {}
     }
@@ -88,13 +67,9 @@ public final class ChatsFeed {
         watchedDirectory = nil
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
-        seq = nil // a restarted daemon numbers from 0 again
-        pageInFlight = true
-        listAgain = false
-        early = []
-        // Lines decode on the socket queue (the first page is megabytes) and reach the main
-        // actor as one batch at a time: a burst of changes is one publish, never a Task per line.
-        connection.start(send: Self.watchRequest(limit: 5000), decode: Message.init(line:)) { [weak self, weak connection] drain in
+        // Lines decode on the socket queue and reach the main actor as one batch at a time: a burst
+        // of changes is one publish, never a Task per line.
+        connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
             if let connection { self?.apply(drain, from: connection) }
         }
         // The windows' specs go after the watch request, on the same ordered connection.
@@ -104,43 +79,37 @@ public final class ChatsFeed {
         }
     }
 
-    /// One decoded line of the watch.
-    public nonisolated enum Message: Sendable {
-        /// A page response: the whole mirror, decoded off the main actor in acpmux's order.
-        case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool, seq: UInt64?)
-        /// One index change and its seq (nil for activity, which is not an index change).
-        case change(AcpmuxChatsStore.Change, seq: UInt64?)
+    /// One decoded line of the connection. None carries a chat of the index.
+    public nonisolated enum Message: Sendable, Equatable {
+        /// The watch is on (its answer); its page is not read.
+        case watching
+        /// The index changed: a chat was added, changed or removed.
+        case indexChanged
         /// A window's rows or row diff (`_acpmux/chats_window_changed`).
         case window(AcpmuxChatWindows.Update)
-        /// The answer to request `id` (a window's open or close), and whether it is an error.
-        case answered(id: Int, failed: Bool)
-        /// The daemon dropped a notification or the watch lagged: list and ask every window again.
+        /// The answer to request `id` (a window's open or close): whether it is an error, and whether acpmux
+        /// answered `ready: false` (its index has not started; the window fills when it does).
+        case answered(id: Int, failed: Bool, notReady: Bool)
+        /// The daemon dropped a notification or the watch lagged: every window and observer again.
         case lagged
 
         public init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
-            if let id = (message["id"] as? NSNumber)?.intValue, id >= 3, message["error"] != nil {
-                self = .answered(id: id, failed: true)
-                return
-            }
-            if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
-               let result = message["result"] as? [String: Any] {
-                // A window request's answer: its rows come as `_acpmux/chats_window_changed`.
-                guard result["window"] == nil else {
-                    self = .answered(id: id, failed: false)
-                    return
+            if let id = (message["id"] as? NSNumber)?.intValue, id >= 2 {
+                if id == 2, message["result"] is [String: Any] {
+                    self = .watching
+                } else {
+                    let result = message["result"] as? [String: Any]
+                    self = .answered(id: id, failed: message["error"] != nil,
+                                     notReady: result?["ready"] as? Bool == false && result?["stale"] == nil)
                 }
-                var store = AcpmuxChatsStore()
-                store.reset(result)
-                self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true,
-                             seq: (result["seq"] as? NSNumber)?.uint64Value)
                 return
             }
             switch message["method"] as? String {
             case "_acpmux/chat_changed":
-                let params = message["params"] as? [String: Any]
-                guard let change = params.flatMap(AcpmuxChatsStore.change(from:)) else { return nil }
-                self = .change(change, seq: (params?["seq"] as? NSNumber)?.uint64Value)
+                // A chat's activity (attention, preview) reaches the windows as their own diff.
+                guard (message["params"] as? [String: Any])?["kind"] as? String != "activity" else { return nil }
+                self = .indexChanged
             case "_acpmux/chats_window_changed":
                 guard let update = (message["params"] as? [String: Any]).flatMap(AcpmuxChatWindows.Update.init(params:)) else { return nil }
                 self = .window(update)
@@ -156,105 +125,79 @@ public final class ChatsFeed {
         }
     }
 
-    private static func watchRequest(limit: Int) -> Data {
+    /// `initialize`, then the index watch with a one-chat page: the watch is only the change
+    /// signal (acpmux answers every list itself).
+    private static let watchRequest: Data = {
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-chats", "version": "1"], "clientCapabilities": [:]],
         ]
         let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/chats_watch",
-                                     "params": ["enabled": true, "limit": limit]]
+                                     "params": ["enabled": true, "limit": 1]]
         var payload = Data()
         for request in [initialize, watch] {
             payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
             payload.append(0x0A)
         }
         return payload
-    }
+    }()
 
-    /// Applies everything since the last drain, then publishes once.
+    /// Applies everything since the last drain, then publishes once: O(lines + changed rows).
     private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         let started = ContinuousClock.now
         defer { drained(drain.values.count, ContinuousClock.now - started) }
         var changed = false
-        var lagged = false
         for message in drain.values {
             switch message {
-            case .page(let page, let ready, let enabled, let pageSeq):
-                store = page
-                seq = pageSeq
-                isReady = ready
-                isEnabled = enabled
+            case .watching:
                 backoff.reset()
-                pageInFlight = false
-                lagged = listAgain
-                listAgain = false
-                let replay = early
-                early = []
-                for item in replay where !applyChange(item.change, seq: item.seq) { lagged = true }
                 changed = true
-            case .change(let change, let changeSeq):
-                if pageInFlight {
-                    if early.count < Self.earlyLimit { early.append((change, changeSeq)) } else { listAgain = true }
-                    continue
-                }
-                if !applyChange(change, seq: changeSeq) { lagged = true }
+            case .indexChanged:
                 changed = true
             case .window(let update):
                 windows.apply(update)
-            case .answered(let id, let failed):
-                if let window = windowRequests.removeValue(forKey: id), failed { windows.requestFailed(window) }
+            case .answered(let id, let failed, let notReady):
+                guard let request = windowRequests.removeValue(forKey: id) else { break }
+                if failed {
+                    windows.requestFailed(request.window, generation: request.generation)
+                } else if notReady {
+                    windows.requestNotReady(request.window, generation: request.generation)
+                }
             case .lagged:
-                lagged = true
                 windows.resync()
+                changed = true
             }
         }
-        // Dropped lines (a full batch) leave the mirror incomplete, like a lag: fetch a fresh page.
-        if lagged || drain.overflowed, !drain.closed { requestList() }
-        if drain.overflowed, !drain.closed { windows.resync() }
+        // Dropped lines (a full batch): every window and observer again.
+        if drain.overflowed, !drain.closed {
+            windows.resync()
+            changed = true
+        }
         // The daemon answers again: a window it refused (busy) is asked again.
         if changed { windows.retryFailed() }
         if changed { publish() }
         if drain.closed { lost(connection) }
     }
 
-    private static let earlyLimit = 4096
-
-    /// Applies one change unless the mirror already holds it (its seq is at or below the
-    /// mirror's). False on a jump in seq: a change was lost and the caller lists again.
-    private func applyChange(_ change: AcpmuxChatsStore.Change, seq changeSeq: UInt64?) -> Bool {
-        var contiguous = true
-        if let changeSeq {
-            if let last = seq {
-                if changeSeq <= last { return true }
-                contiguous = changeSeq == last + 1
-            }
-            seq = changeSeq
-        }
-        store.apply(change)
-        return contiguous
+    /// The window and spec generation a request opens, kept until its answer (nil for any other request).
+    nonisolated static func windowRequest(method: String, params: [String: any Sendable]) -> (window: String, generation: UInt64?)? {
+        guard method == "_acpmux/chats_window", let window = params["window"] as? String else { return nil }
+        return (window, params["gen"] as? UInt64)
     }
 
-    /// One list at a time: a request while a page is in flight is sent when it lands.
-    private func requestList() {
-        guard let subscription else { return }
-        guard !pageInFlight else {
-            listAgain = true
-            return
-        }
-        pageInFlight = true
-        send("_acpmux/chats", ["limit": 5000], on: subscription)
-    }
-
-    /// One request on the watch's connection.
+    /// One request on the connection: it is encoded on the connection's own serial queue, so the
+    /// main thread does no JSON work and the requests keep their order.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
-        if method == "_acpmux/chats_window", let window = params["window"] as? String { windowRequests[requestID] = window }
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params as [String: Any]]
-        guard let data = try? JSONSerialization.data(withJSONObject: request) else { return }
-        var line = data
-        line.append(0x0A)
-        connection.send(line)
+        if let request = Self.windowRequest(method: method, params: params) { windowRequests[requestID] = request }
+        let id = requestID
+        connection.send {
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params as [String: Any]]
+            guard var line = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+            line.append(0x0A)
+            return line
+        }
     }
 
     private func publish() {

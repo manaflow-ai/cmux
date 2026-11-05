@@ -22,7 +22,7 @@ use std::time::Duration;
 use zeroize::Zeroizing;
 
 /// `meshRelay` in config.json.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeshRelayConfig {
     /// The hub's origin, `https://` (`http://` only for a loopback address).
@@ -30,8 +30,10 @@ pub struct MeshRelayConfig {
     /// The program that prints a cmux access token, and its own arguments.
     #[serde(default)]
     pub token_command: Vec<String>,
-    /// Labs gate for team-scoped addresses and inboxes. Off unless explicitly enabled.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// Team-scoped addresses and inboxes (`@member/agent`, `@team/role`). On wherever a hub is
+    /// configured; `"teamMessaging": false` turns them off (Leo, 2026-10-29: "can this be a proper
+    /// feat inside acpmux/the multiplayer and team situation?").
+    #[serde(default = "team_messaging_on", skip_serializing_if = "is_on")]
     pub team_messaging: bool,
     /// Read the joined machine credential from the owner-only store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,6 +53,26 @@ pub struct MeshControlFrom {
     /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
     #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
+}
+
+impl Default for MeshRelayConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            token_command: Vec::new(),
+            team_messaging: true,
+            credential: None,
+            control_from: Vec::new(),
+        }
+    }
+}
+
+fn team_messaging_on() -> bool {
+    true
+}
+
+fn is_on(on: &bool) -> bool {
+    *on
 }
 
 fn lifecycle_ops() -> Vec<String> {
@@ -189,7 +211,7 @@ impl HttpHub {
     }
 
     /// A token: the one held while it is good, else a new one from the command.
-    async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
+    pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
         if self.credential.as_deref() == Some("join") {
             let value = crate::cli::cloud_join::read_join_credential(&self.origin)
@@ -490,6 +512,25 @@ mod tests {
         for bad in ["", "  ", "two words", r#"{"token": "x"}"#] {
             assert!(parse_token(bad).is_err(), "{bad:?}");
         }
+    }
+
+    /// Team messaging is a feature, not a Labs opt-in: a hub with no `teamMessaging` has it on,
+    /// and only an explicit `false` turns it off and survives a save.
+    #[test]
+    fn team_messaging_is_on_unless_the_config_says_false() {
+        let on: MeshRelayConfig =
+            serde_json::from_value(json!({"url": "https://hub.example.com"})).unwrap();
+        assert!(on.team_messaging);
+        assert!(MeshRelayConfig::default().team_messaging);
+        assert!(serde_json::to_value(&on).unwrap().get("teamMessaging").is_none());
+        let off: MeshRelayConfig = serde_json::from_value(
+            json!({"url": "https://hub.example.com", "teamMessaging": false}),
+        )
+        .unwrap();
+        assert!(!off.team_messaging);
+        let saved = serde_json::to_value(&off).unwrap();
+        assert_eq!(saved["teamMessaging"], false);
+        assert!(!serde_json::from_value::<MeshRelayConfig>(saved).unwrap().team_messaging);
     }
 
     #[test]

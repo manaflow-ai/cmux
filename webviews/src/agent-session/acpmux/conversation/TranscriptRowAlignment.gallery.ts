@@ -4,9 +4,11 @@
 // NEED TO LINE OUR SHIT UP LIKE THEIRS"). One live turn mixes the row kinds the way a long session
 // does: a reply, a tool call, a reply, a subagent that finished, a reply, a background command that
 // ended, a reply, another agent's message, a reply. The turns above it end with a "Worked for" line (a folded turn)
-// and a footer that says its time and tokens beside the reply's action row. Every row's first ink
-// sits on the prose's left edge, an icon's text one icon column in, and each status row sits in
-// the middle of the gap between the replies around it (transcript-row-alignment.test.ts).
+// and a footer whose action row starts on the reply's left edge, its time and tokens in the time's
+// tooltip (Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons"). Every row's first ink
+// sits on the prose's left edge, an icon's text one icon column in, and each status row has one room
+// above and one below; the reply over it keeps its 2026-10-30 room, so above is the larger
+// (transcript-row-alignment.test.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { minutesAgo } from "../../../gallery/clock";
@@ -30,7 +32,7 @@ const received = (name: string, text: string, minutes: number) =>
   });
 
 const rows = [
-  // A turn with no tool work: its footer says how long it took and what it cost, beside the actions.
+  // A turn with no tool work: how long it took and what it cost are the time's tooltip, after the buttons.
   user("Is the nightly feed current?", 20),
   assistant("Yes. The newest NEXT nightly is 12 minutes old and matches the branch tip.", 19.9),
   summary(19.9, {
@@ -65,6 +67,28 @@ const rows = [
 ];
 
 const base = chat(rows, { title: "Release check", isWorking: true });
+/// The first two turns alone, finished: the chat's last footer is the second turn's.
+const finished = chat(rows.slice(0, 7), { title: "Release check", isWorking: false });
+/// A finished Claude chat whose last turn spoke, ran six commands and ended on them, with no reply
+/// after the run (Leo, 2026-11-02: "the latest copy buttons auto showing when the turn is done like
+/// chatgpt"): its row (Copy, Fork, Pin) shows at rest 8 under the run's last line, as under a reply.
+const workRows = [
+  ...rows.slice(0, 3),
+  user("Check what's installed and running.", 16),
+  assistant("I'll check the installed apps and what is running.", 15.9),
+  activity(
+    ["ls /Applications", "brew list", "ps aux", "lsof -i", "launchctl list", "uptime"].map((command) =>
+      tool(command, "execute", "completed", { command }),
+    ),
+    15.8,
+  ),
+  summary(15.5, { status: "completed", durationMs: 10_000, toolCount: 6 }),
+];
+const claudeChat = (chatRows: typeof rows) => {
+  const snapshot = chat(chatRows, { title: "Machine check", isWorking: false });
+  return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
+};
+const finishedWork = claudeChat(workRows);
 const snapshot = {
   ...base,
   sessions: [
@@ -79,10 +103,23 @@ const snapshot = {
   ],
 };
 
-/// The pointer on the first turn's footer, so its action row shows beside its time and tokens.
+/// The pointer on the first turn's footer, so its action row and its time show.
 const revealFooter: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-summary") !== null);
-  await ctx.hover({ selector: ".acpmux-turnSummary .cv-turn-summary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-action-group") !== null);
+  await ctx.hover({ selector: ".acpmux-turnSummary .cv-turn-action-group" });
+};
+
+/// The pointer on the finished chat's last reply, so its time shows after the buttons.
+const revealLastFooter: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row--final-footer .cv-turn-action-group") !== null);
+  await ctx.hover({ selector: ".acpmux-row--final-footer .cv-turn-action-group" });
+};
+
+/// The pointer on the finished chat's last Copy button: that button alone takes full ink and its pill.
+const pointCopy: Play = async (ctx) => {
+  const copy = ".acpmux-row--final-footer .cv-turn-action-group .cv-iconbtn";
+  await ctx.waitFor(() => ctx.document.querySelector(copy) !== null);
+  await ctx.hover({ selector: copy });
 };
 
 export default agentPaneEntry({
@@ -99,7 +136,7 @@ export default agentPaneEntry({
   ],
   variants: {
     mix: {
-      note: "A reply, a tool call, a reply, a subagent that finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge, and each status row sits in the middle of the gap between the replies around it.",
+      note: "A reply, a tool call, a reply, a subagent that finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge; the reply over each status row keeps its 2026-10-30 room (model.ts keepsReplyRoom), so the line has 26px more room above than below.",
       snapshot,
     },
     roomy: {
@@ -113,9 +150,27 @@ export default agentPaneEntry({
       documentAttributes: { "transcript-status-gap": "off" },
     },
     footer: {
-      note: "The pointer on the first turn's footer: the copy glyph starts on the reply's left edge, as Codex and Claude draw it, and Worked for starts there too.",
+      note: "The pointer on the first turn's footer: the copy glyph's ink starts on the reply's left edge, as ChatGPT, Codex and Claude draw it; the exact time shows after the buttons, and its tooltip has the turn's time and tokens.",
       snapshot,
       play: revealFooter,
+    },
+    finished: {
+      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, Claude's 16 glyphs in 24 buttons in the muted footer ink, the first glyph on the reply's left edge; the time waits for the pointer (Leo, 2026-11-02, of the 20 glyphs in 32 buttons: \"WHY ARE THESE SO BIG\").",
+      snapshot: finished,
+    },
+    "finished-work": {
+      note: "A finished Claude chat whose last turn ended on a run of six commands with no reply after it: the turn's row (Copy, Fork, Pin) shows at rest, its first glyph on the prose's left edge, 8 under the run's last line, the time waiting for the pointer.",
+      snapshot: finishedWork,
+    },
+    "finished-hover": {
+      note: "The pointer on the finished chat's last reply: its exact time shows after the buttons, which do not move.",
+      snapshot: finished,
+      play: revealLastFooter,
+    },
+    "finished-button-hover": {
+      note: "The pointer on the last reply's Copy: that button alone takes full ink and its 24 pill; the others stay in the muted footer ink.",
+      snapshot: finished,
+      play: pointCopy,
     },
   },
 });

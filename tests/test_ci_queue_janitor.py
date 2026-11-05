@@ -715,7 +715,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("\npermissions: {}\n", text)
         # The ci-bot environment holds the sweep's dispatch credentials (118e52e14907).
         self.assertIn("  sweep:\n    environment: ci-bot\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)

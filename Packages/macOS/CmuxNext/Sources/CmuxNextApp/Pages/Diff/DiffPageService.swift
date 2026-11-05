@@ -94,9 +94,7 @@ final class DiffPageService: InternalPageProvider {
     func gitLink(for tab: TabModel?) -> AgentPaneGitLink? {
         guard let tab, let record = tab.agentSession else { return services.agentGit.local }
         guard services.locateTab(model: tab) != nil else { return nil }
-        guard AgentPaneHostKind(record, localHost: services.agentTabs.localHost,
-                                chiefHost: services.agentTabs.chiefHost,
-                                listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else {
+        guard services.agentTabs.hostKind(record, listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else {
             return services.agentGit.local
         }
         guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
@@ -116,7 +114,7 @@ final class DiffPageService: InternalPageProvider {
     var icon: IconName? { .diffFile }
     var recents: DiffRecents { recentsStore }
 
-    func title(for key: String) -> String { tabs[key]?.repository?.name ?? title }
+    func title(for key: String) -> String { tabs[key]?.repository?.name ?? tabs[key]?.source.chatPatch?.title ?? title }
 
     /// Opens a diff tab for the repository `folder` is in, comparing `source`
     /// first, after `pane`'s selected tab, or selects the tab of `pane`'s
@@ -164,7 +162,7 @@ final class DiffPageService: InternalPageProvider {
     }
 
     /// ``open(folder:source:turn:in:focus:)`` once the repository is known. One tab per
-    /// repository and scope in the window, as before; a turn open (``DiffTabReuse``) takes the
+    /// repository and scope in the window, as before; a turn open (``DiffOpenSource/reuses(root:source:for:)``) takes the
     /// window's tab of the repository in any scope and switches it to the turn.
     @discardableResult
     func open(repository: DiffRepository, source: DiffOpenSource = .default, turn: DiffTurn? = nil,
@@ -178,13 +176,13 @@ final class DiffPageService: InternalPageProvider {
         let key = show(in: pane, focus: focus,
                        Tab(repository: repository, source: source, turn: turn, gitLink: link,
                            runtime: runtime, machine: machine), created: created, failed: failed) {
-            DiffTabReuse.reuses(root: $0.repository?.root, source: $0.source, for: repository.root, source)
+            source.reuses(root: $0.repository?.root, source: $0.source, for: repository.root)
                 && $0.gitLink === link && $0.machine?.machineID == machine?.machineID
         }
         // A tab already there takes the chat's turn: a card's reloads it on the turn and file; a
         // header's newer turn is what its Last turn shows from then on, with no reload.
         guard before.contains(key), let shown = tabs[key] else { return key }
-        switch DiffTabReuse.change(shownTurn: shown.turn, source, turn) {
+        switch source.change(shownTurn: shown.turn, turn) {
         case .keep: break
         case .newTurn:
             tabs[key]?.turn = turn
@@ -193,6 +191,24 @@ final class DiffPageService: InternalPageProvider {
             tabs[key]?.turn = turn
             retarget(key, to: repository)
         }
+        return key
+    }
+
+    /// Opens a tab beside `pane` that shows only a chat turn's own patch (``DiffChatPatch``): the
+    /// changes the chat built from its tool calls, for a folder in no repository or a turn that wrote
+    /// a file outside it, where no git source holds them (Leo, 2026-11-03: "just put it in a tab???").
+    /// It reads no disk and no repository, so it shows the same for a chat on any machine. The
+    /// window's chat patch tab, if any, shows the new patch instead of a second one opening.
+    @discardableResult
+    func open(chatPatch patch: DiffChatPatch, in pane: PaneController, focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil,
+              failed: (@MainActor ((any Error)?) -> Void)? = nil) -> String {
+        let before = Set(tabs.keys)
+        let key = show(in: pane, focus: focus, Tab(repository: nil, source: .chat(patch)), created: created, failed: failed) {
+            $0.source.chatPatch != nil
+        }
+        guard before.contains(key), tabs[key]?.source.chatPatch != patch else { return key }
+        tabs[key]?.source = .chat(patch)
+        tabs[key]?.provider?.show(patch, from: tabs[key]?.runtime ?? runtime) { [weak page = tabs[key]?.page] in page?.reload() }
         return key
     }
 
@@ -285,7 +301,7 @@ final class DiffPageService: InternalPageProvider {
 
     /// The repository root the tab opened on (page-tab-route-v1).
     func route(for key: String) -> String? {
-        tabs[key]?.gitLink?.isLocal == false ? nil : tabs[key]?.repository?.root
+        tabs[key]?.gitLink?.isLocal == false || tabs[key]?.source.chatPatch != nil ? nil : tabs[key]?.repository?.root
     }
 
     /// A store tab came back on repository root `route` (Reopen Closed,
@@ -377,7 +393,7 @@ final class DiffPageService: InternalPageProvider {
                 }
             }
         case .editor:
-            return services.registry.openAgentFile(path: file.path, target: .editor, pane: pane.paneKey)
+            return services.registry.openAgentFile(path: file.path, target: .editor, pane: pane.paneKey, machineID: pane.daemon.machineID)
         case .finder:
             NSWorkspace.shared.revealInBackground([file])
             return true
@@ -392,10 +408,12 @@ final class DiffPageService: InternalPageProvider {
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)
         let host = DiffTabHost(service: self, key: key)
         let tabRuntime = tab.runtime ?? runtime
-        let ready = tab.repository.map { tabRuntime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
-        let tabGit: (any DiffGitRunning)? = tab.gitLink.map { DiffAgentGit(link: $0) } ?? diffGit
-        let provider = DiffPageProvider(ready: ready, sidecar: tabRuntime.sidecar, languages: tabRuntime.languages, host: host,
-                                        stores: stores, git: tabGit, machine: tab.machine.map { machineName($0) })
+        // A chat patch tab (``open(chatPatch:in:focus:created:failed:)``) needs no sidecar and no git.
+        let chat = tab.source.chatPatch, ready = chat.map { tabRuntime.prepare(chatPatch: $0) }
+            ?? tab.repository.map { tabRuntime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
+        let tabGit: (any DiffGitRunning)? = chat != nil ? nil : tab.gitLink.map { DiffAgentGit(link: $0) } ?? diffGit
+        let provider = DiffPageProvider(ready: ready, sidecar: chat != nil ? nil : tabRuntime.sidecar, languages: tabRuntime.languages, host: host,
+                                        stores: stores, git: tabGit, machine: tab.machine.map { machineName($0) }, chatPatch: chat != nil)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,

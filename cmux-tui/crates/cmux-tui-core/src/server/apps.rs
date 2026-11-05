@@ -38,6 +38,12 @@ struct GrantParam {
 enum Command {
     #[serde(rename = "apps-list")]
     List,
+    #[serde(rename = "apps-place")]
+    Place {
+        contribution: String,
+        #[serde(default)]
+        region: Option<cmux_layout_reducer::sidebar_doc::Region>,
+    },
     #[serde(rename = "apps-set")]
     Set {
         idempotency_key: String,
@@ -352,6 +358,7 @@ pub(super) fn try_handle(
     let user = origin == crate::apps::Origin::User;
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::Set {

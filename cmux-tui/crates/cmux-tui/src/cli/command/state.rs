@@ -18,7 +18,7 @@ use super::{
 };
 
 const GROUP_COLORS: &[&str] =
-    &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+    &["none", "grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
 pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 
@@ -397,6 +397,10 @@ pub(super) fn parse_workspace_group(
             optional_index(&mut params, flags)?;
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
+            }
+            // The room's group of that name when it has one (find or create).
+            if flags.boolean("reuse") {
+                params.insert("reuse", Value::Bool(true));
             }
             Op::WorkspaceGroupCreate
         }

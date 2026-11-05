@@ -38,11 +38,11 @@ struct PaletteMenuVocabularyTests {
     /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one
     /// character ("…", never "..."), and every word is capitalized except a short article,
     /// conjunction or preposition inside the title ("Move Tab to Workspace…"). The first and last
-    /// words are always capitalized ("Move Chief To…", "Swap with Session…"); cmux keeps its case.
+    /// words are always capitalized ("Move Chief To…", "Swap with Session…"); cmux and acpmux keep their case.
     @Test func paletteTitlesUseTitleCase() {
         let minor: Set<String> = ["a", "an", "the", "and", "or", "nor", "but", "to", "in", "on", "of",
                                   "for", "by", "at", "as", "from", "with", "into", "onto", "via", "vs", "per"]
-        let brands = ["cmux", "iPhone", "iPad", "iOS", "macOS"]
+        let brands = ["cmux", "acpmux", "iPhone", "iPad", "iOS", "macOS"]
         let trim = CharacterSet(charactersIn: "()\"“”,:.")
         for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
             let title = descriptor.title

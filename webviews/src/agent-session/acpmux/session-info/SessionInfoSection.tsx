@@ -3,8 +3,8 @@
 // before the agent reports usage). With `icon`, the head starts with it, so a section that is one
 // line lines up with the rows above it (the rail's top block, SessionInfo.tsx `RAIL_LAYOUT`).
 // `bare` draws the body alone, with no head: rows that need no title over them. Inside the panel's
-// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, at
-// the right end of its head (sessionInfo.css).
+// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, left
+// of its title (sessionInfo.css).
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";
@@ -40,8 +40,10 @@ export function SessionInfoFold({
   );
 }
 
-/// Six dots, drawn here: the icon pack has no grip glyph.
-const GRIP_DOTS = [3, 7, 11].flatMap((y) => [1.25, 4.75].map((x) => ({ x, y })));
+/// Six dots, drawn here (the icon pack has no grip glyph): three across and two down, a grip wider than it
+/// is tall (Leo, 2026-11-03: "make it a more horizontally wide symbol, why not?"). Small enough to sit
+/// inside the head's pill, left of its icon, with room either side (sessionInfo.css).
+const GRIP_DOTS = [0.75, 3.25].flatMap((y) => [0.75, 3.25, 5.75].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string }) {
   const reorder = useReorder();
@@ -60,9 +62,9 @@ function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string 
         reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
-      <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
+      <svg width="6.5" height="4" viewBox="0 0 6.5 4" aria-hidden="true">
         {GRIP_DOTS.map(({ x, y }) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.9" fill="currentColor" />
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.75" fill="currentColor" />
         ))}
       </svg>
     </button>
@@ -90,12 +92,14 @@ export function SessionInfoSection({
 }) {
   const head = (foldable: boolean) => (
     <>
-      {icon && <Icon name={icon} size={ROW_ICON} row className="acpmux-session-info-section__icon acpmux-row-glyph" />}
+      {icon && (
+        <Icon name={icon} size={ROW_ICON} row fit className="acpmux-session-info-section__icon acpmux-row-glyph" />
+      )}
       <span className="acpmux-session-info-section__title">{title}</span>
       {foldable && (
         <Icon
           name={open ? "disclosure.expanded" : "disclosure.collapsed"}
-          size={10}
+          size={12}
           className="acpmux-session-info-section__fold"
         />
       )}

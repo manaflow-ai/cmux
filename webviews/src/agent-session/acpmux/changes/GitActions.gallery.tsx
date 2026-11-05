@@ -8,15 +8,20 @@ import type { Play } from "../../../gallery/play";
 import { GitToolbarButtons, GitWriteBar } from "./GitActions";
 import type { GitWrite, GitWriteState } from "./useGitWrite";
 
-type Props = { formOpen: boolean; state?: GitWriteState; statusFailed?: boolean };
+type Props = { formOpen: boolean; state?: GitWriteState; statusFailed?: boolean; manyNewFiles?: boolean };
 
-const fakeGit = (state?: GitWriteState, statusFailed = false): GitWrite => ({
+const fakeGit = (state?: GitWriteState, statusFailed = false, manyNewFiles = false): GitWrite => ({
   available: true,
   status: { branch: "feat/commit-push", upstream: "origin/feat/commit-push", detached: false, ahead: 2, behind: 0 },
   statusFailed,
   state,
   commit: async () => true,
-  listNewFiles: async () => ({ paths: ["src/notes/draft.md", "src/notes/todo.md"], skipped: 0 }),
+  listNewFiles: async () => ({
+    paths: manyNewFiles
+      ? Array.from({ length: 40 }, (_, index) => `src/notes/draft-${index}.md`)
+      : ["src/notes/draft.md", "src/notes/todo.md"],
+    skipped: 0,
+  }),
   push: async () => true,
   retry: () => undefined,
   refresh: () => undefined,
@@ -24,9 +29,9 @@ const fakeGit = (state?: GitWriteState, statusFailed = false): GitWrite => ({
   dismiss: () => undefined,
 });
 
-function GitActionsGallery({ formOpen: initiallyOpen, state, statusFailed }: Props) {
+function GitActionsGallery({ formOpen: initiallyOpen, state, statusFailed, manyNewFiles }: Props) {
   const [formOpen, setFormOpen] = useState(initiallyOpen);
-  const git = fakeGit(state, statusFailed);
+  const git = fakeGit(state, statusFailed, manyNewFiles);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}>
       <div style={{ display: "flex", gap: 6 }}>
@@ -70,6 +75,15 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("./changes.css")]),
   widths: { narrow: 320, normal: 480, wide: 640 },
   variants: {
+    "new-files-overflow": {
+      note: "Include new files lists forty new paths inside its capped preview.",
+      props: { formOpen: true, manyNewFiles: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "radio", name: "All" });
+        await ctx.click({ role: "checkbox", name: "Include new files" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-git-new-files li").length === 40);
+      },
+    },
     toolbar: {
       note: "The form closed: Commit, and Push with the branch two commits ahead.",
       props: { formOpen: false },
@@ -81,8 +95,8 @@ export default componentEntry<Props>({
       play: includeNew,
       checks: {
         layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          value: 0.0005,
+          reason: "Scope controls and both hint translations reserve their space before switching to All.",
         },
       },
     },
@@ -92,8 +106,8 @@ export default componentEntry<Props>({
       play: keyboard,
       checks: {
         layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          value: 0.0005,
+          reason: "Scope controls and both hint translations reserve their space before switching to All.",
         },
       },
     },

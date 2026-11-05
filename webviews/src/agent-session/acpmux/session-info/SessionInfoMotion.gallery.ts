@@ -25,7 +25,7 @@ const longChat = chat(
     ),
   ]).flat(),
 );
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default).
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
 const sessionInfo = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-session-info");

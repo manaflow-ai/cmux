@@ -317,3 +317,68 @@ fn the_lists_echo_keeps_a_keyboard_sidebar_focus() {
         "the echo dropped the keyboard flag"
     );
 }
+
+/// QA chrome-parity-v2-2-2 bug 1 (ported from the dogfood line, 92f8d64d0be): from Home,
+/// Ctrl+` and Cmd+Shift+L example.com (a browser tab in the pane beside Home), Cmd-Q, reopen,
+/// type: the text went into Home's Chief message box. The launch window showed the home
+/// workspace (Home's page first, the pane beside it with a terminal and the selected browser
+/// tab) before it adopted the saved window record, whose focused pane, the browser pane, came
+/// as `restoredPane` for that shown workspace. The rule dropped it, so the first pane (Home)
+/// kept the focus.
+fn restore_after_the_workspace_shows(before_record: &[Value]) -> (FocusState, Vec<FocusEffect>) {
+    let mut state = FocusState::default();
+    send(
+        &mut state,
+        json!({"topology": {"_0": {"workspace": "w", "panes": [
+            {"id": "home", "tabs": [{"id": "home-tab", "kind": "page"}], "selected": "home-tab"},
+            {"id": "right", "selected": "web", "tabs": [
+                {"id": "term", "kind": "terminal"}, {"id": "web", "kind": "browser"}]},
+        ]}}}),
+    );
+    for event in before_record {
+        send(&mut state, event.clone());
+    }
+    let effects = send(&mut state, json!({"restoredPane": {"_0": "right", "workspace": "w"}}));
+    (state, effects)
+}
+
+#[test]
+fn a_record_for_the_shown_workspace_focuses_its_saved_pane() {
+    let browser = json!({"browserPage": {"pane": "right", "tab": "web"}});
+    let (state, effects) = restore_after_the_workspace_shows(&[]);
+    assert_eq!(json!(state.resolved()), browser, "the saved pane, not the first one");
+    assert!(
+        effects.iter().any(|e| matches!(e, FocusEffect::MoveResponder { .. })),
+        "the responder is not moved to the saved pane: {effects:?}"
+    );
+    // Home's message box took the keyboard by itself first (a programmatic report): no
+    // person's choice.
+    let home_took_it =
+        json!({"responder": {"_0": {"content": {"pane": "home"}}, "source": "programmatic"}});
+    let (state, _) = restore_after_the_workspace_shows(&[home_took_it]);
+    assert_eq!(json!(state.resolved()), browser, "a view's own grab does not keep the restore");
+    // A platform pick that moved the target (the saved pane's own address bar, programmatic) is no
+    // person's choice either: the restore puts the keyboard back on the page.
+    let platform_pick =
+        json!({"responder": {"_0": {"addressBar": {"pane": "right"}}, "source": "programmatic"}});
+    let (state, _) = restore_after_the_workspace_shows(&[platform_pick]);
+    assert_eq!(json!(state.resolved()), browser, "a programmatic target move kept the restore off");
+    // The person chose Home after the window opened: that choice stays.
+    let clicked = json!({"focusPane": {"_0": "home", "source": "mouse"}});
+    let (state, _) = restore_after_the_workspace_shows(&[clicked]);
+    assert_eq!(json!(state.resolved()), json!({"page": {"pane": "home", "tab": "home-tab"}}));
+}
+
+#[test]
+fn a_record_before_the_workspace_shows_still_lands_on_its_pane() {
+    let mut state = FocusState::default();
+    send(&mut state, json!({"restoredPane": {"_0": "right", "workspace": "w"}}));
+    send(
+        &mut state,
+        json!({"topology": {"_0": {"workspace": "w", "panes": [
+            {"id": "home", "tabs": [{"id": "home-tab", "kind": "page"}], "selected": "home-tab"},
+            {"id": "right", "tabs": [{"id": "web", "kind": "browser"}], "selected": "web"},
+        ]}}}),
+    );
+    assert_eq!(json!(state.resolved()), json!({"browserPage": {"pane": "right", "tab": "web"}}));
+}

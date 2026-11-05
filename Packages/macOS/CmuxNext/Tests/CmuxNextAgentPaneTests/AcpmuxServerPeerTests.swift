@@ -110,7 +110,7 @@ struct AcpmuxServerPeerTests {
     /// End to end on a real process: a listener whose executable file was deleted while it runs,
     /// as an earlier bundle's daemon after Sparkle replaced the app. Its unix socket peer is
     /// another install's, not "the socket's peer process is unknown".
-    @Test(.timeLimit(.minutes(2)))
+    @Test(.timeLimit(.minutes(2)), .enabled(if: CopiedListenerProbe.runs, "Needs a copied nc listener, which this Mac ends at exec: https://github.com/manaflow-ai/cmux/issues/30978"))
     func aListenerRunningADeletedFileIsAnotherInstall() async throws {
         let root = URL(fileURLWithPath: "/tmp/asp-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

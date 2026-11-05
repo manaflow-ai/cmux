@@ -2,13 +2,13 @@
    previews read (Leo, 2026-10-20): the shared glass hover card (.ui-card.ui-glass in desktop.css: the
    liquid glass, never the grey of a user bubble, with the hover card elevation --elevation-2; glass
    under plain glass too), a hairline of clear border under the glass rim and a 12px
-   corner. Inside, 10px by 14px of
+   corner. Inside, 12px by 16px of
    padding and three steps: the title in the body step at emphasis (two lines at most), the status
    line (SessionStatusLine, styled in startedSessions.css), then the meta line, the folder and branch
    in the caption step and the muted ink. It is as wide as its title, 240px to 420px. The whole card is
    one button that opens the session. Sizes are the type scale's steps (desktop.css). */
 .acpmux-session-hover-card.ui-card {
-  max-width: min(420px, calc(100vw - 12px));
+  max-width: min(420px, calc(100vw - var(--ds-space-3)));
   padding: 0;
   border-width: var(--cmux-hairline-ring);
   border-radius: 12px;
@@ -18,11 +18,11 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--ds-space-1);
   width: max-content;
   min-width: 240px;
-  max-width: min(420px, calc(100vw - 32px));
-  padding: 10px 14px;
+  max-width: min(420px, calc(100vw - var(--ds-space-6)));
+  padding: var(--ds-space-3) var(--ds-space-4);
   border: 0;
   border-radius: inherit;
   background: none;

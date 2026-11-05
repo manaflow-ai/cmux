@@ -64,28 +64,34 @@ export function mountIconPicker(
   // A refused finish (an unknown session, an icon the host rejects) is shown and logged, never
   // dropped: the picker stays open so the person sees that the icon did not change.
   let failure: string | undefined;
-  const finish = (result: { value?: string; clear?: true; cancel?: true }) =>
-    void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch((error: unknown) => {
+  // A pick belongs to the session it was made in. An image or URL pick can resolve seconds later,
+  // after the popover was closed and opened again for another target; its icon is then dropped, never
+  // sent with the newer session's id (which the host would apply to that other target).
+  const finish = (id: string, result: { value?: string; clear?: true; cancel?: true }) => {
+    if (id !== session.id) return;
+    void client?.call(IconPickerOps.finish, { session: id, ...result }).catch((error: unknown) => {
       console.error("icon picker: the host refused the pick", error);
-      if (result.cancel) return;
+      if (result.cancel || id !== session.id) return;
       failure = strings.t("iconPicker.finishFailed");
       flushSync(render);
     });
+  };
   const reactRoot = makeRoot(root);
   const popupHost = appPopupHost(client);
   const copyText = client
     ? (text: string) => void client.call(CLIPBOARD_WRITE, { text }).catch(() => undefined)
     : undefined;
-  const render = () =>
+  const render = () => {
+    const id = session.id;
     reactRoot.render(
       <UiProvider container={root} popupHost={popupHost} dir={languageDirection(strings.language)}>
         <IconPicker
           key={session.id}
           store={store}
           strings={strings}
-          onPick={(value: IconValue) => finish({ value: encodeIcon(value) })}
-          onCancel={() => finish({ cancel: true })}
-          onClear={session.canClear ? () => finish({ clear: true }) : undefined}
+          onPick={(value: IconValue) => finish(id, { value: encodeIcon(value) })}
+          onCancel={() => finish(id, { cancel: true })}
+          onClear={session.canClear ? () => finish(id, { clear: true }) : undefined}
           onCopyText={copyText}
           assets={client && session.assets ? hostAssets(client) : undefined}
           symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
@@ -93,6 +99,7 @@ export function mountIconPicker(
         />
       </UiProvider>,
     );
+  };
   const open = (next: PickerSession) => {
     const catalog = sessionCatalog(next);
     if (catalog) store.configure(catalog, next.maxEmojiVersion);

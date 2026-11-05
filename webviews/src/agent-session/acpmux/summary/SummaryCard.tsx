@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { chatUnderGlass, summaryGlass } from "../chatUnderGlass";
 import { usePresence } from "../../../ui/presence";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -16,6 +18,7 @@ import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents
 import { sessionStatus } from "../session-info/ChildSessionRows";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
+import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
@@ -33,6 +36,17 @@ const NO_TASKS: readonly SummaryBackgroundTask[] = [];
 const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
+
+function SummaryTabLabel({ label }: { label: string }) {
+  return (
+    <span className="acpmux-summary-tab__text">
+      <span>{label}</span>
+      <span className="acpmux-summary-tab__measure" aria-hidden="true">
+        {label}
+      </span>
+    </span>
+  );
+}
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Both start with Environment and have no
@@ -122,8 +136,13 @@ export function SummaryCard({
   const shown = card.shown;
   // The card slides in from the pane's right edge and back out (ui/presence.ts): the inline column
   // travels its own width inside the pane, the popover a few points. It keeps its content while it
-  // leaves; a second open while it is open changes nothing.
-  const presence = usePresence(shown, "right");
+  // leaves; a second open while it is open changes nothing. A switch between the column and the
+  // popover is the pane's width, not a click (a pane opening or closing on the right), so it plays
+  // nothing: the leaving column never redraws as a popover sliding off over the chat, and the
+  // column coming back is simply there (Leo 2026-10-21: "the animation for opening up and closing a
+  // browser on the right side ... especially when you have the chat summary ... it just destroys
+  // the overlay").
+  const presence = usePresence(shown, "right", { snapOn: card.column });
   const drawn = presence.present;
   const open = drawn && !card.collapsed;
   const views = subagents.views;
@@ -133,6 +152,13 @@ export function SummaryCard({
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows, undefined, cwd) : undefined), [open, rows, cwd]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // An open card can include thousands of started chats and sub-sessions. Index their IDs
+  // once per list change instead of searching every sub-session for every started chat.
+  const children = useMemo(
+    () => (drawn ? startedChatsOutsideSubsessions(sessions?.list ?? NO_SESSIONS, subsessionRows) : NO_SESSIONS),
+    [drawn, sessions?.list, subsessionRows],
+  );
   const registry = background ?? NO_REGISTRY;
   const running = background?.running ?? NO_TASKS;
   // The open card merges the registry with every transcript task; a folded one, the running ones.
@@ -141,6 +167,11 @@ export function SummaryCard({
     [shown, registry.processes, registry.listed, summary, running],
   );
   const panel = useRef<HTMLElement>(null);
+  // The popover floats over the chat: in a see-through Chromium page the chat under it blurs itself
+  // there (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its text never reads
+  // through the glass (Leo 2026-10-30: "I don't like the non-glassness"). The inline column is
+  // beside the chat and covers nothing.
+  useSeeThroughBlur(panel, drawn && !card.column, chatUnderGlass, summaryGlass);
   const popover = shown && !card.column;
   const edges = useScrollEdges();
   const close = card.close;
@@ -165,6 +196,10 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
+      // Capture runs before a child menu's outside-press handler. Let that layer consume this
+      // dismissal; its trigger belongs to this card even though its popup is portalled.
+      if (panel.current?.querySelector('[data-menu][data-popup-open], [aria-haspopup="menu"][aria-expanded="true"]'))
+        return;
       // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
       if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
@@ -190,11 +225,6 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
-  // A started chat that is also a sub-session shows once, as its sub-session row.
-  const children = (sessions?.list ?? NO_SESSIONS).filter(
-    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
-  );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
     subsessionRows.filter(
@@ -253,7 +283,7 @@ export function SummaryCard({
                 aria-label={foldLabel}
                 onClick={() => card.fold(!card.collapsed)}
               >
-                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={12} />
               </button>
             )}
             {tab ? (
@@ -266,7 +296,7 @@ export function SummaryCard({
                   data-selected={onSubagents ? undefined : ""}
                   onClick={() => showTab("summary")}
                 >
-                  {t("summary.title")}
+                  <SummaryTabLabel label={t("summary.title")} />
                 </button>
                 <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
                   <button
@@ -275,7 +305,7 @@ export function SummaryCard({
                     aria-pressed={onSubagents}
                     onClick={() => showTab("subagents")}
                   >
-                    {t("summary.subagents")}
+                    <SummaryTabLabel label={t("summary.subagents")} />
                   </button>
                   <button
                     type="button"
@@ -283,7 +313,7 @@ export function SummaryCard({
                     aria-label={t("summary.subagents.closeTab")}
                     onClick={closeTab}
                   >
-                    <Icon name="action.close" size={10} />
+                    <Icon name="action.close" size={12} />
                   </button>
                 </span>
               </div>
@@ -295,7 +325,7 @@ export function SummaryCard({
                 aria-label={foldLabel}
                 onClick={() => card.fold(!card.collapsed)}
               >
-                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={12} />
               </button>
             )}
             {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents

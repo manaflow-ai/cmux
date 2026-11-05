@@ -185,6 +185,17 @@ def nightly_next_build_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+# nightly.yml's signing jobs and their pickers queue on this one label after their picker branch
+# (signing_runner.SIGNER_LABEL): the signer's label, which only a trusted-only mini (no pull request job) carries.
+# Anything else, a label nightly builds or PR side lanes share most of all, would hand the jobs' signing secrets to
+# a mini that runs pull request jobs. Empty is fine (the workflow's literal).
+# CI_NIGHTLY_SIGN_RUNNER, the signing jobs' nightly-next push (and one-mini) route, is held to the same label. This
+# is a drift report (ci-health-report.yml, ci-repo-variables.yml), not enforcement: a drifted value is reported, and
+# the routes still read it.
+NIGHTLY_SIGNING_POOL_VARIABLE = "CI_NIGHTLY_SIGNING_POOL"
+NIGHTLY_SIGNING_POOL_LABEL = re.compile(r"glaeda-trusted-next-signing")
+
+
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
 FAST_LANE_PREFIX = "glaeda-fast-"
 
@@ -336,7 +347,8 @@ def forbidden_reason(label: str) -> str | None:
 # SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
 NO_HOSTED_MAC_VARIABLES = frozenset({
     "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
-    "LINUX_RUNNER", "CI_NIGHTLY_ONLY_RUNNER",
+    "LINUX_RUNNER", "CI_NIGHTLY_ONLY_RUNNER", "CI_NIGHTLY_ONLY_BUILDER_RUNNER", "CI_NIGHTLY_SIGN_RUNNER",
+    "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER",
     "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
@@ -419,10 +431,23 @@ def drifted_runner_variables(
         elif name == "CI_NIGHTLY_ONLY_RUNNER":
             reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro") else
                       "must name the enrolled all-nightly reservation or be unset")
+        elif name == "CI_NIGHTLY_ONLY_BUILDER_RUNNER":
+            reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro-builder") else
+                      "must name the all-nightly reservation's warm builder or be unset")
+        elif name == "CI_NIGHTLY_MINI":
+            # The one-mini nightly (tests/test_nightly_one_mini.py): only the nightly mini's own label.
+            reason = (None if value.strip() in ("", "glaeda-nightly-mini") else
+                      "must name the one nightly mini's label (glaeda-nightly-mini) or be unset")
+        elif name == "CI_NIGHTLY_MINI_BUILDER":
+            reason = (None if value.strip() in ("", "glaeda-nightly-mini-builder") else
+                      "must name the one nightly mini's warm builder label (glaeda-nightly-mini-builder) or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
+        elif name in (NIGHTLY_SIGNING_POOL_VARIABLE, "CI_NIGHTLY_SIGN_RUNNER"):
+            reason = (None if not value.strip() or NIGHTLY_SIGNING_POOL_LABEL.fullmatch(value.strip()) else
+                      "must name the signer's label (glaeda-trusted-next-signing) or be unset")
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

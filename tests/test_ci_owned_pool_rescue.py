@@ -1684,6 +1684,11 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
                          "glaeda-root-trusted-std-xcode-26.6")
+        # NEXT's all-nightly reservation is not a normal persistent pool, but
+        # its queued app build is still eligible for the nightly rescue.
+        for label in ("glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro-builder",
+                      "glaeda-nightly-only-xl-builder"):
+            self.assertEqual(rescue.job_pool({"labels": [label]}), label)
         self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted"]}))
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
@@ -1898,6 +1903,27 @@ class Nightly(unittest.TestCase):
         self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["gcp-linux-control"]}))
         self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
         self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+
+    def test_the_all_nightly_reservation_is_judged(self):
+        self.assertTrue(rescue.nightly_watched({"name": "build-nightly-app",
+                                                 "labels": ["glaeda-nightly-only-m4pro"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide",
+                                                "labels": ["glaeda-nightly-only-xl-builder"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "other",
+                                                  "labels": ["glaeda-nightly-only-xl-builder"]}))
+
+    def test_a_queued_all_nightly_build_enters_the_rescue_watch(self):
+        clock = Clock()
+
+        def jobs(_seconds):
+            return [job("decide", status="completed", labels=[BLACKSMITH]),
+                    job("build-nightly-app", labels=["glaeda-nightly-only-m4pro"], status="queued")]
+
+        api = NightlyAPI(clock, jobs, head=HEAD)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
+                              env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("queued on glaeda-nightly-only-m4pro", summary)
+        self.assertIn("cancel", api.calls)
 
     def test_nightly_control_runner_is_rescued_but_hosted_labels_are_not(self):
         control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
@@ -2293,7 +2319,7 @@ class Sweeper(unittest.TestCase):
         self.assertIn("swept: 1 done, 4 stopped", text)
 
 class Tokens(unittest.TestCase):
-    """Reads may use the App's token; writes always use GITHUB_TOKEN."""
+    """The workflow keeps Actions reads on its existing token."""
 
     def open_with(self, fail_first_read=False, code=401):
         seen = []
@@ -2349,20 +2375,14 @@ class Tokens(unittest.TestCase):
             rescue.GitHub("repo-token", "o/r").run(1)
         self.assertEqual(seen, [("GET", "Bearer repo-token")])
 
-    def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
+    def test_the_workflow_reuses_the_workflow_token_for_actions_reads(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
             encoding="utf-8"))["jobs"]["rescue"]["steps"]
-        mint = next(step for step in steps if step.get("id") == "read-token")
-        self.assertTrue(mint["continue-on-error"])
-        self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
-                         # The installation has no contents grant, and asking for one fails the mint
-                         # (422). The one contents read (branch_head, /branches) gets a 403 and retries
-                         # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
-                         {"permission-actions": "read", "permission-pull-requests": "read"})
+        self.assertFalse(any(step.get("id") == "read-token" for step in steps))
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
         self.assertEqual(
             watch["env"]["READ_TOKEN"],
-            "${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}",
+            "${{ steps.cmux-bot-token.outputs.token || github.token }}",
         )
         self.assertEqual(watch["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
@@ -2417,6 +2437,12 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure'"):
             self.assertIn(part, condition)
+        # The NEXT trigger is branch based, rather than gated on the legacy
+        # trusted-pool variables; dedicated all-nightly labels use a separate
+        # reservation and must still wake the rescue.
+        self.assertIn("github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push'",
+                      condition)
+        self.assertNotIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])

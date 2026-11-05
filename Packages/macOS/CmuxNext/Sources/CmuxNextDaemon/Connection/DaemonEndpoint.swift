@@ -33,6 +33,18 @@ public struct DaemonEndpoint: Hashable, Sendable {
 /// guard daemon.supports(DaemonCapability.tabDrag.rawValue) else { return }
 /// ```
 public enum DaemonCapability: String, CaseIterable, Sendable {
+    /// The minimum handshake surface served by the Native guest owner. Keep
+    /// this separate from ``required``: Native does not implement the GUI's
+    /// viewport/layout/attachment controls.
+    public static let nativeRemoteRequired: [String] = [
+        workspaceRegistry.rawValue,
+        "layout-delta-v1",
+        sessionIdentity.rawValue,
+        conversationTabs.rawValue,
+        agentSessionTabs.rawValue,
+        agentSessionStart.rawValue,
+        agentSessionAttach.rawValue,
+    ]
     /// The GUI refuses a daemon without these (`DaemonCompatibility.missingRequired`).
     case workspaceRegistry = "workspace-registry-v1"
     case viewportSplits = "viewport-splits-v1"
@@ -125,6 +137,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
+    /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
+    /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
+    case frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
@@ -156,6 +171,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case closeWorkspaceIfEmpty = "close-workspace-if-empty-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     case browserHostProvider = "browser-host-provider-v1"
+    /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
+    case remoteHost = "remote-host-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -207,6 +224,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
     /// and `columns[].dock`: the agent chat column.
     case dockColumnRole = "dock-column-role-v1"
+    /// Split Down of a pane in the agent chat dock adds a pane below it there (#29848);
+    /// every other new pane in the dock is still refused.
+    case dockColumnSplitDown = "dock-column-split-down-v1"
     /// Pinned dock columns (the Home dock): `set-column-dock` takes `pinned`,
     /// and the daemon keeps a pinned column's first tab and refuses other
     /// tabs into it unless its `allow_tabs` is on (`dock-column-pinned`).
@@ -227,6 +247,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     case tabColumnRespawn = "tab-column-respawn-v1"
+    /// `move-tab-to-column` `pane_id`: the new column's pane takes the
+    /// client-minted public id, so the dock shows in the input's turn.
+    case tabColumnClientPane = "tab-column-client-pane-v1"
     /// `restart-tab`: a terminal tab whose shell ended restarts under the
     /// same terminal id (Unix daemons).
     case tabRestart = "tab-restart-v1"
@@ -258,6 +281,16 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
+    /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
+    /// once when it shows again (SWITCH FRAMES SF-5).
+    case attachVisibility = "attach-visibility-v1"
+    /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
+    /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
+    /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
+    case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
+    /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
+    case treeSelectionDeltas = "tree-selection-deltas-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -287,6 +320,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     case agentSessionAttach = "agent-session-attach-v1"
+    /// Ordered ACP prompt blocks, including image and file content, on an owning connection.
+    case agentSessionContent = "agent-session-content-v1"
+    /// The `mobile-chat-*` relay the Mac's mobile host offers a phone (cmux-tui mobile_chat.rs).
+    case cloudChatRelay = "cloud_chat_relay.v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -318,6 +355,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
     /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
     case agentSessionSettings = "agent-session-settings-v1"
+    /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
+    /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
+    case agentSessionLogin = "agent-session-login-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -509,20 +549,20 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
+             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
-             .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
+             .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
+             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

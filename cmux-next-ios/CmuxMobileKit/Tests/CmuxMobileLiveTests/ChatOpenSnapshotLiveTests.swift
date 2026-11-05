@@ -237,12 +237,14 @@ import Testing
         #expect(store.turns.count == Self.turns + missedTurns)
     }
 
-    /// A chat whose history is longer than the attach keeps says so: its first turn shown
+    /// A chat whose history is longer than the attach's page says so: its first turn shown
     /// is not where the session started. It used to read "Session started <that turn>".
+    /// The open reads that one page; older ones come as the reader scrolls up
+    /// (`LongChatOpenLiveTests`).
     @Test(arguments: [true, false])
     func cappedHistorySaysEarlierMessagesExist(_ long: Bool) async throws {
-        // Pages of 80 turns (400 records), newest first; a long chat has more than the cap.
-        let total = long ? 1000 : 120
+        // Pages of 80 turns (400 records), newest first; a long chat has more than one page.
+        let total = long ? 1000 : 60
         let link = MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -271,9 +273,9 @@ import Testing
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
-        let shown = long ? 400 : total  // 2000 records kept: the newest 400 turns
-        // Five pages through the mock link: wait with the main actor free (a yield loop
-        // this long starves the other main-actor suites running beside it).
+        let shown = long ? 80 : total  // the newest page: 80 turns
+        // Wait with the main actor free (a yield loop this long starves the other
+        // main-actor suites running beside it).
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(30)
         while store.turns.count < shown, clock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }

@@ -287,6 +287,31 @@ class Decide(unittest.TestCase):
                     self.assertEqual(placement.healthy_role_label(label, runners, seen,
                                                                   {placement.cascade.SMALL: 0}), expected)
 
+    def test_an_unserved_session_label_has_no_room_while_its_runners_are_busy(self):
+        """cmux#24295, 2026-10-29: its daemon tests waited 90 minutes, twice, on the session label. Five session
+        runners were online and busy and the queue was shorter than them, so the counts said room; the janitor
+        had the label unserved (a job queued, none started in ten minutes) and opened a starved-label issue."""
+        Seen = placement.cascade.Seen
+        small = placement.cascade.SMALL
+        busy = [runner(f"mini-{host}-glaeda-10", busy=True, labels=(STD, GUI, SESSION)) for host in "abcde"]
+        counts = {SESSION: 2}
+        self.assertEqual(placement.healthy_role_label(SESSION, busy, Seen(waits={}, owned_queued=counts), {small: 0}),
+                         SESSION)
+        unserved = Seen(waits={}, owned_queued=counts, unserved=frozenset({SESSION}))
+        self.assertEqual(placement.healthy_role_label(SESSION, busy, unserved, {small: 0}), "")
+        # Another label's starvation is not this one's, and an idle runner is room whatever the janitor saw.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, unserved, {small: 0}), GUI)
+        idle = runner("mini-f-glaeda-10", labels=(STD, GUI, SESSION))
+        self.assertEqual(placement.healthy_role_label(SESSION, [*busy, idle], unserved, {small: 0}), SESSION)
+        # Neither keep that holds a busy owned queue holds an unserved one: a not-full health reading, or a
+        # stalled Blacksmith overflow (cmux#24295's day: Blacksmith had no free slot).
+        known = Seen(waits={}, owned_queued=counts, owned_full={SESSION: False}, owned_full_known={SESSION: True},
+                     unserved=frozenset({SESSION}))
+        self.assertEqual(placement.healthy_role_label(SESSION, busy, known, {small: 0}), "")
+        stalled = Seen(waits={small: 102.0}, owned_queued=counts, unserved=frozenset({SESSION}))
+        self.assertEqual(placement.healthy_role_label(SESSION, busy, stalled, {small: 91}), "")
+        self.assertEqual(placement.healthy_role_label(SESSION, [*busy, idle], stalled, {small: 91}), SESSION)
+
     def test_gui_room_uses_queue_counts_independently_of_oldest_waits(self):
         busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
         small = placement.cascade.SMALL
@@ -490,7 +515,7 @@ class Decide(unittest.TestCase):
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
-            bot.runners.assert_called_once_with()
+            bot.runners.assert_called_once_with(include_repository=False)
 
     def test_timeout_publishes_default_route_instead_of_hanging(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
@@ -575,8 +600,9 @@ class Decide(unittest.TestCase):
 
 class AutofixActionExportsRoute(unittest.TestCase):
     """Review of #27201 at 8a5fe9af: action exports need a logged-in session. Attempt 1 and a person's re-run take
-    the owned session/gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
-    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session."""
+    the owned gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
+    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session. They have no placement, so they
+    never name the session label, whatever vars.CI_SESSION_LABEL says (cmux#24295's 90-minute waits)."""
 
     def context(self, attempt: str, actor: str) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
@@ -585,7 +611,7 @@ class AutofixActionExportsRoute(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
         return context
 
-    def test_the_owned_session_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
+    def test_the_owned_gui_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
         for name in ("cmux-next-pr-autofix.yml", "cmux-next-base-autofix.yml"):
             runs_on = yaml.safe_load((WORKFLOWS / name).read_text())["jobs"]["action-exports"]["runs-on"]
             with self.subTest(workflow=name):
@@ -596,7 +622,8 @@ class AutofixActionExportsRoute(unittest.TestCase):
                         self.assertEqual(evaluate(runs_on, self.context(attempt, bot)), FALLBACK, (bot, attempt))
                 session = self.context("2", "teamleaderleo")
                 session["vars"]["CI_SESSION_LABEL"] = "1"
-                self.assertEqual(evaluate(runs_on, session), SESSION)
+                self.assertEqual(evaluate(runs_on, session), GUI)
+                self.assertNotIn(SESSION, runs_on)
 
 
 LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
@@ -921,6 +948,42 @@ class GatewayRoute(unittest.TestCase):
     def test_without_the_variable_nothing_is_judged(self):
         lines = self.run_main(self.light(False))
         self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
+
+    def fleet_placed(self, *jobs: str):
+        return placement.cascade.Placement({placement.cascade.LARGE: (), placement.cascade.SMALL: ()}, "", "placed",
+                                           fleet_jobs=jobs)
+
+    def test_a_fleet_client_needs_its_own_idle_gateway_runner(self):
+        # fast-tier-fleet runs on gateway_runner beside GATEWAY_JOBS: with one idle runner for two jobs one
+        # would queue behind the other until its timeout, so placement lists nothing and fast-tier keeps its route.
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet"}
+        placed = self.fleet_placed("fast-tier")
+        two, one = self.light(False, False), self.light(False, True)
+        self.assertEqual(placement.fleet_gateway(placed, values, two, LIGHT_SIDE).fleet_jobs, ("fast-tier",))
+        self.assertEqual(placement.fleet_gateway(placed, values, one, LIGHT_SIDE).fleet_jobs, ())
+        # The run's own jobs racing for the gateway's runners count too, as gateway_route() counts them.
+        self.assertEqual(placement.fleet_gateway(placed, values, two, LIGHT_SIDE, {LIGHT_SIDE: 1}).fleet_jobs, ())
+        self.assertEqual(placement.fleet_gateway(placed, {"GATEWAY_LABEL": LIGHT_SIDE}, one, LIGHT_SIDE).fleet_jobs,
+                         ("fast-tier",))
+        # No gateway, unread runners: no client runs, so nothing is listed.
+        self.assertEqual(placement.fleet_gateway(placed, values, two, "").fleet_jobs, ())
+        self.assertEqual(placement.fleet_gateway(placed, values, None, LIGHT_SIDE).fleet_jobs, ())
+        dropped = placement.fleet_gateway(placed, values, one, LIGHT_SIDE)
+        self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
+        self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
+
+    def test_main_lists_a_fleet_job_only_with_a_gateway_runner_for_its_client(self):
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet", "CASCADE_RUNS": ""}
+        for runners, listed in ((self.light(False, False), " fast-tier "), (self.light(False, True), "")):
+            with self.subTest(idle=len([r for r in runners if not r.get("busy")])), \
+                    mock.patch.object(placement.cascade, "place", return_value=self.fleet_placed("fast-tier")):
+                lines = self.run_main(runners, **values)
+                self.assertEqual(lines["gateway_runner"], LIGHT_SIDE)
+                self.assertEqual(lines["fleet_jobs"], listed)
+
+    def test_a_rerun_lists_no_fleet_job(self):
+        self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
+                         .fleet_jobs, ())
 
 
 class SpillToCompatiblePool(unittest.TestCase):
@@ -1594,6 +1657,32 @@ class FeedReplyFullText(unittest.TestCase):
     def test_verify_stays_hosted(self):
         # verify waits up to 30 min on another run and drives a GUI app; it keeps Blacksmith.
         self.assertEqual(evaluate(self.runs_on("verify"), self.context()), FALLBACK)
+
+
+class SmallMacChecks(unittest.TestCase):
+    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
+    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
+            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+
+    def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
+                head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:
+        context = github_context(event, CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, repository_owner=owner,
+                                 event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+        return context
+
+    def test_attempt_1_takes_the_side_lane_and_everything_else_blacksmith(self):
+        for name, job in self.JOBS:
+            runs_on = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job]["runs-on"]
+            with self.subTest(workflow=name):
+                for event in ("pull_request", "push", "workflow_dispatch"):
+                    self.assertEqual(evaluate(runs_on, self.context(event=event)), SIDE, event)
+                self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
 
 class SingleHostRoute(unittest.TestCase):

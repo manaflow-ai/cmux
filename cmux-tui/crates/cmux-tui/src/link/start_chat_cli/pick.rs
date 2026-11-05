@@ -1,17 +1,8 @@
-//! Which Cloud machine a `cloud.startChat` send runs on (Leo, 2026-10-30:
-//! "like the initial 0 to 1 chat auto it sends to cloud"). For now each Mac
-//! workspace gets a small machine of its own (Leo, 2026-10-31: "austin/lawrence
-//! said indeed we wanted 1 workspace per vm for now / i guess they're
-//! relatively smol vms"; leo-workspace `design/cloud.md`, "One workspace per
-//! small machine, snapshots, and a Cloud button"): a workspace's first send
-//! makes a new machine named for chats ([`CHATS_NAME`]), its later sends go
-//! back to it, and a machine already some workspace's is never given to
-//! another. An existing machine is never reused for a new workspace, so the
-//! team's machines (someone's busy lane VM, a teammate's box) and fleet VMs
-//! made under the person's own account ([`is_fleet`]) are never taken. A retry of the same send stays on the machine its first try took
-//! ([`destination`]), so it never opens a second chat with the prompt
-//! elsewhere. The ledger can hold many workspaces on one machine; one per
-//! machine is this file's policy, so sharing can come back here alone.
+//! The local pins of a Cloud first send. The platform chooses a project's
+//! default machine and may share it across workspaces (`claim_project`).
+//! The fallback create path gives a new workspace its own machine (`claim`)
+//! and never picks an arbitrary fleet VM or teammate's machine. A retry
+//! stays on the machine its first send took, preserving its tab key.
 
 use std::collections::BTreeSet;
 
@@ -133,7 +124,7 @@ pub(crate) enum Destination {
 /// a send from the Mac workspace `workspace`, the machine that workspace
 /// already has ([`workspace_machine`]). Otherwise a new machine: a workspace
 /// with no machine, or a send from no workspace, never reuses an existing
-/// one (one workspace per small machine for now; see the module comment).
+/// one locally. The caller asks the platform to resolve the project before creating.
 /// Drops a pin to a machine that is gone, which holds no tab of this send.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn destination(
@@ -180,6 +171,21 @@ pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: 
     }
     if pins.held_by_another(machine, workspace, account) {
         return false;
+    }
+    pins.bind(workspace, account, machine);
+    true
+}
+
+/// A platform ensure has already authorized this project's machine for the workspace.
+/// It may serve other workspaces; a racing older send still cannot replace this workspace's pin.
+pub(crate) fn claim_project(
+    pins: &mut Ledger,
+    workspace: &str,
+    account: &str,
+    machine: &str,
+) -> bool {
+    if let Some(own) = pins.workspace_machine(workspace, account) {
+        return own == machine;
     }
     pins.bind(workspace, account, machine);
     true

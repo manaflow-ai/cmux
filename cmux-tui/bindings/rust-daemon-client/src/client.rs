@@ -426,12 +426,19 @@ fn session(
         Err(e) => log::warn!("cmux daemon: identify failed: {e}"),
     }
     // A probe connection, as the app's own requests will make: the daemon
-    // either holds this key or not for its whole life.
+    // either holds this key or not for its whole life. Its `client-hello`
+    // role main tells an app session's owner that its app came, and from
+    // then on the owner stops when no client is connected and nothing else
+    // keeps it (cmux-tui `server/owner_keepers.rs`). So the probe stays
+    // open until the daemon has answered the long-lived connection
+    // ([`follow`]): closed first, it would leave the owner a moment with no
+    // client at all.
+    let mut probe = None;
     if let Some(key) = shared.install_key.get().and_then(Option::as_ref) {
         match AppConnection::connect(&info.socket, Some(key), config.request_timeout) {
-            Ok(probe) => {
-                info.verified_app = probe.verified();
-                probe.close();
+            Ok(connection) => {
+                info.verified_app = connection.verified();
+                probe = Some(connection);
             }
             Err(e) => log::warn!("cmux daemon: client-hello probe failed: {e}"),
         }
@@ -443,7 +450,7 @@ fn session(
             .with_capabilities(declared_capabilities(&config.capabilities, &info.capabilities)),
     )
     .map_err(|e| format!("connect {}: {e}", info.socket.display()))?;
-    let result = follow(config, shared, on_event, backoff, &client, info);
+    let result = follow(config, shared, on_event, backoff, &client, info, probe);
     let _ = client.close();
     result
 }
@@ -463,6 +470,7 @@ fn follow(
     backoff: &mut Duration,
     client: &cmux::Client,
     mut info: ConnectionInfo,
+    probe: Option<AppConnection>,
 ) -> Result<(), String> {
     let session = client.current_session();
     // Names this control connection in `client.list` (protocol/2's
@@ -473,6 +481,11 @@ fn follow(
     }) {
         Ok(me) => info.client_id = Some(me.id),
         Err(e) => log::warn!("cmux daemon: client.metadata.update failed: {e}"),
+    }
+    // The daemon has answered on this connection, so it counts it as a
+    // client: the probe may go ([`session`]).
+    if let Some(probe) = probe {
+        probe.close();
     }
 
     let snapshot = session.snapshot().map_err(|e| format!("session.snapshot: {e}"))?;

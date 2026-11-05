@@ -36,6 +36,10 @@ concurrency:
   group: gallery-advisory-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Drafts skip until they are marked ready, and CI_QUOTA_HOLD=1 pauses the
   # receipt while the GITHUB_TOKEN budget is reserved for the nightly
@@ -87,7 +91,7 @@ jobs:
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -108,6 +112,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Setup Bun
@@ -183,7 +191,7 @@ jobs:
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # Each stage renders its own states: a state the PR adds has no base
           # variant to render (the base reports it not ready), and one it removes
           # has no head variant.
@@ -313,8 +321,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
-          # A run that finished after a newer push leaves the section to that push's run.
-          live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          # A run that finished after a newer push leaves the section to that push's run. The head is
+          # read with git (no API call); the REST pull request read is the fallback.
+          live=$(git ls-remote origin "refs/pull/$PR/head" 2>/dev/null | cut -f1 || true)
+          if ! [[ "$live" =~ ^[0-9a-f]{40}$ ]]; then
+            live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          fi
           if [ "$live" != "$HEAD_SHA" ]; then
             echo "#$PR moved to ${live:0:7}; its own run writes the gallery section"
             exit 0

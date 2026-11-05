@@ -5,6 +5,7 @@
 //! the `cmux-vnc` crate; this module parses the command, resolves the
 //! address, asks for credentials and runs the viewer.
 
+mod input_spool;
 mod keys;
 mod kitty;
 mod layout;
@@ -65,6 +66,13 @@ OPTIONS
   --remote-clipboard         copy the remote clipboard to this computer's
                              clipboard (off by default: the server could
                              otherwise set your clipboard at any time)
+
+SECURITY
+  A direct TCP VNC connection has no transport encryption: remote desktop
+  pixels, keys and clipboard can be observed on the network. VeNCrypt Plain
+  is refused because it sends a reusable account password without TLS.
+  For remote desktop privacy, use a trusted encrypted tunnel and a server
+  offering VNC authentication. Cloud machines use a separate port forward.
 
 When the server needs a password and none is given, the viewer asks for one.
 In the viewer, Ctrl-] then q quits, r reconnects, v toggles view only,

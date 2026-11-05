@@ -60,6 +60,15 @@ extension BrowserTabState {
     }
 }
 
+/// The page view's find bar, as the model drives it.
+@MainActor
+protocol StreamedBrowserFindBar: AnyObject {
+    /// Shows the bar (Find… in the page menu, Cmd-F).
+    func present()
+    /// The model's ``StreamedBrowserModel/findResult`` changed: the bar's count follows.
+    func resultsChanged()
+}
+
 /// A browser tab whose page runs on the Mac (its browser host, the CEF fork
 /// the cmux-next app uses for remote tabs) and streams here as H.264 video
 /// over the link's `browser` service. Touches, scrolls and typing go back as
@@ -111,6 +120,14 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var contextMenuAsked = false
     /// Which long press the running wait belongs to (a later press has its own).
     @ObservationIgnored private var contextMenuAsk = 0
+    /// Find in page: the running search's results (`rb.find.result`), nil while no search
+    /// has reported (none running, or its first result has not come).
+    @ObservationIgnored public private(set) var findResult: RemoteBrowserFindResult?
+    /// The query of the running search ("" when none runs).
+    @ObservationIgnored public private(set) var findQuery = ""
+    /// The page view's find bar: told when results arrive, asked to show (the page
+    /// menu's Find…). Set by the page view.
+    @ObservationIgnored weak var findBar: (any StreamedBrowserFindBar)?
     /// Opens a page's new tab or window (`rb.open_tab`) beside this tab: the new tab's id,
     /// or nil when none opened. Nil: the phone refuses every one.
     @ObservationIgnored public var openTab: (@MainActor (RemoteBrowserOpenTab) async -> String?)?
@@ -392,6 +409,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 // transport) would stay hidden, blank, under this new viewer.
                 try? connection.send(message: wire.visibility(visible))
                 if !visible { openedHidden?() }
+                resumeFind()
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
@@ -422,6 +440,12 @@ public final class StreamedBrowserModel: BrowserTabState {
             guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
             log.notice("browser \(self.tab, privacy: .public): dialog \(token) closed by the page (open: \(self.dialog?.token ?? 0))")
             if dialog?.token == token { dialog = nil }
+        case "rb.find.result":
+            // Only while a search runs: a result after Done (or before a new session's first
+            // search) is for a search the find bar no longer shows.
+            guard !findQuery.isEmpty, let result = RemoteBrowserFindResult(json: json) else { return }
+            findResult = result
+            findBar?.resultsChanged()
         case "rb.open_tab":
             guard let request = RemoteBrowserOpenTab(json: json) else { return }
             openRequestedTab(request, from: sink)
@@ -538,6 +562,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// The Mac's page facts, read through the step or navigation in flight.
     func apply(_ page: RemoteBrowserPage) {
         let reported = URL(string: page.url).flatMap { page.url.isEmpty ? nil : $0 }
+        // A new page ends Chromium's search: the count goes (the next query searches it).
+        if let reported, reported != url, findResult != nil {
+            findResult = nil
+            findBar?.resultsChanged()
+        }
         if let (target, from) = navigating {
             // The old page (or a new tab's about:blank) while the asked-for one loads.
             let stale = reported == nil || reported?.absoluteString == "about:blank" || reported == from
@@ -745,6 +774,55 @@ public final class StreamedBrowserModel: BrowserTabState {
         contextMenu = nil
         dialog = nil
         contextMenuWaitEnded()
+        // A new session's page has no search running: the old count goes.
+        if findResult != nil {
+            findResult = nil
+            findBar?.resultsChanged()
+        }
+    }
+
+    /// The new stream session's page searches again for what the find bar still shows.
+    private func resumeFind() {
+        guard !findQuery.isEmpty else { return }
+        send(wire.find(findQuery, forward: true, next: false))
+    }
+
+    /// The find bar's results are no longer current (UIKit asks before a new query): the count
+    /// goes here only; the page's search ends with Done or an empty query.
+    func clearFindResult() {
+        guard findResult != nil else { return }
+        findResult = nil
+        findBar?.resultsChanged()
+    }
+
+    // MARK: Find in page
+
+    /// Find… (the page menu, Cmd-F): the find bar over the page.
+    public func showFind() {
+        findBar?.present()
+    }
+
+    /// Finds `query` in the page: a new search (results come as `rb.find.result`), or
+    /// none for an empty query (the search and its highlights end).
+    public func find(_ query: String) {
+        guard !query.isEmpty else { return stopFind() }
+        findQuery = query
+        findResult = nil
+        send(wire.find(query, forward: true, next: false))
+    }
+
+    /// The next (or previous) match of the running search.
+    public func findNext(forward: Bool) {
+        guard !findQuery.isEmpty else { return }
+        send(wire.find(findQuery, forward: forward, next: true))
+    }
+
+    /// Ends the search: the page's highlights go, the active match stays selected.
+    public func stopFind() {
+        guard !findQuery.isEmpty else { return }
+        findQuery = ""
+        findResult = nil
+        send(wire.findStop())
     }
 
     /// The page opened a link in a new tab or window: the phone opens it beside this tab

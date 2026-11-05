@@ -27,6 +27,19 @@ pub fn from_an_agent(named: bool) -> bool {
     agent_in(named, |key| std::env::var(key).ok())
 }
 
+/// It runs in an agent harness's own shell outside acpmux (a Claude Code or Codex session in a
+/// terminal): its `acpmux send` is a message to another agent, so it is queued and returns at
+/// once (`run/standard.rs` `send_queues`). It says nothing about who sent it.
+pub fn in_an_agent_harness() -> bool {
+    harness_in(|key| std::env::var(key).ok())
+}
+
+fn harness_in(env: impl Fn(&str) -> Option<String>) -> bool {
+    ["CLAUDECODE", "CODEX_THREAD_ID"]
+        .iter()
+        .any(|key| env(key).is_some_and(|v| !v.trim().is_empty()))
+}
+
 fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
     named || in_session(env)
 }
@@ -60,6 +73,14 @@ mod tests {
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    }
+
+    #[test]
+    fn a_claude_code_or_codex_shell_is_an_agent_harness() {
+        assert!(harness_in(env(&[("CLAUDECODE", "1")])));
+        assert!(harness_in(env(&[("CODEX_THREAD_ID", "t-1")])));
+        assert!(!harness_in(env(&[("CLAUDECODE", " ")])));
+        assert!(!harness_in(env(&[("TERM", "xterm")])));
     }
 
     #[test]

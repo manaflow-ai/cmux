@@ -11,7 +11,9 @@ export type GridMetric =
   | "text"
   | "optical"
   | "radius"
-  | "padding";
+  | "padding"
+  | "padding-top"
+  | "padding-bottom";
 export type GridPoint = {
   selector: string;
   metric: GridMetric;
@@ -24,6 +26,8 @@ export type GridPoint = {
 export type GridLine = {
   name: string;
   all?: boolean;
+  /** Measure inward from a trailing/bottom origin instead of outward from the lead. */
+  inward?: boolean;
   actual: GridPoint;
   origin?: GridPoint;
   expected: string | GridPoint;
@@ -117,6 +121,10 @@ export function measureGridLines(scene: GridScene): GridResult[] {
       if (kind === "cy") return rect.top + rect.height / 2;
       if (kind === "radius") return parseFloat(getComputedStyle(el).borderTopLeftRadius);
       if (kind === "padding") return parseFloat(getComputedStyle(el).paddingLeft);
+      // A card's block padding, read from style: its 1 px edge may come from a theme colour some
+      // galleries leave out, so the inset from the border box is not a stable line.
+      if (kind === "padding-top") return parseFloat(getComputedStyle(el).paddingTop);
+      if (kind === "padding-bottom") return parseFloat(getComputedStyle(el).paddingBottom);
       if (kind !== "text" && kind !== "optical") return rect[kind];
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let node: Node | null;
@@ -180,7 +188,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
         let expected: number | null = null;
         try {
           expected = typeof line.expected === "string" ? length(line.expected) : metric(line.expected);
-          const actual = metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0);
+          const actual =
+            (metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0)) * (line.inward ? -1 : 1);
           if (!Number.isFinite(expected) || !Number.isFinite(actual)) throw new Error("non-finite measurement");
           return {
             line: `${index + 1}/${line.name}${line.all ? `/${matchIndex + 1}` : ""}`,

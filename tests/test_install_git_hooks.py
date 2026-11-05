@@ -315,6 +315,33 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
 
+    def test_pre_commit_registers_a_new_test_in_its_area_fragment(self):
+        """The registry is tests/test-execution.d/<area>.toml: a new test goes into its area's file,
+        and the hook stages that file, including a fragment the registration creates."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        workflow.write_text(
+            "name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+            "      - run: python3 tests/test_ci_kept.py\n      - run: python3 tests/test_ci_mine.py\n",
+            encoding="utf-8",
+        )
+        fragments = self.repo / "tests/test-execution.d"
+        fragments.mkdir(parents=True)
+        (fragments / "ci.toml").write_text('# ci\n\n[[test]]\npath = "tests/test_ci_kept.py"\nlane = "linux-guard"\n',
+                                           encoding="utf-8")
+        (self.repo / "tests/test_ci_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        (self.repo / "tests/test_ci_mine.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "tests/test_ci_mine.py")
+        result = self.run_pre_commit(self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('path = "tests/test_ci_mine.py"', (fragments / "ci.toml").read_text(encoding="utf-8"))
+        self.assertFalse((self.repo / "tests/test-execution.toml").exists())
+        self.assertIn("tests/test-execution.d/ci.toml", self.git("diff", "--cached", "--name-only").stdout)
+
     def test_pre_commit_registers_a_test_its_workflow_change_names(self):
         """A commit that only adds a workflow line for an existing test registers that test, and
         still not the base's other unregistered one (#21946)."""
@@ -341,6 +368,47 @@ class InstallGitHooksTests(unittest.TestCase):
         text = registry.read_text(encoding="utf-8")
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
+
+    def test_pre_commit_registers_no_test_in_a_merge_commit(self):
+        """Merging the base into a pull request staged every test the base added since the branch
+        point, so the hook wrote the base's unregistered test into the pull request's merge commit
+        (tests/test_nightly_dedicated_mini.py in #30071 and #30351). A merge adds no test of its own."""
+        self.assertEqual(self.install().returncode, 0)
+        commit = ("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet")
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        base_workflow = ("name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+                         "      - run: python3 tests/test_kept.py\n")
+        workflow.write_text(base_workflow, encoding="utf-8")
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry_text = 'version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n'
+        registry.write_text(registry_text, encoding="utf-8")
+        (self.repo / "tests/test_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base")
+
+        self.git("checkout", "--quiet", "-b", "pr")
+        (self.repo / "notes.txt").write_text("pull request work\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git(*commit, "--no-verify", "-m", "pull request work")
+
+        # The base adds a test and the workflow line that runs it, and leaves it unregistered.
+        self.git("checkout", "--quiet", "main")
+        (self.repo / "tests/test_theirs.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        workflow.write_text(base_workflow + "      - run: python3 tests/test_theirs.py\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base adds a test")
+
+        self.git("checkout", "--quiet", "pr")
+        merged = self.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "--quiet", "--no-ff",
+                          "--no-commit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        result = self.git(*commit, "--no-edit", check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "HEAD").stdout.split()), 3)
+        self.assertEqual(self.git("show", "HEAD:tests/test-execution.toml").stdout, registry_text)
+        self.assertEqual(registry.read_text(encoding="utf-8"), registry_text)
 
     def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
         self.assertEqual(self.install().returncode, 0)

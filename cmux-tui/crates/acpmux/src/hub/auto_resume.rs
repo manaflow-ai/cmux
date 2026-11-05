@@ -18,6 +18,9 @@
 //!   At most [`MAX_CONFIGURED_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not
 //!   a whole number of milliseconds of 0 or more is refused with a warning and the default
 //!   waits apply.
+//! - Without `autoResumeDelaysMs`, the person's Settings set the loop (`agents.autoRetry.*`:
+//!   on or off, the seconds before each attempt, how many attempts; [`settings`]), read at each
+//!   retry; their defaults are the default waits.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
@@ -65,6 +68,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -104,6 +108,10 @@ pub(crate) mod retry_turn;
 /// A first send a revoked OAuth token failed goes again once, 2 s later.
 mod first_send;
 
+/// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
+mod settings;
+pub(in crate::hub) use settings::effective_delays;
+
 /// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
 /// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
 /// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
@@ -124,7 +132,7 @@ pub const MAX_CONFIGURED_ATTEMPTS: usize = 12;
 /// transport cut: one per wait, or the default's four when the config says nothing. 0 (`[]`)
 /// turns it off.
 pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
-    delays.map_or(DEFAULT_DELAYS_MS.len(), Vec::len)
+    delays.map_or_else(|| effective_delays(None).len(), Vec::len)
 }
 
 /// Shortest and longest configured wait, in milliseconds.
@@ -244,6 +252,8 @@ enum Mark {
 /// The retry state of one session instance; returning imports have their own mark.
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    /// Loaded once from the journal; checked under `mark` before a prompt gets a turn.
+    stopped_prompts: Mutex<Option<HashSet<String>>>,
     #[cfg(test)]
     stop_locked: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     #[cfg(test)]
@@ -257,6 +267,7 @@ impl Default for Pending {
     fn default() -> Self {
         Self {
             mark: Mutex::default(),
+            stopped_prompts: Mutex::default(),
             released: tokio::sync::watch::channel(0).0,
             #[cfg(test)]
             stop_locked: Mutex::default(),
@@ -317,7 +328,7 @@ impl Drop for PendingGuard<'_> {
 /// not hold, and its last turn is that one.
 pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
     session.turn().is_none()
-        && session.queue().iter().all(|q| q.held)
+        && session.queue().iter().all(|q| q.aside())
         && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
             == Some(cut_turn)
 }
@@ -400,6 +411,7 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
@@ -409,6 +421,7 @@ impl TurnInfo {
             turn_seq: 0,
             control,
             doing: Default::default(),
+            notice: false,
             persons: false,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
@@ -424,6 +437,12 @@ impl TurnInfo {
     /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
     pub(super) fn shown_as(mut self, line: &str) -> Self {
         self.show(line);
+        self
+    }
+
+    /// The turn with `notice` as whether its prompt is acpmux's notice (`TurnInfo::notice`).
+    pub(super) fn noticed(mut self, notice: bool) -> Self {
+        self.notice = notice;
         self
     }
 
@@ -557,10 +576,8 @@ impl Hub {
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
-            let delays = {
-                let cfg = hub.config.read().await;
-                cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-            };
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = effective_delays(configured);
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
@@ -671,23 +688,205 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
+    pub(super) fn has_auto_resume_mark(&self, session: &Session) -> bool {
+        session.auto_resume.lock().is_some()
+    }
+
     /// An explicit (non-restart) shutdown: a retry that waits, or one only the journal holds yet,
     /// is stopped; a chat whose turn runs or is ending is left alone, so the next daemon still
     /// continues the turn the shutdown cut (`restart_resume.rs`).
-    pub(super) fn stop_retry_at_shutdown(&self, session: &Session) {
+    /// The journal is read only until `by` (`shutdown_sessions`' budget): a log scan past it is cut
+    /// short, and a retry only that journal held then stays for the next daemon.
+    pub(super) fn stop_retry_at_shutdown(&self, session: &Session, by: std::time::Instant) {
         let cut = session.turn().is_some()
             || matches!(
                 session.auto_resume.lock().as_ref(),
                 Some(Mark::Ending(_) | Mark::Stopping(_))
             );
         if !cut {
-            self.stop_auto_resume(session);
+            self.stop_auto_resume_by(session, Some(by));
         }
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
+        self.stop_auto_resume_by(session, None);
+    }
+
+    /// Read durable exact-prompt tombstones once per restored session. Callers hold
+    /// the retry mark lock, serializing cancellation with turn admission.
+    fn prompt_stop_set<'a>(
+        &self,
+        session: &'a Session,
+    ) -> Result<std::sync::MutexGuard<'a, Option<HashSet<String>>>, RpcError> {
+        let mut stopped = session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if stopped.is_none() {
+            let mut roots = HashSet::new();
+            self.store
+                .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
+                    if event.dir == "mux"
+                        && event.kind == "prompt_stop_requested"
+                        && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                    {
+                        roots.insert(prompt.to_owned());
+                    }
+                    true
+                })
+                .map_err(|error| {
+                    RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
+                })?;
+            *stopped = Some(roots);
+        }
+        Ok(stopped)
+    }
+
+    fn prompt_stop_recorded(&self, session: &Session, root: &str) -> Result<bool, RpcError> {
+        let mut found = false;
+        self.store
+            .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
+                found = event.dir == "mux"
+                    && event.msg.get("promptId").and_then(Value::as_str) == Some(root);
+                !found
+            })
+            .map_err(|error| {
+                RpcError::internal(format!("cannot read back prompt stop boundary: {error}"))
+            })?;
+        Ok(found)
+    }
+
+    /// Fence only the automatic continuation chain belonging to this accepted prompt.
+    /// Lock order matches retry admission: retry state, append, then turn identity. An
+    /// unrelated person's next turn and its retry mark are never replaced or stopped.
+    /// Returns the exact running descendant, when the original already auto-resumed.
+    pub(super) fn stop_prompt_retry(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Result<Option<String>, RpcError> {
+        let root = split_attempt(prompt_id).0;
+        let mut pending = session.auto_resume.lock();
+        {
+            let mut stopped = self.prompt_stop_set(session)?;
+            if !stopped.as_ref().is_some_and(|roots| roots.contains(root)) {
+                let mut recorded = false;
+                for _ in 0..2 {
+                    if !self.append_stored(
+                        session,
+                        "mux",
+                        "prompt_stop_requested",
+                        json!({"promptId":root}),
+                    ) {
+                        return Err(RpcError::internal("cannot persist prompt stop boundary"));
+                    }
+                    self.store.flush_session(&session.id).map_err(|error| {
+                        RpcError::internal(format!("cannot flush prompt stop boundary: {error}"))
+                    })?;
+                    if self.prompt_stop_recorded(session, root)? {
+                        recorded = true;
+                        break;
+                    }
+                    // A pre-existing unterminated line can swallow the first record.
+                    // That append ends the line; one more marker is independently readable.
+                    // Never alter history or acknowledge an unverified cancellation.
+                }
+                if !recorded {
+                    return Err(RpcError::internal("prompt stop boundary is not readable"));
+                }
+                // Never cache or acknowledge a boundary until it is on stable storage:
+                // a failed write must be retried, including by this same daemon.
+                stopped.get_or_insert_with(HashSet::new).insert(root.to_owned());
+            }
+        }
+        let mut turns = std::collections::BTreeSet::new();
+        let mut latest = None;
+        let scanned = self.store.scan_kinds(
+            &session.id,
+            &["queued", "user_message", "turn_started", "turn_result", "auto_resume_scheduled"],
+            &mut |event| {
+                if event.dir == "mux"
+                    && matches!(
+                        event.kind.as_str(),
+                        "queued"
+                            | "user_message"
+                            | "turn_started"
+                            | "turn_result"
+                            | "auto_resume_scheduled"
+                    )
+                    && event
+                        .msg
+                        .get("promptId")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| split_attempt(id).0 == root)
+                    && let Some(turn) = event.msg.get("turnId").and_then(Value::as_str)
+                {
+                    turns.insert(turn.to_owned());
+                    latest = Some(turn.to_owned());
+                }
+                true
+            },
+        );
+        scanned
+            .map_err(|error| RpcError::internal(format!("cannot fence prompt retry: {error}")))?;
+        let active = session.turn().filter(|turn| split_attempt(&turn.prompt_id).0 == root);
+        if let Some(active) = &active {
+            turns.insert(active.turn_id.clone());
+            latest = Some(active.turn_id.clone());
+        }
+        let marked = match pending.as_ref() {
+            Some(
+                Mark::Waiting { turn, .. }
+                | Mark::Firing(turn)
+                | Mark::Ending(turn)
+                | Mark::Stopped(turn)
+                | Mark::Stopping(turn),
+            ) => Some(turn.clone()),
+            None => None,
+        };
+        if let Some(turn) = marked.filter(|turn| turns.contains(turn)) {
+            let fired = matches!(pending.as_ref(), Some(Mark::Firing(_) | Mark::Stopping(_)));
+            pending.replace(if fired {
+                Mark::Stopping(turn.clone())
+            } else {
+                Mark::Stopped(turn.clone())
+            });
+            self.append(
+                session,
+                "mux",
+                "auto_resume_stopped",
+                json!({"turnId":turn,"promptId":root}),
+            );
+            self.append(
+                session,
+                "mux",
+                "auto_resume_settled",
+                json!({"turnId":turn,"promptId":root,"why":"stopped"}),
+            );
+        } else if let Some(turn) = latest {
+            // Persist a boundary even in the crash window between terminal result and
+            // schedule. Restore and a late schedule both consult this exact turn.
+            self.append(
+                session,
+                "mux",
+                "turn_stop_requested",
+                json!({"turnId":turn,"promptId":root}),
+            );
+            if pending.is_none() {
+                pending.replace(Mark::Stopped(turn));
+            }
+        }
+        Ok(active.map(|turn| turn.prompt_id))
+    }
+
+    /// [`Hub::stop_auto_resume`], reading the journal only until `by`: the scan checks it on
+    /// every line, so one large log cannot hold a shutdown past its deadline.
+    fn stop_auto_resume_by(&self, session: &Session, by: Option<std::time::Instant>) {
+        let expired = || by.is_some_and(|by| std::time::Instant::now() >= by);
         let mut pending = session.auto_resume.lock();
         #[cfg(test)]
         if let Some(locked) =
@@ -720,8 +919,12 @@ impl Hub {
             &session.id,
             0,
             u64::MAX,
-            &|_, kind| !boundaries.contains(&kind),
+            // Past `by`, the next line goes to `visit`, which ends the scan.
+            &|_, kind| !boundaries.contains(&kind) && !expired(),
             &mut |e: EventRecord| {
+                if expired() {
+                    return false;
+                }
                 // A crash can leave the failed result durable before its schedule. Stop
                 // must suppress that unscheduled recovery too, even before startup loads it.
                 let retryable_result = e.kind == "turn_result"
@@ -798,6 +1001,16 @@ impl Hub {
     /// or with `None` nothing pending.
     /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
     #[cfg(test)]
+    pub(super) fn clear_prompt_stop_cache_for_test(&self, session: &Session) {
+        session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+
+    #[cfg(test)]
     pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
         matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
     }
@@ -824,11 +1037,19 @@ impl Hub {
         subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
+        self.resume_before_turn();
         let mut pending = session.auto_resume.lock();
         // Transfer replacement seals the old instance before staging its store. Reject before
         // installing a TurnInfo so a fired retry cannot start against the incoming journal.
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(superseded());
+        }
+        if self
+            .prompt_stop_set(session)?
+            .as_ref()
+            .is_some_and(|roots| roots.contains(split_attempt(&turn.prompt_id).0))
+        {
+            return Err(super::turns::stopped_before_prompt());
         }
         let continuation = is_pending(pending.as_ref());
         if exclusive
@@ -1119,6 +1340,163 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FailingPromptStopStore {
+        inner: Box<dyn crate::store::Store>,
+        failure: Arc<std::sync::atomic::AtomicU8>,
+    }
+
+    impl crate::store::Store for FailingPromptStopStore {
+        fn list(&self) -> anyhow::Result<Vec<crate::store::SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<crate::store::SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &crate::store::SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                record.kind != "prompt_stop_requested"
+                    || self.failure.load(std::sync::atomic::Ordering::SeqCst) != 1,
+                "injected prompt stop append failure"
+            );
+            self.inner.append(id, record)
+        }
+        fn flush_session(&self, id: &str) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.failure.load(std::sync::atomic::Ordering::SeqCst) != 2,
+                "injected prompt stop flush failure"
+            );
+            self.inner.flush_session(id)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    #[test]
+    fn exact_prompt_stop_reports_failed_persistence_and_retries_before_acknowledging() {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        for failed_operation in [1, 2] {
+            let mut config = crate::config::Config::default();
+            config.store.mode = crate::config::StoreMode::Memory;
+            let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+            let failure = Arc::new(AtomicU8::new(failed_operation));
+            let store = FailingPromptStopStore { inner, failure: failure.clone() };
+            let meta = serde_json::from_value(json!({
+                "schema":crate::store::META_SCHEMA,"id":"failed-stop","name":"Failed stop",
+                "harness":"fake","cwd":"/tmp","status":"closed","createdAt":1,"updatedAt":1
+            }))
+            .unwrap();
+            crate::store::Store::save(&store, &meta).unwrap();
+            let hub = Hub::new(config, Box::new(store));
+            let session = hub.resolve("failed-stop").unwrap();
+            session.auto_resume.lock().replace(Mark::Ending("workflow-turn".into()));
+            for _ in 0..2 {
+                assert!(
+                    hub.stop_prompt_retry(&session, "workflow").is_err(),
+                    "stop acknowledged despite failing persistence operation {failed_operation}"
+                );
+                assert!(matches!(session.auto_resume.lock().as_ref(),
+                    Some(Mark::Ending(turn)) if turn == "workflow-turn"));
+            }
+            failure.store(0, Ordering::SeqCst);
+            hub.stop_prompt_retry(&session, "workflow").unwrap();
+            hub.clear_prompt_stop_cache_for_test(&session);
+            let turn = TurnInfo::prompted(
+                "workflow",
+                "late retry",
+                "retry-turn",
+                "workflow~resume-1",
+                Control::Local,
+            );
+            assert!(
+                hub.start_turn(&session, None, false, false, turn).is_err(),
+                "the acknowledged stop was not recovered from its journal"
+            );
+        }
+    }
+
+    fn retry_chat() -> (Arc<Hub>, Arc<Session>) {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta=serde_json::from_value(json!({"schema":crate::store::META_SCHEMA,"id":"retry-child",
+            "name":"Retry child","harness":"fake","cwd":"/tmp","status":"closed","createdAt":1,"updatedAt":1})).unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub.resolve("retry-child").unwrap();
+        (hub, session)
+    }
+
+    #[tokio::test]
+    async fn exact_prompt_stop_fences_waiting_and_late_retry_without_touching_person() {
+        let (hub, session) = retry_chat();
+        hub.append(&session,"mux","turn_result",json!({"promptId":"workflow","turnId":"workflow-turn","status":"failed","errorText":"HTTP 503"}));
+        for mark in [
+            Mark::Ending("workflow-turn".into()),
+            Mark::Waiting {
+                turn: "workflow-turn".into(),
+                retry: Some(retry("workflow-turn")),
+                _wake: Wake(Arc::new(Notify::new())),
+            },
+        ] {
+            session.auto_resume.lock().replace(mark);
+            assert_eq!(hub.stop_prompt_retry(&session, "workflow").unwrap(), None);
+            assert!(hub.stopped_for_test(&session, "workflow-turn"));
+            assert!(hub.fire_pending(&session, "workflow-turn").is_err());
+            hub.schedule_auto_resume(
+                &session,
+                "workflow-turn",
+                Some(CutTurn {
+                    from: None,
+                    prompt_id: "workflow",
+                    turn_id: "workflow-turn",
+                    control: Control::Local,
+                    trust_gate: false,
+                    error: "HTTP 503",
+                    not_before: None,
+                }),
+            );
+            assert!(
+                session.auto_resume.lock().is_none(),
+                "late terminal scheduling must not re-arm retry"
+            );
+        }
+        let person =
+            TurnInfo::prompted("person", "next", "person-turn", "person-prompt", Control::Local);
+        *session.turn.lock().unwrap() = Some(person);
+        session.auto_resume.lock().replace(Mark::Ending("person-turn".into()));
+        hub.cancel_prompt(&session, "workflow").await.unwrap();
+        assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+        assert!(
+            matches!(session.auto_resume.lock().as_ref(),Some(Mark::Ending(turn)) if turn=="person-turn")
+        );
+    }
+
+    #[tokio::test]
+    async fn exact_prompt_stop_returns_only_its_running_retry_descendant() {
+        let (hub, session) = retry_chat();
+        let running = TurnInfo::prompted(
+            "auto_resume",
+            "continue",
+            "retry-turn",
+            "workflow~resume-2",
+            Control::Local,
+        );
+        *session.turn.lock().unwrap() = Some(running);
+        assert_eq!(
+            hub.stop_prompt_retry(&session, "workflow").unwrap().as_deref(),
+            Some("workflow~resume-2")
+        );
+        assert!(hub.stopped_for_test(&session, "retry-turn"));
+    }
 
     fn retry(turn: &str) -> RetrySummary {
         RetrySummary {

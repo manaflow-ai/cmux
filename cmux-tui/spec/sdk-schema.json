@@ -476,6 +476,75 @@
    },
    "additional_properties": false
   },
+  "LayoutSizeSplitRatio": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ratio": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "clamped_minimum": 0.05,
+       "clamped_maximum": 0.95
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizePaneWidth": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "minimum": 0.1,
+       "maximum": 1.0
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizeValue": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "LayoutSizeSplitRatio"
+    },
+    {
+     "kind": "ref",
+     "name": "LayoutSizePaneWidth"
+    }
+   ]
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -1897,6 +1966,77 @@
       "items": {
        "kind": "ref",
        "name": "Workspace"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SelectionPane": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active_tab": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "focused_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SelectionScreen": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active_pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "panes": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SelectionPane"
       }
      },
      "presence": "required",
@@ -6288,12 +6428,37 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "wal_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "wal_synced_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "registry_wal_frame_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
-    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
    ]
   },
   "ServerStatsLockSiteDetail": {
@@ -8699,6 +8864,36 @@
    },
    "additional_properties": false
   },
+  "RemoteHostAppResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "TabGroupRecord": {
    "kind": "object",
    "fields": {
@@ -9698,6 +9893,141 @@
     "left",
     "right"
    ]
+  },
+  "ChiefWorkAgent": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "working",
+       "waiting",
+       "idle",
+       "failed"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "task": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "startedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "updatedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "ChiefWorkTask": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sessionId": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "status": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "running",
+       "done",
+       "failed",
+       "cancelled",
+       "unknown"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "startedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "endedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "detail": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -13582,6 +13912,46 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ]
+  },
+  "set-layout-sizes": {
+   "authority": "control",
+   "since": 12,
+   "capability": "layout-sizes-batch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "values": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LayoutSizeValue"
+       },
+       "min_items": 1,
+       "max_items": 64
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "All values are on one screen; a refused value refuses them all, and nothing changes."
    ]
   },
   "set-column-dock": {
@@ -17821,6 +18191,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabSplit"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "frontend-browser-tab-split-v1",
+      "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after."
      }
     },
     "additional_properties": false
@@ -19250,6 +19631,17 @@
       "default": false,
       "since": 12,
       "capability": "tab-split-keep-focus-v1"
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-client-pane-v1"
      },
      "transaction": {
       "type": {
@@ -22658,6 +23050,52 @@
     "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
    ]
   },
+  "set-attach-visibility": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "viewers": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Applies to the caller's snapshot attaches (attach-surface with snapshot ghostsnp) of the surface on this connection; viewers is 0 when there is none.",
+    "A hidden viewer gets its output once per wall-clock second (every hidden viewer of the daemon on the same second), at once when its batch passes 256 KiB, before any snapshot, and at once when it is shown again; no byte is dropped."
+   ]
+  },
   "terminal-history": {
    "authority": "control",
    "since": 12,
@@ -23957,6 +24395,124 @@
    "constraints": [
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
+   ]
+  },
+  "remote-host-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Never starts the host. The device list under host.screen.devices is the verified app's only."
+   ]
+  },
+  "remote-host-call": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+   ]
+  },
+  "remote-host-config": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "computer_use": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "screen_sharing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "headless": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+   ]
+  },
+  "remote-host-app": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "RemoteHostAppResult"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the secret admits only that app process and is never logged or journaled."
    ]
   },
   "subscribe-activity": {
@@ -25872,6 +26428,129 @@
    "stream": null,
    "constraints": [
     "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
+   ]
+  },
+  "cloud-environment": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-environments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "action": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "platform_origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "access_token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
+   ]
+  },
+  "chief-work": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "chief-work-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "chief": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "agents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ChiefWorkAgent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tasks": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ChiefWorkTask"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "taskSources": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Read-only inventory on the configured Chief machine. Only the local owner and the same authenticated owner Channels page admitted by chief-profile-ws-v1 may read it; paired devices, other pages, remote, peer and bound-agent connections are refused with origin.forbidden.",
+    "chief names an existing Chief record; the server resolves its configured brain home and acpmux ownership tags. Peer sessions and other Chiefs are excluded. Tasks cover the harness process registry only (taskSources: [harness]); daemon-owned bg tasks keep their separate person-proof gate.",
+    "One on-demand snapshot, no subscription or polling. Reads share a 15-second deadline, at most 200 owned sessions and 500 commands; truncated reports bounds. Failed or malformed reads reject with chief.work_unavailable instead of returning empty or partial success. A machine without this Chief home returns chief.work_not_configured; an unknown Chief returns chief.work_not_found. See spec/commands.md."
    ]
   }
  },
@@ -27867,6 +28546,101 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "selection-changed": {
+   "since": 12,
+   "capability": "tree-selection-deltas-v1",
+   "streams": [
+    "subscribe-deltas"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "selection-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "active": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "active_workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "screens": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "SelectionScreen"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "workspace-presentation-changed": {
+   "since": 12,
+   "capability": "tree-selection-deltas-v1",
+   "streams": [
+    "subscribe-deltas"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "workspace-presentation-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "entity": {
+      "type": {
+       "kind": "ref",
+       "name": "Workspace"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false

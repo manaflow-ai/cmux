@@ -8,6 +8,49 @@ struct PushRegistrationTests {
     private let original = PushRegistration.Preferences(kinds: ["question"], previews: false)
     private let changed = PushRegistration.Preferences(kinds: ["completed"], mutedMacs: ["mac"], previews: true)
 
+    /// On a cold background notification reply, PushReplies creates a headless
+    /// LiveCoordinator before any ShellView exists. The APNs token and API
+    /// can arrive, but a PUT must never replace the Worker's saved prefs with
+    /// the app's hard-coded default notification kinds and previews-on.
+    @Test func headlessAttachWithoutPreferencesLeavesServerChoicesUntouched() async {
+        let server = RegistrationServer()
+        server.preferences = original // Worker row persisted from an earlier launch
+        let registration = makeRegistration(server)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        #expect(registration.task == nil)
+        #expect(server.writes.isEmpty)
+        #expect(server.preferences == original)
+        #expect(!registration.receivesChiefPushes)
+
+        // Foreground ShellView has now published the actual user's choices.
+        registration.setPreferences(changed)
+        await registration.task?.value
+        #expect(server.writes == [changed])
+        #expect(server.preferences == changed)
+    }
+
+    /// A sign-out clears the source of preferences too: a quick second
+    /// account may have a cached APNs token, but it still waits for its own
+    /// foreground preferences before publishing a new row.
+    @Test func signOutDoesNotCarryThePreviousAccountsPreferencesIntoNextAttach() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await registration.task?.value
+        await registration.unregister()
+
+        let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { _ in "unused" })
+        registration.attach(api: api, deviceID: "phone")
+        #expect(registration.task == nil)
+        #expect(server.preferences == nil)
+
+        registration.setPreferences(changed)
+        await registration.task?.value
+        #expect(server.events == ["put", "delete", "put"])
+        #expect(server.preferences == changed)
+    }
+
     /// Chief's local alerts stand down only once the service has accepted a
     /// registration that includes `chief` (duplicate Chief notifications, 2026-10-30).
     @Test func receivesChiefPushesOnlyAfterAcceptedChiefRegistration() async {
@@ -171,6 +214,8 @@ struct PushRegistrationTests {
         while registration.task != nil { await Task.yield() }
         let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { _ in "unused" })
         registration.attach(api: api, deviceID: "phone")
+        // The new account's Settings owner restores these choices explicitly.
+        registration.setPreferences(original)
         let signIn = registration.task
         server.release()
         await signOut.value

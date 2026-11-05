@@ -78,6 +78,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private let width: Int, height: Int, frames: Int
     private var next = 0
+    private var finished = false
     private let queue = DispatchQueue(label: "cmux.home.fixture.video")
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput, adaptor: AVAssetWriterInputPixelBufferAdaptor,
@@ -93,14 +94,18 @@ nonisolated final class VideoJob: @unchecked Sendable {
     func run() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             input.requestMediaDataWhenReady(on: queue) { [self] in
-                while input.isReadyForMoreMediaData, next < frames {
-                    if let buffer = frame(next) {
-                        adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(next), timescale: 30))
-                    }
+                // The requester may call once more after the input is marked finished; resume once.
+                guard !finished else { return }
+                // A writer that failed (its encoder went away, say) takes no more frames and will
+                // not ask again: stop feeding it, so no frame comes from its torn-down pool.
+                while writer.status == .writing, input.isReadyForMoreMediaData, next < frames {
+                    if let buffer = frame(next),
+                       !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(next), timescale: 30)) { break }
                     next += 1
                 }
-                guard next >= frames else { return }
-                next = .max
+                if writer.status == .writing, next < frames { return }
+                finished = true
+                guard writer.status == .writing else { return done.resume() }
                 input.markAsFinished()
                 writer.finishWriting { done.resume() }
             }

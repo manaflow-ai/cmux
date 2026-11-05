@@ -91,6 +91,22 @@ def sample(pid, path, seconds=1):
         return ""
 
 
+def main_thread(text, lines=40):
+    """The main thread's call graph from a `sample` report, its first `lines` lines (the deepest frames that matter
+    sit near the top of a stuck wait)."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if not inside and "Thread_" in line and "main-thread" in line:
+            inside = True
+        elif inside and ("Thread_" in line or not line.strip()):
+            break
+        if inside:
+            out.append("    " + line.rstrip())
+            if len(out) >= lines:
+                break
+    return "\n".join(out)
+
+
 def marker_folder():
     """The app's run marker folder (AppRunMarker.standardDirectory: the bundle id, made path-safe)."""
     import plistlib
@@ -132,8 +148,16 @@ def run(kind):
         if not wait(answered, 180):
             # Infra, not a crash freeze: say what the socket did, so the cause is in the log.
             state = "a socket" if os.path.exists(sock) else "absent"
+            # The app keeps its socket in its state folder with a /tmp link to it (ControlSocketPath).
+            moved = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{tag}.sock")
+            moved_state = "a socket" if os.path.exists(moved) else "absent"
+            # Where the app is instead of serving its socket: its main thread, saved whole beside the logs.
+            stack = ""
+            if process.poll() is None:
+                stack = main_thread(sample(pid, os.path.join(opts.out, f"no-socket-{kind}.txt"), seconds=2))
             return (f"{kind}: the app's debug socket never answered (a Debug build is required); "
-                    f"{sock} is {state}, alive={process.poll() is None}, last reply {last.get('reply')}")
+                    f"{sock} is {state}, {moved} is {moved_state}, alive={process.poll() is None}, "
+                    f"last reply {last.get('reply')}" + (f"\n  main thread (no-socket-{kind}.txt):\n{stack}" if stack else ""))
         before = sample(pid, os.path.join(opts.out, f"before-{kind}.txt"))
         if PRIMARY not in before:
             return f"{kind}: Sentry's primary Mach exception thread does not run before the crash (CMUX_NEXT_DEV_SENTRY=1 not honored?)"

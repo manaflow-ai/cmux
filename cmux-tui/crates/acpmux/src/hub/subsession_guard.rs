@@ -383,7 +383,7 @@ impl Hub {
 
     /// Starts `session`'s harness (`child_for`) pinned to `checked`, as
     /// [`Hub::ensure_checked_child`] spawns a new sub-session's: a sub-session's fork
-    /// (`fork.rs` `fork_into`).
+    /// (`fork.rs` `fork_with_boundary`).
     pub(super) async fn start_checked_child(
         self: &Arc<Self>,
         session: &Arc<Session>,

@@ -156,6 +156,11 @@ impl Hub {
             .retain(|lane, reads| lane != id && reads.parent != id);
     }
 
+    /// `lane`'s link ended: its receipts go, and those of lanes it started stay.
+    pub(super) fn lane_report_unlinked(&self, lane: &str) {
+        self.lane_report_reads.lanes.lock().unwrap_or_else(|e| e.into_inner()).remove(lane);
+    }
+
     /// A successful completion wait returned this ended result. Running/permission hits do not count.
     pub(crate) fn lane_report_wait_read(self: &Arc<Self>, caller: Option<&str>, rows: &[Value]) {
         for row in rows {

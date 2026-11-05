@@ -50,6 +50,18 @@ pub enum PeerCmd {
         #[arg(value_parser = ["on", "off"])]
         state: Option<String>,
     },
+    /// This machine's load now, as one JSON object: CPU busy share, CPU and
+    /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
+    /// whether a turn runs here, and a build or test that is running. Reads
+    /// only; never starts a daemon. Fields it cannot read are left out.
+    Load,
+    /// Add one muted line to every live chat on this machine's daemon, such
+    /// as the note cmux Cloud adds after it resizes the machine.
+    Notice {
+        /// The line, one line of at most 300 characters.
+        #[arg(long)]
+        text: String,
+    },
     /// Remove a machine you added.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -88,6 +100,20 @@ pub enum PeerCmd {
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// The person's vault on this joined machine: env vars and API keys kept
+    /// once for every machine, stored in the OS secret store and given to
+    /// every agent here. Never a Claude or Codex subscription login.
+    Vault {
+        #[command(subcommand)]
+        cmd: VaultCmd,
+    },
+    /// Installed dependencies from the cache, keyed by lockfile: a new Cloud
+    /// machine restores node_modules, Cargo's registry and the npm, pnpm and
+    /// uv caches instead of installing cold. Never caches credentials files.
+    Deps {
+        #[command(subcommand)]
+        cmd: DepsCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
@@ -164,6 +190,10 @@ pub enum PeerCmd {
     Enroll {
         /// ssh target, e.g. huge-blue or user@host
         host: String,
+        /// Trust and record a previously unknown SSH host key on the first reach check.
+        /// A changed key is still refused; later connections use normal host key checks.
+        #[arg(long)]
+        accept_new_host_key: bool,
         /// Name here (default: the ssh host's first label).
         #[arg(long)]
         name: Option<String>,
@@ -215,6 +245,71 @@ pub enum PeerCmd {
         /// Also try key-only ssh to each online machine.
         #[arg(long)]
         probe: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum VaultCmd {
+    /// Pull the vault now with this machine's join credential (the daemon also
+    /// pulls every 15 minutes). Values go to the Keychain or Secret Service only.
+    Pull,
+    /// What this machine holds: names and revisions (never values), the last
+    /// pull, the secret store, and whether Claude and Codex are signed in here.
+    Status,
+    /// Remove this machine's vault env values and its vault state. The daemon
+    /// pulls again while the vault is shared with this machine.
+    Forget,
+}
+
+#[derive(Subcommand)]
+pub enum DepsCmd {
+    /// Restore each project's dependencies in DIR (bun, npm, pnpm, yarn, Cargo,
+    /// uv) from this machine's cache, run its normal install, and after a cold
+    /// install upload an archive for the next machine.
+    Warm {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+        /// Do not upload an archive after a cold install.
+        #[arg(long)]
+        no_upload: bool,
+        /// Only restore; do not run the install.
+        #[arg(long)]
+        no_install: bool,
+        /// Do nothing unless this machine is joined (what runs after a seed).
+        #[arg(long)]
+        if_joined: bool,
+        /// Skip a project whose dependencies are already installed (its
+        /// `node_modules` or `.venv`), so an install never replaces a tree in use.
+        #[arg(long)]
+        if_missing: bool,
+        /// Pack and upload after a cold install before returning, instead of
+        /// in a detached `machine deps upload`.
+        #[arg(long)]
+        upload_now: bool,
+    },
+    /// Pack a cache folder and upload it under KEY (what `warm` starts
+    /// detached after a cold install).
+    #[command(hide = true)]
+    Upload {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        root: std::path::PathBuf,
+        #[arg(long = "include", required = true)]
+        include: Vec<std::path::PathBuf>,
+        /// zstd or gzip.
+        #[arg(long)]
+        codec: String,
+        /// The cold install the archive saves, stored beside it.
+        #[arg(long, default_value_t = 0)]
+        cold_ms: u64,
+    },
+    /// Wait until no background upload (`warm` after a cold install) is running.
+    Wait,
+    /// Print each project's cache key and what its archive holds, without asking the hub.
+    Key {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
     },
 }
 

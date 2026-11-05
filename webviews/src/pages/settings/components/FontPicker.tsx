@@ -4,6 +4,7 @@
 // highlight shows live in the app at once, a row the pointer rests on after DWELL_MS; Return or a
 // click picks, Escape reverts. The popover floats over the rows, so opening it pushes no row down.
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
 import { Icon } from "../icons";
@@ -39,7 +40,7 @@ export function FontPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // A press on the button while the list is open closes it as a press outside; the click that
   // follows must not open it again. Never closed yet: no guard, or a click in the page's first
   // 400 ms would do nothing.
@@ -109,7 +110,7 @@ export function FontPicker({
   const { rows, recent: recentRows } = fontRows({ names, recent, query });
   return (
     <span className="domain">
-      <button
+      <Button
         ref={setAnchor}
         type="button"
         className="button domain-button"
@@ -126,13 +127,13 @@ export function FontPicker({
       >
         {value ?? defaultLabel}
         <Icon name="chevron" />
-      </button>
+      </Button>
       <Popover
         open={open && !disabled}
         onOpenChange={(next) => (next ? setOpen(true) : close())}
         anchor={anchor}
         label={title}
-        className="domain-panel"
+        className="domain-panel font-picker-panel"
       >
         <Combobox
           inline

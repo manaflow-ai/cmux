@@ -1,14 +1,19 @@
 import { useSyncExternalStore } from "react";
 
 /// How an inbox notice of two or more threads draws (InboxNoticeCard.tsx). `group`, the default: one
-/// line, "N messages from M sessions" and the senders, that opens to a received line per thread, as
-/// the waiting messages' group draws (PendingMessagesCard.tsx). The others are gallery versions kept
-/// beside it (InboxNotice.gallery.ts): `lines`, a received line per thread with no head; `card`, the
-/// threads' lines always shown in one quiet bordered card. A notice of one thread is its line alone
+/// tool row, the sender's mark, "N messages from M sessions" and the senders muted, its chevron shown
+/// on hover, that opens to a received line per thread. The others are gallery versions kept beside
+/// it (InboxNotice.gallery.ts): `group-chevron`, the same row with its chevron always shown;
+/// `group-count`, the same row with the count alone (the senders in its tooltip); `lines`, a
+/// received line per thread with no head; `card`, the threads' lines always shown in one quiet
+/// bordered card. A notice of one thread is its line alone
 /// in every look. The native host sends no value, so the default holds there.
-export type InboxNoticeLook = "group" | "lines" | "card";
+export type InboxNoticeLook = "group" | "group-chevron" | "group-count" | "lines" | "card";
 
-const LOOKS: readonly InboxNoticeLook[] = ["group", "lines", "card"];
+const LOOKS: readonly InboxNoticeLook[] = ["group", "group-chevron", "group-count", "lines", "card"];
+
+/// Whether a look folds the threads under one head row.
+export const foldsThreads = (look: InboxNoticeLook): boolean => look.startsWith("group");
 let current: InboxNoticeLook = "group";
 const listeners = new Set<() => void>();
 

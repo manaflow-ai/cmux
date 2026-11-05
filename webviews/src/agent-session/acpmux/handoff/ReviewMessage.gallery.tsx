@@ -2,7 +2,7 @@
 //
 // The review is the only point where a handoff's context, checkpoint and approved memory
 // references become a prompt. Keep the gallery entry centered on that safety boundary: the
-// target can edit a draft, but Start stays gated until a checkpoint is explicitly confirmed.
+// target can edit a draft, but form validation requires an explicitly confirmed checkpoint.
 import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -195,6 +195,11 @@ const edit: Play = async (ctx) => {
 };
 
 const checkpointGating: Play = async (ctx) => {
+  await ctx.click({ selector: '.acpmux-handoff-review button[type="submit"]' });
+  await ctx.waitFor(() => {
+    const field = ctx.document.querySelector<HTMLInputElement>('.acpmux-handoff-review input:not([type="checkbox"])');
+    return field !== null && ctx.document.activeElement === field && field.validity.valueMissing;
+  });
   await ctx.type("refs/cmux/gallery-confirmed", { selector: '.acpmux-handoff-review input:not([type="checkbox"])' });
   await ctx.click({ selector: ".acpmux-handoff-confirm input[type=checkbox]" });
   await ctx.waitFor(() => {
@@ -259,7 +264,7 @@ export default componentEntry<Props>({
       play: edit,
     },
     "checkpoint-gating": {
-      note: "Start stays disabled until a repository checkpoint is entered and the user confirms its saved working changes; Enter then starts the review.",
+      note: "Continue identifies missing required fields; a checkpoint and explicit saved-work confirmation are still required before Enter starts the review.",
       props: propsFor(noCheckpoint),
       play: checkpointGating,
     },

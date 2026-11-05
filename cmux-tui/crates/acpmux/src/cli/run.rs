@@ -13,11 +13,13 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use send_async::list_lines as sent_list_lines;
 
 mod extra;
 pub(crate) mod fanout;
 pub(crate) mod launch;
-mod ls;
+pub(crate) mod ls;
+mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
@@ -25,10 +27,12 @@ mod parent;
 mod send_async;
 mod session_move;
 mod standard;
-mod transfer;
+pub(crate) mod transfer;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
-    if standard::handles(&cmd) {
+    if let Command::DetachParent { session } = &cmd {
+        crate::cli::detach::run(session, json_out).await
+    } else if standard::handles(&cmd) {
         standard::run(cmd, json_out, suppress_reads).await
     } else {
         extra::run(cmd, json_out, suppress_reads).await

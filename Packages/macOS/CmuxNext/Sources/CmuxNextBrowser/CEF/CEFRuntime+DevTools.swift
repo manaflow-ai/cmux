@@ -52,6 +52,56 @@ extension CEFRuntime {
             sent = sendDevTools(browser, method: method, encodedParams: text)
             devToolsOrder.leave(ticket, of: browser)
         }
+        return try await result(of: sent, method: method, timeout: timeout)
+    }
+
+    /// Sends a DevTools method in the caller's turn when no call of `browser` waits, else at its turn in the
+    /// browser's call order; either way only while `allowed()` still holds at the send (a page picture: its page
+    /// still lives and quit did not begin). For cmux's own small parameters (encoded in the caller's turn).
+    ///
+    /// - Returns: Awaits the JSON result. Throws `snapshotUnavailable` when `allowed()` was false at the send,
+    ///   `closed` when the browser was gone, closes or quit begins first, and `timedOut` after `timeout`.
+    func startDevTools(_ browser: Int32, method: String, params: [String: Any], timeout: Duration = CEFRuntime.devToolsTimeout,
+                       while allowed: @escaping @MainActor @Sendable () -> Bool) -> @MainActor @Sendable () async throws -> String {
+        let text = CEFDevToolsResult.params(params)
+        if devToolsOrder.isIdle(browser) {
+            guard allowed() else { return { throw BrowserTabError.snapshotUnavailable } }
+            let sent = sendDevTools(browser, method: method, encodedParams: text)
+            // The caller awaits from a later turn: an answer that comes first is kept for it.
+            if let sent, sent.answered == nil { unawaitedDevTools[sent.key] = .some(nil) }
+            return { [weak self] in
+                guard let self else { throw BrowserTabError.closed }
+                return try await self.awaitedResult(of: sent, method: method, timeout: timeout)
+            }
+        }
+        let ticket = devToolsOrder.take(browser)
+        // task-owner: awaited by the returned closure; it always leaves its ticket, so later calls of the browser go.
+        let call = Task { @MainActor [weak self] () throws -> String in
+            guard let self else { throw BrowserTabError.closed }
+            await self.devToolsOrder.turn(ticket, of: browser)
+            let mayGo = allowed()
+            let sent = mayGo ? self.sendDevTools(browser, method: method, encodedParams: text) : nil
+            self.devToolsOrder.leave(ticket, of: browser)
+            guard mayGo else { throw BrowserTabError.snapshotUnavailable }
+            return try await self.result(of: sent, method: method, timeout: timeout)
+        }
+        return { try await call.value }
+    }
+
+    /// ``result(of:method:timeout:)`` of a call ``startDevTools(_:method:params:timeout:while:)`` sent in an earlier
+    /// turn: its answer if it came meanwhile, `closed` when its browser closed or quit began meanwhile.
+    private func awaitedResult(of sent: CEFDevToolsSend?, method: String, timeout: Duration) async throws -> String {
+        guard let sent, sent.answered == nil else { return try await result(of: sent, method: method, timeout: timeout) }
+        guard let entry = unawaitedDevTools.removeValue(forKey: sent.key) else { throw BrowserTabError.closed }
+        if let answered = entry { return try answered.get() }
+        return try await result(of: sent, method: method, timeout: timeout)
+    }
+
+    /// The JSON result of a DevTools method ``sendDevTools(_:method:encodedParams:)`` sent (nil: the browser was
+    /// gone): the answer Chromium gave inside the call, else the one it gives later. Throws `timedOut` when none
+    /// comes within `timeout`, and `closed` when the browser closes or quit begins first (its late answer is then
+    /// dropped).
+    private func result(of sent: CEFDevToolsSend?, method: String, timeout: Duration) async throws -> String {
         guard let sent else { throw BrowserTabError.closed }
         if let answered = sent.answered { return try answered.get() }
         return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {

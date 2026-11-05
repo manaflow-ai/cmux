@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
@@ -147,9 +148,9 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   return (
     <div className="cl-actions">
       {item.action && (
-        <button type="button" className="cl-button" onClick={() => ctx.onTry(item.action!.id)}>
+        <Button size="sm" variant="subtle" className="cl-action-button" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-        </button>
+        </Button>
       )}
       {item.docs && (
         <a
@@ -269,9 +270,9 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
-        <button type="button" className="cl-more" onClick={() => setAll(true)}>
+        <Button size="sm" variant="ghost" className="cl-more" onClick={() => setAll(true)}>
           {ctx.strings.t("changelog.page.showMore")}
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -338,9 +339,9 @@ export function ChangesFold({
         );
       })}
       {shown < changes.length && (
-        <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
+        <Button size="sm" variant="ghost" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
           {strings.t("changelog.page.showMore")}
-        </button>
+        </Button>
       )}
       {hidden.length > 0 && (
         <details className="cl-hood">
@@ -361,6 +362,7 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
           {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
+          {c.description && <span className="cl-row-summary"> — {c.description}</span>}
         </li>
       ))}
     </ul>

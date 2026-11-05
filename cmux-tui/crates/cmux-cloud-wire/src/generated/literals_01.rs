@@ -117,6 +117,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitSlack = "slack"
+}
+
+wire_literal! {
     LitSleep = "sleep"
 }
 

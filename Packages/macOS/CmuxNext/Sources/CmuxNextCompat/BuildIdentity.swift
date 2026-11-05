@@ -143,13 +143,18 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
 
     private var ownsRoots: Bool { !keepsSharedRoots && kind != .unbundled }
 
+    /// The folder of every build's Chief home: `~/.cmux/chief`.
+    public static func chiefHomesRoot(userHome: URL) -> URL {
+        userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+    }
+
     /// The Chief home: `~/.cmux/chief/<account>` for NIGHTLY and outside any
     /// bundle, else `~/.cmux/chief/<key>[@<account>]` (`account` other than
     /// `default`; `@` never appears in a key, so no account of one build
     /// names another build's home). `ChiefHome` moves to this rule when it
     /// adopts this type; today it writes `<bundle id>.<account>`.
     public func chiefHome(userHome: URL, account: String = "default") -> URL {
-        let base = userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+        let base = Self.chiefHomesRoot(userHome: userHome)
         let account = Self.component(of: account) ?? "default"
         let name = !ownsRoots ? account : account == "default" ? key : "\(key)@\(account)"
         return base.appendingPathComponent(name, isDirectory: true)

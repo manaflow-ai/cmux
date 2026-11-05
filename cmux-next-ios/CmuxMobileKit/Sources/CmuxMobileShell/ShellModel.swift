@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileTerminal
@@ -91,12 +92,27 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// Send Message… on a workspace or a tab: the message to the Chief being written.
+    var messagingChief: ChiefMessageAbout?
+    /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
+    var messagingChiefText: ChiefTextDraft?
+    /// That message is on its way (the sheet's Send waits, disabled).
+    var sendingToChief = false
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
     var shareURL: ShareItem?
     /// Connected Devices for the terminal on screen (its title menu).
     var connectedDevices: ConnectedDevicesItem?
+    var cloudChats: CloudChatsPresentation? {
+        didSet { if cloudChats == nil { cloudMacID = nil } }
+    }
+    var cloudMacID: String? { didSet { updateShownMacs() } }
+
+    struct CloudChatsPresentation: Identifiable {
+        let id = UUID()
+        let attention: CloudChatAttention?
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -152,10 +168,24 @@ final class ShellModel {
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
+        // Voice mode on a terminal while an agent runs in it (it replaced the dictation
+        // mic): the agent's Feed events are read aloud; the user's words are typed in.
+        terminalTabs.voiceSourceProvider = { [weak store, weak terminalTabs] tab, workspace, _ in
+            let workspaceID = workspace.id, tabID = tab.id
+            return TerminalVoiceSource(
+                macID: workspace.macID, workspaceID: workspaceID, tabID: tabID, feed: .shared,
+                currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
+                currentModel: { terminalTabs?.model(forTabID: tabID) })
+        }
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
         creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
+        creator.onGroupFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
@@ -169,6 +199,44 @@ final class ShellModel {
         tab = .workspaces
         workspacesPath = []
         Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+    }
+
+    /// New Agent Chat from Shortcuts, Siri or Spotlight (``AgentChatLauncher``): as the
+    /// Workspaces menu's New Agent Chat, a workspace whose only tab is the Mac's default agent,
+    /// in the most recent folder on the Mac new workspaces go to, opened with its composer up and
+    /// `prompt` in it (sent when the person taps Send, as the Mac's quick composer's text is).
+    func startAgentChat(prompt: String?) {
+        tab = .workspaces
+        // task-owner: one wait for a Mac and its agents (after a cold launch the account's Macs and
+        // their links come a moment later), then the start
+        Task { @MainActor [weak self] in
+            // After a cold launch the live session, the account's Macs and their links come a moment
+            // later: Observation wakes this when they do.
+            if self?.creator.targetMac == nil {
+                _ = await ObservationWait({ [weak self] in self?.live != nil && self?.creator.targetMac != nil }, budget: .seconds(20)).value
+            }
+            guard let self else { return }
+            guard let mac = self.creator.targetMac else {
+                self.toast = CmuxMobileToast(symbol: "desktopcomputer", text: "Connect a Mac to start an agent chat")
+                return
+            }
+            if let live = self.live, !self.creator.options(on: mac.id).agents.contains("") {
+                _ = await live.agentsReady(on: mac.id)
+            }
+            self.createAgentChat(on: mac, prompt: prompt)
+        }
+    }
+
+    private func createAgentChat(on mac: MacDevice, prompt: String?) {
+        guard creator.options(on: mac.id).agents.contains(""),
+              let workspace = creator.create(start: .agent(""), directory: creator.recentDirectories(on: mac.id).first, macID: mac.id) else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "\(mac.name) can't start an agent chat from here")
+            return
+        }
+        AgentSessionDirectory.shared.newChatDraft = prompt.map {
+            AgentSessionDirectory.NewChatDraft(workspaceID: workspace.id, text: $0, expiresAt: Date().addingTimeInterval(120))
+        }
+        show(workspace: workspace)
     }
 
     /// A terminal agent's Feed event: its workspace on Workspaces, at that
@@ -205,7 +273,12 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        #if DEBUG
+        // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
+        attachScreenSharing(signedIn: live != nil || mockMode)
+        #else
         attachScreenSharing(signedIn: live != nil)
+        #endif
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -246,6 +319,8 @@ final class ShellModel {
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
+            // Chief info's Computer card reads the connected Mac's Cloud directory.
+            ChiefComputer.shared.source = live
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
@@ -258,6 +333,7 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
             FeedRouting.shared.replyToTerminal = nil
@@ -276,6 +352,14 @@ final class ShellModel {
     /// Mac inside it, every Mac on the Workspaces list and the Feed, none on
     /// Home and Settings (their links close after `MacLinkPolicy.idleAfter`).
     func updateShownMacs() {
+        if cloudChats != nil {
+            // The Cloud sheet may be opened while Workspaces or the Feed has
+            // links to other Macs. Keep the full directory shown while the
+            // sheet is up; narrowing this to the selected Cloud Mac makes the
+            // link policy evict the other Macs from its bounded set.
+            live?.showing(macIDs: nil)
+            return
+        }
         guard let live else { return }
         switch tab {
         case .workspaces:
@@ -527,6 +611,56 @@ final class ShellModel {
         openChiefCallSettings()
     }
 
+    /// Sends Send Message…'s message to the Chief of the workspace's Mac (Chief follows the
+    /// focused Mac, as a Chief notification moves it), then shows that conversation on Home.
+    func sendToChief(_ text: String, about subject: ChiefMessageAbout) {
+        sendToChief(text, macID: subject.macID)
+    }
+
+    /// Message Chief's Send: to the Chief of the Mac this phone shows (Chief follows it).
+    func sendToChief(_ text: String) {
+        guard live != nil else {
+            ChiefSources.shared.mac.send(text: text)
+            messagingChiefText = nil
+            return
+        }
+        // No Mac shown yet: the sheet stays with the text, and says why.
+        guard let mac = live?.focusedMacID else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Choose a Mac first. Nothing was sent.")
+            theme.haptics.error()
+            return
+        }
+        sendToChief(text, macID: mac)
+    }
+
+    private func sendToChief(_ text: String, macID: String) {
+        // One send at a time: Send waits while the phone switches to the subject's Mac.
+        guard !sendingToChief else { return }
+        guard let live else {
+            ChiefSources.shared.mac.send(text: text)
+            messagingChief = nil
+            messagingChiefText = nil
+            return
+        }
+        // task-owner: one send to the subject Mac's Chief, then Home shows it (or the toast says why not)
+        sendingToChief = true
+        Task { @MainActor [weak self] in
+            let sent = await live.sendToChief(text, on: macID)
+            guard let self else { return }
+            self.sendingToChief = false
+            guard sent else {
+                let mac = self.macName(macID) ?? "the Mac"
+                self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief on \(mac). Nothing was sent.")
+                theme.haptics.error()
+                return
+            }
+            self.messagingChief = nil
+            self.messagingChiefText = nil
+            self.tab = .home
+            self.homePath = NavigationPath(chiefConversation: nil)
+        }
+    }
+
     func openChiefCallSettings() {
         tab = .settings
         settingsPath = [.chiefCalls]
@@ -574,6 +708,9 @@ final class ShellModel {
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
+                theme.haptics.error()
+            } catch ServiceTeamCreation.Failure.invalidName {
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Team names are 1 to 120 characters")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")

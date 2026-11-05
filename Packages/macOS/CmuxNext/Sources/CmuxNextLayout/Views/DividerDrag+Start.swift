@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// What a divider, column-edge or row-edge drag records on its press: the layout it starts from,
 /// which every frame (and every modifier mode) derives its values from.
@@ -53,8 +54,9 @@ extension DividerDrag {
             let minimums = Dictionary(uniqueKeysWithValues: column.rows.map {
                 ($0.id, SplitGeometry.minimumSize(of: $0.root, style: style).height)
             })
-            return DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
-                                    axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
+            var drag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
+                                        axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
+            return drag
         }
     }
 }

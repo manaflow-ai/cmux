@@ -183,7 +183,7 @@ extension AccountsModel {
         case .signInToCmux: services.runCmuxAccount(.signIn)
         case .cmux(let gesture): services.runCmuxAccount(gesture)
         case .reauthenticate(let provider): return await performReauthenticate(provider)
-        case .signOut(let provider): return signOut(provider)
+        case .signOut(let provider): return await signOut(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
@@ -191,7 +191,7 @@ extension AccountsModel {
         case .cancelConfirm: confirmTarget = nil
         case .remove(let id):
             if let account = await linkedAccount(id: id) { remove(account) }
-        case .runSetupToken: services.runClaudeSetupToken()
+        case .runSetupToken: await services.runClaudeSetupToken()
         case .cancelPaste: pasteTarget = nil
         case .saveKey(let provider, let secret):
             if let error = saveKey(secret, for: provider) { return error }

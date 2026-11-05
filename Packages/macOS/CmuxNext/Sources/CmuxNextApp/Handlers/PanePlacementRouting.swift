@@ -71,8 +71,8 @@ enum PanePlacementRouting {
     /// without a `cwd` argument, the folder of `focused`'s selected terminal
     /// or agent chat (NewTerminalStart.folder). Any other focused tab leaves the split's own fallback (the target
     /// pane's folder).
-    static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
-        var aimed = invocation
+    static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, on machineID: String, from focused: PaneController?) -> ActionInvocation {
+        var aimed = invocation.onMachine(machineID)
         aimed.target = ActionTargetRef(kind: .pane, id: pane.id)
         // Not when Ghostty's `split-inherit-working-directory` is false (PaneHandlers.split then
         // starts it at home).

@@ -11,12 +11,17 @@ import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
+import { withoutSkillDollars } from "../slashCommands";
+import { currentLanguage } from "../i18n";
+import { replyMenuTime } from "./relativeTime";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = {
   text: string;
   markdown?: string;
+  /// A reply's localized date and time, shown as its menu's non-interactive header.
+  replyTime?: string;
   forkSeq?: number;
   /// The chat opens a side chat through `forkSeq` (the chat menu's New side chat, from this turn).
   sideChat?: true;
@@ -140,7 +145,14 @@ export function messageMenuTarget(
       ? turnSeq
       : undefined;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+    // A prompt copies as its bubble reads: a Codex skill `/name`, not `/$name` as sent.
+    row.kind === "user"
+      ? { text: withoutSkillDollars(row.text, snapshot.commands) }
+      : {
+          text: plainText(row.text),
+          markdown: row.text,
+          replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+        };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.

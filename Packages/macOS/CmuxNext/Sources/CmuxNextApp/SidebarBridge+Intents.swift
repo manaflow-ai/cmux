@@ -15,13 +15,13 @@ extension SidebarBridge {
         guard let state else { return }
         // A group's fold is view state: this window shows it now, on that group's rows only, then tells the
         // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
-        if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
+        if case let .toggleCollapse(.group(group)) = intent, let doc = services.sidebarDoc.activeStore,
            let shown = model.group(group)?.isCollapsed {
             rows.edits.foldShown(group, collapsed: !shown)
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
-        if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)
@@ -55,8 +55,9 @@ extension SidebarBridge {
             model.apply(intent)
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
-        case let .selectTab(_, tab):
-            _ = services.revealTab(tab.rawValue)
+        case let .selectTab(_, tab): _ = services.revealTab(tab.rawValue)
+        // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
+        case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
@@ -65,8 +66,7 @@ extension SidebarBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
             command("rename-workspace", on: daemon, for: intent, change: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
-            // The row's close button is an entrypoint of `closeWorkspace`,
-            // so it asks the same confirmation and ends the terminals too.
+            // The row's close button is an entrypoint of `closeWorkspace`, so it asks the same confirmation and ends the terminals too.
             // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
@@ -196,18 +196,18 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.ungroupedFirst = !SidebarDocWiring.isActive && !usesMixedOrder
-        let shownAt = SidebarDocStore.current?.shownChanges
-        var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+        model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
+        let shownAt = services.sidebarDoc.store?.shownChanges
+        var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+                                     hidesHome: services.sidebarLayout.document.hidesHome, selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
-        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
         rows.show(sections, shownAt: shownAt)
-        model.profiles = SidebarSpaceBar.profiles(services.machines.local)
+        model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }
 

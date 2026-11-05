@@ -17,7 +17,7 @@ by who is calling, not by what is possible.
 acpmux new -n gui/composer \
   --worktree ~/Projects/cmux@origin/feat-cmux-next \
   --prompt-file ~/briefs/composer.md \
-  --report-to cosmic-gray/claude-sr2 \
+  --report-to my-mac/coordinator \
   --group "GUI push" -m claude --policy approve-all -d
 ```
 

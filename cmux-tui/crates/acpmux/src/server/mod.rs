@@ -17,7 +17,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -158,9 +158,17 @@ pub struct Conn {
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
+    /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
+    /// it only observes marks it, so it keeps nothing once the owner app exited.
+    presence: crate::daemon::unused_exit::Presence,
     out: mpsc::Sender<String>,
+    /// Holds its lines until what they may show is durable (`durable_gate.rs`); None without the
+    /// event journal.
+    gate: Option<Arc<durable_gate::Gate>>,
     /// True once the client stopped sending (its read side ended): it exited or hung up.
     ended: tokio::sync::watch::Sender<bool>,
+    /// Per-session preparation cancellation; no capability or owner token is retained.
+    preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -193,6 +201,10 @@ pub struct Conn {
     pub(super) nonce: String,
     /// It proved the person key for its challenge.
     person: AtomicBool,
+    /// A Cloud trigger connection is an explicitly scoped principal. It is
+    /// never inferred from the local socket and it cannot become a person.
+    /// The scope lives only for this connection and is never persisted.
+    trigger: StdMutex<Option<TriggerScope>>,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
@@ -219,6 +231,24 @@ pub struct Conn {
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
     /// on a transport whose writer does not compress.
     wire: Option<Arc<crate::frame_compress::Wire>>,
+}
+
+/// The only authority a trigger connection carries after platform admission.
+/// Every field is pinned to one machine/chat/delivery; no bearer or owner
+/// credential is retained here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TriggerScope {
+    pub trigger: String,
+    pub owner: String,
+    pub team: String,
+    pub machine: String,
+    pub workspace: String,
+    pub session: String,
+    pub delivery: String,
+    pub prompt_hash: String,
+    pub cwd: String,
+    pub harness: String,
+    pub guest_key: String,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -320,9 +350,48 @@ where
 }
 
 impl Conn {
+    fn preparation_cancel(&self, session: &str) -> tokio::sync::watch::Receiver<bool> {
+        self.preparation_cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(session.to_owned())
+            .or_insert_with(|| tokio::sync::watch::Sender::new(false))
+            .subscribe()
+    }
+
+    fn cancel_preparation(&self, session: &str) {
+        if let Some(cancel) =
+            self.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).remove(session)
+        {
+            cancel.send_replace(true);
+        }
+    }
+
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
-        self.person.load(Ordering::SeqCst)
+        self.person.load(Ordering::SeqCst) && !self.is_trigger()
+    }
+
+    pub(super) fn is_trigger(&self) -> bool {
+        self.trigger.lock_or_recover().is_some()
+    }
+
+    /// Admit the first verified scope, or require retries to carry the exact
+    /// same scope. This prevents a connection from being retargeted between
+    /// deliveries while retaining its trigger principal.
+    pub(super) fn admit_trigger(&self, scope: TriggerScope) -> Result<(), RpcError> {
+        let mut current = self.trigger.lock_or_recover();
+        if self.person.load(Ordering::SeqCst) {
+            return Err(RpcError::new(-32001, "a person connection cannot become a trigger"));
+        }
+        match current.as_ref() {
+            Some(existing) if existing == &scope => Ok(()),
+            Some(_) => Err(RpcError::new(-32001, "trigger scope changed on this connection")),
+            None => {
+                *current = Some(scope);
+                Ok(())
+            }
+        }
     }
 
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
@@ -405,9 +474,33 @@ impl Conn {
         self.send_replying(msg, None);
     }
 
+    /// The next line may show every change acknowledged so far (`durable_gate.rs`).
+    fn raise_gate(&self) {
+        if let Some(gate) = &self.gate {
+            gate.raise();
+        }
+    }
+
+    /// A notification line built for every connection that reads it raw (a shared `session/update`,
+    /// `HubEvent::update_line`), as `send` would enqueue it for a local connection.
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
+    fn send_line(&self, line: &str) {
+        self.raise_gate();
+        enqueue_outbound(
+            &self.out,
+            line.to_owned(),
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+    }
+
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
+        self.raise_gate();
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
@@ -496,6 +589,7 @@ impl Conn {
             let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
             Message::notification("_acpmux/lagged", lag).to_line()
         };
+        self.raise_gate();
         let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
         let stale = self.notices.load(Ordering::SeqCst) != seen;
         if stale && !anyway {
@@ -528,6 +622,7 @@ impl Conn {
     /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
     /// while one of those still waits for room, or when it is larger than a frame.
     fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
+        self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
@@ -601,139 +696,6 @@ impl Conn {
     }
 }
 
-/// Keep two queue slots available for replies and one for the gap marker that
-/// tells a reader to replay from its last cursor.
-const OUTBOUND_CONTROL_RESERVE: usize = 3;
-
-fn enqueue_outbound(
-    out: &mpsc::Sender<String>,
-    line: String,
-    control: bool,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) {
-    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-    enqueue_outbound_locked(
-        out,
-        line,
-        control,
-        dropped,
-        gap_pending,
-        outbound_lock,
-        pending_controls,
-    );
-}
-
-/// [`enqueue_outbound`] of a control line that must go out after every control queued before
-/// it: queued only if none of those still waits for room in a full queue (each such waits in a
-/// task of its own, which a line queued now would pass). False, with nothing queued, if one does
-/// or the queue's reader is gone.
-fn enqueue_after_controls(
-    out: &mpsc::Sender<String>,
-    line: String,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) -> bool {
-    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-    if out.is_closed() || pending_controls.load(Ordering::Acquire) != 0 {
-        return false;
-    }
-    enqueue_outbound_locked(out, line, true, dropped, gap_pending, outbound_lock, pending_controls);
-    true
-}
-
-/// [`enqueue_outbound`] with `outbound_lock` held.
-fn enqueue_outbound_locked(
-    out: &mpsc::Sender<String>,
-    line: String,
-    control: bool,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) {
-    // Notifications are lossy by design when the reader is too slow, but the
-    // The final three permits are reserved for two response/control messages
-    // and the recovery marker.
-    let reserved = OUTBOUND_CONTROL_RESERVE + pending_controls.load(Ordering::Acquire);
-    if !control && out.capacity() <= reserved {
-        report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock);
-        return;
-    }
-    match out.try_send(line) {
-        Ok(()) => {
-            // Let a later queue-pressure episode produce a fresh marker once
-            // the previous marker and backlog have drained.
-            if gap_pending.load(Ordering::Acquire)
-                && pending_controls.load(Ordering::Acquire) == 0
-                && out.capacity() > OUTBOUND_CONTROL_RESERVE + 1
-            {
-                gap_pending.store(false, Ordering::Release);
-            }
-        }
-        Err(mpsc::error::TrySendError::Full(line)) if control => {
-            let out = out.clone();
-            pending_controls.fetch_add(1, Ordering::AcqRel);
-            let pending_controls = Arc::clone(pending_controls);
-            tokio::spawn(async move {
-                let _ = out.send(line).await;
-                pending_controls.fetch_sub(1, Ordering::AcqRel);
-            });
-        }
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock)
-        }
-        Err(mpsc::error::TrySendError::Closed(_)) => {}
-    }
-}
-
-fn report_outbound_loss_locked(
-    out: &mpsc::Sender<String>,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-) {
-    let total = dropped.fetch_add(1, Ordering::Relaxed) + 1;
-    if gap_pending.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let marker = Message::notification(
-        "_acpmux/lagged",
-        json!({"dropped": total, "reason": "output_queue_full"}),
-    )
-    .to_line();
-    if out.try_send(marker).is_err() {
-        // Keep the marker pending even when the queue is currently full. The
-        // waiter owns the next available slot, so a quiet connection still
-        // receives the replay signal after its reader catches up.
-        let out = out.clone();
-        let dropped = Arc::clone(dropped);
-        let gap_pending = Arc::clone(gap_pending);
-        let outbound_lock = Arc::clone(outbound_lock);
-        tokio::spawn(async move {
-            let permit = out.reserve().await;
-            let Ok(permit) = permit else {
-                gap_pending.store(false, Ordering::Release);
-                return;
-            };
-            let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-            let total = dropped.load(Ordering::Relaxed);
-            permit.send(
-                Message::notification(
-                    "_acpmux/lagged",
-                    json!({"dropped": total, "reason": "output_queue_full"}),
-                )
-                .to_line(),
-            );
-            gap_pending.store(false, Ordering::Release);
-        });
-    }
-}
-
 // ----------------------------------------------------------------- listen
 
 pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
@@ -757,6 +719,14 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         // Refuse to steal a live socket.
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
+        }
+        // A failed connect is not a dead socket: a live daemon whose accept queue is full
+        // refuses it too. Only the holder of the lock that serves it may remove it.
+        if let Some(pid) = crate::daemon::socket_held_by_other(path) {
+            anyhow::bail!(
+                "the acpmux daemon pid {pid} holds the lock that serves {}; leaving its socket in place",
+                path.display()
+            );
         }
         crate::config::refuse_lost_home(&crate::config::home())?;
         std::fs::remove_file(path)?;
@@ -827,19 +797,49 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 ///
 /// Every request passes the localhost listener rule first
 /// (plans/cmux-next/identity.md section 4): a loopback `Host`, no foreign
-/// `Origin`, and the token, which is mandatory.
+/// `Origin`, and, for the WebSocket, the token, which is mandatory and
+/// comes only from a header (`ws_auth.rs`).
 pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: String) -> Result<()> {
     let listener = bind_ws(&addr).await?;
     serve_ws(hub, listener, token).await
 }
 
-/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
-/// it back with `local_addr`.
+/// Bind the dashboard/WebSocket port on loopback. `127.0.0.1:0` picks a free
+/// port; read it back with `local_addr`. A network address is refused
+/// (`ws_auth::check_listen`); [`bind_ws_with`] takes the person's opt-in.
 pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    bind_ws_with(addr, false).await
+}
+
+/// [`bind_ws`], binding a network (non-loopback) address too when
+/// `allow_network` (`--insecure-network-listen`,
+/// `websocket.allowInsecureNetwork`).
+pub async fn bind_ws_with(addr: &str, allow_network: bool) -> Result<TcpListener> {
+    check_listen_address(addr, allow_network).await?;
     let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
-    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
-    tracing::info!("web + websocket listening on {local}");
+    let bound = listener.local_addr().with_context(|| format!("bind {addr}"))?;
+    // The address that was bound, should a name resolve differently now.
+    ws_auth::check_listen(addr, &[bound], allow_network)?;
+    if !ws_auth::is_loopback(&bound) {
+        tracing::warn!(
+            "the web + websocket listener {bound} is on a network address (opted in): plain ws:// sends the listener token in clear"
+        );
+    }
+    tracing::info!("web + websocket listening on {bound}");
     Ok(listener)
+}
+
+/// Refuse `addr` before binding it when any address it names is not
+/// loopback and the person did not opt in.
+pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => tokio::net::lookup_host(addr).await.map(Iterator::collect).unwrap_or_default(),
+    };
+    ws_auth::check_listen(addr, &addrs, false)
 }
 
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
@@ -1025,15 +1025,22 @@ pub async fn serve_ws_until(
         let shutdown = shutdown.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
-            let mut head = [0u8; 4096];
-            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
-            // The peek only routes the request. Each path checks the full head it parses:
-            // serve_http reads it, tungstenite parses the upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
-            if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, &token, peer).await;
+            let mut stream = stream;
+            // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
+            // as it reads, tungstenite as it parses it again for the callback.
+            let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                ws_peek::Request::Head { head, read } => (head, read),
+                ws_peek::Request::TooLarge => {
+                    refuse_http(stream, Refusal::MissingHost).await;
+                    return;
+                }
+                ws_peek::Request::Gone => return,
+            };
+            if !head.to_ascii_lowercase().contains("upgrade: websocket") {
+                serve_http(stream, &head, &policy, peer).await;
                 return;
             }
+            let stream = ws_peek::Replayed::new(read, stream);
             let expected = token.clone();
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
@@ -1067,15 +1074,22 @@ pub async fn serve_ws_until(
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
                     values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
-                let header = req
-                    .headers()
-                    .get("authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(cmux_local_auth::bearer_token);
-                let query = req.uri().query().and_then(cmux_local_auth::query_token);
+                // Only a header carries the token, never the URL (`ws_auth.rs`).
+                let presented =
+                    ws_auth::presented(&values("authorization"), &values("sec-websocket-protocol"))
+                        .map_err(refuse)?;
                 let tickets = values(crate::pairing::TICKET_HEADER);
-                let proof = pairing::admit(&pairing_hub, peer, header.or(query), &tickets, &expected);
+                let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                let mut resp = resp;
+                if presented.answer_protocol {
+                    resp.headers_mut().insert(
+                        "sec-websocket-protocol",
+                        tokio_tungstenite::tungstenite::http::HeaderValue::from_static(
+                            ws_auth::PROTOCOL,
+                        ),
+                    );
+                }
                 Ok(resp)
             };
             let mut ws = match tokio::time::timeout(
@@ -1317,45 +1331,17 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
     let _ = stream.shutdown().await;
 }
 
-/// The largest request head the dashboard reads.
-const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
-
-/// Read a request head up to its blank line. None when it is larger than
-/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
-/// closes first, or it takes over 2 s.
-async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
-    let read = async {
-        let mut head = Vec::with_capacity(1024);
-        let mut chunk = [0u8; 4096];
-        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
-            if head.len() >= MAX_HTTP_HEAD_BYTES {
-                return None;
-            }
-            let n = stream.read(&mut chunk).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
-        }
-        Some(String::from_utf8_lossy(&head).into_owned())
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
-}
-
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
-/// first; then GET / with a matching token serves the page, and anything
-/// else is 401 or 404.
+/// first; then GET / serves the page, and anything else is 404. The page is
+/// static and holds no secret: it reads the token from its URL fragment,
+/// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
+    head: &str,
     policy: &ListenerPolicy,
-    token: &str,
     peer: std::net::SocketAddr,
 ) {
-    let Some(head) = read_http_head(&mut stream).await else {
-        refuse_http(stream, Refusal::MissingHost).await;
-        return;
-    };
-    if let Err(refusal) = check_head(policy, &head) {
+    if let Err(refusal) = check_head(policy, head) {
         tracing::warn!("web request from {peer} refused: {refusal}");
         refuse_http(stream, refusal).await;
         return;
@@ -1364,22 +1350,18 @@ async fn serve_http(
     let mut parts = first.split_whitespace();
     let method_ = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
     let (status, body, ctype) = if !method_.eq_ignore_ascii_case("get") {
         ("405 Method Not Allowed", "method not allowed".to_owned(), "text/plain")
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
-            ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
-        } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to open it with its token (<code>acpmux web --no-open --show-token</code> prints the link).</p>".to_owned(), "text/html; charset=utf-8")
-        }
+        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
@@ -1481,8 +1463,9 @@ async fn serve_connection_from(
         return;
     }
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
-    let _client = crate::daemon::unused_exit::client();
+    let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
+    let (out, gate) = durable_gate::install(hub.store.durability(), out);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
@@ -1490,7 +1473,9 @@ async fn serve_connection_from(
         device,
         raw_text,
         name: StdMutex::new(String::new()),
+        presence: client.presence(),
         out,
+        gate,
         outbound_lock: Arc::new(StdMutex::new(())),
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
@@ -1508,12 +1493,14 @@ async fn serve_connection_from(
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
+        trigger: StdMutex::new(None),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
+        preparation_cancels: StdMutex::new(HashMap::new()),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
         media: if auth == ConnAuth::PeerToken {
@@ -1565,6 +1552,21 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // Once a local connection has been admitted as a trigger
+                // principal it is a single-purpose channel. In particular,
+                // the local socket must not keep granting ordinary person
+                // RPCs after trigger authentication.
+                if conn.is_trigger() && !m.starts_with("trigger/chat.") {
+                    conn.send(&Message::err(
+                        id,
+                        RpcError::new(
+                            -32001,
+                            "trigger connection accepts trigger/chat operations only",
+                        )
+                        .with_data(json!({"reason": "trigger.connection_scope"})),
+                    ));
+                    continue;
+                }
                 let slot = match try_request_slot(&request_slots, &m) {
                     Ok(slot) => slot,
                     Err(()) => {
@@ -1603,7 +1605,7 @@ async fn serve_connection_from(
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
-                    let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
+                    let route = || chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
                     let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
@@ -1632,6 +1634,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            Message::Notification { method: m, params: _ } if conn.is_trigger() => {
+                tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -1668,11 +1673,21 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                conn.settle_client_request(&id, result, error);
+                if !conn.is_trigger() {
+                    conn.settle_client_request(&id, result, error);
+                }
             }
         }
     }
     conn.ended.send_replace(true);
+    let preparations: Vec<_> =
+        conn.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+    for (session, cancel) in preparations {
+        cancel.send_replace(true);
+        if let Ok(session) = hub.resolve(&session) {
+            session.abandon_prepared_connection(&conn.id);
+        }
+    }
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.
@@ -1781,7 +1796,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // notice, is not sent again (`MessageNotices`); an event stream hears only the kinds it
         // asked for, this notice too.
         let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
-        let heard = !sub.event_stream || sub.filter.matches(rec);
+        let heard = !sub.event_stream || sub.filter.matches_live(rec);
         let repeat = message && heard && {
             let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
             !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
@@ -1789,7 +1804,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
-            if sub.filter.matches(rec) {
+            if sub.filter.matches_live(rec) {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
                     routed(event_value(&ev.session_id, rec)),
@@ -1802,13 +1817,30 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
                 && m == method::SESSION_UPDATE
             {
-                let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params.set("sessionId", Value::String(ev.session_id.clone()));
-                crate::hub::merge_mux_meta(
-                    &mut params,
-                    json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
-                );
-                conn.send(&Message::notification(method::SESSION_UPDATE, routed(params)));
+                let message = || {
+                    hub.session_update_encodes.fetch_add(1, Ordering::Relaxed);
+                    let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                    params.set("sessionId", Value::String(ev.session_id.clone()));
+                    crate::hub::merge_mux_meta(
+                        &mut params,
+                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
+                    );
+                    Message::notification(method::SESSION_UPDATE, routed(params))
+                };
+                if conn.origin == Origin::Peer {
+                    // A peer daemon's link redacts and masks per connection (`send_replying`).
+                    conn.send(&message());
+                } else {
+                    // Every other connection reads the line as it is: built once per record,
+                    // shared (`HubEvent::update_line`). None: too large for one frame.
+                    let line = ev
+                        .update_line
+                        .get_or_init(|| message().bounded_line_replying(None).ok().map(Arc::from));
+                    match line {
+                        Some(line) => conn.send_line(line),
+                        None => conn.send(&message()),
+                    }
+                }
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
@@ -1906,6 +1938,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_login;
 mod agent_messages;
 mod app_reply;
 mod client_request;
@@ -1916,6 +1949,7 @@ mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
+mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod forum;
@@ -1924,10 +1958,13 @@ mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 mod team;
+mod trigger_authority;
+mod trigger_chat;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
+pub(crate) mod host_notice;
 mod inventory_watch;
 mod lane_parent;
 mod list_reply;
@@ -1937,6 +1974,11 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
+mod outbound;
+use outbound::{
+    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
+    report_outbound_loss_locked,
+};
 pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
@@ -1946,18 +1988,26 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod workflow_activity;
+mod workflow_runs;
 mod worktrees;
+pub mod ws_auth;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
+pub(crate) use workflow_activity::owner_call as workflow_owner_call;
 mod redact;
 pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
-pub use requests::SESSION_RESUME_FEATURE;
+pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod accounts;
+mod mcp_connect;
 mod routes;
 mod secrets;
+mod vault;
+pub(crate) use vault::reply as vault_reply;
 mod session_auth;
 mod session_files;
 mod stream;
@@ -2136,6 +2186,10 @@ mod acp_list_tests;
 #[cfg(test)]
 #[path = "list_fit_tests.rs"]
 mod list_fit_tests;
+
+#[cfg(test)]
+#[path = "list_pending_tests.rs"]
+mod list_pending_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
@@ -2451,3 +2505,7 @@ mod message_notice_tests {
         assert!(n.live(5));
     }
 }
+
+#[cfg(test)]
+#[path = "fanout_encode_tests.rs"]
+mod fanout_encode_tests;

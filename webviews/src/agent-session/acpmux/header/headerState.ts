@@ -55,7 +55,7 @@ export interface HeaderState {
   /// Side sessions (/btw) are on by default; `agentPane.debug.sideSessions` remains an explicit kill
   /// switch. The App may override it in the header state; an update that leaves it out keeps the value.
   readonly sideSessions: boolean;
-  /// The header offers Session Info (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx).
+  /// The header offers Session Info (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx).
   readonly sessionInfo: boolean;
   /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
   /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).

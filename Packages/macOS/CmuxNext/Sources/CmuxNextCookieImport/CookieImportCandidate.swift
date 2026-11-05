@@ -11,13 +11,18 @@ public struct CookieImportCandidate: Sendable, Equatable {
     public var agentSession: String?
     /// The terminal and terminal resource ids of a terminal tab, empty for other tabs.
     public var terminalIDs: [String]
+    /// Home's docked chat tab (page `home-dock`), where a Chief's turns post: the tab a Chief's run
+    /// (`caller.home_chat`) reveals.
+    public var isHomeChat: Bool
 
     /// Creates a candidate.
-    public init(tabID: String, title: String, workspace: String, agentSession: String?, terminalIDs: [String]) {
+    public init(tabID: String, title: String, workspace: String, agentSession: String?, terminalIDs: [String],
+                isHomeChat: Bool = false) {
         self.tabID = tabID
         self.title = title
         self.workspace = workspace
         self.agentSession = agentSession
         self.terminalIDs = terminalIDs
+        self.isHomeChat = isHomeChat
     }
 }

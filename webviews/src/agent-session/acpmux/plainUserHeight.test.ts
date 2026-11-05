@@ -19,23 +19,30 @@ const height = (row: AcpmuxRow, width: number) => layoutConversation([row], widt
 
 afterEach(() => setChatDisplay({}));
 
-// These are the original first-layout estimates, including wrapping, collapse chrome and the
-// user's font size. A performance repair must not move the next row before the DOM measures it.
+// These are the first-layout estimates, including wrapping, collapse chrome and the user's font
+// size. A performance repair must not move the next row before the DOM measures it. On the layout
+// grid a row's height is its content alone: "A gap belongs to its container" (leo-workspace
+// design/grid.md Rule 5), so #27580 (044769ae) took the prompt's meta gap, meta row and message gap
+// (4 + 24 + 8 = 36) out of the row, and the stack places the turn gap (transcriptGrid.ts
+// transcriptGap). Every estimate here is 36 under its pre-grid value. Since #31719 a one-line
+// bubble is 44 tall (design/transcript-spacing.md "Prompt bubble"): its block padding is what a 44
+// leaves around the line, so every estimate moved by that padding's change from the 16 before it
+// (+5.25 at font 14's 22.75 line, -4.5 at font 20's 32.5), and no prompt wraps differently.
 for (const [font, expected] of [
   [
     14,
     [
-      [97.5, 303.5, 120.25],
-      [74.75, 279.5, 74.75],
-      [74.75, 165.75, 74.75],
+      [66.75, 272.75, 89.5],
+      [44, 248.75, 44],
+      [44, 135, 44],
     ],
   ],
   [
     20,
     [
-      [117, 401, 149.5],
-      [84.5, 377, 84.5],
-      [84.5, 214.5, 84.5],
+      [76.5, 360.5, 109],
+      [44, 336.5, 44],
+      [44, 174, 44],
     ],
   ],
 ] as const) {
@@ -86,10 +93,16 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
   }
 });
 
+// The rule's parser-backed height, without the 36 of row chrome #27580 moved to the stack's gap:
+// its 2px rule inside the bubble's block padding, which a one-line bubble's 44 sets (#31719).
 test("hyphen thematic breaks keep their original parser-backed height", () => {
-  for (const font of [14, 20]) {
+  // 2 + (44 - 22.75) at font 14, 2 + (44 - 32.5) at font 20.
+  for (const [font, expected] of [
+    [14, 23.25],
+    [20, 13.5],
+  ] as const) {
     setChatDisplay({ "agentPane.display.font.size": font });
-    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(54);
+    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(expected);
   }
 });
 

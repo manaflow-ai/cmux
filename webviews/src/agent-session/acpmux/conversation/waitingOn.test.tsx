@@ -24,10 +24,9 @@ test("a pending trust question never renders as thinking", () => {
   const html = within(waiting, <Thinking />);
   expect(html).toContain(translate("turn.waiting.trust"));
   expect(html).not.toContain(`>${translate("thinking")}<`);
-  // The start status ("Starting Claude Code…") gives way too: the prompt waits on the person.
-  const starting = within(waiting, <Thinking status="Starting Claude Code…" />);
+  // While its agent starts too: the prompt waits on the person.
+  const starting = within(waiting, <Thinking starting />);
   expect(starting).toContain(translate("turn.waiting.trust"));
-  expect(starting).not.toContain("Starting Claude Code…");
 });
 
 test("a running turn that waits on a permission shows no clock", () => {
@@ -58,8 +57,6 @@ test("the trust question comes first, then the other asks in the stack's order",
 /// A pending tool permission (Bash, an edit): no question on it.
 const toolAsk = {};
 const chat = {
-  holdsAsks: false,
-  trustBlocks: false,
   isWorking: true,
   secret: false,
   cards: [] as { state: string }[],
@@ -76,29 +73,19 @@ test("a card at work asks nothing; one that asks does", () => {
   expect(chatWaitsOn({ ...chat, cards: [{ state: "working" }, { state: "ask" }] })).toBe("question");
 });
 
-test("asks the trust question holds out of the stack are not named", () => {
-  const held = { ...chat, holdsAsks: true, individualPermission: toolAsk, secret: true, cards: [{ state: "ask" }] };
-  expect(chatWaitsOn(held)).toBeUndefined();
-  expect(chatWaitsOn({ ...chat, trustBlocks: true, secret: true })).toBeUndefined();
+// Leo 2026-10-21 (P0): an open trust question never hides the chat's other asks, so a running
+// turn's ask is named while the question is open.
+test("a running turn's asks are named while the trust question is open", () => {
+  const trust = { cwd, state: "ask" as const };
+  expect(chatWaitsOn({ ...chat, trust, individualPermission: toolAsk })).toBe("permission");
+  expect(chatWaitsOn({ ...chat, trust, secret: true })).toBe("secret");
+  expect(chatWaitsOn({ ...chat, trust, cards: [{ state: "ask" }] })).toBe("question");
 });
 
 test("trust holds new prompts, not a running turn", () => {
   const trust = { cwd, state: "ask" as const };
-  expect(chatWaitsOn({ ...chat, trust, holdsAsks: true })).toBeUndefined();
-  expect(chatWaitsOn({ ...chat, trust, holdsAsks: true, isWorking: false })).toBe("trust");
-});
-
-// A stalled model (an OpenCode free model) left "Thinking" up forever: past acpmux's silentTurnMs
-// with nothing from the agent, the line says the model has not answered, after any ask the person
-// can answer, and only while the turn runs.
-test("a running turn whose model said nothing says so, after every ask", () => {
-  expect(chatWaitsOn({ ...chat, silent: true })).toBe("model");
-  expect(chatWaitsOn({ ...chat, silent: true, individualPermission: toolAsk })).toBe("permission");
-  expect(chatWaitsOn({ ...chat, silent: true, isWorking: false })).toBeUndefined();
-  expect(chatWaitsOn(chat)).toBeUndefined();
-  const html = within("model", <Thinking />);
-  expect(html).toContain(translate("turn.waiting.model"));
-  expect(html).not.toContain(`>${translate("thinking")}<`);
+  expect(chatWaitsOn({ ...chat, trust })).toBeUndefined();
+  expect(chatWaitsOn({ ...chat, trust, isWorking: false })).toBe("trust");
 });
 
 // Leo 2026-10-21, Full access: the agent asked a multiple-choice question (AskUserQuestion) and the
@@ -143,8 +130,9 @@ test("a pending ask that carries a question waits on an answer, not an allow", (
     const html = within(waiting, <WorkingFor row={row} now={() => 5_000} />);
     expect(html).toContain(translate("turn.waiting.question"));
     expect(html).not.toContain(translate("turn.waiting.permission"));
-    // The trust question still holds it out of the stack.
-    expect(chatWaitsOn({ ...chat, holdsAsks: true, individualPermission: { question } })).toBeUndefined();
+    // An open trust question leaves it named (Leo 2026-10-21, P0).
+    const trust = { cwd, state: "ask" as const };
+    expect(chatWaitsOn({ ...chat, trust, individualPermission: { question } })).toBe("question");
   }
   // A plain tool permission still asks to allow.
   expect(chatWaitsOn({ ...chat, individualPermission: toolAsk })).toBe("permission");

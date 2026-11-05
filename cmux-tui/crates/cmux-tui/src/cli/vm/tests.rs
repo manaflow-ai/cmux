@@ -540,3 +540,120 @@ fn machine_help_names_every_new_verb_and_the_old_spellings() {
     }
     assert!(text.contains("cmux vm"), "{text}");
 }
+
+fn route(words: &[&str], credential: bool, app: bool) -> NewRoute {
+    let all = args(words);
+    let (scope, rest) = split(&all).expect("a machine command");
+    new_route(scope, &rest[1..], || credential, app)
+}
+
+/// `cmux machine new` makes the app's Cloud machine when the app is here
+/// and the caller has no VM API key; a key, a VM-API-only flag, no app, or
+/// the old `vm new` keeps the VM API, as it ran before.
+#[test]
+fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
+    assert_eq!(route(&["machine", "new"], false, true), NewRoute::App);
+    assert_eq!(route(&["machine", "create", "--name", "a"], false, true), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], true, false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--persistent"], true, true), NewRoute::App);
+    assert_eq!(route(&["machine", "new"], true, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new"], false, false), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], false, true), NewRoute::VmApi);
+    assert_eq!(route(&["machine", "new", "--team=t"], false, true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--size", "small"], false, true), NewRoute::VmApi);
+}
+
+#[test]
+fn a_created_cloud_machine_prints_its_target_and_next_steps() {
+    let params = json!({ "action": "cloud new-machine" });
+    let created = json!({ "result": {
+        "machine_id": "vm-abc", "title": "api-dev", "status": "running", "target": "machine:vm-abc",
+    }});
+    let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Created Cloud machine api-dev (vm-abc): running."), "{text}");
+    for next in [
+        "cmux cloud ssh --target machine:vm-abc",
+        "cmux cloud start-session --target machine:vm-abc",
+        "cmux cloud exec --target machine:vm-abc",
+    ] {
+        assert!(text.contains(next), "{next} missing: {text}");
+    }
+    let pending = json!({ "result": { "pending": true, "status": "creating" } });
+    assert!(
+        created_line(&params, &pending, &GlobalArgs::default())
+            .unwrap()
+            .contains("cmux machine list")
+    );
+    assert!(
+        created_line(&json!({ "action": "share chat" }), &created, &GlobalArgs::default())
+            .is_none()
+    );
+}
+
+/// #32227 (1): a bootstrap or machine config that ran keeps the full field
+/// table, so a failed setup's status, reason and recovery commands still print.
+#[test]
+fn a_create_whose_setup_ran_prints_the_full_field_table() {
+    let params = json!({ "action": "cloud new-machine" });
+    let global = GlobalArgs::default();
+    let with = |key: &str, setup: Value| {
+        let mut created = json!({ "result": {
+            "machine_id": "vm-abc", "status": "running", "target": "machine:vm-abc",
+            "bootstrap": { "status": "none" },
+        }});
+        created["result"][key] = setup;
+        created
+    };
+    let failed = json!({ "status": "failed", "reason": "exit 1: no such repo",
+        "check": "cmux cloud file-read --target machine:vm-abc --path /x" });
+    assert!(created_line(&params, &with("bootstrap", failed.clone()), &global).is_none());
+    assert!(created_line(&params, &with("machine_config", failed), &global).is_none());
+    let started = json!({ "status": "started" });
+    assert!(created_line(&params, &with("bootstrap", started), &global).is_none());
+    // No bootstrap asked for: the short form with the next steps.
+    let plain = with("enrollment", json!({ "pending": ["ssh-route"] }));
+    assert!(created_line(&params, &plain, &global).is_some());
+}
+
+/// #32227 (2): the next steps reach the app this create went through.
+#[test]
+fn the_next_steps_keep_the_socket_the_create_used() {
+    let params = json!({ "action": "cloud new-machine" });
+    let created = json!({ "result": { "machine_id": "vm-abc", "target": "machine:vm-abc" } });
+    let global = GlobalArgs {
+        socket: Some("/tmp/d.sock".into()),
+        app_socket: Some("/tmp/my app.sock".into()),
+        ..GlobalArgs::default()
+    };
+    let text = created_line(&params, &created, &global).unwrap();
+    let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
+    for verb in ["cloud ssh", "cloud start-session", "cloud exec"] {
+        assert!(text.contains(&format!("{cmux} {verb} --target machine:vm-abc")), "{verb}: {text}");
+    }
+    let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
+    assert!(text.contains("  cmux cloud ssh --target machine:vm-abc"), "{text}");
+    let pending = json!({ "result": { "pending": true, "status": "creating" } });
+    let text = created_line(&params, &pending, &global).unwrap();
+    assert!(text.contains(&format!("`{cmux} machine list`")), "{text}");
+}
+
+/// #32227 (3): `--help` with other options prints help, never asks the app.
+#[test]
+fn machine_new_help_with_other_options_prints_help() {
+    let tail = |words: &[&str]| args(words);
+    assert!(new_wants_help(Scope::Machine, &tail(&["--help"])));
+    assert!(new_wants_help(Scope::Machine, &tail(&["--name", "demo", "--help"])));
+    assert!(new_wants_help(Scope::Machine, &tail(&["-h", "--size", "small"])));
+    assert!(!new_wants_help(Scope::Machine, &tail(&["--name", "demo"])));
+    assert!(!new_wants_help(Scope::Machine, &tail(&["--", "--help"])));
+    // `vm new --help` stays cmux-vm's own help.
+    assert!(!new_wants_help(Scope::Vm, &tail(&["--help"])));
+}
+
+/// #32227 (4): a machine made with no flags does not pause when idle (the
+/// backend default is off), so the help must not say it does.
+#[test]
+fn machine_new_help_does_not_say_a_default_machine_pauses() {
+    assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
+    assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+}

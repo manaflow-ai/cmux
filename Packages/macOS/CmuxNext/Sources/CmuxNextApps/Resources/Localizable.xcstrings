@@ -1,6 +1,924 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "apps.toast.source" : {
+      "comment" : "The second line of an app's toast detail: the id of the app that showed it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "من %@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Od %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Von %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Da %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ から"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពី %@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@에서"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Od %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "От %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จาก %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ tarafından"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Від %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Từ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "来自 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "來自 %@"
+          }
+        }
+      }
+    },
+    "store.feature.workspacesAsTabs.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحات العمل كعلامات تبويب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radni prostori kao kartice"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbejdsområder som faner"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereiche als Tabs"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspaces as Tabs"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacios de trabajo como pestañas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaces de travail en onglets"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Workspace come schede"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タブとしてのワークスペース"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការជាផ្ទាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "탭으로 쓰는 워크스페이스"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområder som faner"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obszary robocze jako karty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaços de trabalho como abas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рабочие пространства как вкладки"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซเป็นแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekme Olarak Çalışma Alanları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Робочі простори як вкладки"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc dạng thẻ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区作为标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區作為標籤頁"
+          }
+        }
+      }
+    },
+    "store.feature.workspacesAsTabs.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "سطر واحد لكل مساحة عمل، مثل الشريط الجانبي في Claude، ويبدّل ⌘⇧[ و ⌘⇧] بين مساحات العمل كما يبدّلان بين علامات التبويب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedan red po radnom prostoru, kao Claudeov bočni panel, a ⌘⇧[ i ⌘⇧] mijenjaju radne prostore kao što mijenjaju kartice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én linje pr. arbejdsområde, som Claudes sidebjælke, og ⌘⇧[ og ⌘⇧] skifter arbejdsområde, som de skifter fane."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Zeile pro Arbeitsbereich, wie die Seitenleiste von Claude, und ⌘⇧[ und ⌘⇧] wechseln Arbeitsbereiche so, wie sie Tabs wechseln."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One line per workspace, like Claude's sidebar, and ⌘⇧[ and ⌘⇧] switch workspaces the way they switch tabs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una línea por espacio de trabajo, como la barra lateral de Claude, y ⌘⇧[ y ⌘⇧] cambian de espacio de trabajo igual que cambian de pestaña."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une ligne par espace de travail, comme la barre latérale de Claude, et ⌘⇧[ et ⌘⇧] changent d’espace de travail comme ils changent d’onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una riga per workspace, come la barra laterale di Claude, e ⌘⇧[ e ⌘⇧] cambiano workspace come cambiano scheda."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claudeのサイドバーのようにワークスペースを1行ずつ表示し、⌘⇧[ と ⌘⇧] でタブと同じようにワークスペースを切り替えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មួយបន្ទាត់ក្នុងមួយកន្លែងធ្វើការ ដូចរបារចំហៀងរបស់ Claude ហើយ ⌘⇧[ និង ⌘⇧] ប្តូរកន្លែងធ្វើការដូចប្តូរផ្ទាំង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude의 사이드바처럼 워크스페이스마다 한 줄로 표시하며, ⌘⇧[ 와 ⌘⇧]로 탭처럼 워크스페이스를 전환합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én linje per arbeidsområde, som sidepanelet i Claude, og ⌘⇧[ og ⌘⇧] bytter arbeidsområde slik de bytter fane."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeden wiersz na obszar roboczy, jak na pasku bocznym Claude, a ⌘⇧[ i ⌘⇧] przełączają obszary robocze tak, jak karty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma linha por espaço de trabalho, como a barra lateral do Claude, e ⌘⇧[ e ⌘⇧] alternam espaços de trabalho como alternam abas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Одна строка на рабочее пространство, как на боковой панели Claude, а ⌘⇧[ и ⌘⇧] переключают рабочие пространства так же, как вкладки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หนึ่งบรรทัดต่อเวิร์กสเปซ เหมือนแถบข้างของ Claude และ ⌘⇧[ กับ ⌘⇧] สลับเวิร์กสเปซเหมือนสลับแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanı başına tek satır, Claude’un kenar çubuğundaki gibi; ⌘⇧[ ve ⌘⇧] sekmeler gibi çalışma alanları arasında geçiş yapar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один рядок на робочий простір, як на бічній панелі Claude, а ⌘⇧[ і ⌘⇧] перемикають робочі простори так само, як вкладки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một dòng cho mỗi không gian làm việc, như thanh bên của Claude, và ⌘⇧[ và ⌘⇧] chuyển không gian làm việc giống như chuyển thẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每个工作区一行，就像 Claude 的侧边栏；⌘⇧[ 和 ⌘⇧] 切换工作区的方式与切换标签页相同。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每個工作區一行，就像 Claude 的側邊欄；⌘⇧[ 和 ⌘⇧] 切換工作區的方式與切換標籤頁相同。"
+          }
+        }
+      }
+    },
+    "store.feature.chromeGroups.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مجموعات بنمط Chrome"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupe u stilu Chromea"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper i Chrome-stil"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruppen im Chrome-Stil"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chrome-Style Groups"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupos estilo Chrome"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Groupes façon Chrome"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruppi in stile Chrome"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome風グループ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក្រុមបែប Chrome"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 스타일 그룹"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper i Chrome-stil"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupy w stylu Chrome"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupos no estilo Chrome"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Группы в стиле Chrome"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กลุ่มแบบ Chrome"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome Tarzı Gruplar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Групи в стилі Chrome"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhóm kiểu Chrome"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 风格分组"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 風格群組"
+          }
+        }
+      }
+    },
+    "store.feature.chromeGroups.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنضم شارة المجموعة الملونة إلى شريط أسمك بزاوية مقصوصة وطرف مستدير، مثل مجموعات علامات التبويب في Chrome."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obojena oznaka grupe spaja se s debljom šinom s isječenim uglom i zaobljenim krajem, kao grupe kartica u Chromeu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En gruppes farvede mærke går sammen med en tykkere skinne med et afskåret hjørne og en afrundet ende, som Chromes fanegrupper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das farbige Schild einer Gruppe geht in eine dickere Leiste mit abgeschnittener Ecke und rundem Ende über, wie bei den Tab-Gruppen in Chrome."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A group's colored chip joins a thicker rail with a clipped corner and a rounded end, like Chrome's tab groups."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La etiqueta de color de un grupo se une a un riel más grueso con una esquina recortada y un extremo redondeado, como los grupos de pestañas de Chrome."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La pastille colorée d’un groupe rejoint un rail plus épais à coin coupé et à bout arrondi, comme les groupes d’onglets de Chrome."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’etichetta colorata di un gruppo si unisce a una barra più spessa con un angolo tagliato e un’estremità arrotondata, come i gruppi di schede di Chrome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "グループの色付きチップが、角を切り落とした太めのレールにつながり、端が丸くなります。Chromeのタブグループと同じ見た目です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្លាកពណ៌របស់ក្រុមភ្ជាប់ទៅផ្លូវក្រាស់ជាងដែលមានជ្រុងកាត់ និងចុងមូល ដូចក្រុមផ្ទាំងរបស់ Chrome។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그룹의 색상 칩이 모서리가 잘린 더 두꺼운 레일과 이어지고 끝이 둥글게 마무리됩니다. Chrome의 탭 그룹과 같은 모양입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En gruppes fargede brikke går over i en tykkere skinne med et avkuttet hjørne og en avrundet ende, som fanegruppene i Chrome."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolorowa plakietka grupy łączy się z grubszą szyną ze ściętym rogiem i zaokrąglonym końcem, jak w grupach kart w Chrome."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A etiqueta colorida de um grupo se junta a um trilho mais grosso com um canto cortado e uma ponta arredondada, como os grupos de abas do Chrome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цветной ярлык группы соединяется с более толстой направляющей со срезанным углом и скруглённым концом, как у групп вкладок в Chrome."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ป้ายสีของกลุ่มเชื่อมกับแถบที่หนากว่าซึ่งมีมุมตัดและปลายมน เหมือนกลุ่มแท็บของ Chrome"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grubun renkli etiketi, köşesi kesik daha kalın bir rayla ve yuvarlak bir uçla birleşir; tıpkı Chrome’un sekme grupları gibi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кольоровий ярлик групи з’єднується з товщою напрямною зі зрізаним кутом і заокругленим кінцем, як у групах вкладок Chrome."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhãn màu của nhóm nối với một thanh dày hơn có góc bị cắt và đầu bo tròn, giống nhóm thẻ của Chrome."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分组的彩色标签与带切角的较粗导轨相连，末端为圆角，就像 Chrome 的标签页分组。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "群組的彩色標籤與帶切角的較粗導軌相連，末端為圓角，就像 Chrome 的標籤頁群組。"
+          }
+        }
+      }
+    },
+    "store.feature.sideBySide.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحات العمل جنبًا إلى جنب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radni prostori jedan pored drugog"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbejdsområder side om side"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereiche nebeneinander"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspaces Side by Side"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacios de trabajo en paralelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaces de travail côte à côte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Workspace affiancati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースを並べて表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការអមគ្នា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스 나란히 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområder side om side"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obszary robocze obok siebie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaços de trabalho lado a lado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рабочие пространства рядом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซเคียงข้างกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yan Yana Çalışma Alanları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Робочі простори поруч"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc cạnh nhau"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区并排显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區並排顯示"
+          }
+        }
+      }
+    },
+    "store.feature.sideBySide.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اضغط مع الاستمرار على صف مساحة العمل واسحبه إلى حافة جزء لعرضها بجانب الحالية؛ والنقر يبدّل عند التحرير."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Držite red radnog prostora i povucite ga na rub okna da se prikaže pored trenutnog; klik mijenja pri otpuštanju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hold en arbejdsområderække og træk den hen på kanten af et panel for at vise den ved siden af det aktuelle; et klik skifter, når du slipper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Halte eine Arbeitsbereich-Zeile und ziehe sie an den Rand eines Bereichs, um sie neben dem aktuellen anzuzeigen; ein Klick wechselt beim Loslassen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold a workspace row and drag it onto a pane's edge to show it beside the current one; a click switches on release."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantén pulsada una fila de espacio de trabajo y arrástrala al borde de un panel para mostrarla junto al actual; un clic cambia al soltar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maintenez une ligne d’espace de travail et faites-la glisser sur le bord d’un volet pour l’afficher à côté de l’actuel ; un clic change au relâchement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tieni premuta una riga di workspace e trascinala sul bordo di un riquadro per mostrarla accanto a quello attuale; un clic cambia al rilascio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースの行を押したままペインの端にドラッグすると、現在のものの横に表示します。クリックすると離したときに切り替わります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សង្កត់ជួរកន្លែងធ្វើការហើយអូសទៅគែមផ្ទាំង ដើម្បីបង្ហាញក្បែរកន្លែងបច្ចុប្បន្ន ការចុចប្តូរពេលលែង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스 행을 누른 채 패널 가장자리로 드래그하면 현재 워크스페이스 옆에 표시합니다. 클릭하면 손을 뗄 때 전환됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hold en arbeidsområderad og dra den til kanten av et panel for å vise den ved siden av det gjeldende; et klikk bytter når du slipper."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przytrzymaj wiersz obszaru roboczego i przeciągnij go na krawędź panelu, aby pokazać go obok bieżącego; kliknięcie przełącza po zwolnieniu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Segure uma linha de espaço de trabalho e arraste até a borda de um painel para mostrá-la ao lado do atual; um clique troca ao soltar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зажмите строку рабочего пространства и перетащите её к краю панели, чтобы показать рядом с текущим; щелчок переключает при отпускании."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กดแถวเวิร์กสเปซค้างแล้วลากไปที่ขอบบานหน้าต่างเพื่อแสดงข้างเวิร์กสเปซปัจจุบัน การคลิกจะสลับเมื่อปล่อย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir çalışma alanı satırını basılı tutup bir bölmenin kenarına sürükleyin; mevcut olanın yanında görünür. Tıklama bırakınca geçiş yapar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Утримуйте рядок робочого простору й перетягніть його до краю панелі, щоб показати поруч із поточним; клацання перемикає після відпускання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giữ một dòng không gian làm việc và kéo đến cạnh của một ngăn để hiện bên cạnh không gian hiện tại; nhấp chuột sẽ chuyển khi nhả."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按住工作区行并拖到窗格边缘，即可在当前工作区旁边显示；单击则在松开时切换。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按住工作區列並拖到窗格邊緣，即可在目前工作區旁邊顯示；按一下則在放開時切換。"
+          }
+        }
+      }
+    },
     "store.feature.automationsSidebarItem.name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -652,6 +1570,1062 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mac 與手機"
+          }
+        }
+      }
+    },
+    "store.feature.compactDensity.name" : {
+      "comment": "App Store Features card: built-in appearance density compact.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كثافة مضغوطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktna gustina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakte Dichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Density"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad compacta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité compacte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densità compatta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト密度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដង់ស៊ីតេតូច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴팩트 밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktowa gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidade compacta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактная плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนาแน่นแบบกะทัดรัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактна щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mật độ gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧凑密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊湊密度"
+          }
+        }
+      }
+    },
+    "store.feature.compactDensity.summary" : {
+      "comment": "App Store Features card: what compact appearance density does.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحافظ الصفوف والمسافات المضغوطة على ظهور المزيد من عملك دفعة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktni redovi i razmaci drže više posla vidljivim odjednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakte rækker og mellemrum holder mere af dit arbejde synligt på én gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakte Zeilen und Abstände zeigen mehr deiner Arbeit gleichzeitig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact rows and spacing keep more of your work visible at once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas y el espaciado compactos muestran más trabajo a la vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des lignes et espacements compacts affichent davantage de travail à la fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Righe e spaziatura compatte mostrano più lavoro contemporaneamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行と間隔を詰めて、一度に多くの作業を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរ និងចន្លោះតូចបង្ហាញការងាររបស់អ្នកបានច្រើនក្នុងពេលតែមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴팩트한 행과 간격으로 한 번에 더 많은 작업을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakte rader og avstand viser mer av arbeidet ditt samtidig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktowe wiersze i odstępy pokazują więcej pracy naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linhas e espaçamento compactos mantêm mais trabalho visível de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактные строки и интервалы позволяют видеть больше работы сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวและระยะห่างที่กะทัดรัดทำให้เห็นงานได้มากขึ้นพร้อมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt satırlar ve aralıklar aynı anda daha fazla iş gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактні рядки й інтервали показують більше роботи одночасно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hàng và khoảng cách gọn giúp hiển thị nhiều công việc hơn cùng lúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧凑的行和间距让你一次看到更多工作内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊湊的列與間距讓你一次看見更多工作內容。"
+          }
+        }
+      }
+    },
+    "store.feature.cozyDensity.name" : {
+      "comment": "App Store Features card: built-in appearance density cozy.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كثافة مريحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udobna gustina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hyggelig tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemütliche Dichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cozy Density"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad acogedora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité douillette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densità accogliente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆったり密度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដង់ស៊ីតេកក់ក្ដៅ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아늑한 밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lun tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przytulna gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidade aconchegante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уютная плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนาแน่นแบบอบอุ่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rahat yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затишна щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mật độ ấm cúng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舒适密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舒適密度"
+          }
+        }
+      }
+    },
+    "store.feature.cozyDensity.summary" : {
+      "comment": "App Store Features card: what cozy appearance density does.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة أكبر قليلًا حول الصفوف وعناصر التحكم من دون أن تملأ النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Malo više prostora oko redova i kontrola bez zauzimanja cijelog prozora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lidt mere plads omkring rækker og kontroller uden at fylde vinduet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etwas mehr Platz um Zeilen und Steuerelemente, ohne das Fenster zu füllen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A little more room around rows and controls without taking over the window."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un poco más de espacio alrededor de filas y controles sin ocupar la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un peu plus d’espace autour des lignes et contrôles sans remplir la fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un po’ più di spazio intorno a righe e controlli senza occupare la finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウを圧迫せず、行とコントロールの周りに少し余白を加えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានចន្លោះបន្ថែមបន្តិចជុំវិញជួរ និងវត្ថុបញ្ជា ដោយមិនកាន់កាប់បង្អួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창을 가득 채우지 않으면서 행과 컨트롤 주위에 여유를 조금 더 둡니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Litt mer plass rundt rader og kontroller uten å fylle vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trochę więcej miejsca wokół wierszy i kontrolek bez zajmowania całego okna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um pouco mais de espaço ao redor das linhas e controles sem ocupar a janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немного больше места вокруг строк и элементов управления, не занимая всё окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มพื้นที่รอบแถวและตัวควบคุมเล็กน้อยโดยไม่กินพื้นที่หน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereyi doldurmadan satır ve denetimlerin çevresine biraz daha alan ekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трохи більше місця навколо рядків і елементів керування без заповнення вікна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm một chút khoảng trống quanh hàng và điều khiển mà không chiếm cả cửa sổ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行和控件周围多一点空间，同时不会占满窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列與控制項周圍多一點空間，同時不會佔滿視窗。"
+          }
+        }
+      }
+    },
+    "store.feature.comfortableDensity.name" : {
+      "comment": "App Store Features card: built-in appearance density comfortable.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كثافة مريحة وواسعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prostrana gustina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komfortabel tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komfortable Dichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comfortable Density"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad cómoda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité confortable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densità confortevole"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快適な密度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដង់ស៊ីតេមានផាសុកភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편안한 밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komfortabel tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygodna gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidade confortável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комфортная плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนาแน่นแบบสบาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konforlu yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зручна щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mật độ thoải mái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽松密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬鬆密度"
+          }
+        }
+      }
+    },
+    "store.feature.comfortableDensity.summary" : {
+      "comment": "App Store Features card: what comfortable appearance density does.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفوف وعناصر تحكم أوسع تجعل الجلسات الطويلة أسهل للقراءة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prostraniji redovi i kontrole olakšavaju čitanje tokom dugih sesija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mere rummelige rækker og kontroller gør lange sessioner lettere at læse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräumigere Zeilen und Steuerelemente erleichtern lange Sitzungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roomier rows and controls make longer sessions easier to read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas y controles más espaciosos facilitan las sesiones largas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des lignes et contrôles plus aérés facilitent les longues sessions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Righe e controlli più spaziosi rendono più leggibili le sessioni lunghe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行とコントロールに余裕を持たせ、長時間の作業を読みやすくします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរ និងវត្ថុបញ្ជាធំទូលាយធ្វើឱ្យវគ្គវែងៗងាយអាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "넉넉한 행과 컨트롤로 긴 세션도 읽기 쉽습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Romsligere rader og kontroller gjør lange økter enklere å lese."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przestronniejsze wiersze i kontrolki ułatwiają czytanie podczas długich sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linhas e controles mais espaçosos facilitam a leitura em sessões longas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Более просторные строки и элементы управления облегчают чтение долгих сессий."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวและตัวควบคุมที่โปร่งขึ้นทำให้อ่านเซสชันยาวได้ง่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha geniş satır ve denetimler uzun oturumları okumayı kolaylaştırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просторіші рядки й елементи керування полегшують читання довгих сеансів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hàng và điều khiển rộng rãi giúp đọc các phiên dài dễ hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更宽裕的行和控件让长时间工作更易阅读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更寬裕的列與控制項讓長時間工作更易閱讀。"
+          }
+        }
+      }
+    },
+    "store.feature.spaciousDensity.name" : {
+      "comment": "App Store Features card: built-in appearance density spacious.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كثافة رحبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velikodušna gustina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rummelig tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Großzügige Dichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spacious Density"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad amplia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité généreuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densità spaziosa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆとりのある密度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដង់ស៊ីតេទូលាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "넓은 밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Romslig tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duża gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidade espaçosa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просторная плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนาแน่นแบบกว้างขวาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geniş yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простора щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mật độ thoáng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽敞密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬敞密度"
+          }
+        }
+      }
+    },
+    "store.feature.spaciousDensity.summary" : {
+      "comment": "App Store Features card: what spacious appearance density does.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة إضافية تمنح كل جزء وعناصر التحكم تخطيطًا واسعًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodatni prostor daje svakoj ploči i kontroli prostran raspored."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra luft giver alle ruder og kontroller et generøst layout."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzlicher Freiraum gibt jedem Bereich und Steuerelement ein großzügiges Layout."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra breathing room gives every pane and control a generous layout."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio adicional ofrece un diseño generoso para cada panel y control."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus d’espace donne à chaque volet et contrôle une disposition généreuse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo spazio extra offre a ogni pannello e controllo un layout generoso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余白を増やし、各ペインとコントロールをゆったり配置します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចន្លោះបន្ថែមផ្តល់ប្លង់ធំទូលាយដល់ផ្ទាំង និងវត្ថុបញ្ជាទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여유 공간을 늘려 모든 창과 컨트롤을 넉넉하게 배치합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra luft gir hvert panel og hver kontroll en romslig layout."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodatkowe miejsce zapewnia panelom i kontrolkom przestronny układ."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço extra dá a cada painel e controle um layout generoso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дополнительное пространство создаёт свободную компоновку панелей и элементов управления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่เพิ่มขึ้นทำให้ทุกบานและตัวควบคุมมีเลย์เอาต์ที่โปร่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ek alan her bölme ve denetime ferah bir düzen sağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додатковий простір створює вільне розташування панелей і елементів керування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khoảng trống thêm tạo bố cục rộng rãi cho mọi khung và điều khiển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额外留白让每个窗格和控件都有宽松布局。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "額外留白讓每個窗格與控制項都有寬鬆配置。"
           }
         }
       }
@@ -9310,6 +11284,137 @@
         }
       }
     },
+    "store.empty.noneInstalledHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر «اكتشف» للعثور على تطبيقات وتثبيتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberite Otkrij da pronađete i instalirate aplikacije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg Udforsk for at finde og installere apps."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle „Entdecken“, um Apps zu finden und zu installieren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Discover to find and install apps."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige Descubrir para buscar e instalar apps."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez Découvrir pour trouver et installer des apps."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli Scopri per trovare e installare app."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「見つける」でアプリを探してインストールできます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសរើស ស្វែងរក ដើម្បីរក និងដំឡើងកម្មវិធី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "둘러보기를 선택하여 앱을 찾아 설치하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg Utforsk for å finne og installere apper."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz Odkrywaj, aby znaleźć i zainstalować aplikacje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha Descobrir para encontrar e instalar apps."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите «Обзор», чтобы найти и установить приложения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกค้นพบเพื่อค้นหาและติดตั้งแอป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uygulamaları bulup yüklemek için Keşfet’i seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть «Огляд», щоб знайти та встановити програми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn Khám phá để tìm và cài đặt ứng dụng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "选择“发现”以查找和安装 App。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "選擇「探索」來尋找並安裝 App。"
+          }
+        }
+      }
+    },
     "store.empty.select" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13246,127 +15351,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Needs a newer cmux-tui"
+            "value" : "Needs a newer cmux"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يتطلب إصدارًا أحدث من cmux-tui"
+            "value" : "يحتاج إلى إصدار أحدث من cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Potreban je noviji cmux-tui"
+            "value" : "Potreban je noviji cmux"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kræver en nyere cmux-tui"
+            "value" : "Kræver en nyere cmux"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Benötigt ein neueres cmux-tui"
+            "value" : "Benötigt ein neueres cmux"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requiere un cmux-tui más reciente"
+            "value" : "Necesita un cmux más reciente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nécessite un cmux-tui plus récent"
+            "value" : "Nécessite une version plus récente de cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Richiede un cmux-tui più recente"
+            "value" : "Serve un cmux più recente"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "新しい cmux-tui が必要です"
+            "value" : "新しい cmux が必要です"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការ cmux-tui ថ្មីជាងនេះ"
+            "value" : "ត្រូវការ cmux ថ្មីជាងនេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "최신 cmux-tui가 필요합니다"
+            "value" : "최신 cmux가 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Krever en nyere cmux-tui"
+            "value" : "Krever en nyere cmux"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wymaga nowszego cmux-tui"
+            "value" : "Wymaga nowszego cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requer um cmux-tui mais recente"
+            "value" : "Precisa de um cmux mais recente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Нужна более новая версия cmux-tui"
+            "value" : "Нужен более новый cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ต้องใช้ cmux-tui เวอร์ชันใหม่กว่า"
+            "value" : "ต้องใช้ cmux เวอร์ชันใหม่กว่า"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Daha yeni bir cmux-tui gerekiyor"
+            "value" : "Daha yeni bir cmux gerekiyor"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Потрібна новіша версія cmux-tui"
+            "value" : "Потрібен новіший cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cần cmux-tui mới hơn"
+            "value" : "Cần cmux mới hơn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         }
       }
@@ -13377,127 +15482,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux-tui is not connected"
+            "value" : "This machine isn't connected"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui غير متصل"
+            "value" : "هذا الجهاز غير متصل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nije povezan"
+            "value" : "Ovaj računar nije povezan"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke forbundet"
+            "value" : "Denne maskine er ikke forbundet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ist nicht verbunden"
+            "value" : "Dieser Rechner ist nicht verbunden"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui no está conectado"
+            "value" : "Esta máquina no está conectada"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui n’est pas connecté"
+            "value" : "Cette machine n’est pas connectée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui non è connesso"
+            "value" : "Questa macchina non è connessa"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui に接続されていません"
+            "value" : "このマシンは接続されていません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui មិនបានភ្ជាប់"
+            "value" : "ម៉ាស៊ីននេះមិនបានភ្ជាប់ទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui가 연결되지 않음"
+            "value" : "이 머신이 연결되어 있지 않습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke tilkoblet"
+            "value" : "Denne maskinen er ikke tilkoblet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nie jest połączony"
+            "value" : "Ta maszyna nie jest połączona"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui não está conectado"
+            "value" : "Esta máquina não está conectada"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не подключен"
+            "value" : "Эта машина не подключена"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ไม่ได้เชื่อมต่อ"
+            "value" : "เครื่องนี้ไม่ได้เชื่อมต่อ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui bağlı değil"
+            "value" : "Bu makine bağlı değil"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не підключено"
+            "value" : "Ця машина не підключена"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui chưa kết nối"
+            "value" : "Máy này chưa kết nối"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未连接"
+            "value" : "此机器未连接"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未連線"
+            "value" : "此機器未連線"
           }
         }
       }
@@ -14952,37 +17057,37 @@
               "zero" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "لا تتوفر تحديثات"
+                  "value" : "لا تتوفر تحديثات (%lld)"
                 }
               },
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر تحديث واحد"
+                  "value" : "يتوفر تحديث واحد (%lld)"
                 }
               },
               "two" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر تحديثان"
+                  "value" : "يتوفر تحديثان (%lld)"
                 }
               },
               "few" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "تتوفر %@ تحديثات"
+                  "value" : "تتوفر %lld تحديثات"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر %@ تحديثًا"
+                  "value" : "يتوفر %lld تحديثًا"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "يتوفر %@ تحديث"
+                  "value" : "يتوفر %lld تحديث"
                 }
               }
             }
@@ -14994,19 +17099,19 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostupno je %@ ažuriranje"
+                  "value" : "Dostupno je %lld ažuriranje"
                 }
               },
               "few" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostupna su %@ ažuriranja"
+                  "value" : "Dostupna su %lld ažuriranja"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostupno je %@ ažuriranja"
+                  "value" : "Dostupno je %lld ažuriranja"
                 }
               }
             }
@@ -15018,13 +17123,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ opdatering tilgængelig"
+                  "value" : "%lld opdatering tilgængelig"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ opdateringer tilgængelige"
+                  "value" : "%lld opdateringer tilgængelige"
                 }
               }
             }
@@ -15036,13 +17141,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ Update verfügbar"
+                  "value" : "%lld Update verfügbar"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ Updates verfügbar"
+                  "value" : "%lld Updates verfügbar"
                 }
               }
             }
@@ -15054,13 +17159,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@ update available"
+                  "value" : "%lld update available"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@ updates available"
+                  "value" : "%lld updates available"
                 }
               }
             }
@@ -15072,19 +17177,19 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ actualización disponible"
+                  "value" : "%lld actualización disponible"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ de actualizaciones disponibles"
+                  "value" : "%lld de actualizaciones disponibles"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ actualizaciones disponibles"
+                  "value" : "%lld actualizaciones disponibles"
                 }
               }
             }
@@ -15096,19 +17201,19 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ mise à jour disponible"
+                  "value" : "%lld mise à jour disponible"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ de mises à jour disponibles"
+                  "value" : "%lld de mises à jour disponibles"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ mises à jour disponibles"
+                  "value" : "%lld mises à jour disponibles"
                 }
               }
             }
@@ -15120,19 +17225,19 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ aggiornamento disponibile"
+                  "value" : "%lld aggiornamento disponibile"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ di aggiornamenti disponibili"
+                  "value" : "%lld di aggiornamenti disponibili"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ aggiornamenti disponibili"
+                  "value" : "%lld aggiornamenti disponibili"
                 }
               }
             }
@@ -15141,10 +17246,16 @@
         "ja" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld件のアップデートがあります"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@件のアップデートがあります"
+                  "value" : "%lld件のアップデートがあります"
                 }
               }
             }
@@ -15153,10 +17264,16 @@
         "km" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "មានបច្ចុប្បន្នភាព %lld"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "មានបច្ចុប្បន្នភាព %@"
+                  "value" : "មានបច្ចុប្បន្នភាព %lld"
                 }
               }
             }
@@ -15165,10 +17282,16 @@
         "ko" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld개 업데이트 가능"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@개 업데이트 가능"
+                  "value" : "%lld개 업데이트 가능"
                 }
               }
             }
@@ -15180,13 +17303,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ oppdatering tilgjengelig"
+                  "value" : "%lld oppdatering tilgjengelig"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ oppdateringer tilgjengelig"
+                  "value" : "%lld oppdateringer tilgjengelig"
                 }
               }
             }
@@ -15198,25 +17321,25 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostępna aktualizacja: %@"
+                  "value" : "Dostępna aktualizacja: %lld"
                 }
               },
               "few" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostępne aktualizacje: %@"
+                  "value" : "Dostępne aktualizacje: %lld"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostępnych aktualizacji: %@"
+                  "value" : "Dostępnych aktualizacji: %lld"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Dostępnych aktualizacji: %@"
+                  "value" : "Dostępnych aktualizacji: %lld"
                 }
               }
             }
@@ -15228,19 +17351,19 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ atualização disponível"
+                  "value" : "%lld atualização disponível"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ de atualizações disponíveis"
+                  "value" : "%lld de atualizações disponíveis"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ atualizações disponíveis"
+                  "value" : "%lld atualizações disponíveis"
                 }
               }
             }
@@ -15252,25 +17375,25 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно обновление: %@"
+                  "value" : "Доступно обновление: %lld"
                 }
               },
               "few" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно обновления: %@"
+                  "value" : "Доступно обновления: %lld"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно обновлений: %@"
+                  "value" : "Доступно обновлений: %lld"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно обновлений: %@"
+                  "value" : "Доступно обновлений: %lld"
                 }
               }
             }
@@ -15279,10 +17402,16 @@
         "th" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "มีการอัปเดต %lld รายการ"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "มีการอัปเดต %@ รายการ"
+                  "value" : "มีการอัปเดต %lld รายการ"
                 }
               }
             }
@@ -15294,13 +17423,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ güncelleme mevcut"
+                  "value" : "%lld güncelleme mevcut"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "%@ güncelleme mevcut"
+                  "value" : "%lld güncelleme mevcut"
                 }
               }
             }
@@ -15312,25 +17441,25 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступне оновлення: %@"
+                  "value" : "Доступне оновлення: %lld"
                 }
               },
               "few" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно оновлення: %@"
+                  "value" : "Доступно оновлення: %lld"
                 }
               },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно оновлень: %@"
+                  "value" : "Доступно оновлень: %lld"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Доступно оновлень: %@"
+                  "value" : "Доступно оновлень: %lld"
                 }
               }
             }
@@ -15339,10 +17468,16 @@
         "vi" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Có %lld bản cập nhật"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "Có %@ bản cập nhật"
+                  "value" : "Có %lld bản cập nhật"
                 }
               }
             }
@@ -15351,10 +17486,16 @@
         "zh-Hans" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 项更新"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "有 %@ 项更新"
+                  "value" : "有 %lld 项更新"
                 }
               }
             }
@@ -15363,10 +17504,16 @@
         "zh-Hant" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 項更新"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
-                  "value" : "有 %@ 項更新"
+                  "value" : "有 %lld 項更新"
                 }
               }
             }

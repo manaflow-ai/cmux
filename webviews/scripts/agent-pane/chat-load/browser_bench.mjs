@@ -150,7 +150,7 @@ function interactiveAt(longTasks, firstPaint) {
   return at;
 }
 
-const browser = await pw[engine].launch();
+const browser = await pw[engine].launch(engine === "chromium" ? { channel: "chrome" } : {});
 const results = { stage: "page", engine, sessions: [], mock: [] };
 
 async function metrics(page, cdp) {

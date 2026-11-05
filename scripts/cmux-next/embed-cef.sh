@@ -309,7 +309,10 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
+# sign-cef.sh's own hash is in the key, so a change to its signing rules (the
+# plain helper's allow-jit, say) re-signs a warm build.
+sign_rules="$(shasum -a 256 "$SCRIPT_DIR/sign-cef.sh" | cut -c1-16)"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity $sign_rules"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

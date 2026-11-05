@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { t, text } from "../strings";
 import { isHttpOrigin } from "../validate";
@@ -72,7 +73,7 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
             commit();
           }}
         >
-          <input
+          <Input
             className="field text"
             type="text"
             spellCheck={false}

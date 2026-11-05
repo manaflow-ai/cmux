@@ -4,8 +4,9 @@ import Foundation
 /// Group edits and adopt-then-move on the sidebar document
 /// (`group.create|update|ungroup`, `adopt` + `move` in one `sidebar.apply`).
 extension SidebarDocStore {
-    /// The `sidebar.apply` ops of a group intent, or nil for another intent.
-    func groupOps(_ intent: SidebarIntent, items: ([WorkspaceID]) -> [String]) -> (ops: [[String: Any]], undoable: Bool)? {
+    /// The `sidebar.apply` ops of a group intent, or nil for another intent. `room`: the window's space, stored on a
+    /// new group (`profile`) so it lists only there while no workspace of it lists (spaces.md).
+    func groupOps(_ intent: SidebarIntent, room: String? = nil, items: ([WorkspaceID]) -> [String]) -> (ops: [[String: Any]], undoable: Bool)? {
         func update(_ group: GroupID, _ patch: [String: Any]) -> [[String: Any]] {
             [["op": "group.update", "id": item(group: group), "patch": patch]]
         }
@@ -20,8 +21,9 @@ extension SidebarDocStore {
             guard case .group(_, _, _, let collapsed)? = shownRecords.items[item(group: group)]?.body else { return nil }
             return (update(group, ["collapsed": !collapsed]), false)
         case let .createGroup(group, name, color, workspaces, anchor, collapsed, _):
-            var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,
+            var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.wire,
                                      "items": items(workspaces)]
+            if let room { op["profile"] = room }
             if let anchor, let item = items([anchor]).first, let section = records.items[item]?.section {
                 op["to"] = ["section": section, "before": item]
             }
@@ -32,6 +34,16 @@ extension SidebarDocStore {
             return nil
         }
     }
+
+    /// Stores how group `group` lists its workspaces (`extra.sort`; manual removes it), one undo step. The stored
+    /// order stays: `arrange` lists the members in the sort, and Manual lists the stored order again. A change
+    /// refused at once throws its message (`workspaceGroup.setSort` reports it).
+    public func setGroupSort(_ group: GroupID, _ sort: SidebarGroupSort) throws(SidebarDocSendRefusal) {
+        try sendChecked(ops: [["op": "group.update", "id": item(group: group), "patch": ["sort": sort.rawValue]]], title: GroupEditorStrings.sortUndo)
+    }
+
+    /// How group `group` lists its workspaces now: manual when the document holds no sort for it.
+    public func groupSort(_ group: GroupID) -> SidebarGroupSort { records.items[item(group: group)]?.sort ?? .manual }
 
     /// The document item of group `group` (`SidebarDocRecords.groupItem(personal:)`: `itm_g_<id>` for a personal
     /// group, the id itself for a group the document made or an item id); the id as it is when the document holds

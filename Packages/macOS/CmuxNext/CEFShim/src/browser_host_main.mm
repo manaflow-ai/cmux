@@ -245,6 +245,9 @@ void CreateBrowserIfReady() {
                   CefRect(0, 0, static_cast<int>(g_screen_rect.size.width), static_cast<int>(g_screen_rect.size.height)));
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings;
+  // Chrome's status bubble would be a window of this process over cmux's
+  // other panes; the host's page shows no hovered link.
+  settings.chrome_status_bubble = STATE_DISABLED;
   g_creating = CefBrowserHost::CreateBrowser(info, new Client(), g_pending_url, settings, nullptr, nullptr);
   if (!g_creating) SendText(cmux_host::kError, "CreateBrowser refused");
 }

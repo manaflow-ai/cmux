@@ -42,6 +42,9 @@ const view = createRoot(root);
 // "Worked for" lines open and close as the pane's do: a click toggles the turn in `expanded`.
 let shown: AcpmuxRow[] = [];
 let rawRows = false;
+// A running turn as the pane draws it by default (`__showLiveRows`): the Codex-style runs and the one
+// live line at the bottom (conversation/turns.ts codexLiveTurn).
+let live = false;
 let expanded = new Set<string>();
 // Prompts "sent" from the pane's composer (App's `chat.send`), which put the view at its latest message.
 let sends = 0;
@@ -57,7 +60,13 @@ let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | und
 const draw = () =>
   view.render(
     <VirtualTranscript
-      rows={rawRows ? shown : turnView(shown, expanded)}
+      rows={
+        rawRows
+          ? shown
+          : live
+            ? turnView(shown, expanded, { working: true, liveRuns: true, lineBelow: true })
+            : turnView(shown, expanded)
+      }
       sessionId={sessionId}
       onToggleActivity={(id) => {
         expanded = toggleTurnFold(shown, expanded, id);
@@ -74,6 +83,7 @@ const draw = () =>
   );
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   rawRows = false;
+  live = false;
   shown = rows;
   draw();
 };
@@ -167,6 +177,18 @@ const draw = () =>
   rawRows = true;
   shown = rows;
   draw();
+};
+// The pane's English strings, for a test that reads the words a row draws (the rest read keys).
+(window as unknown as { __loadStrings: () => Promise<void> }).__loadStrings = async () => {
+  globalThis.__cmuxPaneStrings ??= (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
+  const { setPaneLanguage } = await import("../../src/agent-session/acpmux/i18n");
+  setPaneLanguage("en");
+};
+(window as unknown as { __showLiveRows: (rows: AcpmuxRow[]) => void }).__showLiveRows = (rows) => {
+  rawRows = false;
+  live = true;
+  shown = rows;
+  flushSync(draw);
 };
 (window as unknown as { __showRowsSync: (rows: AcpmuxRow[]) => void }).__showRowsSync = (rows) => {
   shown = rows;

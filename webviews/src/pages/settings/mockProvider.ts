@@ -309,6 +309,11 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.switch_build": (params) => {
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+        this.switchedTo = params.build as string;
+        return {};
+      },
       "cmux.settings.channels.update_machine": (params) => {
         this.updatedMachines.push(params.id as string);
         return {};
@@ -466,6 +471,7 @@ export class MockSettingsProvider {
         folder: "/Users/me/Library/Application Support/cmux/Backgrounds",
       }),
       "cmux.settings.backdrop.image.folder": () => ({ id: null }),
+      "cmux.settings.backdrop.image.screen_saver": () => ({ id: this.screenSaver, pending: false }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -479,6 +485,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
@@ -499,6 +506,9 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
+        if (run.action === "accountEnable" || run.action === "accountAdd" || run.action === "accountSignIn") {
+          return this.runAccount(run);
+        }
         if (
           (run.action === "signIn" || run.action === "check" || run.action === "autoUpdate") &&
           !this.harnesses.harnesses.some((h) => h.id === run.id)
@@ -571,6 +581,7 @@ export class MockSettingsProvider {
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
+      "cmux.settings.channels.switch_build",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -600,11 +611,13 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
       "cmux.settings.backdrop.image.folder",
+      "cmux.settings.backdrop.image.screen_saver",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.server.restart",
@@ -827,6 +840,10 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The build the card's last Switch asked for. */
+  switchedTo: string | null = null;
+  /** The host's refusal of every Switch; null: Switch runs. */
+  switchRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
@@ -927,6 +944,52 @@ export class MockSettingsProvider {
   /** Harnesses gestures the page sent. */
   readonly harnessRuns: HarnessesRun[] = [];
   private readonly harnessesChanged = new Set<EventSourceContext>();
+
+  /** Like the host's account gestures: a listed account only, and Add account for Codex only (a
+   * shadow home under ~/.cmux/accounts, signed out until its sign-in runs). */
+  private runAccount(run: HarnessesRun): Record<string, never> {
+    const accounts = this.harnesses.accounts;
+    if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
+    if (run.action === "accountAdd") {
+      if (run.family !== "codex") throw new ProtocolError("cmux.settings.invalid", "accountAdd needs codex");
+      let number = Math.max(2, accounts.filter((account) => account.family === "codex").length + 1);
+      while (accounts.some((account) => account.id === `codex-${number}`)) number += 1;
+      this.harnessRuns.push(run);
+      this.setHarnesses({
+        ...this.harnesses,
+        accounts: [
+          ...accounts,
+          {
+            id: `codex-${number}`,
+            family: "codex",
+            name: `ChatGPT ${number}`,
+            home: `~/.cmux/accounts/codex-${number}`,
+            defaultHome: "~/.codex",
+            shadowOf: "~/.codex",
+            signedIn: false,
+            plan: null,
+            email: null,
+            enabled: true,
+            builtin: false,
+          },
+        ],
+      });
+      return {};
+    }
+    if (!accounts.some((account) => account.id === run.account)) {
+      throw new ProtocolError("cmux.settings.invalid", "account must be a listed account");
+    }
+    this.harnessRuns.push(run);
+    if (run.action === "accountEnable") {
+      this.setHarnesses({
+        ...this.harnesses,
+        accounts: accounts.map((account) =>
+          account.id === run.account ? { ...account, enabled: run.on === true } : account,
+        ),
+      });
+    }
+    return {};
+  }
 
   /** Replaces the Harnesses part and tells the page, like the app's observation push. */
   setHarnesses(harnesses: HarnessesState): void {
@@ -1034,6 +1097,8 @@ export class MockSettingsProvider {
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** The macOS screen saver as a background id (Use My Screen Saver); null: not an aerial. */
+  screenSaver: string | null = null;
   /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
   readonly agents = new MockAgents();
 
@@ -1283,6 +1348,7 @@ export class MockSettingsProvider {
         : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
+      stored: this.values.get(key) ?? null,
       customized: this.values.has(key),
       managed: managed ? { source: managed.source, reason: managed.reason, team: managed.team ?? null } : null,
     };

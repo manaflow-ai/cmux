@@ -300,6 +300,26 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// A path check after a Send's gesture: each folder outside the roots it refuses is granted and
+    /// the frame checked again, each folder once, until it passes or is refused for anything else
+    /// (the home folder or above, a bad path). Bounded by the frame's own paths. Nil when `recheck`
+    /// finds the connection stale.
+    static func grantTypedFolders(
+        _ first: Result<[String], AcpmuxPathPolicy.Refusal>,
+        grant: (String) -> Void,
+        recheck: () async -> Result<[String], AcpmuxPathPolicy.Refusal>?
+    ) async -> Result<[String], AcpmuxPathPolicy.Refusal>? {
+        var result = first
+        var granted: Set<String> = []
+        while case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+              !refusal.outsideIsHomeOrAbove, granted.insert(folder).inserted {
+            grant(folder)
+            guard let next = await recheck() else { return nil }
+            result = next
+        }
+        return result
+    }
+
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
@@ -325,12 +345,16 @@ extension AgentPaneTransport {
             // never: its program comes from that folder, so outside the roots it stays refused. The
             // home folder (or above it) never by a plain click either: the pane asks about it first
             // (`workspace.useFolder`, cx-nn3e), and only that answer makes it a root.
-            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, refusal.outsidePath != nil,
                !facts.harnessEnable, !refusal.outsideIsHomeOrAbove, gestures.consume() {
                 startGesture = true
-                grant(folder)
-                result = await checkPathsInScope(box)
-                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+                // The one gesture grants every typed folder the frame names, not only the first:
+                // a new chat's Add folder… can name several (cmux#34407).
+                guard let checked = await Self.grantTypedFolders(result, grant: { self.grant($0) }, recheck: {
+                    let next = await self.checkPathsInScope(box)
+                    return id == self.current && self.socket === socket ? next : nil
+                }) else { return .stop(.staleConnection) }
+                result = checked
             }
             switch result {
             case .success(let gestureRootsUsed):
@@ -369,6 +393,11 @@ extension AgentPaneTransport {
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+                // A prompt that goes with its own ticket spends the start's credit too, as one
+                // without a ticket does: the credit never grants a later prompt (#23031).
+                if granted, facts.method == "session/prompt" {
+                    _ = startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+                }
                 if redeemedQuestion, let credit = questionCredit {
                     guard let before = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), before == credit.context,
                           await credit.redeem(), id == current, self.socket === socket,
@@ -399,8 +428,11 @@ extension AgentPaneTransport {
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
+                // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
+                    || gestures.consumePosted(for: facts.method)
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -414,6 +446,7 @@ extension AgentPaneTransport {
                 }
             }
             if !granted {
+                gestures.noteRefused(facts.method)
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
@@ -442,8 +475,14 @@ extension AgentPaneTransport {
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
             // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
-            await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            let unsigned = await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A peer's prompt this Mac could not sign: the peer would refuse it, so it never goes;
+            // the card stays answerable and the pane says why.
+            if let unsigned {
+                onPeerApprovalsOff?(unsigned)
+                return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+            }
         }
         // Peer-route approvals: a group's Allow once the person's click granted, for a peer's prompts.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
@@ -490,6 +529,10 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
+            // A Sign in that took the person's click opens its page too, with no second click.
+            if facts.needsGesture, facts.method == "_acpmux/agent_login/start" {
+                signInPageCredit.give(connection: id, at: gestures.uptime)
+            }
             // The switch's queued prompt goes out: its pick tickets end, but each other prompt
             // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
@@ -502,7 +545,12 @@ extension AgentPaneTransport {
         let answer = !facts.isFirst
             && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
         if answer, let pageID = facts.pageID {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+            let proved = box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions")
+            let single = facts.method == "_acpmux/permission_respond"
+            // One click, one answer (Leo, 2026-11-04): a peer that has not enrolled this Mac yet
+            // gets the same signed answer again after this Mac enrolls there (``enrollThenRetry``).
+            let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
+            decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)

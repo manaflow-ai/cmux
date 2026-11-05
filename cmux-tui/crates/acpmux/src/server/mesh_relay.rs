@@ -722,7 +722,7 @@ pub async fn deliver(
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {
-        return Some(Ack::refused("team messaging is disabled in Labs"));
+        return Some(Ack::refused("team messaging is off on this daemon"));
     }
     if let Err(why) = hub.mesh_for_here(&message.to, own_daemon) {
         return Some(Ack::refused(why));
@@ -796,7 +796,9 @@ pub async fn deliver(
             prompt_id: Some(prompt_id.to_owned()),
             detail: Some(why),
         }),
-        Err((why, Next::Retry | Next::Unsent)) => {
+        // No such session here is the lease's to bring back too, as before (`Next::NoSession`
+        // settles only an outbox delivery).
+        Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

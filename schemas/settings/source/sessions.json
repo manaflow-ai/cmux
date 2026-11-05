@@ -261,6 +261,31 @@
             "sync",
             "privacy"
           ]
+        },
+        {
+          "key": "phone.cloudDesktop",
+          "name": "cloudDesktop",
+          "note": "On: a paired phone's Chief info page shows the screen of this account's own running Cloud machine, view only (cloud-desktop-v1, cmux-next-ios/PROTOCOL.md `surface`): this Mac reads the machine's desktop over its Cloud tunnel and streams it to the phone. Off: the Mac lists no Cloud desktop to phones and hostd refuses one. Opt-in until the default is decided (#13742).",
+          "title": {
+            "key": "settings.phone.cloudDesktop",
+            "text": "Show Your Cloud Machine's Screen on Your Phone"
+          },
+          "help": {
+            "key": "settings.phone.cloudDesktop.help",
+            "text": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "iphone",
+            "mobile",
+            "phone",
+            "cloud",
+            "screen",
+            "desktop",
+            "computer",
+            "chief"
+          ]
         }
       ]
     }

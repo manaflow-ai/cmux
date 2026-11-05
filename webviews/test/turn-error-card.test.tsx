@@ -239,6 +239,78 @@ test("capacity puts Retry first, Switch model after it", async () => {
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
+// Leo 2026-11-03, on a card that led with Switch model when the model's server could not be reached:
+// "this ui is pretty awkward looking". Which action leads, per error kind.
+const leadLabels = () =>
+  [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+const isPrimary = (label: string) => button(label)!.classList.contains("cv-turn-error__primary");
+
+test("a server that cannot be reached leads with Retry, Switch model after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("API Error: Connection error.")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("an unreachable card with no Retry keeps Switch model outlined, never the filled lead", async () => {
+  // An earlier turn (or one a retry already went on from) has no prompt of its own to send again.
+  const earlier = { ...failed("connect ECONNREFUSED 127.0.0.1:443"), prompt: undefined, retryRowId: undefined };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={earlier} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Switch model"]);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("Retry on an unreachable card goes through acpmux's turn retry and waits while it is in flight", async () => {
+  const calls: string[] = [];
+  let settle: () => void = () => undefined;
+  const retryFailed = (rowId: string | undefined, prompt: string | undefined) => {
+    calls.push(`${rowId}:${prompt}`);
+    return new Promise<undefined>((resolve) => (settle = () => resolve(undefined)));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retryFailed, switchModel: () => undefined }}>
+        <TurnFooter row={{ ...failed("fetch failed"), retryable: true }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  await act(async () => button("Retry")!.click());
+  expect(calls).toEqual(["user-1:Run the sidebar tests and fix what fails"]);
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a failure about the model's route still leads with Switch model, Retry after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("invalid x-api-key")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("invalid-key");
+  expect(leadLabels()).toEqual(["Switch model", "Retry"]);
+  expect(isPrimary("Switch model")).toBe(true);
+  expect(isPrimary("Retry")).toBe(false);
+});
+
 test("the typed reason reaches the card", async () => {
   await act(async () =>
     root.render(
@@ -456,6 +528,11 @@ test("CodeRouter is offered on key, sign-in and capacity failures, never to a ch
   for (const kind of ["no-team-account", "proxy-auth", "unreachable", "disk-full", "agent-exited", "other"] as const)
     expect([kind, offersOwnRoute(kind, claude)]).toEqual([kind, false]);
   expect(offersOwnRoute("invalid-key", { name: "Claude (CodeRouter)", harness: "claude-cr" })).toBe(false);
+  // A Cloud machine's chat signs in from the Mac: no CodeRouter offer on it.
+  expect(offersOwnRoute("subscription-login", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(
+    false,
+  );
+  expect(offersOwnRoute("auth", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(false);
 });
 
 test("the chat's routes say what CodeRouter offers: a route, on it already, or nothing", () => {
@@ -674,7 +751,16 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   };
   const isCurrent = () => current;
   const getClient = () => client;
-  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const recover = cloudCredentialRecovery(
+    true,
+    "provider-vm-1",
+    "chat-1",
+    "claude",
+    call,
+    isCurrent,
+    getClient,
+    new Set(),
+  )!;
   const pending = recover("row-1", "retry text");
   // Duplicate clicks while native confirmation is open cannot reserve another prompt.
   await recover("row-1", "retry text");
@@ -697,9 +783,15 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   const count = calls.length;
   await recover("row-1", "retry text");
   expect(calls).toHaveLength(count);
-  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
 });
 
 test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
@@ -731,6 +823,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
       call,
       () => true,
       () => client,
+      new Set(),
     );
     expect(recover).toBeDefined();
     await recover!("row-1", "retry");
@@ -746,6 +839,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
         call,
         () => true,
         () => client,
+        new Set(),
       ),
     ).toBeUndefined();
   }

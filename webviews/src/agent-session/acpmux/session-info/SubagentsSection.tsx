@@ -10,6 +10,7 @@
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
 import { memo, useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
@@ -19,7 +20,8 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
-import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { useAgentProgress } from "../subagents/agentProgressStore";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -32,31 +34,57 @@ import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { AgentMark } from "../../shared/AgentMark";
 import { TonedIcon } from "../subagents/TonedIcon";
+import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
 
-/// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
+/// "1 waiting · 3 running · 1 queued · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
+/// With the clock (`now`), a subagent quiet past IDLE_AFTER_MS counts as idle, as its line reads:
+/// the head and the lines read one status each (Leo, 2026-11-02: "but what's going on with these?").
 export function subagentCounts(
   t: Translate,
   agents: readonly Subagent[],
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
+  now?: number,
 ): string {
+  // A chat acpmux holds for a free slot (`waitsForSlot`) is queued, as the running limit's line
+  // says, never done or idle by its state.
+  const queued = sessions.filter((child) => child.waitsForSlot).length;
   const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+    agents.filter((agent) => subagentStatus(agent, waiting, now) === status).length +
+    sessions.filter((child) => !child.waitsForSlot && sessionStatus(child) === status).length;
   return [
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    queued > 0 && t("sessionInfo.subagents.limit.queued", { n: queued }),
+    count("idle") > 0 && t("summary.subagents.idle", { n: count("idle") }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
+/// at once; only this span re-renders on the tick.
+export function SubagentCountsMeta({
+  agents,
+  waiting,
+  sessions,
+}: {
+  agents: readonly Subagent[];
+  waiting: ReadonlySet<string>;
+  sessions: readonly StartedSession[];
+}) {
+  const t = useT();
+  const now = useNow(agents.some(running));
+  const text = subagentCounts(t, agents, waiting, sessions, now);
+  return text ? <span className="acpmux-session-info-section__value">{text}</span> : null;
 }
 
 /// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
@@ -98,9 +126,11 @@ type Line = {
   open?: () => void;
 };
 
-const live = (status: SubagentStatus) => status === "running" || status === "waiting";
+const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
+/// An idle line keeps its place among the live ones but takes no part in the running shimmer.
+const working = (status: SubagentStatus) => status === "running" || status === "waiting";
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
-const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 };
+const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
 
 // Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
 // inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
@@ -173,8 +203,9 @@ export function SubagentsSection({
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
+  const endedEdges = useScrollEdges();
   const agentLine = (agent: Subagent, depth: number): Line => {
-    const status = subagentStatus(agent, waiting);
+    const status = subagentStatus(agent, waiting, now);
     return {
       key: `agent:${agent.id}`,
       identity: agent.id,
@@ -183,15 +214,16 @@ export function SubagentsSection({
       progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
-      detail: live(status) ? agent.action : undefined,
+      detail: working(status) ? agent.action : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting),
+      state: subagentStateText(t, agent, waiting, now),
       working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
-      icon: "agent.session",
-      mark: agent.harness ?? harness,
+      icon: SUBAGENT_FALLBACK,
+      // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
+      mark: foreignHarness(agent.harness, harness),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),
@@ -215,9 +247,9 @@ export function SubagentsSection({
   const waitsFirst = (a: Subagent, b: Subagent) =>
     Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
     a.startedAt - b.startedAt;
-  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
-    ({ agent, depth }) => agentLine(agent, depth),
-  );
+  const runningAgents = nestAgents(
+    agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
+  ).map(({ agent, depth }) => agentLine(agent, depth));
   const children = orderedSessions(sessions);
   const runningLines = [
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
@@ -225,18 +257,19 @@ export function SubagentsSection({
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
-    ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
+    ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   // Each running line's place in the wave, top to bottom; the ended lines take none.
-  const wave = waveIndices(shown, (item) => live(item.status));
+  const wave = waveIndices(shown, (item) => working(item.status));
   const line = (item: Line, index: number, inWave: boolean) => (
     <li key={item.key}>
       <AgentLine
         name={item.name}
         detail={item.detail}
         progress={item.progress}
+        progressAgent={item.agent}
         status={item.status}
         state={item.state}
         working={item.working}
@@ -247,28 +280,12 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
-        card={
-          <span className="acpmux-agent-card">
-            <span className="acpmux-agent-card__name">{item.name}</span>
-            <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[
-                item.state,
-                item.time,
-                item.kind,
-                item.progress,
-                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-            {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-          </span>
-        }
+        card={<AgentCard item={item} />}
       />
     </li>
   );
   return (
-    <div className="acpmux-session-info-subagents">
+    <div className="acpmux-session-info-subagents" style={SESSION_INFO_WAVE_STYLE}>
       {runningLines.length > 0 && (
         <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
           {shown.map((item, index) => line(item, index, true))}
@@ -294,12 +311,36 @@ export function SubagentsSection({
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
-            <ul className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list">
+            <ul
+              ref={endedEdges}
+              className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
+            >
               {endedLines.map((item, index) => line(item, index, false))}
             </ul>
           )}
         </>
       )}
     </div>
+  );
+}
+
+function AgentCard({ item }: { item: Line }) {
+  const progress = useAgentProgress(item.agent) ?? item.progress;
+  return (
+    <span className="acpmux-agent-card">
+      <span className="acpmux-agent-card__name">{item.name}</span>
+      <span className="acpmux-agent-card__state" data-status={item.status}>
+        {[
+          item.state,
+          item.time,
+          item.kind,
+          progress,
+          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
+    </span>
   );
 }

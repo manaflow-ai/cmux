@@ -9,8 +9,7 @@ import Foundation
 /// icons in its suggestion rows.
 extension AppServices {
     func installOmnibarHooks(on entry: BrowserEntry) {
-        let bar = entry.chrome.addressBar
-        let display = bar.suggestionEngine.display
+        guard let display = entry.state.suggestionEngine?.display else { return }
         display.setShowsFullURLs = { [weak self] full in
             guard let settings = self?.settings else { return }
             // task-owner: one settings write; ends when it lands (the snapshot brings it back to every bar).
@@ -25,7 +24,7 @@ extension AppServices {
         }
         // The icon an open tab of the site shows, else the site's /favicon.ico, fetched as this tab
         // fetches icons (its profile; a Chromium tab through its own request context).
-        bar.rowFavicon = { [weak self, weak tab = entry.tab] url in
+        entry.state.rowFavicon = { [weak self, weak tab = entry.tab] url in
             guard let self, let tab, let origin = BookmarkURL.faviconKey(for: url),
                   let address = URL(string: siteFaviconAddress(origin: origin)) else { return nil }
             return await tab.fetchFavicon(address)

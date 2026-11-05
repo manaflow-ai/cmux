@@ -101,9 +101,16 @@ extension AgentPaneView {
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
     /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
     /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
+    /// The pick is the person's, as one in the open panel is (the pane's `onFilesChosen`): its
+    /// gesture, which `chat.upload.begin` spends, and where the files are, so a chat on this Mac
+    /// links them in place. Neither scripted path passes the panel, so without this every
+    /// scripted pick's upload was refused for want of a gesture.
     public func debugSetFiles(selector: String, paths: [String]) async -> String? {
-        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         let files = paths.map { URL(fileURLWithPath: $0) }
+        model.transport.gestures.record()
+        model.droppedPaths.stash(files, kind: .choose)
+        model.droppedPaths.stashSource(files, items: files.count, claimed: nil, kind: .choose)
+        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         fileChooser?.debugAnswer = files
         page?.debugQueueFiles(files)
         return nil

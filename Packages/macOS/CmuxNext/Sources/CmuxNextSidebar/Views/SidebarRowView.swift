@@ -209,54 +209,38 @@ class SidebarRowView: NSView {
 
 // MARK: - Workspace
 
+/// An empty section's row. Pinned's says "Drop here to pin"; any other empty list draws
+/// nothing, as classic draws nothing there (https://github.com/manaflow-ai/cmux/issues/32728),
+/// and stays only as the list's drop target.
 final class EmptySectionRowView: SidebarRowView {
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let hint = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        // Left-aligned where a workspace's title would start, so the empty
-        // list reads as the list's first line, not a caption floating in
-        // the middle of an empty column.
+        // Left-aligned where a workspace's title would start, so the drop
+        // zone reads as the list's first line.
         label.alignment = .natural
-        hint.alignment = .natural
-        [label, hint].forEach(addSubview)
+        addSubview(label)
     }
 
-    func configure(pinned: Bool, shortcut: String?) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
-        label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
+    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
+        label.setString(pinned ? Strings.pinnedEmpty : "")
         label.setFont(SidebarStyle.subtitleFont)
-        hint.setString(Strings.sectionEmptyHint(shortcut: shortcut))
-        hint.setFont(SidebarStyle.subtitleFont)
-        hint.isHidden = pinned
+        label.isHidden = !pinned
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         let width = max(0, b.width - x - Metrics.space2)
-        let titleHeight = ceil(label.intrinsicContentSize.height)
-        guard !hint.isHidden else {
-            label.frame = NSRect(x: x, y: (b.height - titleHeight) / 2, width: width, height: titleHeight)
-            hint.frame = .zero
-            needsDisplay = true
-            return
-        }
-        let hintHeight = ceil(hint.intrinsicContentSize.height)
-        let lineGap = Metrics.space1
-        let stackHeight = titleHeight + lineGap + hintHeight
-        let top = (b.height - stackHeight) / 2
-        label.frame = NSRect(x: x, y: top, width: width, height: titleHeight)
-        hint.frame = NSRect(x: x, y: top + titleHeight + lineGap, width: width, height: hintHeight)
+        let height = ceil(label.intrinsicContentSize.height)
+        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: height)
         needsDisplay = true
     }
 
     override func updateLayer() {
-        performWithTheme {
-            label.setColor(Palette.textTertiary)
-            hint.setColor(Palette.textSecondary)
-        }
+        performWithTheme { label.setColor(Palette.textTertiary) }
     }
 }

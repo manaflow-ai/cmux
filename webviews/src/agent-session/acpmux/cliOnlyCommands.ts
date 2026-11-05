@@ -12,13 +12,11 @@ export type CliOnlyUse = "access" | "model" | "terminal";
 const ALWAYS: Record<string, CliOnlyUse> = {
   permissions: "access",
   "allowed-tools": "access",
-  login: "terminal",
   logout: "terminal",
   doctor: "terminal",
   "terminal-setup": "terminal",
   vim: "terminal",
   theme: "terminal",
-  resume: "terminal",
   ide: "terminal",
   statusline: "terminal",
   "privacy-settings": "terminal",
@@ -28,8 +26,8 @@ const ALWAYS: Record<string, CliOnlyUse> = {
   quit: "terminal",
 };
 
-/// `/config key=value` still needs the terminal. `/model` is a cmux GUI command and is handled by
-/// the composer before this guard can reject it.
+/// `/config key=value` still needs the terminal. `/model`, `/resume` and `/login` are cmux GUI
+/// commands (cmuxCommands.ts); the composer handles them instead.
 const BARE: Record<string, CliOnlyUse> = { config: "terminal" };
 
 /// The terminal-only command `prompt` is, for a Claude chat; undefined otherwise.

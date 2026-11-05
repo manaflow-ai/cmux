@@ -14,7 +14,8 @@
 // or `\(…\)` from its opening delimiter, so half an equation never draws as source and then turns
 // into math. A table without edge pipes is not held: its header is a prose line until the next one.
 
-const FENCE = /^\s*```/;
+import { fenceStep } from "./fenceRule";
+
 /// Complete dollar candidates and explicit math on one line. This mask deliberately includes
 /// candidates the renderer rejects (such as `$x$word`): rejected math must remain literal while
 /// streaming rather than be mistaken for an unfinished equation.
@@ -27,7 +28,7 @@ const OPEN_MATH = /\$\$|\\\(|(?<!\\)\$(?![({])(?=[^\s\d$]|$)|\\$/;
 /// The index of the line that opens a display equation not yet closed (-1 when none), and
 /// whether the last line closes one (it is the equation's, not inline math).
 function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
-  let fence = false;
+  let fence = 0;
   let open = -1;
   let closer: RegExp = /\$\$/;
   for (let index = 0; index < lines.length; index += 1) {
@@ -39,7 +40,7 @@ function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
       }
       continue;
     }
-    if (FENCE.test(line)) fence = !fence;
+    fence = fenceStep(fence, line);
     if (fence) continue;
     const dollars = line.match(/^\s*\$\$(.*)$/);
     if (dollars && !dollars[1]!.includes("$$")) [open, closer] = [index, /\$\$/];
@@ -85,10 +86,10 @@ function closedMath(line: string): string {
 export function safeTail(tail: string): string {
   const display = openDisplay(tail.split("\n"));
   const lines = display.open >= 0 ? tail.split("\n").slice(0, display.open).concat("") : tail.split("\n");
-  let fence = false;
-  for (let index = 0; index < lines.length - 1; index += 1) if (FENCE.test(lines[index]!)) fence = !fence;
+  let fence = 0;
+  for (let index = 0; index < lines.length - 1; index += 1) fence = fenceStep(fence, lines[index]!);
   let last = lines.at(-1) ?? "";
-  if (fence && /^\s*(?:`{1,3}[^`]*)?$/.test(last)) {
+  if (fence > 0 && new RegExp(`^\\s*(?:\`{1,${fence}}[^\`]*)?$`).test(last)) {
     // In a fence, a closer still being typed (or the indent before one) is held with the newline
     // before it: the open card draws the lines the closed one will, so it never shrinks a line.
     // A code line that starts with a backtick (a shell or Markdown sample) and has no second one
@@ -96,7 +97,7 @@ export function safeTail(tail: string): string {
     lines.pop();
     last = lines.at(-1)!;
   } else if (/^\s*`{1,3}[^`]*$/.test(last)) last = "";
-  else if (!fence) {
+  else if (fence === 0) {
     if (!display.closesLast) last = closedMath(last);
     if (MARKER_LINE.test(last)) last = "";
     if (/^\s*\|/.test(last)) last = "";
@@ -116,7 +117,7 @@ export function safeTail(tail: string): string {
   }
   lines[lines.length - 1] = last;
   let text = lines.join("\n");
-  if (fence) return text;
+  if (fence > 0) return text;
   const paragraph = (value: string) => value.slice(value.lastIndexOf("\n\n") + 1).replace(RULE_LINE, "");
   const odd = (pattern: RegExp, value: string) => (value.match(pattern)?.length ?? 0) % 2 === 1;
   if (odd(/\*\*/g, paragraph(text))) {

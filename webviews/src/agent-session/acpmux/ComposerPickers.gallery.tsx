@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
-import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
+import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 import { rememberFullAccess } from "./startMode";
@@ -198,10 +198,6 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
   const [fast, setFast] = useState("off");
-  const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
-    { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
-    { id: "git-grep", label: "Allow git grep in cmux for this session", onRemove: () => setGrants([]) },
-  ]);
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
@@ -243,7 +239,6 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
         <ComposerPickers
           snapshot={snapshot}
           {...(pickerCatalog ? { pickerCatalog } : {})}
-          permissionAccess={{ grants }}
           onModel={setModel}
           onMode={setMode}
           onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
@@ -425,20 +420,13 @@ const managedMode: Play = async (ctx) => {
     throw new Error("Full access must say it is managed by the organization");
 };
 
-const accessGrants: Play = async (ctx) => {
-  const trigger = ctx.find({ role: "button", name: "Mode" });
-  if (trigger.textContent?.includes("Trusted")) throw new Error("Trust state leaked into the Access trigger");
-  // The allowed rules live in the menu only; the trigger shows no count beside the mode.
-  if (trigger.querySelector(".acpmux-access-grant-count") || /\d/.test(trigger.textContent ?? ""))
-    throw new Error("Access trigger shows an allowed-rule count");
+// The mode menu lists the modes alone (Leo, 2026-10-29): granted access is revoked from the chat
+// menu's Revoke Granted Access (header/grantsMenu.ts), never from this menu.
+const modesOnly: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grants") !== null);
-  const grants = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-access-grant")];
-  if (grants.length !== 2) throw new Error(`Expected two allowed rules, found ${grants.length}`);
-  if (!grants.every((row) => row.querySelector(".acpmux-access-grant-remove")))
-    throw new Error("Allowed rules must each have a remove button");
-  await ctx.click({ selector: ".acpmux-access-grant-remove" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-access-grant").length === 1);
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-grants, .acpmux-access-grant"))
+    throw new Error("The mode menu shows granted access");
   await ctx.press("Escape");
 };
 
@@ -542,9 +530,16 @@ export default componentEntry<Props>({
       play: openEffort,
     },
     "fast-mode": {
-      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked. The model button then shows a bolt beside the model name (#31287).",
       props: {},
       play: fastMode,
+      checks: {
+        layoutShiftMax: {
+          value: 0.002,
+          reason:
+            "Turning Fast on draws the bolt after the model name on purpose (#31287), so Plan, the mode and the model detail to its right move 16 px: 0.0007 in Chromium.",
+        },
+      },
     },
     "permission-menu": { props: {}, play: openMode },
     "permission-managed": {
@@ -552,10 +547,10 @@ export default componentEntry<Props>({
       props: { managed: true },
       play: managedMode,
     },
-    "access-grants": {
-      note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
+    "modes-only": {
+      note: "The mode menu lists the modes alone: no Granted access section (Leo, 2026-10-29); grants are revoked from the chat menu's Revoke Granted Access.",
       props: {},
-      play: accessGrants,
+      play: modesOnly,
     },
     "permission-focus": {
       note: "The numeric mode shortcut picks Full access; Escape from a reopen returns focus to Mode.",

@@ -28,6 +28,14 @@ struct AgentPaneProjectRepoTests {
         var all: [String] { lock.withLock { paths } }
     }
 
+    /// A date a test moves forward by hand.
+    private nonisolated final class SteppedDate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = Date()
+        var date: Date { lock.withLock { value } }
+        func advance(_ seconds: TimeInterval) { lock.withLock { value.addTimeInterval(seconds) } }
+    }
+
     private struct Fixture {
         let home: String
         let touches = Touches()
@@ -358,7 +366,7 @@ struct AgentPaneProjectRepoTests {
         #expect(fetched.all.count == 2)
     }
 
-    @Test func aFailedAvatarIsKeptForThisRunOnlyAndABadOwnerIsNeverFetched() async throws {
+    @Test func aFailedAvatarIsKeptForAMinuteOnlyAndABadOwnerIsNeverFetched() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let folder = URL(fileURLWithPath: fixture.home + "/avatars")
@@ -371,6 +379,30 @@ struct AgentPaneProjectRepoTests {
         #expect(await avatars.avatar(for: "../etc") == nil)
         #expect(await avatars.avatar(for: "a/b") == nil)
         #expect(fetched.all.count == 1)
+    }
+
+    /// Leo 2026-10-28, on the project menu: "why are there so many default icons?" One miss (offline
+    /// at launch, a timeout) left every repository of that owner on the plain folder until the app
+    /// relaunched; a minute later the owner is asked again, and a picture that arrives stays.
+    @Test func aFailedAvatarIsFetchedAgainAfterAMinute() async throws {
+        let fetched = Touches()
+        let online = Touches()
+        let clock = SteppedDate()
+        let avatars = AgentPaneOwnerAvatars(folder: nil, fetch: { url in
+            fetched.add(url.absoluteString)
+            return online.all.isEmpty ? nil : Self.png
+        }, now: { clock.date })
+        #expect(await avatars.avatar(for: "manaflow-ai") == nil)
+        #expect(await avatars.avatar(for: "manaflow-ai") == nil)
+        #expect(fetched.all.count == 1)
+
+        online.add("up")
+        clock.advance(61)
+        let src = "data:image/png;base64," + Self.png.base64EncodedString()
+        #expect(await avatars.avatar(for: "manaflow-ai") == src)
+        clock.advance(61)
+        #expect(await avatars.avatar(for: "manaflow-ai") == src)
+        #expect(fetched.all.count == 2)
     }
 
     /// `project.list` answers each listed folder's repository beside the paths.

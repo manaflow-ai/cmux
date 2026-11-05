@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -10,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -18,19 +20,23 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let environment: AppEnvironment
+    private var environment: AppEnvironment
+    private let liveCode = LiveCode.fromEnvironment() // Debug and bench, with CMUX_LIVE_CODE_DIR only
     /// The daemon's first connect attempt, begun in `main`.
-    private let daemonPrestart: DaemonPrestart?
-    /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
-    private let launchSettle = LaunchSettle()
+    private var daemonPrestart: DaemonPrestart?
+    /// Resolves once before any auth or daemon is constructed; cancelled on quit.
+    private var cloudBootstrap: Task<Void, Never>?
+    /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
+    private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
@@ -80,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
+        let firstFrame = FirstFrameGate()
+        self.firstFrame = firstFrame
+        launchSettle = LaunchSettle(firstFrame: firstFrame)
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
@@ -87,6 +96,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // task-owner: cloudBootstrap; one CLI read before services, cancelled at termination.
+        cloudBootstrap = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
+                try Task.checkCancellation()
+                environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
+                environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
+                // Keep the native app and local daemon usable when client-config is
+                // unavailable. Never fall back to classic or pass a stale NEXT
+                // backend to a daemon started from this launch.
+                environment.cloudConfiguration = .unavailable
+                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                    environment.terminalEnvironment.removeValue(forKey: key)
+                }
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
+            }
+            cloudBootstrap = nil
+        }
+    }
+
+    private func finishLaunching() {
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -118,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(
-            fileURL: settingsFileURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
+            fileURL: CmuxConfigFile.launchURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
@@ -139,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -175,7 +219,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        // Labs > Live Code starts the live code watcher with the other non-paint services.
+        firstFrame.whenOpen { [weak self, weak services] in services?.startNonPaintServices(); self?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
+        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -195,11 +241,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
-            CATransaction.setCompletionBlock { [weak self] in
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_window_frame_committed")
-                    self?.firstFrame.open()
-                }
+            CATransaction.setMainCompletion { [weak self] in
+                DebugTimings.markLaunch("first_window_frame_committed")
+                TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
+                self?.firstFrame.open()
             }
         }
         // Once the first terminal frame is drawn, the palette panel is made
@@ -284,22 +329,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux.json, created on first launch.
-    private func settingsFileURL() -> URL {
-        do {
-            return try CmuxConfigFile.prepareDefaultURL()
-        } catch {
-            logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            return CmuxConfigFile.defaultURL()
-        }
-    }
-
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        // Before any page asks: Live Web Reload off ignores web-dev.json from the first request.
+        WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
@@ -325,21 +362,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true)
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
-        services.chatsFeed?.keepCurrent()
-        services.projectsImport.start(feed: services.chatsFeed)
-        if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
+        let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
-        NewTabPlacesFeed.wire(services.agentTabs, services: services)
-        NewTabWeather.wire(services.agentTabs, services: services)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -528,6 +558,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cloudBootstrap?.cancel()
+        cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
@@ -553,8 +585,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.stop()
         services?.mobile.stop()
         services?.iphone.stop()
+        services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
     }
+
+    /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { services?.dockMenu.menu() }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its
     /// last workspace closes, and the daemon keeps every terminal regardless.
@@ -567,6 +603,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         // A Dock click in an update relaunch's startup: the user chose cmux.
         services?.input.endRelaunchBehind("dock click", activating: true)
+        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
+        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.noteReopenRequested()
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

@@ -24,6 +24,9 @@ pub struct SessionAuthParams {
 #[serde(rename_all = "camelCase")]
 pub struct SessionAuthTarget {
     pub harness: String,
+    /// Absolute project directory on the destination daemon. Absent: project auth is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<std::path::PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -18,8 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside,
-    transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, parse_epoch,
+    reject_stale_epoch, require_epoch, transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -96,6 +96,10 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     Ok((manifest, files))
 }
 
+fn manifest_epoch(manifest: &Value) -> Result<Option<u64>, RpcError> {
+    parse_epoch(manifest.get("epoch"))
+}
+
 impl Hub {
     /// A chat that moved from here to another daemon: closed, its move committed (also before a
     /// restart, which does not rebuild a closed chat's state).
@@ -122,7 +126,7 @@ impl Hub {
 
     /// Recover an outer session store staged for a replacement before a daemon crash.
     pub(super) fn recover_staged_replacements(&self) {
-        let Some(probe) = self.store.session_dir("__cmux_harness_recovery_probe__") else {
+        let Some(probe) = self.store.session_path("__cmux_harness_recovery_probe__") else {
             return;
         };
         let Some(root) = probe.parent() else { return };
@@ -339,6 +343,8 @@ impl Hub {
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
@@ -350,12 +356,33 @@ impl Hub {
                 format!("this daemon takes {TRANSFER_SCHEMA} or {DURABLE_TRANSFER_SCHEMA}"),
             ));
         }
+        // Prompts the owner approved that still wait for their place (`transfer_out.rs`): taken
+        // only by a daemon that runs them under the approved rules (`queue_approve.rs`).
+        if let Some(ids) = manifest
+            .get("approvedWaiting")
+            .filter(|ids| ids.as_array().is_some_and(|a| !a.is_empty()))
+            && !self.understands_queue_approval()
+        {
+            let why = "this daemon does not understand queue approval";
+            return Err(super::approved_prompts_error(ids.clone(), why));
+        }
         let id = manifest["sessionId"].as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        if let Some(existing) = here.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
+            // A delayed bundle for an older owner must not replace a newer moved copy.
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
+            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
+        }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
@@ -371,13 +398,14 @@ impl Hub {
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
-        let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
-            total = total.saturating_add(f["size"].as_u64().unwrap_or(u64::MAX));
+            if f["size"].as_u64().is_none() {
+                return Err(RpcError::invalid_params("transfer: file size must be a u64"));
+            }
         }
-        if files.len() > MAX_FILES || total > MAX_BUNDLE {
-            return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        if files.len() > MAX_FILES {
+            return Err(transfer_error("size", format!("{} files", files.len())));
         }
         if let Some(g) = &guard {
             self.guarded_receive_check(g, &manifest).await?;
@@ -401,6 +429,7 @@ impl Hub {
             std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
             answer.set("guarded", json!(true));
@@ -412,7 +441,8 @@ impl Hub {
     pub(super) fn transfer_write(&self, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         let dir = receive_dir(text("receiveId"))?;
-        let (_, files) = receive_manifest(&dir)?;
+        let (manifest, files) = receive_manifest(&dir)?;
+        require_epoch(manifest_epoch(&manifest)?.unwrap_or(0), parse_epoch(params.get("epoch"))?)?;
         let path = text("path");
         let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
             return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
@@ -431,7 +461,9 @@ impl Hub {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));
         }
-        if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
+        if data.len() as u64 > MAX_PAGE
+            || size.checked_sub(have).is_none_or(|left| data.len() as u64 > left)
+        {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
@@ -453,6 +485,9 @@ impl Hub {
         let _receives = RECEIVES.lock().await;
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
+        require_epoch(incoming_floor, parse_epoch(params.get("epoch"))?)?;
         let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
@@ -483,6 +518,16 @@ impl Hub {
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
+        if let Some(existing) = old.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
+            if incoming_floor != 0 || manifest["schema"].as_str() != Some(TRANSFER_SCHEMA) {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
+        }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
@@ -569,11 +614,12 @@ impl Hub {
             .await
         {
             Ok(session) => {
+                session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
-                    json!({"transferId": transfer_id, "from": from}),
+                    json!({"transferId": transfer_id, "from": from, "epoch": incoming_floor}),
                     None,
                     None,
                 );
@@ -674,5 +720,18 @@ impl Hub {
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
+    }
+}
+
+impl Hub {
+    /// Whether this daemon runs a prompt the owner approved under the approved rules
+    /// (`queue_approve.rs`, `author::QUEUE_APPROVAL_FEATURE` in its `initialize`): every build
+    /// with this code does; a test stands in for an older one.
+    pub(super) fn understands_queue_approval(&self) -> bool {
+        #[cfg(test)]
+        if self.queue_approval_off.load(Ordering::SeqCst) {
+            return false;
+        }
+        true
     }
 }

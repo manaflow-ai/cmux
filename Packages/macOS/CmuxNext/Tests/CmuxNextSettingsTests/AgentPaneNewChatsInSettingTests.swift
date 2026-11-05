@@ -22,6 +22,12 @@ struct AgentPaneNewChatsInSettingTests {
         #expect(!snapshot.diagnostics.contains { $0.path == "agentPane.newChatsIn" })
     }
 
+    /// An agent may set it when the person asks (Leo, 2026-10-31: an agent said it wasn't allowed to).
+    @Test func agentsMaySetIt() {
+        #expect(SettingsSchema.agentSettableKeys.contains("agentPane.newChatsIn"))
+        #expect(SettingsSchema.agentRefusedKeys["agentPane.newChatsIn"] == nil)
+    }
+
     @Test func aBadValueIsThisMacWithADiagnostic() {
         for bad: JSONValue in [.string("Cloud"), .string("vm"), .bool(true)] {
             let root = JSONValue.object(["agentPane": .object(["newChatsIn": bad])])

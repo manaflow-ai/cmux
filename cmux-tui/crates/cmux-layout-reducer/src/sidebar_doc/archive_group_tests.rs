@@ -1,7 +1,7 @@
 //! Groups follow their members (plans/cmux-next/auto-archive-DESIGN.md
 //! "Groups"): a group whose last unarchived member archives archives too,
 //! up the tree; restoring a member, or dropping a live one in, restores the
-//! group; a group stores its own auto-archive rule.
+//! group; a group stores its own auto-archive rule and its sort.
 
 use serde_json::json;
 
@@ -228,4 +228,31 @@ fn a_group_stores_its_own_auto_archive_rule() {
     assert_eq!(try_run(&mut doc, update(json!(0))), Err(Refusal::InvalidValue));
     try_run(&mut doc, update(json!(null))).expect("null clears");
     assert!(!doc.item("inner").expect("inner").extra.contains_key("auto_archive"));
+}
+
+#[test]
+fn a_group_stores_its_own_sort() {
+    let mut doc = fixture();
+    let update = |sort: serde_json::Value| json!([{"op": "group.update", "id": "inner", "patch": {"sort": sort}}]);
+    let stored = |doc: &Doc| doc.item("inner").expect("inner").extra.get(GROUP_SORT_KEY).cloned();
+    assert_eq!(doc.item("inner").expect("inner").group_sort(), GroupSort::Manual);
+    try_run(&mut doc, update(json!("name"))).expect("name is a sort");
+    assert_eq!(stored(&doc), Some(json!("name")));
+    assert_eq!(doc.item("inner").expect("inner").group_sort(), GroupSort::Name);
+    let ops: Vec<Op> = serde_json::from_value(update(json!("recent"))).expect("ops read");
+    let inverse = run(&mut doc, ops);
+    assert_eq!(doc.item("inner").expect("inner").group_sort(), GroupSort::Recent);
+    // Undo puts the earlier sort back.
+    apply_rows(&mut doc, &inverse);
+    assert_eq!(doc.item("inner").expect("inner").group_sort(), GroupSort::Name);
+    assert_eq!(try_run(&mut doc, update(json!("size"))), Err(Refusal::InvalidValue));
+    assert_eq!(stored(&doc), Some(json!("name")));
+    // Manual is the stored order: no key, as null.
+    try_run(&mut doc, update(json!("manual"))).expect("manual clears");
+    assert_eq!(stored(&doc), None);
+    try_run(&mut doc, update(json!("name"))).expect("name again");
+    try_run(&mut doc, update(json!(null))).expect("null clears");
+    assert_eq!(stored(&doc), None);
+    // The members' stored order never changes.
+    assert_eq!(list(&doc, Some("outer")), ["inner", "w3"]);
 }

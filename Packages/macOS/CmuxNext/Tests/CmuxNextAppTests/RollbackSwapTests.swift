@@ -65,4 +65,33 @@ import Testing
         #expect(Self.build(of: target.bundle) == "100")
         #expect(store.list().map(\.build) == ["100"])
     }
+
+    /// cmux#32624's proof on a fleet Mac: the swap failed with NSCocoaError 512 whose underlying
+    /// error was POSIX EINTR. An interrupted call is tried again; any other failure is not.
+    @Test func anInterruptedSwapIsTriedAgainAndOtherFailuresAreNot() throws {
+        let interrupted = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: [
+            NSUnderlyingErrorKey: NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: [
+                NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(EINTR)),
+            ]),
+        ])
+        var calls = 0
+        try RollbackSwap.retryingInterrupted {
+            calls += 1
+            if calls < 3 { throw interrupted }
+        }
+        #expect(calls == 3)
+
+        calls = 0
+        #expect(throws: (any Error).self) {
+            try RollbackSwap.retryingInterrupted { calls += 1; throw interrupted }
+        }
+        #expect(calls == 4)
+
+        calls = 0
+        let denied = NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))
+        #expect(throws: (any Error).self) {
+            try RollbackSwap.retryingInterrupted { calls += 1; throw denied }
+        }
+        #expect(calls == 1)
+    }
 }

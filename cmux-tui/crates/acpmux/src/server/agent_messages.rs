@@ -7,7 +7,11 @@
 //!   runaway guard paused that `sessionId` is in (`hub/agent_pairs.rs`); `peerSessionId` only
 //!   picks one of them. Only a connection that proved the person key (`hub/person.rs`) on this
 //!   machine (the unix socket or the app, `remote_guard.rs` refusing Web and Peer first).
-//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
+//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]),
+//!   except those a taken-over chat holds.
+//! - `_acpmux/agent_hold {sessionId, held}`: the person takes a managed chat over, so its
+//!   manager's messages wait, or hands it back, which delivers them (`hub/agent_hold.rs`). The
+//!   person on this machine only, as `agent_pair_resume`.
 //!
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
 //! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
@@ -51,11 +55,21 @@ pub(super) async fn handle(
         let s = hub.resolve(session_key(params)?)?;
         return hub.prompt_withdraw(&s, params).await;
     }
-    // An agent may not resume its own pair.
+    // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
         return Err(Hub::agent_pair_resume_refused());
     }
     let s = hub.resolve(session_key(params)?)?;
+    if m == method::MUX_AGENT_HOLD {
+        let held = params
+            .get("held")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| RpcError::invalid_params("`held` (a boolean) is required"))?;
+        // The held messages come back with the logs (`restore_queue`).
+        hub.pair_peer_logs(&s).await;
+        hub.wait_logs().await;
+        return hub.agent_hold(&s, held);
+    }
     // The pairs come back with the logs (`restore_queue`): resume what they restored.
     hub.wait_logs().await;
     Ok(hub.agent_pair_resume(&s.id, str_param(params, "peerSessionId")))
@@ -100,15 +114,48 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
 /// Before the person's own `session/prompt` into `s` (no provenance: not an agent's message, from
 /// a connection that proved the person key on this machine): every agent pair `s` is in starts
 /// over, and a paused one is resumed.
+///
+/// And before any person's prompt, wherever it came from (a Cloud chat's comes through a
+/// connection that is never the person key's: the app's Web or a peer daemon), the Cloud activity
+/// report learns its time (`hub/person_prompt_at.rs`, [`counts_as_person_prompt`]).
 pub(super) async fn person_prompt(
     hub: &Arc<Hub>,
     conn: &Conn,
     s: &Arc<Session>,
     agent_message: bool,
 ) {
+    let in_session = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+    if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
+        hub.person_prompted(crate::store::now_ms());
+    }
     if !agent_message && local_person(conn) {
         // After its log and its peers' load, which restore the pairs this resumes.
         hub.pair_peer_logs(s).await;
         hub.agent_pair_person_prompt(s);
+    }
+}
+
+/// Whether a `session/prompt` is a person's for the Cloud activity report: not an agent's message
+/// (`agent_message`: it carries another agent's, a tool's or a trigger's provenance), not from a
+/// trigger's connection (an automation's delivery), and not from a connection that says it runs
+/// in an acpmux session (its caller token, proven or not: a chat's own agent).
+pub(super) fn counts_as_person_prompt(
+    agent_message: bool,
+    trigger: bool,
+    in_session: bool,
+) -> bool {
+    !agent_message && !trigger && !in_session
+}
+
+#[cfg(test)]
+mod person_prompt_tests {
+    use super::counts_as_person_prompt;
+
+    #[test]
+    fn only_a_persons_prompt_counts() {
+        assert!(counts_as_person_prompt(false, false, false), "the person's own prompt");
+        assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
+        assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
+        assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
     }
 }

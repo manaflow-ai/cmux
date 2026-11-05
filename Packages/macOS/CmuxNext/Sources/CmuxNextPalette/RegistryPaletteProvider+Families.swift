@@ -22,7 +22,14 @@ extension RegistryPaletteProvider {
     /// standard, niche (a stable sort: the empty query lists each section's rows in this order).
     /// `tiers` is by item id.
     static func arranged(_ items: [PaletteItem], tiers: [String: PaletteTier]) -> [PaletteItem] {
+        arranged(items, tierList: items.map { tiers[$0.id] ?? .standard })
+    }
+
+    /// `arranged(_:tiers:)` with `tierList[i]` the tier of `items[i]`. The order is sorted as indices over keys read
+    /// once (a row's enabled state and tier), never by moving rows or looking a tier up per comparison.
+    static func arranged(_ items: [PaletteItem], tierList: [PaletteTier]) -> [PaletteItem] {
         var items = items
+        var tiers = tierList
         var position: [ActionID: Int] = [:]
         for (index, item) in items.enumerated() {
             if let id = item.actionID { position[id] = index }
@@ -40,15 +47,16 @@ extension RegistryPaletteProvider {
             }
             for index in present { items[index].hidesWhenQueryEmpty = true }
         }
-        for (at, row) in familyRows.sorted(by: { $0.at > $1.at }) { items.insert(row, at: at) }
-        return items.enumerated()
-            .sorted { lhs, rhs in
-                if lhs.element.isEnabled != rhs.element.isEnabled { return lhs.element.isEnabled }
-                let left = tiers[lhs.element.id] ?? .standard
-                let right = tiers[rhs.element.id] ?? .standard
-                return left != right ? left < right : lhs.offset < rhs.offset
-            }
-            .map(\.element)
+        for (at, row) in familyRows.sorted(by: { $0.at > $1.at }) {
+            items.insert(row, at: at)
+            tiers.insert(.standard, at: at)
+        }
+        let enabled = items.map(\.isEnabled)
+        let order = items.indices.sorted { lhs, rhs in
+            if enabled[lhs] != enabled[rhs] { return enabled[lhs] }
+            return tiers[lhs] != tiers[rhs] ? tiers[lhs] < tiers[rhs] : lhs < rhs
+        }
+        return order.map { items[$0] }
     }
 
     /// The row that opens a page of the family's members, in their section. The page is built

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 import os
@@ -31,28 +32,30 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
     }
 
+    /// The tab's page window clip (`CEFTab.pageWindowClip`, window coordinates).
+    var windowClip: CGPath? { tab.pageWindowClip }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
 
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? {
         didSet {
             guard let resources else {
                 tab.pageResources = nil
                 return
             }
-            tab.pageResources = { url in
-                let answer = await resources(url)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            tab.pageResources = { url, range in
+                let answer = await resources(url, range)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders,
+                                       csp: answer.csp)
             }
         }
     }
 
     private func listen() {
         guard onEvent != nil, !closed else {
-            tab.pageFilesDragged = nil
-            tab.pageUserInput = nil
-            tab.agentRelay.set(onMessage: nil, onEnd: nil)
+            tab.clearPageEventHooks()
             crashWatch?.cancel()
             crashWatch = nil
             return
@@ -60,7 +63,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
+        tab.pageDragEnded = { [weak self] dropped in self?.onEvent?(.dragEnded(dropped: dropped)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
+        tab.pagePasted = { [weak self] in self?.onEvent?(.pasted) }
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -79,6 +84,35 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         try await tab.devTools(method: method, params: params)
     }
 
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
+        try await tab.devTools(method: method, params: params, timeout: timeout)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    func debugPress(at point: NSPoint) -> Bool {
+        let host = contentView
+        guard point.x.isFinite, point.y.isFinite, let window = host.window,
+              !host.isHiddenOrHasHiddenAncestor else { return false }
+        let local = NSPoint(x: point.x, y: host.isFlipped ? point.y : host.bounds.height - point.y)
+        guard host.bounds.contains(local) else { return false }
+        let screen = window.convertPoint(toScreen: host.convert(local, to: nil))
+        guard let page = WindowOverlayHost.frontPageWindow(at: screen, in: window) else { return false }
+        let location = page.convertPoint(fromScreen: screen)
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: now,
+                                            windowNumber: page.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: [], timestamp: now + 0.001,
+                                          windowNumber: page.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
+        // Giving this app's page the key does not activate the app. The queued events then take
+        // the normal native path, including CEFLinkClickTracker's local input monitor.
+        page.makeKey()
+        SyntheticInput.register([down, up])
+        NSApp.postEvent(down, atStart: false)
+        NSApp.postEvent(up, atStart: false)
+        return true
+    }
+    #endif
+
     func load(_ url: URL) { tab.load(url) }
 
     func reload() { tab.reload() }
@@ -91,15 +125,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
+    func setAnswersFileChooser(_ on: Bool) { if on { tab.pageFilesChosen = { [weak self] urls in self?.onEvent?(.filesChosen(urls)) } } else { tab.pageFilesChosen = nil } }
+
     func close() {
         guard !closed else { return }
         closed = true
         crashWatch?.cancel()
         crashWatch = nil
-        tab.agentRelay.set(onMessage: nil, onEnd: nil)
-        tab.pageResources = nil
-        tab.pageFilesDragged = nil
-        tab.pageUserInput = nil
+        tab.clearPageHooks()
         tab.delegate = nil
         tab.close()
     }

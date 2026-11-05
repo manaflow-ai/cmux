@@ -127,6 +127,27 @@ import Testing
         #expect(SidebarSessionTreeFeed.badge(asks, answers: [:]) == nil)
     }
 
+    /// ask-268456b5a0 (Leo 2026-10-28, "loads of stuff in my sidebar that I'm not even looking at"): a session folded
+    /// under its parent draws only as the parent's roll-up, so its steps and titles lay nothing out; its state does.
+    @Test func aFoldedSessionsStepLaysNothingOutButItsStateDoes() {
+        var tree = Self.tree
+        tree.collapsed = [Self.chief]
+        let working = SidebarWorkspace(id: Self.lane, title: "lane", agentWorking: true)
+        var stepped = working
+        stepped.agentStep = "Reading SidebarRowIndex.swift"
+        stepped.title = "lane (renamed)"
+        #expect(!tree.patchChangesRollUp(from: working, to: stepped))
+        var done = stepped
+        done.agentWorking = false
+        #expect(tree.patchChangesRollUp(from: stepped, to: done))
+        #expect(tree.patchChangesRollUp(from: nil, to: done))
+        // Shown (no fold over it): its own row patches in place, as before.
+        #expect(!Self.tree.patchChangesRollUp(from: stepped, to: done))
+        // A lane's own state decides: the row's step under it changes nothing.
+        tree.states[Self.lane] = .running
+        #expect(!tree.patchChangesRollUp(from: working, to: done))
+    }
+
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {
         SidebarSessionTree.shared.state = Self.tree
         defer { SidebarSessionTree.shared.state = nil }

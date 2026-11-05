@@ -25,6 +25,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -370,7 +371,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
-    const columns: Record<number, { main: number; row: number[]; composer: number[] }> = {};
+    const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
       const page = await open(chat, width);
       columns[width] = await page.evaluate(() => {
@@ -379,15 +380,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           const box = document.querySelector(selector)!.getBoundingClientRect();
           return [Math.round(box.left - main.left), Math.round(main.right - box.right)];
         };
+        // The column's minimum edge as the pane draws it (conversation.css --cv-edge, the grid's 16).
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;visibility:hidden;width:var(--cv-edge)";
+        document.querySelector(".acpmux-main")!.append(probe);
+        const edge = Math.round(probe.getBoundingClientRect().width);
+        probe.remove();
         return {
           main: Math.round(main.width),
           row: edges(".acpmux-row.acpmux-assistant"),
           composer: edges(".acpmux-composer-box"),
+          edge,
         };
       });
       await page.close();
     }
-    const pageEdge = 18;
+    // The minimum edge is the grid's 16 (leo-workspace design/grid.md 5.5: "the minimum edge is 16
+    // (today's 18 moves to it)"; #27580 set --cv-edge to it), read from the pane's own token.
+    const pageEdge = columns[480]!.edge;
+    expect(pageEdge).toBe(16);
     const column = (viewport: number) => {
       const { main, row } = columns[viewport]!;
       return main - row[0]! - row[1]!;
@@ -549,9 +560,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
     expect(bubble.alpha).toBeGreaterThan(0);
     expect(bubble.alpha).toBeLessThan(255);
-    expect(bubble.radius).toBeLessThanOrEqual(12);
-    expect(bubble.left).toBeGreaterThanOrEqual(10);
-    expect(bubble.left).toBeLessThanOrEqual(12);
+    expect(bubble.radius).toBeLessThanOrEqual(BUBBLE.radius);
+    // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
+    expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
+    expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
     expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
     expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
     expect(bubble.right).toBe(0);
@@ -604,9 +616,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says "Thinking"
-    // (Thinking.tsx), with nothing to open.
-    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Thinking" }).waitFor();
+    // draws no row for the thought yet; the turn's live line at its foot says one of the default
+    // The default status mode is Thinking only, with nothing to open.
+    await page
+      .locator(".cv-worked.is-below .cv-thinking", {
+        hasText: /^Thinking/,
+      })
+      .waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();

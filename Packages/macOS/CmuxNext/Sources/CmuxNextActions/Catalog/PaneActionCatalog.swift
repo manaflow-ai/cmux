@@ -23,11 +23,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
             // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
+            // New Column Ctrl-Cmd-X and New Row Ctrl-Shift-Cmd-X: X is the second D: Ctrl adds a column / row,
+            // Option a browser, Shift means below (PaneCreateKeySetTests). Not Ctrl-Cmd-D: macOS's Look Up (system
+            // hot key 70, on by default) takes it before cmux (MacOSSystemShortcutsTests).
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
                 keywords: ["new column", "scroll", "column", "pane", "right", "add"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
+                defaultShortcut: Shortcut("x", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),
@@ -42,7 +45,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "newRow",
                 title: String(localized: "action.newRow", defaultValue: "New Row", bundle: .module),
                 keywords: ["scroll", "row", "pane"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("x", modifiers: [.control, .shift, .command]), category: .pane,
                 symbol: "rectangle.grid.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-row", mainMenu: .view, startsTerminal: true
             ),

@@ -97,6 +97,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # Before any token exists: the tip must be a feat-cmux-next commit.
       - name: Check the tip is on feat-cmux-next
@@ -180,7 +184,7 @@ jobs:
     name: Pick the train compile's runner
     if: github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/')
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The routing App's key, as nightly.yml's pick-nightly-build-runner reads it.
     environment: ci-routing-agent
     timeout-minutes: 5
@@ -235,6 +239,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           OWNED_LABELS: ${{ format('{0} {1}', vars.NIGHTLY_NEXT_TRAIN_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
@@ -247,7 +252,7 @@ jobs:
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/') }}
     # An idle owned Mac on the pick's own attempt, else the moving Blacksmith label;
     # a failed pick falls back to vars.MACOS_RUNNER_26, then Blacksmith macOS 26.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     # The same one-architecture Release xcodebuild as cmux-next.yml's
     # "cmux-next Release compile (Xcode 26)", on the candidate train commit.
     timeout-minutes: 60

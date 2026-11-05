@@ -73,68 +73,6 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Machines
 
-    public func listMachines() async throws -> [CloudMachine] {
-        try await listMachinesAndLimits().machines
-    }
-
-    /// `GET /api/vm`: the machines and the account's machine cap (`limits`;
-    /// nil when the server sent none or sent one this client cannot read).
-    public func listMachinesAndLimits() async throws -> (machines: [CloudMachine], limits: CloudMachineLimits?) {
-        let list = try await send("GET", "/api/vm", as: CloudMachineList.self)
-        return (list.vms, list.limits)
-    }
-
-    public func machine(_ id: String) async throws -> CloudMachine {
-        try await send("GET", "/api/vm/\(id)", as: CloudMachine.self)
-    }
-
-    /// `POST /api/vm`. The server provisions for up to 600 s; the key makes a
-    /// retry after a lost response return the same machine.
-    /// `onSent` runs once the request goes on the wire (sign-in token and
-    /// team resolved), so a caller can tell its request stage from the
-    /// server's create.
-    /// `idlePauseMinutes`: the machine's idle auto-pause from its create (0 is Off, a persistent
-    /// machine); a server that does not store it answers without it (or with its default). `autosize`: ``CloudAutosizeRequest``.
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, autosize: CloudAutosizeRequest? = nil,
-                              idlePauseMinutes: Int? = nil, idempotencyKey: String = UUID().uuidString,
-                              onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
-        var body: [String: any Sendable] = [:]
-        if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
-        if let memoryMb { body["memoryMb"] = memoryMb } else if let autosize { body["autosize"] = autosize.body }
-        if let idlePauseMinutes {
-            let value: any Sendable = idlePauseMinutes == 0 ? "off" : idlePauseMinutes
-            body["idlePauseMinutes"] = value
-        }
-        return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
-                              onSent: onSent, as: CloudMachine.self)
-    }
-
-    public func renameMachine(_ id: String, to name: String?) async throws {
-        let body: [String: any Sendable] = ["displayName": name ?? NSNull()]
-        _ = try await send("PATCH", "/api/vm/\(id)", body: body, as: Ignored.self)
-    }
-
-    public func deleteMachine(_ id: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)", timeout: .seconds(120), as: Ignored.self)
-    }
-
-    /// Parks the machine while preserving its disk and session.
-    public func pauseMachine(_ id: String) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/pause", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    /// Resume can wait up to the route's 16-minute provider readiness budget.
-    public func resumeMachine(_ id: String) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
-    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
-    public func setIdlePause(_ id: String, minutes: Int) async throws {
-        let value: any Sendable = minutes == 0 ? "off" : minutes
-        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
-    }
-
     public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
         var body: [String: any Sendable] = ["transport": "cmux-remote"]
         if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
@@ -145,10 +83,6 @@ public struct CloudAPIClient: Sendable {
     public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
         try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
                        timeout: .seconds(60), as: CloudEnrollmentApproval.self)
-    }
-
-    public func stats(_ id: String) async throws -> CloudMachineStats {
-        try await send("GET", "/api/vm/\(id)/stats", as: CloudMachineStats.self)
     }
 
     /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
@@ -533,6 +467,12 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private let state = Mutex(State())
 
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await race(bound, timeout: { CloudAPIError.timedOut("/api/runs") }, work)
+    }
+
+    /// ``race(_:_:)`` with the error the bound throws (`timeout`): a Cloud link step names itself.
+    static func race(_ bound: Duration, timeout: @escaping @Sendable () -> any Error,
+                     _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -548,7 +488,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 let timer = Task {
                     // wakeup-allow: one-shot deadline for a sandbox run (stops at the bound or the answer)
                     try? await Task.sleep(for: bound)
-                    gate.finish(.failure(CloudAPIError.timedOut("/api/runs")))
+                    gate.finish(.failure(timeout()))
                 }
                 gate.onFinish { job.cancel(); timer.cancel() }
             }

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 791,
-    "mcp": 707
+    "verbs": 801,
+    "mcp": 716
   },
   "nouns": [
     {
@@ -12,6 +12,13 @@
           "command": "cmux accounts connect",
           "title": "Connect Account to CodeRouter…",
           "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux accounts github-connect",
+          "title": "Connect GitHub",
+          "id": "accounts.githubConnect",
           "mcp": false,
           "mcpTool": null
         },
@@ -1485,6 +1492,20 @@
           "mcpTool": "app_cloud_prepare_scp"
         },
         {
+          "command": "cmux cloud preview-revoke",
+          "title": "Revoke Machine Preview Link…",
+          "id": "cloudPreviewRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_revoke"
+        },
+        {
+          "command": "cmux cloud preview-share",
+          "title": "Share Machine Preview…",
+          "id": "cloudPreviewShare",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_share"
+        },
+        {
           "command": "cmux cloud promote-machine-to-template",
           "title": "Promote Machine to Template",
           "id": "palette.cloud.promoteTemplate",
@@ -1504,6 +1525,13 @@
           "id": "cloudPublicationList",
           "mcp": true,
           "mcpTool": "app_cloud_publication_list"
+        },
+        {
+          "command": "cmux cloud relay-chat",
+          "title": "Chat on Cloud Machine via the Relay…",
+          "id": "cloudRelayChat",
+          "mcp": true,
+          "mcpTool": "app_cloud_relay_chat"
         },
         {
           "command": "cmux cloud rename-machine",
@@ -2022,6 +2050,13 @@
           "id": "home.togglePin",
           "mcp": true,
           "mcpTool": "app_home_pin_unpin"
+        },
+        {
+          "command": "cmux home primary-chief",
+          "title": "Make Primary Chief",
+          "id": "home.setPrimaryChief",
+          "mcp": true,
+          "mcpTool": "app_home_primary_chief"
         },
         {
           "command": "cmux home remove-member",
@@ -2578,6 +2613,13 @@
           "id": "pane.toggleTabBar",
           "mcp": true,
           "mcpTool": "app_pane_toggle_tab_bar"
+        },
+        {
+          "command": "cmux pane toggle-vertical-tabs",
+          "title": "Turn On Vertical Tabs",
+          "id": "tabs.verticalTabs.toggle",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_vertical_tabs"
         }
       ]
     },
@@ -3182,6 +3224,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux settings install-earlier-nightly",
+          "title": "Install an Earlier Nightly…",
+          "id": "updates.installEarlierBuild",
+          "mcp": true,
+          "mcpTool": "app_settings_install_earlier_nightly"
+        },
+        {
           "command": "cmux settings keep-1-neighbor-tab-awake",
           "title": "Keep 1 Neighbor Tab Awake on Each Side",
           "id": "browser.keepNeighborTabsAwake.1",
@@ -3691,6 +3740,13 @@
           "mcpTool": "app_share_chat"
         },
         {
+          "command": "cmux share invite",
+          "title": "Invite People to Chat…",
+          "id": "agent.share.invite",
+          "mcp": true,
+          "mcpTool": "app_share_invite"
+        },
+        {
           "command": "cmux share kick",
           "title": "Remove Guest",
           "id": "agent.share.kick",
@@ -3710,6 +3766,13 @@
           "id": "agent.share.revoke",
           "mcp": true,
           "mcpTool": "app_share_revoke"
+        },
+        {
+          "command": "cmux share uninvite",
+          "title": "Remove Invited Person",
+          "id": "agent.share.uninvite",
+          "mcp": true,
+          "mcpTool": "app_share_uninvite"
         }
       ]
     },
@@ -5722,6 +5785,13 @@
           "mcpTool": "app_workspace_group_set_icon"
         },
         {
+          "command": "cmux workspace-group set-sort",
+          "title": "Set Workspace Group Sort Order…",
+          "id": "workspaceGroup.setSort",
+          "mcp": true,
+          "mcpTool": "app_workspace_group_set_sort"
+        },
+        {
           "command": "cmux workspace-group sort-by-directory",
           "title": "Sort Group by Directory",
           "id": "workspaceGroup.sortByDirectory",
@@ -5774,7 +5844,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 6,
+    "credentials": 7,
     "endsApp": 4,
     "systemChange": 74
   }

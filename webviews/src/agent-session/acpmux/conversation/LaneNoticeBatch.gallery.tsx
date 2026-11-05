@@ -6,8 +6,8 @@ import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { report, notice } from "./laneNotice.gallery-fixtures";
-import { batchLaneNotices } from "./laneNoticeBatches";
+import { inboxMany, report } from "./laneNotice.gallery-fixtures";
+import { batchLaneNotices, flattenInboxRows } from "./laneNoticeBatches";
 import { setMessageOpened } from "./incomingOpened";
 import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
@@ -17,12 +17,13 @@ function Stage({ kind, expanded }: Props) {
   const session = `gallery-lane-notice-${kind}-${expanded}`;
   const [rows] = useState(() => {
     resetTranscriptDisclosure(session);
-    const members =
+    const source =
       kind === "inbox"
-        ? [0, 1, 2].map((index) => notice(index, session))
+        ? [inboxMany(session)]
         : kind === "single"
           ? [report(4, session)]
           : [0, 1, 2, 3, 4].map((index) => report(index, session));
+    const members = kind === "inbox" ? flattenInboxRows(source) : source;
     const grouped = batchLaneNotices(members);
     for (const row of [...members, ...grouped]) setMessageOpened(session, row.id, false);
     return grouped;
@@ -98,8 +99,8 @@ export default componentEntry<Props>({
       true,
       "The five reports keep their names and disclosures; the BLOCK shows both full findings.",
     ),
-    "inbox-collapsed": variant("inbox", false, "Three inbox notices share one row naming their senders."),
-    "inbox-expanded": variant("inbox", true, "Each inbox notice remains independently expandable."),
+    "inbox-collapsed": variant("inbox", false, "Thirteen inbox deliveries render as one flat run of sender rows."),
+    "inbox-expanded": variant("inbox", true, "Each inbox delivery expands as its own received message row."),
     "single-collapsed": variant(
       "single",
       false,

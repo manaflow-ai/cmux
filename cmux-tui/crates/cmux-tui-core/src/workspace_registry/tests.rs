@@ -23,7 +23,7 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     }
 }
 
-fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+pub(super) fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
     let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
@@ -3516,6 +3516,105 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The app saves its window and sidebar documents again on many events with
+/// nothing changed. An identical save under a new mutation id is no change:
+/// no revision and no change event (`replayed`), which woke every subscriber
+/// and the launch snapshot for each save and kept the app's idle owner busy.
+/// It is still recorded, so its retries replay.
+#[test]
+fn an_identical_frontend_projection_under_a_new_mutation_writes_nothing() {
+    let root = temp_root("projection-identical");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let put = |registry: &mut WorkspaceRegistry, id: &str, schema: u32, body: &Value| {
+        registry.put_frontend_projection(
+            &WorkspaceMutation::daemon(id, "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            schema,
+            None,
+            body,
+        )
+    };
+    let ledger_rows = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(*) FROM projection_mutations", [], |row| row.get(0))
+            .unwrap()
+    };
+    let body = json!({"frame":[0, 0, 800, 600], "tabs":["a", "b"]});
+    let first = put(&mut registry, "save-1", 1, &body).unwrap();
+    assert!(!first.replayed);
+    assert_eq!(first.projection.projection_revision, 1);
+    let rows = ledger_rows(&registry);
+
+    // Key order does not count as a change.
+    let same = json!({"tabs":["a", "b"], "frame":[0, 0, 800, 600]});
+    for id in ["save-2", "save-3"] {
+        let again = put(&mut registry, id, 1, &same).unwrap();
+        assert!(again.replayed, "{id}: an identical save is not a change");
+        assert_eq!(again.projection.projection_revision, 1, "{id}");
+        assert_eq!(again.projection.projection, body, "{id}");
+    }
+    assert_eq!(ledger_rows(&registry), rows + 2, "each save is still recorded for its retries");
+    // A matching expected revision is still checked, and still no change.
+    let expected = registry
+        .put_frontend_projection(
+            &WorkspaceMutation::daemon("save-4", "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            1,
+            Some(1),
+            &body,
+        )
+        .unwrap();
+    assert!(expected.replayed);
+    assert!(
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::daemon("save-5", "cmux-app").unwrap(),
+                "cmux-app",
+                "window",
+                "main",
+                1,
+                Some(0),
+                &body,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("projection revision conflict")
+    );
+
+    // A retry of an identical save, after another mutation changed the
+    // body, replays its answer and does not write the old body back.
+    let changed = put(&mut registry, "save-other", 1, &json!({"frame":[5, 5, 800, 600]})).unwrap();
+    assert!(!changed.replayed);
+    let retry = put(&mut registry, "save-2", 1, &same).unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.projection.projection_revision, 1, "the retry answers as it did");
+    let stored = registry.get_frontend_projection("cmux-app", "window", "main").unwrap().unwrap();
+    assert_eq!(stored.projection, json!({"frame":[5, 5, 800, 600]}), "the retry wrote nothing");
+    assert!(
+        put(&mut registry, "save-2", 1, &json!({"other": true}))
+            .unwrap_err()
+            .to_string()
+            .contains("retried with a different payload"),
+        "a no-op save's mutation id is still bound to its body"
+    );
+
+    // A different body or schema version is a change.
+    let moved = put(&mut registry, "save-6", 1, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!moved.replayed);
+    assert_eq!(moved.projection.projection_revision, 3);
+    let schema = put(&mut registry, "save-7", 2, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!schema.replayed);
+    assert_eq!(schema.projection.projection_revision, 4);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn personal_and_shared_frontend_projections_coexist_and_restore_independently() {
     let root = temp_root("projection-scopes");
@@ -6052,7 +6151,11 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+pub(super) fn reserve_terminal(
+    registry: &mut WorkspaceRegistry,
+    terminal_id: &str,
+    expected_revision: u64,
+) {
     registry
         .commit_terminal(
             &WorkspaceMutation::daemon(format!("reserve-{terminal_id}"), "test").unwrap(),

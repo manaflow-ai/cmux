@@ -3,6 +3,7 @@
 //! forwarded (`server/peer_forward.rs`).
 
 use super::Peer;
+use crate::no_panic::LockExt;
 use std::sync::atomic::Ordering;
 
 impl Peer {
@@ -30,6 +31,22 @@ impl Peer {
         self.subagent_transcript.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer listed `feature` at its last handshake (none before it answered): it
+    /// saves a message's attachments (`attach::FEATURE`), reads uploaded files a message names
+    /// (`prompt_uploads::FEATURE`), answers upload status (`file_uploads::RESUME_FEATURE`), or
+    /// holds a prompt for the owner (`author::QUEUE_APPROVAL_FEATURE`).
+    pub fn lists(&self, feature: &str) -> bool {
+        self.features.lock_or_recover().iter().any(|f| f == feature)
+    }
+
+    /// The link that listed `feature` (`lists`), for a request that may go only to a peer that
+    /// listed it: sent on that link (`request_on`), it never reaches a reconnected one. The epoch
+    /// is read first and a link's end clears the list first (`link_ended`).
+    pub fn lists_on(&self, feature: &str) -> Option<u64> {
+        let epoch = self.link_epoch();
+        self.lists(feature).then_some(epoch)
+    }
+
     /// Whether the peer said at its last handshake that it pages a chat's native history.
     pub fn supports_native_history(&self) -> bool {
         self.native_history.load(Ordering::SeqCst)
@@ -37,18 +54,18 @@ impl Peer {
 
     /// Whether the peer said at its last handshake that it saves a message's attachments.
     pub fn supports_send_attach(&self) -> bool {
-        self.send_attach.load(Ordering::SeqCst)
+        self.lists(crate::attach::FEATURE)
     }
 
     /// Whether the peer said at its last handshake that it reads uploaded files a message names.
     pub fn supports_prompt_uploads(&self) -> bool {
-        self.prompt_uploads.load(Ordering::SeqCst)
+        self.lists(crate::prompt_uploads::FEATURE)
     }
 
     /// Whether the peer said at its last handshake that it answers upload status and checks a
     /// finish's `sha256` (`hub/file_uploads.rs`).
     pub fn supports_upload_resume(&self) -> bool {
-        self.upload_resume.load(Ordering::SeqCst)
+        self.lists(crate::hub::file_uploads::RESUME_FEATURE)
     }
 
     /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.

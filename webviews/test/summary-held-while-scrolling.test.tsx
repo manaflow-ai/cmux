@@ -149,3 +149,27 @@ test("the card renders no more while history pages in under a 100-event scroll, 
   act(() => root!.render(<Pane rows={["b1"]} chat="b" />));
   expect(host.textContent).toBe("b1");
 });
+
+test("subagent-scoped Session Info holds its rows; another subagent takes its own at once", async () => {
+  // App.tsx holds `snapshot.subagentViews[shown]` keyed by chat and subagent (cmux#29639), as it
+  // holds the chat's rows for the session card.
+  const { createRoot } = await import("react-dom/client");
+  const clock = manualClock();
+  const flag = new ReaderScroll(clock, HOLD_SETTLE_MS);
+  function Scoped({ rows, chat, subagent }: { rows: string[] | undefined; chat: string; subagent: string }) {
+    const held = useHeldWhileScrolling(rows, `${chat}\u0000${subagent}`, flag);
+    return <span>{(held ?? []).join(",")}</span>;
+  }
+  root = createRoot(host);
+  act(() => root!.render(<Scoped rows={["s5"]} chat="a" subagent="one" />));
+  act(() => flag.scrolled());
+  // Older history of the subagent pages in under the reader's scroll: Session Info keeps its rows.
+  act(() => root!.render(<Scoped rows={["s4", "s5"]} chat="a" subagent="one" />));
+  expect(host.textContent).toBe("s5");
+  act(() => clock.run());
+  expect(host.textContent).toBe("s4,s5");
+  // Another subagent of the same chat, mid-scroll: its own rows at once.
+  act(() => flag.scrolled());
+  act(() => root!.render(<Scoped rows={["t1"]} chat="a" subagent="two" />));
+  expect(host.textContent).toBe("t1");
+});

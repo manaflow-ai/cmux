@@ -275,7 +275,7 @@ final class WindowOverlayLayer {
         }
         guard rects != interactiveRects || shapesChanged else { return }
         interactiveRects = rects
-        requestPageUpdate()
+        requestPageUpdate(geometryOnly: !shapesChanged) // no clip shape changed: only moved pages work geometry out
     }
 
     // MARK: Placement and order
@@ -312,6 +312,7 @@ final class WindowOverlayLayer {
             syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
+        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
     }
 
     private func showPanel() {
@@ -373,8 +374,7 @@ final class WindowOverlayLayer {
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -389,7 +389,7 @@ final class WindowOverlayLayer {
     /// changed since the fork last read it re-applies them (`CEFHostView`
     /// posts the fork's geometry notification; the others have nothing new).
     /// `force`: every page re-applies, changed or not (a page window moved by another app).
-    private func requestPageUpdate(force: Bool = false) {
+    private func requestPageUpdate(force: Bool = false, geometryOnly: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
@@ -397,7 +397,7 @@ final class WindowOverlayLayer {
             return
         }
         NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+                                        userInfo: force ? [browserPagesForceUpdateKey: true] : geometryOnly ? [browserPagesGeometryOnlyKey: true] : nil)
     }
 
     // MARK: Diagnostics

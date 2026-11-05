@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
+/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
 
 
 import type * as T from "./types.js";
@@ -231,6 +231,18 @@ export type ChiefInspectResult = {
   "body"?: (T.JsonValue) | null;
   "error"?: (string) | null;
   "status": bigint;
+};
+
+/** Protocol v12; authority: frontend. */
+export interface ChiefWorkRequest extends CmuxRequestBase {
+  cmd: "chief-work";
+  "chief": string;
+}
+export type ChiefWorkResult = {
+  "agents": Array<T.ChiefWorkAgent>;
+  "taskSources": Array<string>;
+  "tasks": Array<T.ChiefWorkTask>;
+  "truncated": boolean;
 };
 
 /** Protocol v9; authority: control. */
@@ -520,6 +532,16 @@ export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
   "conversation": string;
 }
 export type CloudConversationUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudEnvironmentRequest extends CmuxRequestBase {
+  cmd: "cloud-environment";
+  "access_token": string;
+  "action": string;
+  "params": (T.JsonValue) | null;
+  "platform_origin": string;
+}
+export type CloudEnvironmentResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
@@ -1610,6 +1632,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   "dock"?: (T.ColumnPin) | null;
   "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
+  "pane_id"?: (string) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;
@@ -1750,6 +1773,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
+  "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
 }
@@ -2042,6 +2067,34 @@ export type ReloadConfigResult = {
   "reloaded": true;
 };
 
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostAppRequest extends CmuxRequestBase {
+  cmd: "remote-host-app";
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostCallRequest extends CmuxRequestBase {
+  cmd: "remote-host-call";
+  "method": string;
+  "params"?: (T.JsonValue) | null;
+}
+export type RemoteHostCallResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostConfigRequest extends CmuxRequestBase {
+  cmd: "remote-host-config";
+  "computer_use"?: (boolean) | null;
+  "headless"?: (boolean) | null;
+  "screen_sharing"?: (boolean) | null;
+}
+export type RemoteHostConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostStatusRequest extends CmuxRequestBase {
+  cmd: "remote-host-status";
+}
+export type RemoteHostStatusResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface RemoteTerminalSnapshotRequest extends CmuxRequestBase {
   cmd: "remote-terminal-snapshot";
@@ -2286,6 +2339,16 @@ export interface ServerStatsRequest extends CmuxRequestBase {
   "include"?: (Array<string>) | null;
 }
 
+/** Protocol v12; authority: frontend. */
+export interface SetAttachVisibilityRequest extends CmuxRequestBase {
+  cmd: "set-attach-visibility";
+  "surface": T.Id;
+  "visible": boolean;
+}
+export type SetAttachVisibilityResult = {
+  "viewers": number;
+};
+
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
   cmd: "set-cell-pixels";
@@ -2363,6 +2426,14 @@ export interface SetHostSizePolicyRequest extends CmuxRequestBase {
   cmd: "set-host-size-policy";
   "policy": T.HostSizePolicyRequest;
 }
+
+/** Protocol v12; authority: control. */
+export interface SetLayoutSizesRequest extends CmuxRequestBase {
+  cmd: "set-layout-sizes";
+  "transaction": bigint;
+  "values": Array<T.LayoutSizeValue>;
+}
+export type SetLayoutSizesResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
@@ -2910,6 +2981,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | ChiefInspectRequest
+  | ChiefWorkRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -2936,6 +3008,7 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudEnvironmentRequest
   | CloudHostReplicaClearRequest
   | CloudHostReplicaSetRequest
   | CloudHostReplicaStatusRequest
@@ -3085,6 +3158,10 @@ export type CmuxRequest =
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
+  | RemoteHostAppRequest
+  | RemoteHostCallRequest
+  | RemoteHostConfigRequest
+  | RemoteHostStatusRequest
   | RemoteTerminalSnapshotRequest
   | RemoveScreensFromScreenGroupRequest
   | RemoveTabsFromTabGroupRequest
@@ -3111,6 +3188,7 @@ export type CmuxRequest =
   | SendRequest
   | SendKeyRequest
   | ServerStatsRequest
+  | SetAttachVisibilityRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -3118,6 +3196,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
+  | SetLayoutSizesRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -3346,6 +3425,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "chief-inspect-v1";
     stream: null;
   };
+  "chief-work": {
+    request: ChiefWorkRequest;
+    result: ChiefWorkResult;
+    authority: "frontend";
+    since: 12;
+    capability: "chief-work-v1";
+    stream: null;
+  };
   "clear-history": {
     request: ClearHistoryRequest;
     result: ClearHistoryResult;
@@ -3552,6 +3639,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-environment": {
+    request: CloudEnvironmentRequest;
+    result: CloudEnvironmentResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-environments-v1";
     stream: null;
   };
   "cloud-host-replica-clear": {
@@ -4746,6 +4841,38 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "remote-host-app": {
+    request: RemoteHostAppRequest;
+    result: T.RemoteHostAppResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-call": {
+    request: RemoteHostCallRequest;
+    result: RemoteHostCallResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-config": {
+    request: RemoteHostConfigRequest;
+    result: RemoteHostConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-status": {
+    request: RemoteHostStatusRequest;
+    result: RemoteHostStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
   "remote-terminal-snapshot": {
     request: RemoteTerminalSnapshotRequest;
     result: RemoteTerminalSnapshotResult;
@@ -4954,6 +5081,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "server-stats-v1";
     stream: null;
   };
+  "set-attach-visibility": {
+    request: SetAttachVisibilityRequest;
+    result: SetAttachVisibilityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-visibility-v1";
+    stream: null;
+  };
   "set-cell-pixels": {
     request: SetCellPixelsRequest;
     result: T.SetCellPixelsResult;
@@ -5008,6 +5143,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "host-size-policy-v1";
+    stream: null;
+  };
+  "set-layout-sizes": {
+    request: SetLayoutSizesRequest;
+    result: SetLayoutSizesResult;
+    authority: "control";
+    since: 12;
+    capability: "layout-sizes-batch-v1";
     stream: null;
   };
   "set-personal-terminal": {

@@ -7,14 +7,17 @@
 // In gallery entry agent-pane.transcript-row-alignment (a reply, a tool call, a reply, a subagent
 // that finished, a reply, a background command that ended, a reply, another agent's message, a
 // reply; above them a folded
-// turn's "Worked for" line and a footer with its time, tokens and actions), measured from the
+// turn's "Worked for" line and a footer with its actions and time), measured from the
 // transcript column's left edge (`col-left`, design/grid.md 5.5) in light and dark:
-// - every reply's first glyph, a "Worked for" line's first glyph, the footer's "Worked for" label
-//   and the first glyph of every action row (a reply's, a footer's) start on col-left;
+// - every reply's first glyph, a "Worked for" line's first glyph and the first glyph of every action
+//   row (a reply's, a footer's) start on col-left; nothing comes before a footer's buttons
+//   (reply-footer.test.ts);
 // - every row with a leading icon (a tool row, a subagent's end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
-// - each status row between two replies has as much room above it as below it, and every such
-//   gap is the same size (design/chat-transcript.md "Rows between replies").
+// - each status row between two replies has the same room above it as every other, and the same
+//   below; the room above is the stack's gap from a message to a step, the room below its gap from
+//   a step to a message (transcriptGrid.ts `transcriptGap`). #30865's 26px more above went with
+//   #27580, which set `--cv-reply-room` to 0 (design/grid.md 5.5: the stack owns every gap).
 //
 // CMUX_ROW_ALIGNMENT_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes each theme's
 // 2x stills and measurements to DIR.
@@ -24,6 +27,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -34,6 +38,11 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   ];
   /** How far apart two edges may be, in CSS px. */
   const TOLERANCE = 0.5;
+  /**
+   * How much more room a status row has above than below when a reply is over it: the stack's gap
+   * from the reply to the row against the one from the row to the next reply (26 before #27580).
+   */
+  const REPLY_ROOM_EXTRA = transcriptGap(MARK_MESSAGE, MARK_STEP) - transcriptGap(MARK_STEP, MARK_MESSAGE);
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -99,9 +108,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
       };
       for (const prose of document.querySelectorAll(".acpmux-row.acpmux-assistant .cv-md")) lead("reply", prose);
       for (const worked of document.querySelectorAll(".cv-worked.is-toggle")) lead("worked-for", worked);
-      for (const label of document.querySelectorAll(".cv-turn-summary")) lead("footer label", label);
       // An action row's first glyph: its 16px box, where Codex and Claude start the copy glyph.
-      // A footer that says its time first leads with that label instead (measured above).
       for (const actions of document.querySelectorAll(".cv-turn-actions .cv-turn-action-group")) {
         if (actions.previousElementSibling) continue;
         const glyph = actions.querySelector(".cv-iconbtn svg");
@@ -184,19 +191,27 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           `the ${item.kind} row "${item.label}"'s words start at ${px(item.text)}, the first iconed row's at ${px(text)}`,
         );
     }
+    // A status row under a reply is not centred: the reply keeps the room its action row took on
+    // 2026-10-30 (model.ts `keepsReplyRoom`, `--cv-reply-room`; Leo, 2026-11-01: "i like this spacing
+    // kinda i prefer it to what we have now"), so the room above is that much more than the room below.
+    // Each side is still one size for every status row.
     for (const gap of gaps)
-      if (Math.abs(gap.above - gap.below) > TOLERANCE)
-        found.push(`the ${gap.kind} row "${gap.label}" has ${px(gap.above)} above it and ${px(gap.below)} below it`);
-    const sizes = gaps.flatMap((gap) => [gap.above, gap.below]);
-    if (sizes.length > 0 && Math.max(...sizes) - Math.min(...sizes) > TOLERANCE)
-      found.push(
-        `the gaps around status rows differ: ${gaps.map((gap) => `${gap.kind} ${px(gap.above)}/${px(gap.below)}`).join(", ")}`,
-      );
+      if (Math.abs(gap.above - gap.below - REPLY_ROOM_EXTRA) > TOLERANCE)
+        found.push(
+          `the ${gap.kind} row "${gap.label}" has ${px(gap.above)} above it and ${px(gap.below)} below it, not ${REPLY_ROOM_EXTRA}px more above`,
+        );
+    for (const side of ["above", "below"] as const) {
+      const sizes = gaps.map((gap) => gap[side]);
+      if (sizes.length > 0 && Math.max(...sizes) - Math.min(...sizes) > TOLERANCE)
+        found.push(
+          `the gaps ${side} status rows differ: ${gaps.map((gap) => `${gap.kind} ${px(gap[side])}`).join(", ")}`,
+        );
+    }
     return found;
   };
 
   for (const theme of THEMES)
-    test(`status, tool and message rows share the prose's left edge and centred gaps (${theme.name})`, async () => {
+    test(`status, tool and message rows share the prose's left edge and one gap above and below (${theme.name})`, async () => {
       const artifacts = process.env.CMUX_ROW_ALIGNMENT_ARTIFACT_DIR ?? process.env.FAST_CHECKS_OUT;
       const page = await browser.newPage({ viewport: { width: 900, height: 1200 }, deviceScaleFactor: 2 });
       try {
@@ -236,7 +251,6 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         for (const kind of [
           "reply",
           "worked-for",
-          "footer label",
           "footer actions",
           "tool",
           "subagent finished",

@@ -87,6 +87,55 @@ print(jobs[0]["id"], jobs[0]["ref"])' "$1"
 
 preferred_host=
 current_lease=
+# The staged builds of this run ("HOST|STAGE"), each one marked in STAGE/users/<run id>. The rounds of one
+# run share a stage, and so may a second run of the same build on the same mini; at the end each run drops
+# its mark and the last one removes the stage, so no build stays behind (1 GB each: 7 builds on cmux24,
+# 2026-11-02). Both steps hold the job's lock (STAGE.lock, flock), so a run that marks while another
+# removes either keeps the stage or stages it again.
+run_id="$(hostname -s 2>/dev/null || echo local)-$$-$(date +%s)"
+staged=()
+# STAGE_LOCKED STAGE ID MODE: python3 on the mini runs MODE (mark or release) under STAGE.lock.
+stage_locked() {
+  printf '%q ' python3 -I -c "$stage_lock_py" "$@"
+}
+stage_lock_py='import fcntl, os, shutil, sys
+stage, run, mode = sys.argv[1:4]
+os.makedirs(os.path.dirname(stage), exist_ok=True)
+with open(stage + ".lock", "a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    users = os.path.join(stage, "users")
+    if mode == "mark":
+        os.makedirs(users, exist_ok=True)
+        open(os.path.join(users, run), "w").close()
+    else:
+        try:
+            os.unlink(os.path.join(users, run))
+        except FileNotFoundError:
+            pass
+        try:
+            left = os.listdir(users)
+        except FileNotFoundError:
+            left = []
+        if not left and os.path.isdir(stage) and not os.path.islink(stage):
+            gone = stage + ".removing." + run
+            os.rename(stage, gone)
+            for top, dirs, _ in os.walk(gone):  # an app copy may hold read-only folders
+                for d in dirs:
+                    p = os.path.join(top, d)
+                    if not os.path.islink(p):
+                        os.chmod(p, os.lstat(p).st_mode | 0o700)
+            shutil.rmtree(gone, ignore_errors=True)
+            print("removed " + stage)
+        else:
+            print("kept " + stage + " (" + str(len(left)) + " other run(s))")'
+release_stages() {
+  local entry host stage
+  for entry in ${staged[@]+"${staged[@]}"}; do
+    host=${entry%%|*} stage=${entry#*|}
+    ssh -o BatchMode=yes "$host" "$(stage_locked "$stage" "$run_id" release)" 2>/dev/null || true
+  done
+  staged=()
+}
 # A killed or failed script releases the lease it holds and removes its private copy.
 current_acquire=
 current_run=
@@ -97,6 +146,7 @@ on_exit() {
   if [ -n "$current_acquire" ] && jobs -pr | grep -qx "$current_acquire"; then kill "$current_acquire" 2>/dev/null || true; fi
   if [ -n "$current_host" ] && [ -n "$current_run" ]; then ssh -o BatchMode=yes "$current_host" "rm -rf '$current_run'" >/dev/null 2>&1 || true; fi
   if [ -n "$current_lease" ]; then capture-host release "$current_lease" >/dev/null 2>&1 || true; fi
+  release_stages
   remove_copy
 }
 trap on_exit EXIT
@@ -145,6 +195,12 @@ run_arm() {
   local stage=$stage_root/$job
   run=/Users/Shared/cmux-capture/austins-day/runs/$arm-$round-$(date +%H%M%S)
   current_run=$run current_host=$host
+  # Marked before it is staged, so another run's release never removes it under this one.
+  if ! printf '%s\n' ${staged[@]+"${staged[@]}"} | grep -qxF "$host|$stage"; then
+    ssh -o BatchMode=yes "$host" "$(stage_locked "$stage" "$run_id" mark)" >/dev/null ||
+      { echo "marking the stage of job $job on $host failed" >&2; return 1; }
+    staged+=("$host|$stage")
+  fi
   ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$stage' '$run/out'
     if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then
       tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&

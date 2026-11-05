@@ -2,7 +2,7 @@
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents (an `acpmux send` among them) and calls to the cmux-subsessions tools as cards,
 // and everything else as its own row.
-import { pathKey, type AcpmuxActivity } from "../model";
+import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -10,9 +10,10 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { isCmuxExec } from "./cmuxExec";
-import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
+import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -28,6 +29,12 @@ export type ToolGroup =
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
+  /// Two or more sent messages in a row (`SentEntry`: a shell or MCP `acpmux send`, a message card, a
+  /// sub-session's `send_message`), from one call (a shell loop of sends) or adjacent calls: one
+  /// closed line, "Sent 8 messages", that opens to each message's row (SentMessageLine.tsx
+  /// `SentMessageGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible"). `items` are the
+  /// calls, each once; `entries` every message, in order.
+  | { type: "sendGroup"; items: AcpmuxActivity[]; entries: SentEntry[] }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -41,6 +48,15 @@ export type ToolGroup =
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// One message to another agent, as its own entry: what a `sendGroup` gathers.
+export type SentEntry =
+  | Extract<ToolGroup, { type: "send" }>
+  | Extract<ToolGroup, { type: "message" }>
+  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
+
+export const isSentEntry = (group: ToolGroup): group is SentEntry =>
+  group.type === "send" || group.type === "message" || (group.type === "subsession" && group.call.tool === "send");
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -152,7 +168,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
-    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
+    // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
+    const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
@@ -180,6 +197,28 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           mutationUnsettled = true;
         else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
       };
+      const orderedWriter = () =>
+        !mutationUnsettled &&
+        tool.startedAt !== undefined &&
+        Number.isFinite(tool.startedAt) &&
+        tool.startedAt >= mutationEndedAt &&
+        endedAt !== undefined &&
+        tool.startedAt <= endedAt;
+      // A file tool (Claude Code's Write) that wrote a whole message file: a later
+      // `acpmux send ... < path` renders its words (Leo 2026-10-26: "EITHER SHOW IT DIRECT
+      // WITHOUT OR YOU JUST FUCKING RENDER IT").
+      const written = writtenFile(tool);
+      if (written && endedAt !== undefined && Number.isFinite(endedAt)) {
+        const ordered = orderedWriter();
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        if (ordered) {
+          messageFiles.set(written.path, written.text);
+          messageFileEndedAt.set(written.path, endedAt);
+        }
+        return;
+      }
       // A failed or still-running writer did not produce a durable body. Clear the bounded
       // producer set so a later send cannot display stale content from an earlier call.
       if (
@@ -203,13 +242,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         return;
       }
       const changes = recordedMessageBodyChangesForTool(tool);
-      const startedAt = tool.startedAt;
-      const orderedWriter =
-        !mutationUnsettled &&
-        startedAt !== undefined &&
-        Number.isFinite(startedAt) &&
-        startedAt >= mutationEndedAt &&
-        startedAt <= endedAt;
+      const ordered = orderedWriter();
       if (changes.length) rememberMutation();
       for (const change of changes) {
         if ("reset" in change) {
@@ -225,7 +258,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           // aliases without filesystem access, so clear all candidates before recording it.
           messageFiles.clear();
           messageFileEndedAt.clear();
-          if (!orderedWriter) continue;
+          if (!ordered) continue;
           messageFiles.set(change.path, change.text);
           messageFileEndedAt.set(change.path, endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
@@ -275,7 +308,54 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   flushLead();
-  return groups;
+  return withSendGroups(groups);
+}
+
+/// Every shell or MCP `acpmux send` message among `groups`, a group's each as its own entry, in order.
+export function sendEntries(groups: readonly ToolGroup[]): Extract<ToolGroup, { type: "send" }>[] {
+  return groups.flatMap((group) =>
+    (group.type === "sendGroup" ? group.entries : [group]).flatMap((entry) => (entry.type === "send" ? [entry] : [])),
+  );
+}
+
+/// `groups` with each run of two or more consecutive sent messages as one `sendGroup`. A lone send
+/// keeps its own row.
+function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
+  let run = 0;
+  for (let at = 0; at < groups.length && run < 2; at += 1) run = isSentEntry(groups[at]!) ? run + 1 : 0;
+  if (run < 2) return groups;
+  const out: ToolGroup[] = [];
+  for (let at = 0; at < groups.length;) {
+    let end = at;
+    while (end < groups.length && isSentEntry(groups[end]!)) end += 1;
+    if (end - at < 2) {
+      out.push(groups[at]!);
+      at += 1;
+      continue;
+    }
+    const entries = groups.slice(at, end) as SentEntry[];
+    const items: AcpmuxActivity[] = [];
+    for (const entry of entries) if (items.at(-1) !== entry.item) items.push(entry.item);
+    out.push({ type: "sendGroup", items, entries });
+    at = end;
+  }
+  return out;
+}
+
+/// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
+/// text (Claude Code's Write, a new file) whose new text is the file, not a hunk of it (an input
+/// diff is marked a fragment only because the page never saw the file around it). Nil for edits,
+/// several files, MCP tools (their names, not their kinds, say what they do) and paths whose
+/// spelling depends on the cwd.
+export function writtenFile(tool: Tool): { path: string; text: string } | undefined {
+  if (tool.kind !== "edit" || tool.command || mcpCall(tool) || tool.status !== "completed" || tool.background)
+    return undefined;
+  if (tool.diffs?.length !== 1) return undefined;
+  const diff = tool.diffs[0]!;
+  if (diff.oldText !== undefined || (diff.fragment && !diff.fromInput)) return undefined;
+  const path = diff.path;
+  if (!path.startsWith("/") || path.includes("//") || path.includes("/./") || path.includes("/../")) return undefined;
+  return { path, text: diff.newText };
 }
 
 /// The id a group is known by: its first call's, since thoughts that led into the run may come
@@ -328,6 +408,11 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
+/// Whether a call counts as failed on a run's header ("(2 failed)"): it failed, or the shell it
+/// left in the background failed there (direct.ts `markBackgroundCall` keeps the launch's
+/// "completed" status and sets `background.state`).
+export const countsFailed = (tool: Tool): boolean => isFailed(tool) || tool.background?.state === "failed";
+
 /// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
 /// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
@@ -352,8 +437,15 @@ export function toolGroupLabel(
   const calls = groupCalls(items);
   const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
-    case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+    case "commands": {
+      // A finished run whose background tasks ended leads with them, as Claude Code desktop's
+      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
+      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
+      const text = [finished, ran].join(t("toolRun.separator"));
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
     case "reads": {
       const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });
@@ -385,4 +477,54 @@ export function toolDuration(t: Translate, tool: Tool): string | undefined {
 /// The last path component, for "Edited App.tsx".
 export function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+/// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
+/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
+/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
+/// more than one entry, so one card never leaves the whole run spread out as a list
+/// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
+/// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
+
+export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+  const stretches: RunStretch[] = [];
+  let current: RunStretch | undefined;
+  const close = () => {
+    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
+    current = undefined;
+  };
+  groups.forEach((group, at) => {
+    const items = "items" in group ? group.items : [group.item];
+    if (row.foldRun === true && staysInSight(group)) {
+      close();
+      stretches.push({ from: at, groups: [group], items, fold: false });
+      return;
+    }
+    if (!current) stretches.push((current = { from: at, groups: [], items: [], fold: false }));
+    current.groups.push(group);
+    current.items.push(...items);
+  });
+  close();
+  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
+  return stretches;
+}
+
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
+/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
+/// collapsing i mean"); the turn's edited-files card lists them once it ends.
+export function staysInSight(group: ToolGroup): boolean {
+  if (
+    group.type === "message" ||
+    group.type === "send" ||
+    group.type === "sendGroup" ||
+    group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
+    group.type === "dispatch"
+  )
+    return true;
+  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
+  // stays in sight all the same.
+  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }

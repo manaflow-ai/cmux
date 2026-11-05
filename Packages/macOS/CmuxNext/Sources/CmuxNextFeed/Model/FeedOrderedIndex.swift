@@ -62,7 +62,7 @@ public nonisolated struct FeedOrderedIndex<ID: Hashable & Sendable, Key: Compara
 
     /// Applies one batch: each id's new key (nil: not a member). `changed` names ids whose value
     /// changed even where their key did not (their rows are reported `updated`).
-    public mutating func apply(_ batch: [ID: Key?], changed: Set<ID> = []) -> FeedRowChanges {
+    public mutating func apply(_ batch: [ID: Key?], changed: Set<ID> = []) -> FeedRowChanges { // perf-hot: 2ms feed-live-event (every Feed owner event: binary search per moved id, one array move per insert or removal)
         var moving: [(id: ID, old: Key?, new: Key?)] = []
         var staying: [ID] = []
         for (id, new) in batch {

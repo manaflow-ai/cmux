@@ -1,12 +1,16 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
+import { answerFromHome } from "../HomeInbox";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
-import { reply, replyParams, selection } from "../question/model";
+import { reply, replyParams, selection, type QuestionReply } from "../question/model";
+import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
+import type { AttentionTab } from "./attentionTabs";
+import { askContext } from "./context";
 import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
+import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./NeedsYou";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -17,6 +21,8 @@ export function answerParams(
   item: NeedsYouItem,
   choice: NeedsYouAnswer,
 ): { method: string; params: Record<string, unknown> } | undefined {
+  // A guest's held prompt is answered on its card only (Review goes there): nothing to send.
+  if (item.kind === "held" && item.promptId) return undefined;
   if (item.kind === "held")
     return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
   if (!item.permissionId) return undefined;
@@ -37,35 +43,64 @@ export function useNeedsYou({
   callNative,
   sideSession,
 }: {
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows"> &
+    Partial<Pick<AcpmuxSnapshot, "queue" | "queueApproval">>;
   callNative: CallNative;
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
-}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
+}): {
+  mode: NeedsYouMode;
+  items: NeedsYouItem[];
+  actions: NeedsYouActions;
+  attentionTabs: readonly AttentionTab[];
+  pill?: TranscriptNeedsYou;
+} {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
-  const { sessions, asks, sessionId, rows } = snapshot;
+  const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
+  const tabs = useAttentionTabs();
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
         ? []
-        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
-    [mode, pillOn, sessions, asks, sessionId, rows],
+        : needsYouItems({
+            sessions,
+            asks: asks ?? [],
+            open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
+            tabs,
+          }),
+    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval, tabs],
   );
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
   /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
-  const openElsewhere = (item: NeedsYouItem) => {
+  /// `place` other than the right (the default, sent as no `where` so an older host reads it the
+  /// same) is the expanded row's pick: the workspace whose tab shows the chat, or a new workspace.
+  const isPeer = (item: NeedsYouItem) =>
+    sessions.some((session) => session.sessionId === item.sessionId && session.peer);
+  const openElsewhere = (item: NeedsYouItem, place: NeedsYouPlace = "right") => {
     // Peer sessions stay in the header list; they are not local chats that this pane can open.
-    const target = sessions.find((session) => session.sessionId === item.sessionId);
-    if (target?.peer) return Promise.resolve();
-    return callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+    if (isPeer(item)) return Promise.resolve();
+    const where = place === "right" ? {} : { where: place };
+    return callNative("chat.asks.open", { sessionId: item.sessionId, ...where }).catch(() => undefined);
   };
   const goTo = (item: NeedsYouItem) => {
+    // A tab an agent marked: the app shows it as Search Tabs does.
+    if (item.kind === "tab") {
+      if (item.tabId) void callNative(ATTENTION_OPEN_OP, { tabId: item.tabId }).catch(() => undefined);
+      return;
+    }
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
-      else
+      else if (item.promptId) {
+        // The held card itself, focused, so Return approves it once the owner has read it.
+        const card = [...document.querySelectorAll<HTMLElement>(".cv-held[data-held]")].find(
+          (each) => each.getAttribute("data-queued-message") === item.promptId,
+        );
+        card?.scrollIntoView({ block: "center" });
+        card?.focus({ preventScroll: true });
+      } else
         document
           .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
           ?.scrollIntoView({ block: "nearest" });
@@ -78,18 +113,37 @@ export function useNeedsYou({
       // `reply` throws on an answer its question cannot take: a refusal, never a stuck row.
       const call = answerParams(item, choice);
       if (!call) throw new Error("unanswerable");
-      // The pane may answer only a chat it shows (the relay's session scope and answers rule), so
-      // another chat's ask opens that chat on the side, answered there; the row stays here.
+      // The pane may answer only a chat it shows (the relay's session scope and answers rule).
+      // Another chat's tool permission is answered by the host on this click, as the home's inbox
+      // answers it (`chat.asks.answer`, AgentPaneAskAnswer: allow once or deny once, a chat on this
+      // Mac's acpmux only); a host that can't opens that chat, whose card answers it, and the row
+      // stays. A question, or another computer's chat, opens the chat on the side.
       if (item.sessionId !== sessionId && item.kind !== "held") {
-        await openElsewhere(item);
+        if (!item.question && !isPeer(item)) {
+          const outcome = await answerFromHome(callNative, item, choice, () => void openElsewhere(item));
+          if (outcome === "answered") return;
+        } else await openElsewhere(item);
         throw new Error();
       }
       return callNative(call.method, call.params);
     },
+    reply: async (item: NeedsYouItem, sent: QuestionReply) => {
+      // An expanded question's whole answer goes the way its card sends it, for this chat only:
+      // another chat's opens that chat on the side, where its card takes the answer.
+      if (item.sessionId !== sessionId) {
+        await openElsewhere(item);
+        throw new Error();
+      }
+      return callNative("chat.permission", replyParams(sent));
+    },
+    context: (item: NeedsYouItem) => askContext(item, { ...(sessionId ? { sessionId } : {}), rows }, sessions),
+    open: (item: NeedsYouItem, place: NeedsYouPlace) => void openElsewhere(item, place),
+    opensElsewhere: (item: NeedsYouItem) => item.kind !== "tab" && item.sessionId !== sessionId && !isPeer(item),
     goTo,
     ask: async (item, question) => {
-      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens that chat on the
-      // side, asked about there.
+      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
+      // tab, asked about there. A marked tab names no chat.
+      if (item.kind === "tab") throw new Error();
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
         throw new Error();
@@ -124,5 +178,5 @@ export function useNeedsYou({
           },
         }
       : undefined;
-  return { mode, items, actions, ...(pill ? { pill } : {}) };
+  return { mode, items, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
 }

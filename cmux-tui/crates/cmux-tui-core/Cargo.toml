@@ -10,13 +10,21 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 [lints]
 workspace = true
 
+[features]
+# In-place hot-patching under `dx serve --hot-patch` (src/hotpatch.rs). Debug
+# builds only; no shipped build enables it.
+hotpatch = ["dep:subsecond"]
+
 [dependencies]
 cmux-json.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
+# The daemon checks URLs with the URL parser (`url`); the app links the crate without it.
+cmux-bookmarks-core = { workspace = true, features = ["url"] }
 cmux-unix-socket.workspace = true
+cmux-url-input.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
@@ -37,6 +45,7 @@ cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
+subsecond = { workspace = true, optional = true }
 serde_json.workspace = true
 anyhow.workspace = true
 base64.workspace = true
@@ -51,6 +60,7 @@ cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
+arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
 socket2.workspace = true

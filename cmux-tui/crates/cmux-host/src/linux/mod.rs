@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::agent::{Exit, Platform, Wake};
@@ -49,7 +50,7 @@ struct Daemon {
     /// still reaps the child and signals go by pid (not yet reaped).
     pidfd: Option<PidFd>,
     /// `None` when adopted from a previous agent run (not our child).
-    child: Option<Child>,
+    child: Option<Arc<cmux_link::caller::RootOwnedDaemon>>,
     started: Instant,
 }
 
@@ -69,6 +70,9 @@ pub struct LinuxPlatform {
     epoll: Epoll,
     clock: TimerFd,
     clock_armed: bool,
+    /// `realtime - boottime` when the clock was last armed or set: how far a
+    /// clock set moved realtime tells a resume from a sync.
+    clock_offset_ns: i128,
     netlink: Netlink,
     inotify: Inotify,
     wd_run: i32,
@@ -88,6 +92,7 @@ pub struct LinuxPlatform {
     observed_instance: Option<String>,
     layout: Option<DaemonLayout>,
     daemon: Option<Daemon>,
+    bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
     jobs: Vec<Job>,
 }
 
@@ -132,6 +137,7 @@ impl LinuxPlatform {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
             clock_armed: false,
+            clock_offset_ns: realtime_minus_boottime_ns(),
             netlink: Netlink::new()?,
             inotify,
             wd_run,
@@ -149,6 +155,7 @@ impl LinuxPlatform {
             observed_instance: None,
             layout: None,
             daemon: None,
+            bootstrap: None,
             jobs: Vec::new(),
             cfg,
         };
@@ -168,6 +175,14 @@ impl LinuxPlatform {
         let mut platform = platform;
         platform.arm_clock();
         Ok(platform)
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        bootstrap: Option<Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = bootstrap;
+        self
     }
 
     /// Re-arms the clock-set timer with the bounded `ECANCELED` retry. On
@@ -239,9 +254,10 @@ impl LinuxPlatform {
         );
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
-        let child = spawn::spawn_daemon(&spec)?;
+        let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
@@ -396,6 +412,9 @@ impl LinuxPlatform {
 
     fn daemon_gone(&mut self) -> Option<Exit> {
         let daemon = self.daemon.take()?;
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.daemon_exited();
+        }
         if let Some(fd) = &daemon.pidfd {
             self.epoll.remove(fd.raw());
         }
@@ -476,7 +495,26 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
     out
 }
 
+/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
+/// stops the boot clock while the machine is stopped, so this grows by the
+/// stopped time once realtime is set again; a sync moves it only by drift.
+fn realtime_minus_boottime_ns() -> i128 {
+    fn read(clock: libc::clockid_t) -> i128 {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: `ts` is a valid, writable timespec for the call.
+        unsafe { libc::clock_gettime(clock, &mut ts) };
+        i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
+    }
+    read(libc::CLOCK_REALTIME) - read(libc::CLOCK_BOOTTIME)
+}
+
 impl Platform for LinuxPlatform {
+    fn invalidate_remote_authority(&self) {
+        if let Some(bootstrap) = &self.bootstrap {
+            bootstrap.invalidate();
+        }
+    }
+
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         loop {
             let tokens = self.epoll.wait()?;
@@ -492,7 +530,10 @@ impl Platform for LinuxPlatform {
                     T_CLOCK => {
                         self.clock.drain();
                         self.arm_clock();
-                        wakes.push(Wake::ClockSet);
+                        let offset = realtime_minus_boottime_ns();
+                        let wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
+                        self.clock_offset_ns = offset;
+                        wakes.push(wake);
                     }
                     T_NET => {
                         // Act only when the set of global addresses changed:
@@ -596,6 +637,10 @@ impl Platform for LinuxPlatform {
                     id,
                 )
                 .ok()
+            })
+            .or_else(|| {
+                let mut store = crate::cloud::role::FileStore::new(self.cfg.paths.clone());
+                crate::identity::scoped(&mut store, &self.cfg.paths).ok()
             });
         if let Some(listener) = &mut self.identity {
             listener.reply(identity.as_ref());

@@ -5,8 +5,11 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// Four native-sidebar comparisons for Leo's 2026-11-01 dot/+ visibility choice.
-/// The artifact includes light/dark rest/hover captures and a contact-sheet HTML page.
+/// Native-sidebar comparisons for the spaces row's "+" (Leo 2026-11-03: "why do we not just have the plus
+/// to the right of the center circle? always to the rightmost of the circles, maybe with the horizontal
+/// scrollbar?"). The + always sits right after the last space; an overflowing row scrolls with the + pinned
+/// on the trailing edge (chosen) or riding the end of the dots. Light/dark captures at rest, with the pointer
+/// in the row, and directly over the +, plus a contact-sheet HTML page.
 @MainActor @Suite(.serialized) struct ProfileBarVariantGalleryTests {
     private static func render(_ h: SidebarTrailingColumnTests.KindHarness) throws -> CGImage {
         let root = try #require(h.window.contentView)
@@ -36,12 +39,13 @@ import Testing
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "sidebar-space-variants")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let variants: [(String, Bool, Bool)] = [
-            ("dot-always-plus-hover", true, false), ("dot-hover-plus-hover", false, false),
-            ("dot-always-plus-always", true, true), ("dot-hover-plus-always", false, true),
+        // (name, spaces, current, plus rides the dots)
+        let variants: [(String, Int, Int, Bool)] = [
+            ("one-space-plus-right", 1, 0, false), ("four-spaces-plus-right", 4, 1, false),
+            ("overflow-plus-pinned-chosen", 40, 20, false), ("overflow-plus-rides-dots", 40, 20, true),
         ]
         var html = "<meta charset='utf-8'><title>Sidebar space controls</title><style>body{font:16px system-ui;background:#ddd}section{display:inline-block;vertical-align:top;margin:12px}img{width:300px}</style>"
-        html += "<h1>Sidebar space controls</h1><p>Chosen: dot always, + on hover. The resting dot locates the space; + replaces it without moving. Always + consumes the only slot, while hover-only dots leave no resting landmark.</p>"
+        html += "<h1>Sidebar space controls</h1><p>Chosen: the + always sits right of the last space; an overflowing row scrolls to the current space with the + pinned on the trailing edge, so it is always reachable. Riding the dots hides the + until the row is scrolled to its end. No dot turns into a + on hover.</p>"
         for (theme, appearance) in [("Apple System Colors Light", NSAppearance.Name.aqua), ("Apple System Colors", .darkAqua)] {
             let h = SidebarTrailingColumnTests.KindHarness(width: 300)
             defer { h.window.close() }
@@ -51,6 +55,7 @@ import Testing
             h.model.profiles = [SidebarProfile(id: ProfileKey("gallery-space"), name: "Personal")]
             h.model.activeProfileID = h.model.profiles[0].id
             h.sidebar.renderNow()
+            let names = ["Personal", "Work", "Research", "Cloud"]
             h.sidebar.layoutSubtreeIfNeeded()
             #expect(!h.sidebar.profileBar.isHidden, "one space must remain mounted in the real sidebar")
             h.window.appearance = NSAppearance(named: appearance)
@@ -64,18 +69,21 @@ import Testing
             content.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
             let bar = h.sidebar.profileBar
             let mode = appearance == .aqua ? "light" : "dark"
-            for (name, dots, plus) in variants {
-                bar.showsDotsWhenIdle = dots
-                bar.showsPlusWhenIdle = plus
+            for (name, count, current, rides) in variants {
+                h.model.profiles = (0..<count).map { SidebarProfile(id: ProfileKey("gallery-space-\($0)"), name: names[$0 % names.count]) }
+                h.model.activeProfileID = h.model.profiles[current].id
+                h.sidebar.renderNow()
+                h.sidebar.layoutSubtreeIfNeeded()
+                bar.plusRidesContent = rides
                 html += "<section><h2>\(mode): \(name)</h2>"
-                for hovered in [false, true] {
+                for state in ["rest", "near", "plus"] {
+                    let hovered = state != "rest"
                     bar.setPointerInside(hovered)
-                    bar.setHovered(hovered ? ProfileBarView.plusIndex : nil)
+                    bar.setHovered(state == "plus" ? ProfileBarView.plusIndex : nil)
                     bar.refresh()
                     let row = try #require(h.list.rowViews[.workspace(SidebarTrailingColumnTests.member)] as? WorkspaceRowView)
                     row.onMore = {}
-                    row.isHovered = hovered
-                    let state = hovered ? "hover" : "rest"
+                    row.isHovered = false
                     let file = "\(mode)-\(name)-\(state).png"
                     let image = try Self.render(h)
                     try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: file))

@@ -152,6 +152,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build()[0], 'mode=clean')
         self.assertEqual(self.build()[0], 'mode=incremental')
 
+    def test_a_release_build_script_change_makes_it_clean(self):
+        # The workflow step only runs app-build-release.sh, so its xcodebuild flags live in the scripts.
+        for name in ('scripts/ci/nightly-steps/app-build-release.sh', 'scripts/cmux-next/lib/compilation-cache.sh'):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: f'xcodebuild OTHER_SWIFT_FLAGS=-DCHANGED_{len(name)}\n'})
+                self.assertEqual(self.build()[0], 'mode=clean')
+                self.assertEqual(self.build()[0], 'mode=incremental')
+
     def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
         self.build()
         self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))
@@ -161,6 +170,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
         self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
 
+    def test_a_cargo_lock_change_stays_incremental(self):
+        # The Release build's cargo phases rerun on their own lockfile inputs and build separate executables,
+        # so a Cargo.lock change leaves the kept Swift objects valid.
+        self.build()
+        self.commit({'cmux-tui/Cargo.lock': '# changed\n', 'Native/DiffSidecar/Cargo.lock': '# changed\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
     def test_a_module_or_link_structure_change_makes_it_clean(self):
         for name in ('Packages/macOS/CmuxNext/Package.swift', 'cmux.xcodeproj/project.pbxproj', 'Config/Release.xcconfig',
                      'Sources/module.modulemap'):
@@ -168,6 +186,46 @@ class DedicatedBuilder(unittest.TestCase):
                 self.build()
                 self.commit({name: f'changed {name}\n'})
                 self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_prototype_package_or_import_change_stays_incremental(self):
+        self.build()
+        self.commit({'Prototypes/Lab/Package.swift': '// swift-tools-version:5.9\n',
+                     'Prototypes/Lab/Sources/Lab/a.swift': 'import SwiftUI\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_package_tests_import_or_structure_change_stays_incremental(self):
+        self.build()
+        self.commit({'Packages/Shared/Lab/Tests/LabTests/a.swift': 'import Testing\n#if DEBUG\n#endif\n',
+                     'Packages/macOS/App/Tests/Support/module.modulemap': 'module X {}\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Packages/Shared/Lab/Sources/Lab/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_package_tests_trees_feed_only_test_targets(self):
+        """PACKAGE_TESTS skips Packages/*/*/Tests/: no product and no non-test target outside Tests/ may
+        depend on a target whose sources live there, or a change there would reach the app."""
+        import re
+        for package in sorted(ROOT.glob('Packages/*/*/Package.swift')):
+            text = package.read_text()
+            pieces = re.split(r'\.(target|testTarget|executableTarget|binaryTarget|plugin|library|executable)\(', text)
+            in_tests, others = set(), []
+            for kind, body in zip(pieces[1::2], pieces[2::2]):
+                name = re.search(r'name:\s*"([^"]+)"', body)
+                path = re.search(r'path:\s*"([^"]+)"', body)
+                if name is None:
+                    continue
+                if kind in ('library', 'executable'):
+                    others.append((kind, name.group(1), body.split(')', 1)[0]))
+                elif path and re.match(r'(\./)?Tests(/|$)', path.group(1)):
+                    in_tests.add(name.group(1))
+                elif kind != 'testTarget':
+                    others.append((kind, name.group(1), body.split('swiftSettings')[0]))
+            for kind, name, body in others:
+                for target in in_tests:
+                    with self.subTest(package=str(package.relative_to(ROOT)), target=name, depends_on=target):
+                        self.assertNotRegex(body, rf'"{re.escape(target)}"')
 
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
@@ -304,6 +362,190 @@ class DedicatedBuilder(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertFalse(state.dedicated(runner))
         self.assertFalse(state.mark_built(self.workspace, self.home, 'cmux15-glaeda'))
+
+    def test_every_nightly_only_runner_keeps_state_without_the_builder_label(self):
+        # Runs 41586556429 and 41570134320: the picker could not read the runners (HTTP 403), so the build took
+        # the plain nightly-only label, prepare chose no mode, and the job restored the compilation cache and
+        # Swift packages from R2 (280-320 s) and compiled cold. No builder label is needed any more.
+        nightly_only = 'cmux7s-mac-mini-glaeda-nightly-only-3'
+        self.assertTrue(state.nightly_only(nightly_only))
+        self.assertFalse(state.nightly_only('cmux15-glaeda-nightly-only-'))
+        self.assertTrue(state.keeps_state(nightly_only))
+        self.assertTrue(state.dedicated(nightly_only))
+        self.assertFalse(state.dedicated('blacksmith-6vcpu-macos-26-x'))
+        self.outputs.write_text('')
+        self.assertTrue(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6'))
+        self.assertIn('mode=clean', self.outputs.read_text())
+        self.assertTrue((self.workspace / 'build-universal').is_symlink())
+        self.assertTrue((self.workspace / '.spm-cache').is_symlink())
+        # The build finished: the next build on this slot may be incremental.
+        self.assertTrue(state.mark_built(self.workspace, self.home, nightly_only))
+        self.outputs.write_text('')
+        state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6')
+        self.assertIn('mode=incremental', self.outputs.read_text())
+        # A workspace prepare never linked has nothing to mark.
+        plain = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ['rm', '-rf', str(plain)])
+        self.assertFalse(state.mark_built(plain, self.home, nightly_only))
+
+    def test_prepare_offers_the_host_build_root_to_a_plain_nightly_only_slot(self):
+        """main() with no NIGHTLY_ONLY_BUILDER in the environment: a mode, and the Release build step may
+        take the Mac's one build root (app-host-build-root.sh)."""
+        github_env = self.root / 'env'
+        github_env.write_text('')
+        self.outputs.write_text('')
+        environ = {'RUNNER_NAME': 'cmux15-glaeda-nightly-only-2', 'GITHUB_ENV': str(github_env),
+                   'GITHUB_WORKSPACE': str(self.workspace), 'HOME': str(self.home)}
+        with mock.patch.dict(os.environ, environ), mock.patch.object(state, 'toolchain_identity',
+                                                                   return_value='Xcode 26.6'):
+            os.environ.pop('NIGHTLY_ONLY_BUILDER', None)
+            self.assertEqual(state.main(['nightly_build_state.py', 'prepare', 'nightly-next']), 0)
+        self.assertIn('mode=clean', self.outputs.read_text())
+        self.assertIn('CMUX_NIGHTLY_HOST_BUILD_ROOT=1', github_env.read_text())
+        self.assertIn('CMUX_NEXT_NOTICES_CACHE=', github_env.read_text())
+
+    def test_kept_package_state_is_not_sanitized_away(self):
+        """The warm builder skips the R2 package restore, so its kept workspace-state.json names this
+        workspace; deleting it made xcodebuild re-fetch every package (up to 222 s, run 41439348303)."""
+        workflow = (ROOT / '.github/workflows/nightly.yml').read_text()
+        job = workflow[workflow.index('\n  build-nightly-app:\n'):workflow.index('\n  build-nightly-remote-daemon:\n')]
+        restore = job[job.index('      - name: Cache Swift packages\n'):]
+        restore = restore[:restore.index('\n      - name:', 1)]
+        sanitize = job[job.index('      - name: Sanitize Swift package cache\n'):]
+        sanitize = sanitize[:sanitize.index('\n      - name:', 1)]
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", restore)
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", sanitize)
+
+
+class HostBuildRoot(unittest.TestCase):
+    """Both dedicated slots of a nightly Mac build in one root (app-host-build-root.sh), so the
+    compilation cache keys and the kept DerivedData are the same whichever slot builds."""
+    SCRIPTS = ('scripts/ci/nightly-steps/app-host-build-root.sh', 'scripts/ci/canonical-build-root.sh',
+               'scripts/ci/apfs_clone.py', 'scripts/cmux-next/host_build_lock.py', 'scripts/ci/nightly_build_state.py')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.origin = self.root / 'origin'
+        self.origin.mkdir()
+        self.git(self.origin, 'init', '-q')
+        files = {name: (ROOT / name).read_text() for name in self.SCRIPTS}
+        files.update({'Sources/a.swift': 'let a = 1\n', 'Package.resolved': '{}\n',
+                      state.BUILD_WORKFLOW: DedicatedBuilder.WORKFLOW.format(flags='-DCMUX_A')})
+        self.commit(files)
+        for name in self.SCRIPTS:
+            (self.origin / name).chmod((ROOT / name).stat().st_mode & 0o777)
+        self.git(self.origin, 'add', '-A')
+        self.git(self.origin, 'commit', '-qm', 'modes')
+        self.home = self.root / 'home'
+        self.host = self.root / 'host'
+        self.slots = {}
+        for slot in ('1', '2'):
+            workspace = self.root / f'slot{slot}'
+            subprocess.run(['git', 'clone', '-q', str(self.origin), str(workspace)], check=True)
+            self.slots[slot] = workspace
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        for tool, text in (('xcodebuild', 'echo Xcode 26.6'), ('xcrun', 'echo 25G5')):
+            (bin_dir / tool).write_text(f'#!/bin/sh\n{text}\n')
+            (bin_dir / tool).chmod(0o755)
+        self.env = {**os.environ, 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'HOME': str(self.home),
+                    'BUILD_TRACK': 'nightly-next', 'CMUX_NIGHTLY_HOST_BUILD_ROOT': '1',
+                    'CMUX_NIGHTLY_HOST_ROOT': str(self.host)}
+        for name in ('GITHUB_ENV', 'GITHUB_OUTPUT', 'RUNNER_ENVIRONMENT', 'CMUX_CI_CANONICAL_ROOT', *state.BUILD_SETTINGS):
+            self.env.pop(name, None)
+
+    def git(self, repo, *args):
+        return subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    def commit(self, files):
+        for name, text in files.items():
+            path = self.origin / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.git(self.origin, 'add', '-A')
+        self.git(self.origin, 'commit', '-qm', 'x')
+
+    def build(self, slot, succeed=True, hold=None):
+        """One Release build step on SLOT: take the root, 'compile', hand the products over."""
+        workspace = self.slots[slot]
+        self.git(workspace, 'pull', '-q', '--ff-only')
+        # The earlier step linked the slot's own kept state (nightly_build_state.py prepare).
+        slot_dd = self.home / 'Library/Caches/cmux-nightly-next' / f'runner-{slot}' / 'identity/DerivedData'
+        slot_dd.mkdir(parents=True, exist_ok=True)
+        (workspace / 'build-universal').unlink(missing_ok=True)
+        (workspace / 'build-universal').symlink_to(slot_dd)
+        packages = slot_dd.parent / 'SourcePackages/checkouts/pkg'
+        packages.mkdir(parents=True, exist_ok=True)
+        (workspace / '.spm-cache').unlink(missing_ok=True)
+        (workspace / '.spm-cache').symlink_to(slot_dd.parent / 'SourcePackages')
+        script = (
+            'set -euo pipefail\n'
+            'source scripts/ci/nightly-steps/app-host-build-root.sh\n'
+            'echo "root=$host_root"\n'
+            'kept=no; [[ -f "$derived_data/Build/Intermediates.noindex/a.o" ]] && kept=yes\n'
+            'echo "kept=$kept"\n'
+            'mkdir -p "$derived_data/Build/Intermediates.noindex" "$derived_data/Build/Products/Release/cmux.app"\n'
+            'echo compiled > "$derived_data/Build/Intermediates.noindex/a.o"\n'
+            'echo app > "$derived_data/Build/Products/Release/cmux.app/binary"\n'
+            + ('[[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"\n' if succeed else '')
+        )
+        env = {**self.env, 'GITHUB_WORKSPACE': str(workspace), 'RUNNER_NAME': f'runner-{slot}'}
+        if hold:
+            env['CMUX_NIGHTLY_HOST_ROOT'] = str(hold)
+        result = subprocess.run(['bash', '-c', script], cwd=workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        return result.stdout + result.stderr
+
+    def test_both_slots_build_in_one_root_and_carry_its_derived_data(self):
+        first = self.build('1')
+        self.assertIn(f'root={self.host}', first)
+        self.assertIn('NEXT Release build: clean', first)
+        self.assertIn('kept=no', first)
+        # The workspace gets its own copy of the products; the slot's own DerivedData is gone.
+        products = self.slots['1'] / 'build-universal/Build/Products/Release/cmux.app/binary'
+        self.assertEqual(products.read_text(), 'app\n')
+        self.assertFalse((self.slots['1'] / 'build-universal').is_symlink())
+        self.assertFalse((self.home / 'Library/Caches/cmux-nightly-next/runner-1/identity/DerivedData').exists())
+        self.assertTrue((self.host / 'src/.spm-cache').is_symlink())
+        self.assertTrue((self.host / 'SourcePackages/checkouts/pkg').is_dir())
+
+        # The other slot builds the next tip incrementally on the same DerivedData, although its own
+        # checkout never held the commit the host built last.
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        second = self.build('2')
+        self.assertIn('NEXT Release build: incremental', second)
+        self.assertIn('kept=yes', second)
+
+    def test_a_structure_change_since_the_hosts_last_build_is_clean(self):
+        self.build('1')
+        self.commit({'Package.swift': '// targets\n'})
+        self.assertIn('NEXT Release build: clean DerivedData (Package.swift changed', self.build('2'))
+
+    def test_an_unfinished_host_build_makes_the_next_one_clean(self):
+        self.build('1', succeed=False)
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        self.assertIn('the last build did not finish', self.build('2'))
+
+    def test_a_held_root_builds_in_the_slots_own_tree(self):
+        self.host.mkdir()
+        holder = subprocess.Popen(['python3', '-c', 'import fcntl,sys,time\n'
+                                   f'f=open({str(self.host / "lock")!r},"a");fcntl.flock(f,fcntl.LOCK_EX);'
+                                   'print("held",flush=True);time.sleep(60)'], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), 'held')
+        out = self.build('1')
+        self.assertIn('root=\n', out)
+        self.assertTrue((self.slots['1'] / 'build-universal').is_symlink())
+
+    def test_off_unless_the_slot_keeps_build_state(self):
+        self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''
+        self.assertIn('root=\n', self.build('1'))
+        self.assertFalse(self.host.exists())
 
 
 if __name__ == '__main__':

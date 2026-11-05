@@ -50,22 +50,49 @@ impl Mux {
         intent: EffectCommitIntent,
         finish: EffectCommitFinish,
     ) -> anyhow::Result<EffectCommitReceipt> {
-        let receipt = match registry.commit_registry_intent(RegistryIntent::Effect(intent)) {
-            Ok(receipt) => receipt.into_effect()?,
-            Err(error) => {
-                // An indeterminate receipt: the writer can still commit after
-                // this request gives up. Wake journal subscribers, who read
-                // the head. Any other error committed nothing.
-                if error
-                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
-                    .is_some()
-                {
-                    self.publish_journal_event();
-                }
-                return Err(error);
+        let receipt = self.committed_registry_intent(registry, RegistryIntent::Effect(intent))?;
+        registry.finish_effect_commit(finish, receipt.into_effect()?)
+    }
+
+    /// Commit prepared effect intents in one transaction (one journal
+    /// writer savepoint: all of them or none), then finish each in order
+    /// under `registry`.
+    pub(crate) fn commit_effect_intents(
+        &self,
+        registry: &mut WorkspaceRegistry,
+        intents: Vec<EffectCommitIntent>,
+        finishes: Vec<EffectCommitFinish>,
+    ) -> anyhow::Result<Vec<EffectCommitReceipt>> {
+        let receipts = self
+            .committed_registry_intent(registry, RegistryIntent::EffectGroup(intents))?
+            .into_effect_group()?;
+        anyhow::ensure!(
+            receipts.len() == finishes.len(),
+            "an effect group commit answered {} receipts for {} intents",
+            receipts.len(),
+            finishes.len()
+        );
+        finishes
+            .into_iter()
+            .zip(receipts)
+            .map(|(finish, receipt)| registry.finish_effect_commit(finish, receipt))
+            .collect()
+    }
+
+    fn committed_registry_intent(
+        &self,
+        registry: &mut WorkspaceRegistry,
+        intent: RegistryIntent,
+    ) -> anyhow::Result<RegistryReceipt> {
+        registry.commit_registry_intent(intent).inspect_err(|error| {
+            // An indeterminate receipt: the writer can still commit after
+            // this request gives up. Wake journal subscribers, who read the
+            // head. Any other error committed nothing.
+            if error.downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>().is_some()
+            {
+                self.publish_journal_event();
             }
-        };
-        registry.finish_effect_commit(finish, receipt)
+        })
     }
 
     /// Apply the receipts of earlier indeterminate registry commits that

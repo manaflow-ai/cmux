@@ -223,6 +223,14 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 }
 
 extension SidebarLayoutDocument {
+    /// App-contributed sections that belong to one pinned region. The
+    /// bottom band intentionally projects only these sections: ordinary
+    /// item sections stored in the bottom region remain hidden for the
+    /// cx-n0i9 layout decision.
+    public nonisolated func appSections(in region: SidebarRegion, room: String?) -> [LayoutSection] {
+        sections(in: region, room: room).filter { $0.content == .app }
+    }
+
     /// The item sections drawn above and below the workspace list in
     /// `room`, in region order (top, middle, bottom) split at the
     /// workspaces section. Items sections in the middle region draw in the

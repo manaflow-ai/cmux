@@ -66,7 +66,13 @@ describe("startedPullRequests", () => {
       ],
       pullRequest: { number: 8, title: "x", state: "open", checks: "passing" },
     });
-    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "ready", number: 8, repo: "r" });
+    expect(startedPullRequests(entry)).toEqual({
+      count: 2,
+      tone: "ready",
+      number: 8,
+      repo: "r",
+      others: [{ number: 7, repo: "r" }],
+    });
   });
 
   test("failing checks, merged, and URL-only badges", () => {
@@ -83,7 +89,7 @@ describe("startedPullRequests", () => {
       startedPullRequests(
         child("u", { pullRequests: ["https://github.com/o/r/pull/3", "https://github.com/o/cmux/pull/22092"] }),
       ),
-    ).toEqual({ count: 2, tone: "unknown", number: 22092, repo: "cmux" });
+    ).toEqual({ count: 2, tone: "unknown", number: 22092, repo: "cmux", others: [{ number: 3, repo: "r" }] });
     expect(startedPullRequests(child("none"))).toBeUndefined();
   });
 
@@ -92,7 +98,12 @@ describe("startedPullRequests", () => {
       pullRequests: ["https://github.com/o/alpha/pull/7", "https://github.com/o/beta/pull/7"],
       pullRequest: { number: 7, title: "x", state: "open" },
     });
-    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "open", number: 7 });
+    expect(startedPullRequests(entry)).toEqual({
+      count: 2,
+      tone: "open",
+      number: 7,
+      others: [{ number: 7, repo: "alpha" }],
+    });
   });
 });
 
@@ -296,7 +307,13 @@ describe("StartedSessionCards", () => {
         sessionId: "b",
         title: "Switch gh-merge-green to merge-freeze issues",
         state: "running",
-        pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
+        pullRequests: {
+          count: 2,
+          tone: "failing",
+          number: 22092,
+          repo: "cmux",
+          others: [{ number: 22093, repo: "cmux" }],
+        },
       },
     );
     expect(html.match(/class="acpmux-started"/g)?.length).toBe(1);
@@ -304,7 +321,7 @@ describe("StartedSessionCards", () => {
     expect(html.match(/acpmux-started-chevron/g)?.length).toBe(2);
     expect(html).not.toContain("acpmux-started-dot");
     expect(html).toMatch(
-      /class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092<[^]*>and 1 more</,
+      /class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092<[^]*>cmux #22093</,
     );
   });
 
@@ -323,6 +340,20 @@ describe("StartedSessionCards", () => {
     expect(draw({ sessionId: "b", title: "Plain task", state: "running" })).toContain(
       `data-agent-tone="${agentTone("b")}"`,
     );
+  });
+
+  // Leo, 2026-10-31: "this +11 is really bad you guys should just render them all separately".
+  test("a chat that opened twelve PRs names every one on its own, never a +N count", () => {
+    const urls = Array.from({ length: 12 }, (_, i) => `https://github.com/o/cmux/pull/${100 + i}`);
+    const pullRequests = startedPullRequests(child("many", { pullRequests: urls }))!;
+    expect(pullRequests.count).toBe(12);
+    expect([pullRequests, ...pullRequests.others!].map((pr) => pr.number)).toEqual(
+      Array.from({ length: 12 }, (_, i) => 111 - i),
+    );
+    const html = draw({ sessionId: "many", title: "Many PRs", state: "idle", pullRequests });
+    for (let i = 0; i < 12; i++) expect(html).toContain(`>cmux #${100 + i}<`);
+    expect(html.match(/acpmux-session-status-pr-other/g)?.length).toBe(11);
+    expect(html).not.toMatch(/\+\s*\d|more/);
   });
 
   test("an idle chat with nothing to say is one line; a read one with a PR names it", () => {

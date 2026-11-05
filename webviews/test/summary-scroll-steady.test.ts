@@ -1,4 +1,4 @@
-// The right-hand card (the Summary card, and Session Info when Debug Settings `agent.inspector` is on)
+// The right-hand card (the Summary card, and Session Info when Debug Settings `agent.sessionInfo` is on)
 // stays still while the chat scrolls (Leo, 2026-10-25: "session summary on top right flickers when im
 // scrolling thru the chat"). Over 100 painted frames of wheel scrolling through a long chat, nothing in
 // the card changes: no node is added, removed or re-rendered with new text, no attribute flips, and

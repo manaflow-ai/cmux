@@ -111,7 +111,7 @@ fn run_terminal_resource_wait(
         .transpose()?;
     let check = || -> Result<String, ResourceError> {
         surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_wait_runtime_error)?
             .map_err(resource_wait_runtime_error)
     };

@@ -170,3 +170,41 @@ test("Escape closes the New Team form; signed out shows no Teams group", async (
   expect(signedOut.container.querySelector("[data-accounts-team-list]")).toBeNull();
   signedOut.unmount();
 });
+
+test("an invitation to you joins the team on Join Team and makes it active", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) =>
+      (provider.teams.received = [
+        { id: "inv-1", teamId: "team-research", team: "Research", invitedBy: "Ada", email: "you@example.com" },
+      ]),
+  });
+  const received = page.container.querySelector<HTMLElement>("[data-team-received]")!;
+  expect(received.querySelector(".row-title")?.textContent).toBe("Invitations to You");
+  const row = received.querySelector<HTMLElement>('[data-team-received-invitation="inv-1"]')!;
+  expect(row.textContent).toContain("Ada invited you as Member, sent to you@example.com");
+  await click(teamButton(row, "team.accept"));
+  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "team.accept", team: "inv-1" });
+  await settle();
+  expect(page.container.querySelector("[data-team-received]")).toBeNull();
+  expect(names(page)).toEqual(["Personal", "Acme", "Research"]);
+  expect(team(page, "team-research")!.querySelector(".accounts-badge")?.textContent).toBe("Active");
+  page.unmount();
+});
+
+test("Decline removes the invitation and joins nothing", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) =>
+      (provider.teams.received = [
+        { id: "inv-1", teamId: "team-research", team: "Research", invitedBy: null, email: "you@example.com" },
+      ]),
+  });
+  const row = page.container.querySelector<HTMLElement>('[data-team-received-invitation="inv-1"]')!;
+  expect(row.textContent).toContain("As Member, sent to you@example.com");
+  await click(teamButton(row, "team.decline"));
+  await settle();
+  expect(page.container.querySelector("[data-team-received]")).toBeNull();
+  expect(names(page)).toEqual(["Personal", "Acme"]);
+  page.unmount();
+});

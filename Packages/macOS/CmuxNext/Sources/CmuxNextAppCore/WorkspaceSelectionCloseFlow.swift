@@ -59,6 +59,8 @@ public struct WorkspaceSelectionCloseFlow {
     /// The one "Closed N workspaces" toast with Undo for `names` (none for fewer than two, or with no
     /// window left open); `undone` runs when its Undo does.
     public var offerUndo: @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void
+    /// Reconciles personal groups after the daemon has applied the batch close.
+    public var settled: @MainActor () -> Void
     /// The window whose lane the closes take, and the window a refusal toast shows in.
     public var window: String
     public var toastWindow: NSWindow?
@@ -68,6 +70,7 @@ public struct WorkspaceSelectionCloseFlow {
                 restore: @escaping @MainActor () -> Void, listed: @escaping @MainActor (String) -> Bool,
                 machines: @escaping @MainActor @Sendable () -> [DaemonService],
                 offerUndo: @escaping @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void,
+                settled: @escaping @MainActor () -> Void = {},
                 window: String, toastWindow: NSWindow?, running: Running) {
         self.running = running
         self.hide = hide
@@ -77,6 +80,7 @@ public struct WorkspaceSelectionCloseFlow {
         self.listed = listed
         self.machines = machines
         self.offerUndo = offerUndo
+        self.settled = settled
         self.window = window
         self.toastWindow = toastWindow
     }
@@ -167,8 +171,10 @@ public struct WorkspaceSelectionCloseFlow {
         for (member, failure) in results {
             // Settled: a refused row can be closed again at once.
             running.remove(member.0.id)
-            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? toastWindow : nil)
+            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure),
+                                         in: member.0.id == firstRefused ? toastWindow : nil)
         }
+        settled()
         return results.filter { $0.1 == nil }.map { $0.0.0.name }
     }
 
@@ -178,7 +184,7 @@ public struct WorkspaceSelectionCloseFlow {
         guard let key = workspace.key else { return nil }
         return await daemon.failureOnceConnected("close-workspace", waits: waits, while: { machines().contains { $0 === daemon } }) { connection in
             try await ClosingWorkspaces.shared.refusal()
-            try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+            try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
         }
     }
 }

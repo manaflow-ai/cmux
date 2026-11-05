@@ -9,6 +9,8 @@ public import Foundation
 public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page loaded and wants the handshake.
     case ready
+    /// This Mac's opt-in iMessage connector. No daemon, peer or send operation.
+    case imessage(AgentPaneIMessageAction)
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
@@ -33,6 +35,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
+    /// typed text and prompts held for a trust answer, kept for its window's next new chat.
+    case newChatLeftover(String)
+    /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
+    case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -59,6 +66,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
+    /// `account.add`: the local picker form adds a route through the unix socket, on a real gesture.
+    case addAccount(AgentPaneAddAccount)
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
@@ -158,6 +167,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
+    case cloudReservation(AgentPaneCloudReservationRequest)
+    /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
+    /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
+    case cloudRepickChat(AgentPaneCloudRepick)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
@@ -166,6 +179,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudHandoffTurn(sessionId: String)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
+    /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
+    case cloudRepository(AgentPaneCloudRepositoryRequest)
+    case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
@@ -185,6 +201,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).
     case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
+    /// The header's Changes or an edited-files card carrying the turn's own patch (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, patch}`): a folder in no repository, or a turn that wrote a file
+    /// outside it. The diff tab beside the chat shows that patch (``AgentPaneDiffPatch``).
+    case diffPatch(AgentPaneDiffPatch, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -198,8 +218,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// The current page-owned Session Info model, or its withdrawal.
+    case sessionInfo(AgentPaneSessionInfoModel?)
+    /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
+    /// natively drawn Session Info steps behind; empty when none shows.
+    case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// Copies a native Session Info menu item through the platform clipboard.
+    case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
+    case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
@@ -211,18 +240,21 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
-    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String)
+    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
+    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
+    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
+    case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool, title: String? = nil)
+    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
     /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
     /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?)
+    case subagentShown(String?, title: String?, tone: Int? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -240,6 +272,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// already on screen in that frame, or a chat read cold, which the pane's
     /// loading state fades in. An older page says nothing, which means cold.
     case painted(fromKeptTail: Bool)
+    /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
+    /// machines and first chat list are in, and its page actions answer), or lost its connection.
+    /// A prewarmed page serves a tab opening an existing chat only while it is ready
+    /// (``AgentPaneModel/clientReady``): one still connecting would hold that open behind its list.
+    case clientReady(Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
@@ -328,7 +365,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case composerSetting(path: [String], show: Bool)
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
-    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
+    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
+    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`).
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
@@ -336,6 +374,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
     /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
     case remoteControl(on: Bool)
+    /// `pane.noticeAction {id}`: the button of a native notice the page draws (``AgentPaneNotice``),
+    /// with the person's own click.
+    case paneNoticeAction(id: String)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

@@ -203,6 +203,16 @@ async fn codex_retry_records_message_superseded_before_the_redelivery() {
         .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("m2")))
         .unwrap();
     assert!(sup[0].seq < redelivered.seq);
+    // The retry says so (`turn_retrying`), and the redelivered answer is the model heard again.
+    let retrying = find(&events, "turn_retrying");
+    assert_eq!(retrying.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(retrying[0].msg["turnId"], turn.msg["turnId"]);
+    assert_eq!(retrying[0].msg["source"], "codex");
+    assert_eq!(retrying[0].msg["error"], "stream disconnected");
+    assert_eq!(retrying[0].msg["attempt"], 1);
+    let heard = find(&events, "turn_heard");
+    assert_eq!(heard.len(), 1);
+    assert!(retrying[0].seq < heard[0].seq && heard[0].seq < redelivered.seq);
     // A willRetry error that the harness recovers from leaves the turn completed.
     let result = find(&events, "turn_result")[0];
     assert_eq!(result.msg["status"], "completed");
@@ -794,7 +804,7 @@ async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let id = new_session(&mut c, "large-open").await;
     // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
     // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(6 << 20), None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(11 << 20), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();

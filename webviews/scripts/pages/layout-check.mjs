@@ -117,7 +117,7 @@ try {
     ["chromium", chromium],
     ["webkit", webkit],
   ]) {
-    const browser = await engine.launch();
+    const browser = await engine.launch(engineName === "chromium" ? { channel: "chrome" } : {});
     for (const locale of LOCALES)
       for (const view of VIEWS) {
         const context = await browser.newContext({ locale, viewport: { width: 800, height: 640 } });

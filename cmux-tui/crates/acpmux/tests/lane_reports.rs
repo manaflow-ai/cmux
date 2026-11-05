@@ -9,6 +9,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "lane_reports/detach.rs"]
+mod detach;
 #[path = "lane_reports/reads.rs"]
 mod reads;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -657,19 +659,19 @@ async fn a_held_session_message_reuses_its_delivery_id_when_the_pair_resumes() {
 }
 
 #[tokio::test]
-async fn lane_report_a_lane_whose_tag_is_changed_still_reports_to_the_session_that_started_it() {
+async fn lane_report_a_lane_whose_tag_names_another_session_reports_to_neither() {
     let hub = hub();
     let mut person = Client::new(&hub);
     let coord = person.new_session("coord", json!({})).await;
     let other = person.new_session("other", json!({})).await;
     let lane = Client::as_session(&hub, &coord).await.new_session("lane-t", json!({})).await;
-    // Any local client can set or remove a tag: the tag shows the link, it does not make it.
-    person.ok("_acpmux/tag", json!({"sessionId": lane, "remove": ["lane.reportsTo"]})).await;
     Client::as_session(&hub, &coord).await.prompt(&lane, "first").await;
     person.exactly(&coord, 1).await;
+    // Any local client can set a tag: one that names another session ends the link
+    // (`lane_reports/detach.rs`) and never makes one to that session.
     person.ok("_acpmux/tag", json!({"sessionId": lane, "set": {"lane.reportsTo": other}})).await;
     Client::as_session(&hub, &coord).await.prompt(&lane, "second").await;
-    person.exactly(&coord, 2).await;
+    person.exactly(&coord, 1).await;
     assert!(person.reports(&other).await.is_empty());
 }
 
@@ -748,12 +750,13 @@ async fn lane_report_a_task_steered_into_a_report_turn_is_reported_upward() {
     Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
     person.until(&coord, 1).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    // The person's task joins the turn on the report: that turn did real work now.
+    // The person's task joins the turn on the report: that turn did real work now. Steer-only, so
+    // it goes into that turn or is refused, never run later as a turn of its own.
     person
         .ok(
             "session/prompt",
             json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}],
-                   "_meta": {"acpmux": {"steer": true}}}),
+                   "_meta": {"acpmux": {"steer": true, "steerOnly": true}}}),
         )
         .await;
     person.ok("session/cancel", json!({"sessionId": coord})).await;

@@ -137,6 +137,7 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
                     secret: share["secret"].as_str().unwrap().into(),
                     name: "Theo".into(),
                     attempt_id: attempt.into(),
+                    account: None,
                 };
                 (attempt, mux.control_clients.agent_sessions.link_shares.redeem(None, redeem))
             })
@@ -187,6 +188,20 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let id = format!("g-{}", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)[..22]);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    let content = json!([{"type":"text", "text":" "}, {"type":"text", "text":"still Theo"}]);
+    assert_eq!(
+        client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c2", "content":content}))["ok"],
+        true
+    );
+    let sent = fake.frame();
+    assert_eq!(sent["params"]["sessionId"], SESSION);
+    assert_eq!(sent["params"]["prompt"], content);
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    assert_eq!(
+        sent["params"]["_meta"]["acpmux"]["promptId"],
+        guest_prompt_id(share_id, guest_id, "c2")
+    );
     let mut unnamed = prompt;
     unnamed.as_object_mut().unwrap().remove("client_id");
     assert_code(&client.request(unnamed), "agent_session.bad_request");
@@ -321,6 +336,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
                 secret: share["secret"].as_str().unwrap().into(),
                 name: "Ann".into(),
                 attempt_id: attempt.into(),
+                account: None,
             },
         )
     };
@@ -521,4 +537,559 @@ fn a_guest_detach_ends_its_attachment_on_a_renumbered_surface() {
     let detach = client.request(json!({"cmd":"agent-session-detach", "surface":stored}));
     assert_eq!(detach["ok"], true, "{detach}");
     assert_eq!(sessions.attachment_count(), 0, "the detach ended the attachment it named");
+}
+
+fn invite(owner: &mut Client, share: &Value, account: &str, role: Option<&str>) -> Value {
+    let mut frame = json!({"cmd":"agent-session-share-invite", "share_id":share["share_id"],
+        "account":account});
+    if let Some(role) = role {
+        frame["role"] = json!(role);
+    }
+    owner.request(frame)
+}
+
+fn redeem_as(owner: &mut Client, share: &Value, account: &str, attempt: &str) -> Value {
+    owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "account":account, "name":"Ann Lee", "attempt_id":attempt}))
+}
+
+#[test]
+fn an_invited_account_joins_without_the_secret_and_no_other_account_does() {
+    let fake = FakeAcpmux::start("share-invite");
+    let mux = mux_with(&fake, "share-invite");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-invite-owner");
+    let share = create(&mut owner, surface, json!({}));
+    let invited = invite(&mut owner, &share, " Ann@Example.com ", None);
+    assert_eq!(invited["ok"], true, "{invited}");
+    assert_eq!(
+        invited["data"]["account"], "ann@example.com",
+        "accounts are trimmed and lowercased"
+    );
+    assert_eq!(invited["data"]["role"], "talk", "an invitee can talk unless made view-only");
+    for bad in ["", "two words", &"x".repeat(321)] {
+        assert_code(&invite(&mut owner, &share, bad, None), "share.bad_request");
+    }
+    assert_code(&invite(&mut owner, &share, "bo@example.com", Some("admin")), "share.bad_request");
+    // Another account, and an empty one, never join an invite; neither spends the link's use.
+    assert_code(&redeem_as(&mut owner, &share, "eve@example.com", "e1"), "share.not_invited");
+    let guest = redeem_as(&mut owner, &share, "ANN@example.com", "a1");
+    assert_eq!(guest["ok"], true, "{guest}");
+    let again = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(again["data"]["guest_id"], guest["data"]["guest_id"], "a retry is the same guest");
+    // The same attempt from another account is not that guest.
+    assert_code(&redeem_as(&mut owner, &share, "eve@example.com", "a1"), "share.not_invited");
+    assert_eq!(list(&mut owner)[0]["uses_left"], 1, "an invite spends no link use");
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["invitees"][0]["account"], "ann@example.com");
+    assert_eq!(shown[0]["guests"][0]["account"], "ann@example.com");
+    assert_eq!(shown[0]["guests"][0]["role"], "talk");
+    // The bound invitee's author names its account and role.
+    let (mut client, bound) = bind(&mux, &share, &guest, "share-invite-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    let frame = fake.frame();
+    let author = frame["params"]["_meta"]["acpmux"]["author"].clone();
+    // The account (often an email) stays the owner's to see (`-list`): the author other
+    // participants see through acpmux names the guest by its name only.
+    assert!(author.get("account").is_none(), "{author}");
+    assert!(!frame.to_string().contains("ann@example.com"), "{frame}");
+    assert_eq!(author["name"], "Ann Lee");
+    assert_eq!(author["role"], "talk");
+    assert_eq!(author["approval"], "owner", "an invitee's prompts are held for the owner too");
+}
+
+#[test]
+fn a_view_only_invitee_watches_but_never_prompts_or_types() {
+    let fake = FakeAcpmux::start("share-invite-view");
+    let mux = mux_with(&fake, "share-invite-view");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-invite-view-owner");
+    let share = create(&mut owner, surface, json!({}));
+    assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("view"))["ok"], true);
+    // Asking again with the same role is a no-op; another role is refused (uninvite first).
+    assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("view"))["ok"], true);
+    assert_code(&invite(&mut owner, &share, "ann@example.com", Some("talk")), "share.invited");
+    let guest = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut client, _) = bind(&mux, &share, &guest, "share-invite-view-ann");
+    for frame in [
+        json!({"cmd":"agent-session-attach", "surface":surface}),
+        json!({"cmd":"agent-session-events", "surface":surface}),
+        json!({"cmd":"agent-session-view", "surface":surface, "visible":true}),
+    ] {
+        let reply = client.request(frame.clone());
+        assert_eq!(reply["ok"], true, "{frame}: {reply}");
+        let sent = fake.frame();
+        if frame["cmd"] != "agent-session-events" {
+            assert_eq!(sent["params"]["_meta"]["acpmux"]["author"]["role"], "view", "{frame}");
+        }
+    }
+    for frame in [
+        json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1", "text":"hi"}),
+        json!({"cmd":"agent-session-typing", "surface":surface, "on":true}),
+        json!({"cmd":"agent-session-cancel", "surface":surface}),
+    ] {
+        assert_code(&client.request(frame), "agent_session.scope_not_granted");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn uninvite_ends_the_accounts_connections_and_its_later_joins() {
+    let fake = FakeAcpmux::start("share-uninvite");
+    let mux = mux_with(&fake, "share-uninvite");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-uninvite-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", None);
+    invite(&mut owner, &share, "bo@example.com", None);
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let ann_phone = redeem_as(&mut owner, &share, "ann@example.com", "a2");
+    let bo = redeem_as(&mut owner, &share, "bo@example.com", "b1");
+    let (_c1, _) = bind(&mux, &share, &ann, "share-uninvite-ann");
+    let (_c2, _) = bind(&mux, &share, &ann_phone, "share-uninvite-ann-phone");
+    let (mut c3, _) = bind(&mux, &share, &bo, "share-uninvite-bo");
+    let gone = owner.request(json!({"cmd":"agent-session-share-uninvite",
+        "share_id":share["share_id"], "account":"Ann@example.com"}));
+    assert_eq!(gone["ok"], true, "{gone}");
+    wait_unbound(&mux, 1);
+    let still = c3.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(still["ok"], true, "another invitee stays: {still}");
+    assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a1"), "share.kicked");
+    assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a3"), "share.not_invited");
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["invitees"][0]["state"], "removed");
+    let unknown = owner.request(json!({"cmd":"agent-session-share-uninvite",
+        "share_id":share["share_id"], "account":"zed@example.com"}));
+    assert_code(&unknown, "share.unknown");
+    // Invited again: a new join works, the old guests stay removed.
+    assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("view"))["ok"], true);
+    assert_eq!(redeem_as(&mut owner, &share, "ann@example.com", "a4")["ok"], true);
+}
+
+#[test]
+fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
+    let old = json!([{"share_id":"s1", "session":SESSION, "surface":1, "created_at":0,
+        "expires_at":u64::MAX, "uses_left":1, "state":"active", "secret_sha256":"00",
+        "guests":[{"guest_id":"g1", "name":"Theo", "joined_at":0, "state":"active",
+            "attempt_id_sha256":"00"}]}]);
+    let shares: Vec<LinkShare> = serde_json::from_value(old).unwrap();
+    assert!(shares[0].invitees.is_empty());
+    assert_eq!(shares[0].guests[0].account, None);
+    let author = author_of(&shares[0], &shares[0].guests[0]);
+    assert_eq!(
+        author,
+        json!({"id":"guest:s1.g1", "name":"Theo", "approval":"owner"}),
+        "a link guest's author is unchanged"
+    );
+    let directory = std::env::temp_dir().join(format!("cmux-invites-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let dir = Some(directory.as_path());
+    let registry = LinkShares::default();
+    let created = registry
+        .insert(
+            dir,
+            SESSION.into(),
+            1,
+            ShareTerms { ttl_secs: 3600, uses: 1, create_id: None },
+            false,
+        )
+        .unwrap();
+    let share_id = created["share_id"].as_str().unwrap().to_owned();
+    registry
+        .invite(
+            dir,
+            &Invite {
+                share_id: share_id.clone(),
+                account: "ann@example.com".into(),
+                role: Some(Role::View),
+            },
+        )
+        .unwrap();
+    let reloaded = LinkShares::default();
+    let joined = reloaded.redeem(
+        dir,
+        Redeem {
+            share_id,
+            secret: String::new(),
+            name: "Ann".into(),
+            attempt_id: "a1".into(),
+            account: Some("ann@example.com".into()),
+        },
+    );
+    assert!(joined.is_ok(), "{joined:?}");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// An invite and `-list` answer the link the owner hands out to invitees: the room's origin, then
+/// `/i/<share_id>` (no secret in it). A share with no room has none.
+#[test]
+fn an_invite_and_the_list_carry_the_invite_link() {
+    let directory = std::env::temp_dir().join(format!("cmux-invite-url-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let dir = Some(directory.as_path());
+    let registry = LinkShares::default();
+    let terms = ShareTerms { ttl_secs: 3600, uses: 1, create_id: None };
+    let created = registry.insert(dir, SESSION.into(), 1, terms, false).unwrap();
+    let share_id = created["share_id"].as_str().unwrap().to_owned();
+    let invite =
+        |account: &str| Invite { share_id: share_id.clone(), account: account.into(), role: None };
+    let shown = |registry: &LinkShares| {
+        registry.with(dir, |all, now| Ok((find(all, &share_id)?.shown(now), false))).unwrap()
+    };
+    let roomless = registry.invite(dir, &invite("ann@example.com")).unwrap();
+    assert!(roomless.get("invite_url").is_some_and(Value::is_null), "{roomless}");
+    assert!(shown(&registry)["invite_url"].is_null());
+    registry
+        .with(dir, |all, _| {
+            find(all, &share_id)?.room =
+                Some(json!({"url": "https://room.example", "host_token": "t"}));
+            Ok(((), true))
+        })
+        .unwrap();
+    let link = format!("https://room.example/i/{share_id}");
+    let invited = registry.invite(dir, &invite("bo@example.com")).unwrap();
+    assert_eq!(invited["invite_url"], link, "{invited}");
+    let again = registry.invite(dir, &invite("bo@example.com")).unwrap();
+    assert_eq!(again["invite_url"], link, "an invite asked again answers the link too");
+    assert_eq!(shown(&registry)["invite_url"], link);
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// However many accounts and devices join, every change the daemon acknowledges is one a restart
+/// reads back: a change that would pass the state file's bound is refused (`share.limit`) instead
+/// of written, so a restart never finds an unreadable file and starts empty.
+#[test]
+fn every_acknowledged_change_reloads_however_many_invitees_join() {
+    let directory = std::env::temp_dir().join(format!("cmux-invites-fill-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let terms = || ShareTerms { ttl_secs: 3600, uses: 1, create_id: None };
+    let mut refused = false;
+    'fill: for index in 0..MAX_SHARES {
+        let created = match shares.insert(dir, format!("acp_{index}"), 1, terms(), false) {
+            Ok(created) => created,
+            Err(code) => {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break;
+            }
+        };
+        let share_id = created["share_id"].as_str().unwrap().to_owned();
+        // Bridged to a room that never answers: every kick stays queued.
+        shares
+            .with(dir, |all, _| {
+                find(all, &share_id)?.room = Some(json!({"url": "https://room.invalid"}));
+                Ok(((), true))
+            })
+            .unwrap();
+        for a in 0..MAX_INVITEES {
+            let account = format!("{a}-{}@example.com", "x".repeat(280));
+            let invite =
+                Invite { share_id: share_id.clone(), account: account.clone(), role: None };
+            if let Err(code) = shares.invite(dir, &invite) {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break 'fill;
+            }
+            for g in 0..MAX_GUESTS_PER_ACCOUNT {
+                let redeem = Redeem {
+                    share_id: share_id.clone(),
+                    secret: String::new(),
+                    name: "n".repeat(64),
+                    attempt_id: format!("{a}-{g}-{}", "y".repeat(100)),
+                    account: Some(account.clone()),
+                };
+                if let Err(code) = shares.redeem(dir, redeem) {
+                    assert_eq!(code, "share.limit");
+                    refused = true;
+                    break 'fill;
+                }
+            }
+        }
+    }
+    assert!(refused, "the per-share limits alone keep the file within its bound");
+    // Every account removed while the room is away: every kick is queued, and still written.
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    for share in &all {
+        for invitee in &share.invitees {
+            let p = Uninvite { share_id: share.share_id.clone(), account: invitee.account.clone() };
+            shares.uninvite(dir, &p).unwrap();
+        }
+        assert!(share.guests.is_empty() || !share.invitees.is_empty());
+    }
+    let queued = shares.with(dir, |all, _| {
+        Ok((all.iter().map(|s| s.pending_room_ops.len()).sum::<usize>(), false))
+    });
+    assert!(queued.unwrap() > 0, "the kicks wait for the room");
+    let size = std::fs::metadata(directory.join(FILE)).unwrap().len();
+    assert!(size <= 64 * 1024, "the file passed the state file's 64 KiB bound: {size}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    let reloaded = read(&LinkShares::default());
+    assert!(!reloaded.is_empty());
+    assert_eq!(reloaded, read(&shares), "a restart reads every acknowledged change");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let directory = std::env::temp_dir().join(format!("cmux-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    directory
+}
+
+fn terms() -> ShareTerms {
+    ShareTerms { ttl_secs: 3600, uses: 1, create_id: None }
+}
+
+/// A create whose new share does not fit goes on once the ended shares it may drop are gone, even
+/// when the records already there fit (cmux#33746, 7).
+#[test]
+fn a_create_drops_ended_shares_when_only_the_new_one_does_not_fit() {
+    let directory = scratch("shares-prune");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let ids: Vec<String> = (0..12)
+        .map(|i| {
+            let created = shares.insert(dir, format!("acp_{i}"), 1, terms(), false).unwrap();
+            created["share_id"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    // Invitees until not even the shortest account fits: what is left is less than a share.
+    let mut refused = false;
+    for length in [280, 150, 75, 40, 20, 10, 1] {
+        for (s, share_id) in ids.iter().enumerate() {
+            for a in 0..MAX_INVITEES {
+                let account = format!("{s}-{a}-{length}-{}@example.com", "x".repeat(length));
+                let invite = Invite { share_id: share_id.clone(), account, role: None };
+                match shares.invite(dir, &invite) {
+                    Ok(_) => {}
+                    Err("share.limit") => {
+                        refused = true;
+                        break;
+                    }
+                    Err(code) => panic!("{code}"),
+                }
+            }
+        }
+    }
+    assert!(refused, "the invitees fill the file");
+    // Every share ends with nothing left for a room to hear.
+    for share_id in &ids {
+        shares.end(dir, &Named { share_id: share_id.clone(), guest_id: None }).unwrap();
+    }
+    let created = shares.insert(dir, "acp_new".into(), 1, terms(), false);
+    assert!(created.is_ok(), "the ended shares make room: {created:?}");
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(all.len(), 1, "only the new share is left");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Whatever ends a full registry (rooms answering, kicks, removals, revokes), with every room
+/// operation still queued, the file stays within the state file's 64 KiB read bound.
+#[test]
+fn ending_everything_in_a_full_registry_stays_within_the_bound() {
+    let directory = scratch("shares-bound");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let ids: Vec<String> = (0..MAX_SHARES)
+        .map(|i| {
+            let created = shares.insert(dir, format!("acp_{i}"), 1, terms(), true).unwrap();
+            created["share_id"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    let mut refused = false;
+    'fill: for a in 0..MAX_INVITEES {
+        for share_id in &ids {
+            let account = format!("{a}-{}@example.com", "x".repeat(280));
+            let invite =
+                Invite { share_id: share_id.clone(), account: account.clone(), role: None };
+            if let Err(code) = shares.invite(dir, &invite) {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break 'fill;
+            }
+            let redeem = Redeem {
+                share_id: share_id.clone(),
+                secret: String::new(),
+                name: "n".repeat(64),
+                attempt_id: format!("{a}-{}", "y".repeat(100)),
+                account: Some(account),
+            };
+            if let Err(code) = shares.redeem(dir, redeem) {
+                assert_eq!(code, "share.provisioning");
+            }
+        }
+    }
+    assert!(refused, "the invites fill the file");
+    // Each room answers with the largest record it may (`adopt`): the share opens.
+    shares
+        .with(dir, |all, _| {
+            for share in all.iter_mut() {
+                let url = format!("https://{}", "a".repeat(292));
+                share.room = Some(json!({"url": url, "host_token": "t".repeat(256)}));
+                share.state = ShareState::Active;
+            }
+            Ok(((), true))
+        })
+        .unwrap();
+    for share_id in &ids {
+        let account = format!("0-{}@example.com", "x".repeat(280));
+        let redeem = Redeem {
+            share_id: share_id.clone(),
+            secret: String::new(),
+            name: "n".repeat(64),
+            attempt_id: format!("late-{}", "y".repeat(100)),
+            account: Some(account),
+        };
+        let _ = shares.redeem(dir, redeem);
+    }
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    for share in &all {
+        if let Some(guest) = share.guests.first() {
+            let kick =
+                Named { share_id: share.share_id.clone(), guest_id: Some(guest.guest_id.clone()) };
+            shares.end(dir, &kick).unwrap();
+        }
+        for invitee in &share.invitees {
+            let p = Uninvite { share_id: share.share_id.clone(), account: invitee.account.clone() };
+            shares.uninvite(dir, &p).unwrap();
+        }
+        shares.end(dir, &Named { share_id: share.share_id.clone(), guest_id: None }).unwrap();
+    }
+    let size = std::fs::metadata(directory.join(FILE)).unwrap().len();
+    assert!(size <= 64 * 1024, "the file passed the state file's 64 KiB bound: {size}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()), read(&shares), "a restart reads every end");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// A shares file the daemon cannot read back is kept aside (`.unreadable`), never overwritten by
+/// the next write; while it cannot be moved, nothing is written over it.
+#[test]
+fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
+    let directory = scratch("shares-unreadable");
+    let dir = Some(directory.as_path());
+    let oversized = format!("[{}]", " ".repeat(70 * 1024)).into_bytes();
+    std::fs::write(directory.join(FILE), &oversized).unwrap();
+    let shares = LinkShares::default();
+    shares.insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    let aside = directory.join(format!("{FILE}.unreadable"));
+    assert_eq!(std::fs::read(&aside).unwrap(), oversized, "the unreadable file is kept");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()).len(), 1, "the new file reads back");
+
+    // Unreadable again: the copy kept before stays, the new one goes beside it.
+    std::fs::write(directory.join(FILE), b"not json either").unwrap();
+    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert_eq!(std::fs::read(&aside).unwrap(), oversized, "the earlier copy is not replaced");
+    let kept: Vec<Vec<u8>> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| {
+            entry.file_name().to_string_lossy().starts_with(&format!("{FILE}.unreadable-"))
+        })
+        .map(|entry| std::fs::read(entry.path()).unwrap())
+        .collect();
+    assert_eq!(kept, vec![b"not json either".to_vec()]);
+
+    // The file cannot be moved aside: no write replaces it.
+    let blocked = scratch("shares-unreadable-blocked");
+    let dir = Some(blocked.as_path());
+    std::fs::write(blocked.join(FILE), b"not json").unwrap();
+    let aside = blocked.join(format!("{FILE}.unreadable"));
+    let shares = LinkShares::default();
+    shares.refuse_set_aside.store(true, Ordering::Relaxed);
+    assert_eq!(shares.insert(dir, SESSION.into(), 1, terms(), false), Err("share.unsaved"));
+    assert_eq!(std::fs::read(blocked.join(FILE)).unwrap(), b"not json");
+    shares.refuse_set_aside.store(false, Ordering::Relaxed);
+    shares.insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert_eq!(std::fs::read(&aside).unwrap(), b"not json", "moved aside once it could be");
+    assert_eq!(read(&LinkShares::default()).len(), 1);
+    let _ = std::fs::remove_dir_all(&directory);
+    let _ = std::fs::remove_dir_all(&blocked);
+}
+
+/// A move aside never replaces a copy already kept: when `.unreadable` and the `-<unix ms>` name
+/// the clock gives are both taken (two moves in one millisecond, or a clock that went back), the
+/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921).
+#[test]
+fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
+    let directory = scratch("shares-unreadable-collision");
+    let dir = Some(directory.as_path());
+    let first = directory.join(format!("{FILE}.unreadable"));
+    std::fs::write(&first, b"first").unwrap();
+    // Take every `-<ms>` name the move can pick in the next few seconds.
+    let now = wall_ms();
+    let taken: Vec<_> =
+        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
+    for path in &taken {
+        std::fs::write(path, b"earlier").unwrap();
+    }
+    std::fs::write(directory.join(FILE), b"not json").unwrap();
+    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert!(wall_ms() < now + 3_000, "the move ran inside the taken window");
+    assert_eq!(std::fs::read(&first).unwrap(), b"first", "`.unreadable` is not replaced");
+    for path in &taken {
+        assert_eq!(std::fs::read(path).unwrap(), b"earlier", "{} was replaced", path.display());
+    }
+    let moved: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| std::fs::read(path).is_ok_and(|bytes| bytes == b"not json"))
+        .collect();
+    assert_eq!(moved.len(), 1, "the new unreadable copy is kept once: {moved:?}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()).len(), 1, "the new file reads back");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// A redeem with the link's secret and an account that is not invited joins as a link guest (it
+/// spends a use), instead of being refused as not invited (cmux#33746, 2).
+#[test]
+fn a_redeem_with_the_secret_and_an_uninvited_account_joins_by_the_link() {
+    let fake = FakeAcpmux::start("share-secret-account");
+    let mux = mux_with(&fake, "share-secret-account");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-secret-account-owner");
+    let share = create(&mut owner, surface, json!({"uses": 2}));
+    let both = |owner: &mut Client, secret: &Value, account: &str, attempt: &str| {
+        owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+            "secret":secret, "account":account, "name":"Eve", "attempt_id":attempt}))
+    };
+    let wrong = json!("AAAAAAAAAAAAAAAAAAAAAA");
+    assert_code(&both(&mut owner, &wrong, "eve@example.com", "e0"), "share.not_invited");
+    let joined = both(&mut owner, &share["secret"], "eve@example.com", "e1");
+    assert_eq!(joined["ok"], true, "{joined}");
+    let again = both(&mut owner, &share["secret"], "eve@example.com", "e1");
+    assert_eq!(again["data"]["guest_id"], joined["data"]["guest_id"], "a retry is the same guest");
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["uses_left"], 1, "a link guest spends a use");
+    assert!(shown[0]["guests"][0].get("account").is_none(), "a link guest names no account");
+    // An invited account takes the invite, secret or not: no use spent.
+    assert_eq!(invite(&mut owner, &share, "ann@example.com", None)["ok"], true);
+    assert_eq!(both(&mut owner, &share["secret"], "ann@example.com", "a1")["ok"], true);
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["uses_left"], 1);
+    assert_eq!(shown[0]["guests"][1]["account"], "ann@example.com");
+}
+
+/// An ended share says how it ended to any account, invited or not (cmux#33746, 6).
+#[test]
+fn an_ended_share_answers_how_it_ended_to_any_account() {
+    let fake = FakeAcpmux::start("share-ended-account");
+    let mux = mux_with(&fake, "share-ended-account");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-ended-account-owner");
+    let revoked = create(&mut owner, surface, json!({}));
+    owner.request(json!({"cmd":"agent-session-share-revoke", "share_id":revoked["share_id"]}));
+    assert_code(&redeem_as(&mut owner, &revoked, "eve@example.com", "e1"), "share.revoked");
+    let expired = create(&mut owner, surface, json!({"ttl_secs": 60}));
+    mux.control_clients.agent_sessions.link_shares.advance(Duration::from_secs(61));
+    assert_code(&redeem_as(&mut owner, &expired, "eve@example.com", "e2"), "share.expired");
+    let closed = create(&mut owner, surface, json!({}));
+    close_chat_shares(&mux, SESSION);
+    assert_code(&redeem_as(&mut owner, &closed, "eve@example.com", "e3"), "share.closed");
 }

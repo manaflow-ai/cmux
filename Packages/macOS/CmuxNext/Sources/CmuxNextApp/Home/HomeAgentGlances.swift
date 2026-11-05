@@ -25,10 +25,10 @@ struct HomeAgentGlances {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 let isChat = tab.agentSession != nil
                 guard isChat ? !RestoredNewTabPages.shows(tab, in: agentTabs) : tab.agent != nil && !tab.dead else { continue }
-                let item = TabItemMapping.shared.item(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
-                glances.append(HomeAgentGlance(id: tab.id, title: item.title, icon: isChat ? .agentChat : .terminal,
-                                               status: glanceStatus(item.status, working: StatusMapping.shared.isWorking(tabs: [tab])),
-                                               indicator: item.indicator, indicatorStyle: item.busyStyle))
+                let glance = TabItemMapping.shared.glance(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
+                glances.append(HomeAgentGlance(id: tab.id, title: glance.title, icon: isChat ? .agentChat : .terminal,
+                                               status: glanceStatus(glance.status, working: StatusMapping.shared.isWorking(tabs: [tab])),
+                                               indicator: glance.indicator, indicatorStyle: glance.style))
             }
         }
         return glances

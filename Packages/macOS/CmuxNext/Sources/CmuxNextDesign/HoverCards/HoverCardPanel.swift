@@ -178,7 +178,10 @@ final class HoverCardPanel: NSPanel {
         finishMorph()
         if sweeping {
             glass.contentView.layer?.removeAnimation(forKey: Self.crossfadeKey)
-        } else if previous != nil, sliding || wasDismissing || body !== newBody {
+        } else if previous != nil, sliding || body !== newBody {
+            // A return to the card fading out (not sliding, the same body) keeps its content as drawn: a
+            // crossfade of a card over itself flickered its spinners (Leo 2026-11-02, "IT RE-RENDERS THE
+            // SPINNER VIEW"). Another target's content (`sliding`) still fades over the last.
             crossfadeContent()
         }
         if body !== newBody {

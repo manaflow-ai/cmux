@@ -32,7 +32,7 @@ on a thread (start_ratchet() starts it early so it runs beside prepush-gate's sc
 plans/cmux-next/arch-ratchet.json (arch_counts.py defines them): stateful singletons and file-scope globals,
 global mutable statics, MainActor.assumeIsolated outside seam adapters, app Notification.Name broadcasts,
 observer sites, layer edges. Those concerns have no line rule here, so there is one definition and one escape
-per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
+per concern: the dated exception file in plans/cmux-next/arch-exceptions/ (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
 inline marker hides them).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
@@ -1667,6 +1667,24 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
+# ---- raw-observation (TERMINAL CREATE COST, lead 2026-11-05)
+# A local change costs O(changed items), never O(session) (CLAUDE.md "Go past Chrome", PATTERNS.md P3). A test proves
+# it by counting the observation trackings one change wakes (CmuxNextCompat `ObservationWakes`); it sees only the
+# three tracked wrappers, so an observer written on a raw `withObservationTracking` is invisible to it. New code
+# observes through a wrapper; the wrappers themselves are the only raw callers.
+RAW_OBSERVATION = re.compile(r"\bwithObservationTracking\b")
+OBSERVATION_WRAPPERS = frozenset({
+    SOURCES + "CmuxNextCompat/ObservationStream.swift",
+    SOURCES + "CmuxNextCompat/SingleArmedTracking.swift",
+    SOURCES + "CmuxNextBrowser/UI/ObservationLoop.swift",
+})
+
+
+def outside_observation_wrappers(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION is not one of the tracked observation wrappers (their own raw call is the point)."""
+    return version.path not in OBSERVATION_WRAPPERS, []
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1726,6 +1744,15 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("raw-observation", "A direct `withObservationTracking` outside the tracked wrappers",
+         "the test that keeps a local change O(changed items) (NewTabWakesDoNotGrowWithSessionTests) counts only the "
+         "trackings the wrappers arm (CmuxNextCompat `ObservationWakes`): an observer on a raw call can read the whole "
+         "session and wake on every create while the count stays the same",
+         "observe through a wrapper: `ObservationStream({ ... })` (or `.current` for the first value in this turn), "
+         "CmuxNextCompat `SingleArmedTracking.track(shape:_:onChange:)` for a computation that also runs for other "
+         "reasons, or CmuxNextBrowser's `ObservationLoop`; read only the changed item's own state in it",
+         "// observation-allow: <why this tracking cannot go through a wrapper>",
+         matcher_rule(Matcher(RAW_OBSERVATION, re.compile(r"//\s*observation-allow:\s*\S"), outside_observation_wrappers))),
     Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
          "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
          "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
@@ -2904,8 +2931,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
-        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
-              "plans/cmux-next/arch-ratchet.json)")
+        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception file "
+              "plans/cmux-next/arch-exceptions/<id>.json)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()

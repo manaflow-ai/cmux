@@ -76,9 +76,8 @@ impl Hub {
             .remote_sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .filter(|r| r.peer == peer)
-            .map(|r| r.summary.clone())
+            .of_peer(peer)
+            .map(|(_, r)| r.summary.clone())
             .collect();
         let link = p.link();
         let saved = Saved {
@@ -111,7 +110,7 @@ impl Hub {
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if map.values().any(|r| r.peer == peer.name) {
+        if map.has_peer(&peer.name) {
             return;
         }
         for mut summary in saved.sessions {

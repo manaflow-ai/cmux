@@ -137,3 +137,14 @@ fn package_paths_are_checked() {
     assert_eq!(got, vec![("/runtime/main", "path.notInFiles"), ("/catalog", "path.missing")]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn sidebar_sections_accept_all_three_regions_including_bottom() {
+    for region in ["top", "middle", "bottom"] {
+        let value =
+            manifest(json!({"runtime": {"main": "main.js"}, "implements": {"cmux.section/1": {
+                "export": "render", "options": {"defaultRegion": region}
+            }}}));
+        assert!(codes(&value).is_empty(), "{region}: {:?}", codes(&value));
+    }
+}

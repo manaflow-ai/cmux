@@ -315,7 +315,9 @@ fn the_conversation_gate_admits_only_the_remote_allowlist() {
 fn stamp_inst_9(check: bool) -> String {
     let peer = r#"{"install":"inst_9","user":"42","team":"team_a"}"#;
     if check {
-        format!(r#"{{"link_peer":{peer},"check":"link_token"}}"#)
+        let at =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+        format!(r#"{{"link_peer":{peer},"check":"link_token","check_issued_at_ms":{at}}}"#)
     } else {
         format!(r#"{{"link_peer":{peer}}}"#)
     }
@@ -437,3 +439,9 @@ impl crate::remote_relay_state::RevocationClock for FixedClock {
 fn good_check_time(mux: &Mux, install: &str) -> Option<Instant> {
     mux.remote_relay().revocation.lock().unwrap().good_check_time(install)
 }
+
+#[path = "remote_entry_token_time_tests.rs"]
+mod token_issue_time;
+
+#[path = "remote_entry_native_role_tests.rs"]
+mod native_role;

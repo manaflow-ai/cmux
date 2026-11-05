@@ -290,6 +290,85 @@ class PackageDriftTests(unittest.TestCase):
             self.assertIsNone(ib.package_drift(str(work), drifted, [("Packages/iOS/P", "no-such-branch")]))
 
 
+class BuilderScriptProbeTests(unittest.TestCase):
+    """builder_has_script reads the signing branch with git; the contents API is only the fallback."""
+
+    def git(self, *args, cwd):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
+                       capture_output=True)
+
+    def repos(self, root: Path, *, with_script: bool, with_branch: bool = True) -> Path:
+        origin, work = root / "origin.git", root / "work"
+        self.git("init", "-q", "--bare", str(origin), cwd=root)
+        self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=root)
+        (work / "README").write_text("x")
+        self.git("add", "README", cwd=work)
+        self.git("commit", "-q", "-m", "base", cwd=work)
+        self.git("remote", "add", "origin", str(origin), cwd=work)
+        self.git("push", "-q", "origin", "feat-cmux-next", cwd=work)
+        if with_branch:
+            self.git("checkout", "-q", "-b", "builder", cwd=work)
+            if with_script:
+                script = work / ib.BUILDER_SCRIPT
+                script.parent.mkdir(parents=True)
+                script.write_text("#!/bin/sh\n")
+                self.git("add", ib.BUILDER_SCRIPT, cwd=work)
+            self.git("commit", "-q", "--allow-empty", "-m", "builder", cwd=work)
+            self.git("push", "-q", "origin", f"builder:{ib.BUILDER_REF}", cwd=work)
+            self.git("checkout", "-q", "feat-cmux-next", cwd=work)
+        clone = root / "clone"
+        # The decide job's checkout: one branch, depth 1, blobless; the probe's fetch then takes --depth=1 too.
+        self.git("clone", "-q", "--depth=1", "--filter=blob:none", "-b", "feat-cmux-next", f"file://{origin}",
+                 str(clone), cwd=root)
+        shallow = subprocess.run(["git", "-C", str(clone), "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(shallow, "true")
+        return clone
+
+    def probe(self, clone: Path, gh_answer: subprocess.CompletedProcess | None = None):
+        real_run = subprocess.run
+        api_calls = []
+
+        def run(args, *a, **kw):
+            if args and args[0] == "gh":
+                api_calls.append(args)
+                return gh_answer
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(ib.subprocess, "run", side_effect=run), \
+                mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}):
+            answer = ib.builder_has_script(str(clone))
+        return answer, api_calls
+
+    def test_present_script_is_read_with_git_and_no_api_call(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            answer, api_calls = self.probe(self.repos(Path(directory), with_script=True))
+        self.assertTrue(answer)
+        self.assertEqual(api_calls, [])
+
+    def test_missing_script_is_read_with_git_and_no_api_call(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            answer, api_calls = self.probe(self.repos(Path(directory), with_script=False))
+        self.assertFalse(answer)
+        self.assertEqual(api_calls, [])
+
+    def test_unfetchable_branch_falls_back_to_the_contents_api(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            clone = self.repos(Path(directory), with_script=True, with_branch=False)
+            found = subprocess.CompletedProcess(["gh"], 0, ib.BUILDER_SCRIPT + "\n", "")
+            answer, api_calls = self.probe(clone, found)
+            self.assertTrue(answer)
+            self.assertEqual(len(api_calls), 1)
+            self.assertIn(f"repos/manaflow-ai/cmux/contents/{ib.BUILDER_SCRIPT}", api_calls[0])
+            missing = subprocess.CompletedProcess(["gh"], 1, "", "gh: Not Found (HTTP 404)")
+            self.assertFalse(self.probe(clone, missing)[0])
+            down = subprocess.CompletedProcess(["gh"], 1, "", "HTTP 502")
+            self.assertTrue(self.probe(clone, down)[0])
+
+
 class AdmitTests(unittest.TestCase):
     def env(self, **kw):
         env = {
@@ -495,21 +574,19 @@ class GitHubApiTests(unittest.TestCase):
 
 
 class TriggerRunnerTests(unittest.TestCase):
-    def test_push_decision_uses_small_ephemeral_linux(self):
+    def test_push_decision_reads_the_linux_pool(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
         runs_on = next(line.strip() for line in workflow.splitlines()
                        if line.strip().startswith("runs-on:"))
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", runs_on)
         self.assertIn("'ubuntu-24.04'", runs_on)
-        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
-        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
-        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", runs_on)
-        self.assertNotIn("|| vars.LINUX_RUNNER ||", runs_on)
-        # Retain the manual run's fallback choice and the existing decision,
-        # even when the iOS builder is held or its shared packages drift.
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
-                      "'blacksmith-2vcpu-ubuntu-2404'", runs_on)
-
+        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
+        # (tests/test_ci_linux_single_size.py).
+        self.assertNotIn("32vcpu", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
+        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
+        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
 if __name__ == "__main__":
     unittest.main()

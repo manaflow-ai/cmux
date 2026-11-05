@@ -92,6 +92,13 @@ const longActive = [
   { id: "gallery-live-short", title: "Release notes", harness: "codex", state: "input" as const, label: "Needs input" },
 ];
 
+// The leaders (leads.ts): every live chat other chats report to, once, above the live chats.
+const leads = [
+  { id: "gallery-lead-area", title: "area-owner", harness: "claude", state: "running" as const, label: "6 reporting" },
+  { id: "gallery-lead-coord", title: "coordinator", harness: "claude", state: "idle" as const, label: "4 reporting" },
+  { id: "gallery-lead-codex", title: "ui-owner", harness: "codex", state: "input" as const, label: "2 reporting" },
+];
+
 export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",
   title: "All chats page recovery",
@@ -115,6 +122,10 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     "long-values": {
       note: "Long titles and folders cut at the row's edge and carry their whole value as a tooltip, the live chats at the top included; ages from a week on read as a date.",
       props: { ...baseProps, load: async () => longRows, active: longActive, now: GALLERY_NOW },
+    },
+    leads: {
+      note: "Leads: every leader (a live chat other chats report to) once, with how many report to it; a press opens its chat.",
+      props: { ...baseProps, load: async () => longRows, active: longActive, leads, now: GALLERY_NOW },
     },
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",

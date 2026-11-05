@@ -33,22 +33,25 @@ done
 cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'
 #!/usr/bin/env bash
 [[ "${1:-}" == -version ]] && { echo "Xcode 26.6"; exit 0; }
-{ printf 'tui-mode=%s\n' "${CMUX_NEXT_TUI_MODE-unset}"; printf '%s\n' "$@"; } > "$STUB_ARGS"
+{ printf 'tui-mode=%s\n' "${CMUX_NEXT_TUI_MODE-unset}"; printf 'acpmux-archs=%s\n' "${CMUX_NEXT_ACPMUX_ARCHS-unset}"; printf '%s\n' "$@"; } > "$STUB_ARGS"
 exit 3
 STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
 
 OUTPUT=""
+RUN_ENV=()
 run_reload() {
   rm -f "$ARGS"
   set +e
   OUTPUT="$(cd "$CHECKOUT" && env \
     -u CMUX_TUI_CLIENT_LOCAL -u CMUX_TUI_CLIENT_MANIFEST_URL -u CMUX_SOURCE_PACKAGES_DIR \
     -u CMUX_DERIVED_DATA -u CMUX_RELOAD_TAG_LOCK_OWNER -u CMUX_DEV_BACKEND_URL \
+    -u CMUX_CI_STEP_CLASS -u CMUX_RELOAD_NATIVE_ARCH -u CMUX_NEXT_ACPMUX_ARCHS -u CMUX_NEXT_OPTCHAT_CHIEF_ARCHS \
+    -u CMUX_NEXT_MOBILE_HOST_ARCHS \
     PATH="$TMP_DIR/bin:$PATH" STUB_ARGS="$ARGS" CMUX_SKIP_CMUX_TUI_CLIENT=1 \
     CMUX_DEV_BACKEND_MODE=local CMUX_NEXT_TUI_MODE=pin \
     CMUX_NEXT_TUI_BIN="$TMP_DIR/cmux-tui" CMUX_NEXT_ACPMUX_BIN="$TMP_DIR/acpmux" \
-    "$RELOAD" "$@" 2>&1)"
+    ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$RELOAD" "$@" 2>&1)"
   STATUS=$?
   set -e
 }
@@ -79,3 +82,29 @@ products="$(awk '/^[[:space:]]*BUILD_PRODUCTS_DEBUG_DIR=.*Build\/Products/ { pri
 [[ "$products" == *'$BUILD_CONFIGURATION'* || "$products" == *'${BUILD_CONFIGURATION}'* ]] \
   || fail "reload.sh still reads products from a fixed directory: $products"
 echo "PASS: products are read from the built configuration's directory"
+
+# A fleet measurement step (CMUX_CI_STEP_CLASS=exclusive) builds the app only to run it on this Mac, so it
+# builds this Mac's architecture alone (chat-open.sh step b128e339 timed out in a universal Release build).
+host_arch="$(uname -m)"; [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]] && host_arch=arm64
+RUN_ENV=(CMUX_CI_STEP_CLASS=exclusive)
+run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
+[[ -f "$ARGS" ]] || fail "the measurement reload never reached xcodebuild: $OUTPUT"
+grep -qx "ARCHS=$host_arch" "$ARGS" || fail "a measurement step's Release build is not ARCHS=$host_arch: $(grep ARCH "$ARGS" || true)"
+grep -qx 'ONLY_ACTIVE_ARCH=YES' "$ARGS" || fail "a measurement step's Release build does not set ONLY_ACTIVE_ARCH=YES"
+grep -qx "acpmux-archs=$host_arch" "$ARGS" || fail "a measurement step bundles a universal acpmux: $(grep acpmux-archs "$ARGS")"
+RUN_ENV=(CMUX_CI_STEP_CLASS=exclusive CMUX_RELOAD_NATIVE_ARCH=0)
+run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
+! grep -q '^ARCHS=' "$ARGS" || fail "CMUX_RELOAD_NATIVE_ARCH=0 did not keep the universal build"
+grep -qx 'acpmux-archs=arm64 x86_64' "$ARGS" || fail "CMUX_RELOAD_NATIVE_ARCH=0 did not keep a universal acpmux"
+RUN_ENV=()
+run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --release
+! grep -q '^ARCHS=' "$ARGS" || fail "a Release reload outside a measurement step is no longer universal"
+! grep -qx 'ONLY_ACTIVE_ARCH=YES' "$ARGS" || fail "a Release reload outside a measurement step set ONLY_ACTIVE_ARCH=YES"
+run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --release --native-arch
+grep -qx "ARCHS=$host_arch" "$ARGS" || fail "--native-arch did not build ARCHS=$host_arch"
+grep -qx "acpmux-archs=$host_arch" "$ARGS" || fail "--native-arch bundles a universal acpmux"
+RUN_ENV=(CMUX_NEXT_ACPMUX_ARCHS="arm64 x86_64")
+run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --release --native-arch
+grep -qx 'acpmux-archs=arm64 x86_64' "$ARGS" || fail "--native-arch overrode an explicit CMUX_NEXT_ACPMUX_ARCHS"
+RUN_ENV=()
+echo "PASS: a measurement step (or --native-arch) builds this Mac's architecture only; other Release reloads stay universal"

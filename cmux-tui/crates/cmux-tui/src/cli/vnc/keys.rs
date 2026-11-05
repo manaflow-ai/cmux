@@ -62,16 +62,16 @@ impl Keyboard {
         Self { enhanced, ..Self::default() }
     }
 
-    /// Translates one terminal key event. `shifted` is the shifted character
-    /// the Kitty protocol reports with Shift held.
-    pub fn handle(&mut self, event: &KeyEvent, shifted: Option<char>) -> KeyAction {
+    /// Recognize viewer commands before deferring network input. This does not
+    /// mutate the remote key state, which follows the ordered input stream.
+    pub fn command(&mut self, event: &KeyEvent) -> Option<KeyAction> {
         let press = matches!(event.kind, KeyEventKind::Press | KeyEventKind::Repeat);
         if self.awaiting_command && press {
             if modifier(event.code).is_some() {
-                return KeyAction::None;
+                return Some(KeyAction::None);
             }
             self.awaiting_command = false;
-            return KeyAction::Command(if self.is_escape(event) {
+            return Some(KeyAction::Command(if self.is_escape(event) {
                 Command::SendEscape
             } else {
                 match event.code {
@@ -81,13 +81,24 @@ impl Keyboard {
                     KeyCode::Char('f' | 'F') => Command::Refresh,
                     _ => Command::Cancel,
                 }
-            });
+            }));
         }
         if event.kind == KeyEventKind::Press && self.is_escape(event) {
             self.awaiting_command = true;
-            return KeyAction::AwaitCommand;
+            return Some(KeyAction::AwaitCommand);
         }
 
+        None
+    }
+
+    #[cfg(test)]
+    pub fn handle(&mut self, event: &KeyEvent, shifted: Option<char>) -> KeyAction {
+        self.command(event).unwrap_or_else(|| self.handle_input(event, shifted))
+    }
+
+    /// Translate an already command-filtered event when the network has room.
+    pub fn handle_input(&mut self, event: &KeyEvent, shifted: Option<char>) -> KeyAction {
+        let press = matches!(event.kind, KeyEventKind::Press | KeyEventKind::Repeat);
         if let Some(sym) = modifier(event.code) {
             // A real modifier event (Kitty protocol only).
             let mut out = Vec::new();
@@ -188,9 +199,18 @@ impl Keyboard {
 
     /// Releases every key this viewer holds (focus lost, reconnect, exit).
     pub fn release_all(&mut self) -> Vec<(u32, bool)> {
+        self.cancel_command();
+        self.release_remote()
+    }
+
+    pub fn cancel_command(&mut self) {
+        self.awaiting_command = false;
+    }
+
+    /// Deferred key releases must not cancel a newer local command prefix.
+    pub fn release_remote(&mut self) -> Vec<(u32, bool)> {
         self.synthetic.clear();
         self.pressed.clear();
-        self.awaiting_command = false;
         std::mem::take(&mut self.down).into_iter().rev().map(|sym| (sym, false)).collect()
     }
 }

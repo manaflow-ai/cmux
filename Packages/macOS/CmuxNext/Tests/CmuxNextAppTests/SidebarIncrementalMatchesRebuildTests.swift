@@ -235,21 +235,44 @@ import Testing
     /// animation to see, so the list waits until it equals the rebuild, no layer animation runs and no row fades
     /// (at most 10 s: a list stuck mid-flight still differs). Two equal looks 50 ms apart are no sign of an end: on a
     /// loaded runner a spring can miss every display frame between them and stop half a point short.
+    ///
+    /// The completions run in three main-thread turns (`turn`), not three 30 ms sleeps: queued work needs a turn, not
+    /// a clock, and anything that needs time (a spring, a fade, a flight's end) keeps the wait below going. The wait
+    /// ends at the first look that matches; nothing on the main thread changes between two looks with no await
+    /// between them. On cmux7s the three sleeps took 90 to 440 ms per check and the 200 looks after a match 100 to
+    /// 130 ms: 37 of this suite's 45 s and 100 of `SidebarIncrementalMatchesRebuildGapsTests`' 122 s.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
         for _ in 0..<3 {
             if let landing = list.landing { list.finishLand(landing, then: nil) }
             sidebar.renderNow()
-            try? await Task.sleep(for: .milliseconds(30))
+            await turn(sidebar.window)
         }
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
         defer { window.close() }
         let theirs = snapshot(fresh.list)
-        for _ in 0..<200 where snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(50))
         }
         let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
+    }
+
+    /// One main-thread turn, no clock: main-actor tasks and main-queue blocks queued before it run (the await), the
+    /// run loop's due sources and timers fire, then `window` lays out, draws and commits, which runs the completion
+    /// blocks of changes that did not animate.
+    static func turn(_ window: NSWindow?) async {
+        await Task.yield()
+        runLoopPassAndCommit(window)
+    }
+
+    /// The synchronous half of `turn`: one run loop pass that does not wait, then `window`'s layout, display and commit.
+    static func runLoopPassAndCommit(_ window: NSWindow?) {
+        RunLoop.main.run(mode: .default, before: Date())
+        window?.contentView?.layoutSubtreeIfNeeded()
+        window?.displayIfNeeded()
+        CATransaction.flush()
     }
 
     // MARK: Operations

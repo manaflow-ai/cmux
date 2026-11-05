@@ -71,7 +71,7 @@ jobs:
   gate:
     environment: ci-routing-agent
     needs: resolve-ref
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
@@ -104,6 +104,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -136,6 +137,7 @@ jobs:
       - name: Run only while an owned Mac is free
         id: decide
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           # Even fling creates a virtual display and needs a drawing console.
           CMUX_CI_GUI_REQUIRED: 'true'
           GH_TOKEN: ${{ github.token }}
@@ -187,7 +189,7 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || fromJSON(vars.RUNNER_POOLS).macos_26 }}
       backend_mode: local
 
   bench:
@@ -395,7 +397,7 @@ jobs:
   skipped-receipt:
     needs: [resolve-ref, gate, bench]
     if: always() && needs.gate.outputs.run != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     env:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha || github.sha }}

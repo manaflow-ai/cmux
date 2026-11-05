@@ -12,7 +12,7 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
     private var screenWatch: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - workingAgents: the count of this Mac's agents running a turn, read once a second.
+    ///   - workingAgents: the count of this Mac's agents running a turn, read from observable state.
     ///   - lockMac: the scene's Lock Mac button.
     init(workingAgents: @escaping @MainActor () -> Int, lockMac: @escaping @MainActor () -> Void) {
         self.workingAgents = workingAgents

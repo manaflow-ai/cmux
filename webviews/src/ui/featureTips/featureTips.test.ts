@@ -17,11 +17,11 @@ const TIPS: FeatureTipEntry[] = [
     body: "One sentence.",
     feature: "browser",
   },
-  { id: "session-info-tip", anchor: "agent.inspector", title: "Session Info", body: "One sentence." },
+  { id: "session-info-tip", anchor: "agent.sessionInfo", title: "Session Info", body: "One sentence." },
 ];
 const ANCHORS: Record<string, TipAnchor> = {
   "agent.browser": { selector: "#browser", side: "bottom", feature: "browser" },
-  "agent.inspector": { selector: "#inspector", side: "bottom" },
+  "agent.sessionInfo": { selector: "#inspector", side: "bottom" },
 };
 
 let dom: JSDOM;

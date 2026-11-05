@@ -247,7 +247,7 @@ import Testing
         #expect(host.names == ["lab"], "the app connects it under the Name field's name")
         // Setup does the whole job: this Mac's agent profiles and the host's way back, no skips.
         #expect(HostCommand.enroll(host: "huge-blue", name: "lab").arguments
-            == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--harness", "local", "--reverse", "--json"])
+            == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--accept-new-host-key", "--harness", "local", "--reverse", "--json"])
     }
 
     @Test func aFailedStepStaysOpenWithTryAgainAndCopyDetails() async {

@@ -7,14 +7,11 @@ public nonisolated enum FeedLayout: String, Sendable, CaseIterable, TunableChoic
     case list
     /// Grouped list (Needs you, Today, Earlier) and the selected item's detail.
     case inbox
-    /// Labs-only human reports basket: agent notices with a direct reply box.
-    case reportsBasket
 
     public var tunableTitle: String {
         switch self {
         case .list: "List (requests pinned, inline answers)"
         case .inbox: "Inbox (grouped list + detail)"
-        case .reportsBasket: "Reports basket (Labs)"
         }
     }
 }
@@ -32,12 +29,13 @@ public nonisolated enum FeedTunables {
         "feed.rowHeight", section, "Row height", help: "Height of a one-line row (notices, inbox).",
         default: 30, range: 22...48, step: 1, unit: .points, code: "FeedTunables.rowHeight")
 
-    public static let reportsBasket = Tunable<Bool>.toggle(
-        "feed.reportsBasket", section, "Reports basket (Labs)",
-        help: "Show agent reports in a human-only basket with direct replies. Off by default.",
-        default: false, code: "FeedTunables.reportsBasket")
+    /// Chief Home's pinned Needs you section's look (``FeedNeedsYouStyle``).
+    public static let needsYouStyle = Tunable<FeedNeedsYouStyle>.choice(
+        "feed.needsYouStyle", section, "Needs you in Home",
+        help: "How Chief Home's pinned Needs you section shows the Feed's open requests: a row each with its answers at the end, the Feed's request cards, or one line with the count. Switches live.",
+        default: .rows, code: "FeedTunables.needsYouStyle")
 
     public static var all: [TunableDescriptor] {
-        [layout.descriptor, rowHeight.descriptor, reportsBasket.descriptor]
+        [layout.descriptor, rowHeight.descriptor, needsYouStyle.descriptor]
     }
 }

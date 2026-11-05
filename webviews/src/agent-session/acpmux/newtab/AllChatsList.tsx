@@ -17,11 +17,13 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
+import { errorMessage } from "../transportErrors";
 import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
+import { useLasting } from "../../../ui/lasting";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -60,6 +62,9 @@ const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<Active
 };
 
 const PAGE = 100;
+/// How long a first read may go unanswered before the list says it couldn't load and offers Try
+/// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
+export const CHATS_READ_CEILING_MS = 15_000;
 const ROW_HEIGHT = 30;
 
 type State = {
@@ -274,11 +279,17 @@ export function useChatPages(load: LoadChatsPage) {
               const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
               return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
             }
+            // An index-ready first page without a cursor is the whole list: rows omitted from it
+            // were deleted or archived. A paged first page cannot distinguish those from rows
+            // that merely moved to a later page, so retain older fetched rows in that case.
+            const complete = page.ready !== false && !page.nextCursor;
             const named = new Set(fresh.map((row) => row.key));
-            const rows = mergeFirstPage(
-              fresh,
-              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-            );
+            const rows = complete
+              ? fresh
+              : mergeFirstPage(
+                  fresh,
+                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+                );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -289,8 +300,9 @@ export function useChatPages(load: LoadChatsPage) {
                     row.updatedAt === s.rows[i]?.updatedAt &&
                     row.title === s.rows[i]?.title &&
                     row.cwd === s.rows[i]?.cwd),
-              );
-            return same ? s : { ...s, rows };
+              ) &&
+              (!complete || (s.nextCursor === undefined && s.ready));
+            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
           });
         }
         const again = refreshing.current === "again";
@@ -366,6 +378,62 @@ function useSelection(rows: AllChatsRow[], query: string) {
   return { selected, click, collapse, clear };
 }
 
+/** A chat-open request keeps its originating row through host acceptance or refusal.
+ * One click creates one request; a late refusal cannot overwrite a newer row's status.
+ * A bulk History open reports failure without offering an unsafe all-rows replay.
+ */
+export function useChatOpenFeedback(onOpen: (key: string) => unknown, onBring?: (keys: string[]) => unknown) {
+  const t = useT();
+  const [opening, setOpening] = useState<string>();
+  const [failure, setFailure] = useState<{ key?: string; message: string }>();
+  const pending = useRef(new Set<string>());
+  const newest = useRef(0);
+  const message = (error: unknown) => errorMessage(error) || t("transport.refused");
+  const open = (key: string) => {
+    if (pending.current.has(key)) return;
+    pending.current.add(key);
+    const ticket = ++newest.current;
+    setOpening(key);
+    setFailure(undefined);
+    // The call begins on this person gesture; the host requires that for some actions.
+    let request: unknown;
+    try {
+      request = onOpen(key);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    void Promise.resolve(request).then(
+      () => {
+        pending.current.delete(key);
+        if (ticket === newest.current) setOpening(undefined);
+      },
+      (error: unknown) => {
+        pending.current.delete(key);
+        if (ticket !== newest.current) return;
+        setOpening(undefined);
+        setFailure({ key, message: message(error) });
+      },
+    );
+  };
+  const bring = (keys: string[]) => {
+    if (!onBring) return;
+    const ticket = ++newest.current;
+    setOpening(undefined);
+    setFailure(undefined);
+    let request: unknown;
+    try {
+      request = onBring(keys);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    // Some rows in a multi-open may have succeeded. Report the refusal without replaying them.
+    void Promise.resolve(request).catch((error: unknown) => {
+      if (ticket === newest.current) setFailure({ message: message(error) });
+    });
+  };
+  return { opening, failure, open, bring };
+}
+
 /// A chat acpmux can show without running it: Claude Code and Codex (acpmux `hub/watch.rs`).
 export const watchable = (key: string) => /^(claude-code|codex):./.test(key);
 
@@ -373,6 +441,7 @@ export function AllChatsList({
   load,
   onOpen,
   active = [],
+  leads = [],
   onOpenActive,
   onOpenInTerminal,
   onViewOnly,
@@ -381,15 +450,18 @@ export function AllChatsList({
   scrollParent,
 }: {
   load: LoadChatsPage;
-  onOpen(key: string): void;
+  onOpen(key: string): unknown;
   active?: ActiveChat[];
+  /// The leaders (leads.ts): every live chat other chats report to, listed once above the live
+  /// chats; a click opens it as a live chat's does.
+  leads?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
   /// View Only: a Claude Code or Codex chat in a tab that shows it and follows the app that runs
   /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
   onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
-  onBring?(keys: string[]): void;
+  onBring?(keys: string[]): unknown;
   now?: number;
   /** New Tab scrolls the whole page; History retains its own list viewport. */
   scrollParent?: string;
@@ -400,9 +472,14 @@ export function AllChatsList({
   const clock = useMinuteClock();
   const now = fixedNow ?? clock;
   const { state, fetchPage } = useChatPages(load);
+  const openFeedback = useChatOpenFeedback(onOpen, onBring);
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
+  // The skeleton holds the rows' layout while a read is out (no text, no shift when it lands); a read
+  // that never answers is said as the failure line, with Try again, once it passes the ceiling.
+  const waiting = rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed));
+  const unanswered = useLasting(rows.length === 0 && (!state.loaded || state.loading), CHATS_READ_CEILING_MS);
   const [view, setView] = useState<"chats" | "projects">("chats");
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
@@ -419,6 +496,33 @@ export function AllChatsList({
             FILTER_STATES[filter].has(chat.state) &&
             (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
         );
+  // The leaders show under All with no search; a filter or a search is about the chats.
+  const leadsShown = filter === "all" && !state.query ? leads : [];
+  // A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4).
+  const liveRow = (chat: ActiveChat) => (
+    <li key={chat.id}>
+      <ContextMenu
+        className="nt-row-host"
+        items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
+      >
+        <button
+          type="button"
+          className="nt-all-row"
+          data-focus-ring="row"
+          data-state={chat.state}
+          {...pressToOpen(() => onOpenActive?.(chat.id))}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={chat.harness} />
+          </span>
+          <span className="nt-all-title" title={chat.title}>
+            {chat.title}
+          </span>
+          <span className="nt-all-state">{chat.label}</span>
+        </button>
+      </ContextMenu>
+    </li>
+  );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
   // A Shift-click range runs over the chats as the list shows them.
@@ -440,7 +544,7 @@ export function AllChatsList({
       if (event.defaultPrevented || (control && !control.classList.contains("nt-all-row"))) return;
       if (event.key === "Enter") {
         event.preventDefault();
-        onBring(selected);
+        openFeedback.bring(selected);
         clear();
       } else if (event.key === "Escape") {
         event.preventDefault();
@@ -450,7 +554,7 @@ export function AllChatsList({
     // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onBring, selected, clear]);
+  }, [onBring, selected, clear, openFeedback]);
   // With every project folded nothing scrolls the loader away: it would fetch page after page.
   const pages = view === "chats" || entries.some((entry) => entry.kind === "chat");
   const count = entries.length + (nextCursor && pages ? 1 : 0);
@@ -510,7 +614,7 @@ export function AllChatsList({
               });
             }}
           >
-            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
               <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             <span className="nt-all-group-name">{label}</span>
@@ -541,18 +645,19 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
+          aria-busy={openFeedback.opening === row.key}
           // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
           // of a multi-selection waits for the release (the Finder rule).
           {...pressToOpen(
             () => {
               selection.collapse(row.key);
-              onOpen(row.key);
+              openFeedback.open(row.key);
             },
             {
               deferPress: () => !!onBring && selection.selected.length > 1 && selection.selected.includes(row.key),
               onClick: (event) => {
                 if (onBring && selection.click(event, row.key)) return;
-                onOpen(row.key);
+                openFeedback.open(row.key);
               },
             },
           )}
@@ -581,7 +686,7 @@ export function AllChatsList({
             label: nt("bringIntoActive"),
             disabled: menuKeys.length === 0,
             onSelect: () => {
-              onBring(menuKeys);
+              openFeedback.bring(menuKeys);
               selection.clear();
             },
           },
@@ -633,7 +738,7 @@ export function AllChatsList({
           }}
         />
         <label className="nt-all-search">
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
@@ -646,47 +751,50 @@ export function AllChatsList({
           />
         </label>
       </header>
+      {openFeedback.failure && (
+        <div className="nt-chats-empty nt-chats-failed" role="alert">
+          {openFeedback.failure.message}
+          {openFeedback.failure.key && (
+            <button
+              type="button"
+              className="nt-chats-retry"
+              onClick={() => {
+                const key = openFeedback.failure?.key;
+                if (key) openFeedback.open(key);
+              }}
+            >
+              {t("picker.tryAgain")}
+            </button>
+          )}
+        </div>
+      )}
+      {leadsShown.length > 0 && (
+        <ul className="nt-all-active nt-all-leads" aria-label={nt("leads")}>
+          <li className="nt-all-leads-head" aria-hidden="true">
+            <span className="nt-all-group-name">{nt("leads")}</span>
+            <span className="nt-all-group-count">{leadsShown.length}</span>
+          </li>
+          {leadsShown.map(liveRow)}
+        </ul>
+      )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
-          {activeShown.map((chat) => (
-            <li key={chat.id}>
-              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
-              <ContextMenu
-                className="nt-row-host"
-                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
-              >
-                <button
-                  type="button"
-                  className="nt-all-row"
-                  data-focus-ring="row"
-                  data-state={chat.state}
-                  {...pressToOpen(() => onOpenActive?.(chat.id))}
-                >
-                  <span className="nt-all-glyph">
-                    <AgentMark harness={chat.harness} />
-                  </span>
-                  <span className="nt-all-title" title={chat.title}>
-                    {chat.title}
-                  </span>
-                  <span className="nt-all-state">{chat.label}</span>
-                </button>
-              </ContextMenu>
-            </li>
-          ))}
+          {activeShown.map(liveRow)}
         </ul>
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
-      ) : rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed)) ? (
+      ) : waiting && !unanswered ? (
         <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
-      ) : state.loaded && rows.length === 0 ? (
-        state.failed ? (
+      ) : (state.loaded || unanswered) && rows.length === 0 ? (
+        state.failed || unanswered ? (
           <output className="nt-chats-empty nt-chats-failed">
             {nt("chatsLoadFailed")}
             <button
               type="button"
               className="nt-chats-retry"
-              disabled={state.loading}
+              // A read past the ceiling is still in flight: Try again starts a new one over it.
+              disabled={state.loading && !unanswered}
               onClick={() => fetchPage(state.query, undefined)}
             >
               {t("picker.tryAgain")}

@@ -256,7 +256,7 @@ function LocalImage({
   if (!outside && place !== "missing" && state.kind !== "failed")
     return thumb ? (
       <ThumbFrame state="waiting">
-        <ImageIcon size={18} className="cv-chip__icon" />
+        <ImageIcon size={20} className="cv-chip__icon" />
         <span className="cv-thumb__name">{alt || pathName(path)}</span>
       </ThumbFrame>
     ) : (
@@ -268,7 +268,7 @@ function LocalImage({
       <ImageIcon size={16} className="cv-chip__icon" />
       {alt && <span className="cv-image-file__alt">{alt}</span>}
       <span className="cv-image-file__name">{pathName(path)}</span>
-      {outside && <Lock size={11} className="cv-chip__lock" />}
+      {outside && <Lock size={12} className="cv-chip__lock" />}
       {!outside && <span className="cv-image-file__note">{t("image.unavailable")}</span>}
       {canOpen && (
         <button

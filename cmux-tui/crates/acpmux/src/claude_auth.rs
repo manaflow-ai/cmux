@@ -34,7 +34,13 @@ const PROVIDER_KEYS: [(&str, &str); 3] = [
 ];
 const BASE_URL: &str = "ANTHROPIC_BASE_URL";
 /// The spawn-env keys remembered per agent (values of token keys are not).
-const REMEMBERED: [&str; 4] = ["CLAUDE_CONFIG_DIR", "HOME", BASE_URL, "SHELL"];
+const REMEMBERED: [&str; 5] = [
+    "CLAUDE_CONFIG_DIR",
+    "HOME",
+    BASE_URL,
+    "SHELL",
+    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0,
+];
 
 /// What one environment gives Claude Code.
 #[derive(Debug, Clone, Default)]
@@ -49,6 +55,11 @@ pub struct Found {
     pub endpoint: Option<String>,
     /// Credential keys that came from the environment (not a file).
     pub env_keys: Vec<String>,
+    /// The sole file login is positively expired and cannot refresh. Never set on macOS,
+    /// where an uninspected keychain login can still work, or with another credential source.
+    pub expired_file_login: bool,
+    /// Project context was supplied and all candidate settings could be inspected.
+    pub credential_sources_complete: bool,
 }
 
 impl Found {
@@ -61,7 +72,7 @@ fn truthy(v: Option<&str>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
-fn tilde(path: &Path) -> String {
+pub(crate) fn tilde(path: &Path) -> String {
     if let Some(home) = dirs::home_dir()
         && let Ok(rest) = path.strip_prefix(&home)
     {
@@ -78,7 +89,7 @@ fn endpoint_host(url: &str) -> String {
 
 /// The settings files Claude Code reads env and helpers from, outside a
 /// project: managed settings, then the Claude home's `settings.json`.
-fn settings_files(home: &Path) -> Vec<PathBuf> {
+pub(crate) fn settings_files(home: &Path) -> Vec<PathBuf> {
     let managed = if cfg!(target_os = "macos") {
         "/Library/Application Support/ClaudeCode/managed-settings.json"
     } else {
@@ -90,6 +101,22 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
 /// The sign-in sources `env` gives Claude Code, from the environment and
 /// files only (never the keychain).
 pub fn find(env: &BTreeMap<String, String>) -> Found {
+    find_sources(env, None)
+}
+
+/// Include project settings when evaluating a session's own credential sources. Helpers are
+/// only recognized, never executed. Ancestor settings conservatively count as alternatives.
+pub fn find_in(env: &BTreeMap<String, String>, cwd: &Path) -> Found {
+    find_sources(env, Some(cwd))
+}
+
+fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
+    // Claude runs in the resolved directory: lexical ancestors of a symlink can miss its
+    // actual project's settings. Failure to resolve context is never proof of missing auth.
+    let project = cwd
+        .filter(|path| path.is_absolute())
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .filter(|path| path.is_dir());
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -98,7 +125,12 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         .unwrap_or_default();
     let custom = env.get("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty());
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
-    let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
+    let mut found = Found {
+        home: home.clone(),
+        custom_home: custom.is_some(),
+        credential_sources_complete: project.is_some(),
+        ..Found::default()
+    };
     for (key, words) in PROVIDER_KEYS {
         if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
@@ -114,9 +146,30 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     if let Some(url) = env.get(BASE_URL).filter(|v| !v.is_empty()) {
         found.endpoint = Some(endpoint_host(url));
     }
-    for file in settings_files(&home) {
-        let Ok(bytes) = std::fs::read(&file) else { continue };
-        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+    let mut settings = settings_files(&home);
+    if let Some(cwd) = project.as_deref() {
+        for dir in cwd.ancestors() {
+            settings.push(dir.join(".claude/settings.json"));
+            settings.push(dir.join(".claude/settings.local.json"));
+        }
+    }
+    for file in settings {
+        let bytes = match std::fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    found.credential_sources_complete = false;
+                }
+                continue;
+            }
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            found.credential_sources_complete = false;
+            continue;
+        };
+        if !json.is_object() || json.get("env").is_some_and(|value| !value.is_object()) {
+            found.credential_sources_complete = false;
+        }
         let at = tilde(&file);
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
@@ -158,20 +211,61 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         Some(dir) => PathBuf::from(dir).join(".claude.json"),
         None => user_home.join(".claude.json"),
     };
-    if std::fs::read(&config)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.get("primaryApiKey").and_then(|k| k.as_str()).map(|k| !k.is_empty()))
-        == Some(true)
-    {
-        found.sources.push(format!("the API key saved in {}", tilde(&config)));
+    match std::fs::read(&config) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(json) => {
+                if json
+                    .get("primaryApiKey")
+                    .and_then(|key| key.as_str())
+                    .is_some_and(|key| !key.is_empty())
+                {
+                    found.sources.push(format!("the API key saved in {}", tilde(&config)));
+                }
+                if !json.is_object() {
+                    found.credential_sources_complete = false;
+                }
+            }
+            Err(_) => found.credential_sources_complete = false,
+        },
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            found.credential_sources_complete = false
+        }
+        Err(_) => {}
     }
-    if home.join(".credentials.json").is_file() {
+    let credentials = home.join(".credentials.json");
+    if credentials.is_file() {
+        found.expired_file_login = !cfg!(target_os = "macos")
+            && found.sources.is_empty()
+            && std::fs::read(&credentials)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|json| unrefreshable_file_expiry(&json));
         found
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
     found
+}
+
+/// Only a known OAuth expiry with no usable refresh token proves failure. Unknown fields,
+/// missing timestamps and malformed token shapes retain the existing presence-only evidence.
+fn unrefreshable_file_expiry(json: &serde_json::Value) -> bool {
+    let Some(oauth) = json.get("claudeAiOauth") else { return false };
+    let has_access = oauth
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.trim().is_empty());
+    let no_refresh = match oauth.get("refreshToken") {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(token)) => token.trim().is_empty(),
+        _ => false,
+    };
+    let expired = oauth.get("expiresAt").and_then(|v| v.as_u64()).is_some_and(|expiry| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .is_ok_and(|now| u128::from(expiry) <= now.as_millis())
+    });
+    has_access && no_refresh && expired
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
@@ -201,9 +295,14 @@ pub fn direct_sign_in() -> bool {
 }
 
 #[derive(Clone)]
-struct Spawned {
-    env: BTreeMap<String, String>,
-    routed: bool,
+pub(crate) struct Spawned {
+    pub env: BTreeMap<String, String>,
+    pub routed: bool,
+    /// The bound route's name, when a route supplied the environment (`hub/route_switch.rs`).
+    pub route: Option<String>,
+    /// Plain Claude Code (family `claude`): its sign-in failures are explained ([`explain`]).
+    /// A launcher family (`claude-sr2`) brings its own sign-in; it is kept for `/status` only.
+    pub explains: bool,
 }
 
 static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
@@ -211,9 +310,15 @@ static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
 /// Remember a Claude agent's spawn environment for its session: the
 /// Claude home, HOME, the endpoint and shell as they are, and only the
 /// presence of credential keys (their values are replaced), plus whether a route supplied
-/// the environment. Logs a warning
+/// the environment and its name. Logs a warning
 /// when it has no sign-in at all.
-pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
+pub fn remember(
+    session_id: &str,
+    env: &[(String, String)],
+    routed: bool,
+    route: Option<String>,
+    explains: bool,
+) {
     let mut kept = BTreeMap::new();
     for (k, v) in env {
         if REMEMBERED.contains(&k.as_str()) || PROVIDER_KEYS.iter().any(|(p, _)| p == k) {
@@ -223,12 +328,17 @@ pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
         }
     }
     let found = find(&kept);
-    if !found.signed_in() {
+    if explains && !found.signed_in() {
         tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
     map.get_or_insert_with(HashMap::new)
-        .insert(session_id.to_owned(), Spawned { env: kept, routed });
+        .insert(session_id.to_owned(), Spawned { env: kept, routed, route, explains });
+}
+
+/// What [`remember`] kept for `session_id`'s agent.
+pub(crate) fn spawned(session_id: &str) -> Option<Spawned> {
+    SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id).cloned()
 }
 
 /// The session now runs another harness: its Claude spawn env no longer applies.
@@ -289,16 +399,20 @@ fn explains(original: &str) -> bool {
 
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
-/// thing). `original` is Claude's own text, kept at the end.
-pub fn explain(session_id: &str, original: &str) -> Option<String> {
+/// thing). `original` is Claude's own text, kept at the end. `cloud`: this
+/// machine is a cmux Cloud VM (`cloud_host.rs`), signed in from the Mac: the
+/// text says only that ([`compose_cloud`]), never a terminal's sign-in.
+pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> {
     if !explains(original) {
         return None;
     }
-    let spawned =
-        SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
+    let spawned = spawned(session_id).filter(|s| s.explains)?;
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
         let agent = find(&spawned.env);
+        if cloud {
+            return compose_cloud(&agent, original);
+        }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
         compose(
@@ -328,6 +442,30 @@ fn rc_file(shell: Option<&str>) -> &'static str {
         Some("fish") => "~/.config/fish/config.fish",
         _ => "~/.zshrc",
     }
+}
+
+/// A Cloud machine's sign-in failure: what the agent had, and the one way to sign it in, the
+/// Mac's "Set up Claude Code credentials" on the failed turn (the turn card's button). No
+/// terminal, no shell file and no fallback route: the person is not on this machine (Leo,
+/// 2026-10-31: "STOP USING CODEROUTER").
+fn compose_cloud(agent: &Found, original: &str) -> String {
+    let mut out = String::from("Claude is not signed in here.");
+    if agent.signed_in() {
+        out.push_str(&format!(
+            " This Cloud machine had {}, and Claude did not accept it.",
+            list(&agent.sources)
+        ));
+    } else {
+        out.push_str(&format!(
+            " This Cloud machine has no Claude sign-in (Claude home {}).",
+            tilde(&agent.home)
+        ));
+    }
+    out.push_str(
+        " Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again.",
+    );
+    out.push_str(&format!(" (Claude said: {})", original.trim()));
+    out
 }
 
 fn compose(
@@ -426,6 +564,29 @@ mod tests {
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
     }
 
+    /// A Cloud machine's sign-in failure says how to sign it in from the Mac, and nothing about
+    /// a terminal, a shell file or the CodeRouter.
+    #[test]
+    fn a_cloud_machine_says_only_how_to_sign_it_in() {
+        let none = super::Found {
+            home: dirs::home_dir().unwrap_or_default().join(".claude"),
+            ..super::Found::default()
+        };
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login");
+        assert!(text.starts_with("Claude is not signed in here."), "{text}");
+        assert!(text.contains("no Claude sign-in (Claude home ~/.claude)"), "{text}");
+        assert!(text.contains("Set up Claude Code credentials"), "{text}");
+        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+        for word in ["terminal", "zshrc", "ANTHROPIC_API_KEY", "CodeRouter", "router", "fallback"] {
+            assert!(!text.contains(word), "{word}: {text}");
+        }
+        // Not explained twice.
+        assert!(!super::explains(&text));
+        let had = super::Found { sources: vec!["a Claude.ai login".into()], ..none };
+        let text = super::compose_cloud(&had, "API Error: 401 OAuth token has expired");
+        assert!(text.contains("had a Claude.ai login, and Claude did not accept it"), "{text}");
+    }
+
     /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
     /// raw API text instead of the sign-in explanation.
     #[test]
@@ -506,7 +667,7 @@ mod tests {
             Some((id, "route auth test")),
         )
         .unwrap();
-        let text = explain(id, "Failed to authenticate. API Error: 401").unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401", false).unwrap();
         forget(id);
         assert!(text.contains("route"), "{text}");
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");

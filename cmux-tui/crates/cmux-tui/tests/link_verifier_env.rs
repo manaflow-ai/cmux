@@ -113,7 +113,7 @@ fn mode_lines(daemon: &Daemon) -> Vec<String> {
 /// variable the daemon was started with. The daemon removes it from its own
 /// environment before any thread starts, so every spawn path is covered.
 #[test]
-fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
+fn token_issue_time_no_terminal_or_host_inherits_the_verifier_variable() {
     let daemon = Daemon::start("child", "control_plane");
     let out = daemon.dir.join("env.out");
     let script = format!("env > {0}.tmp; mv {0}.tmp {0}; sleep 30", out.display());
@@ -158,7 +158,7 @@ fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
 /// RED (G3): the daemon logs its verifier mode exactly once at start, with
 /// the reason and never the raw value.
 #[test]
-fn the_daemon_logs_its_verifier_mode_once_without_the_value() {
+fn token_issue_time_daemon_logs_its_verifier_mode_once_without_the_value() {
     let daemon = Daemon::start("log", "hunter2-not-a-mode");
     // Another request after start: the line stays single.
     let _ = request(&daemon.socket, &serde_json::json!({"cmd": "identify"}));
@@ -171,5 +171,10 @@ fn the_daemon_logs_its_verifier_mode_once_without_the_value() {
     let control = Daemon::start("logcp", "control_plane");
     let lines = mode_lines(&control);
     assert_eq!(lines.len(), 1, "stderr:\n{}", control.stderr());
-    assert!(lines[0].contains("mode control_plane: refused at start"), "{}", lines[0]);
+    if cfg!(any(target_os = "linux", target_os = "android")) {
+        assert!(lines[0].contains("mode control_plane: refused at start"), "{}", lines[0]);
+        assert!(lines[0].contains("(G1)"), "{}", lines[0]);
+    } else {
+        assert!(lines[0].contains("mode control_plane: named by"), "{}", lines[0]);
+    }
 }

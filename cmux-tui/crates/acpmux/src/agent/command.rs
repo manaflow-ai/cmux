@@ -18,6 +18,26 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
+/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
+const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
+
+/// Claude Code's own name for the session (`--name`): its acpmux name, so the
+/// peer list and a held message's "From:" read as `acpmux ls` does, not as the
+/// folder name and a number Claude Code derives (Leo: "it's called projects-34
+/// but it's named differnetly in cmux-next"). A command line that names the
+/// session keeps its own; a remote-origin chain (its env policy, `hub/spawn.rs`) passes no
+/// flag its sandbox plan did not check. A local profile's `--strict-mcp-config` is still named.
+fn claude_name_args(
+    env: &std::collections::BTreeMap<String, String>,
+    args: &[String],
+    name: &str,
+) -> Vec<String> {
+    let name = name.trim();
+    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1");
+    let own = args.iter().any(|a| a == "--name" || a == "-n" || a.starts_with("--name="));
+    if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
+}
 
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
@@ -50,10 +70,11 @@ pub(crate) fn harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
-    let owned = if let (true, Some((session_id, _))) = (claude_session, session) {
+    let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
         let extra =
             crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
-        (owned.0, owned.1.into_iter().chain(extra).collect())
+        let named = claude_name_args(&profile.env, &owned.1, session_name);
+        (owned.0, owned.1.into_iter().chain(extra).chain(named).collect())
     } else {
         owned
     };
@@ -73,6 +94,8 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // The bound route's name, for `/status` only (`session_status.rs`).
+    let route_name = env.remove(crate::routes::NAME_KEY);
     // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
     let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
     env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
@@ -120,6 +143,9 @@ pub(crate) fn harness_command(
         &mut cmd,
         if remote_environment { None } else { family },
     );
+    if !remote_environment {
+        crate::login_env::restore_machine_tokio(&mut cmd);
+    }
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -220,6 +246,13 @@ pub(crate) fn harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there: without
+        // them a chat keeps no list for the agent pane's checklist
+        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
+        if get(TODO_TOOLS_ENV).is_none() {
+            cmd.env(TODO_TOOLS_ENV, "1");
+        }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
@@ -239,12 +272,15 @@ pub(crate) fn harness_command(
         let format = preview_format(profile).claude_value();
         cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
     }
-    // A Claude agent's sign-in inputs, for a clear message if it has none.
-    match (family == Some("claude"), session) {
+    // A Claude agent's sign-in inputs, for a clear message if it has none (plain Claude Code)
+    // and for `/status` (every Claude family, a launcher's too: `session_status.rs`).
+    match (claude_code, session) {
         (true, Some((id, _))) => crate::claude_auth::remember(
             id,
             &command_env_with(&cmd, !remote_environment),
-            route_unset.is_some(),
+            route_unset.is_some() || route_name.is_some(),
+            route_name,
+            family == Some("claude"),
         ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
@@ -310,7 +346,7 @@ pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::Pre
 /// resolved (`config::profiles`). The secret store is asked only when a
 /// value holds a reference; the lookup blocks, so a multi-thread runtime
 /// moves it off its worker first.
-fn resolved_profile_env(
+pub(crate) fn resolved_profile_env(
     profile: &HarnessProfile,
 ) -> Result<std::collections::BTreeMap<String, String>> {
     let mut env = profile.env.clone();
@@ -320,7 +356,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
+            &crate::login_env::reference_var,
             &crate::config::profiles::keychain_lookup,
         )
     };
@@ -445,6 +481,39 @@ mod tests {
     }
 
     use super::*;
+
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
+    /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn a_claude_session_is_launched_under_its_acpmux_name() {
+        let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["claude"]
+        }))
+        .unwrap();
+        profile.kind = crate::config::HarnessKind::ClaudeStdio;
+        profile.env.insert(crate::agent_tools::SWITCH_ENV.into(), "0".into());
+        let args = |line: Vec<&str>, name: &str| -> Vec<String> {
+            let line = Some(("claude".to_owned(), line.into_iter().map(str::to_owned).collect()));
+            let id = "01a15d7d-b692-76b3-b8de-a9a71809de2a";
+            let cmd =
+                harness_command("local", &profile, &std::env::temp_dir(), line, Some((id, name)))
+                    .unwrap();
+            cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        let named = args(vec!["-p"], "reviewer");
+        assert!(named.windows(2).any(|w| w == ["--name", "reviewer"]), "{named:?}");
+        // A command line that names the session keeps its own name.
+        let own = args(vec!["-p", "--name", "pinned"], "reviewer");
+        assert!(!own.iter().any(|a| a == "reviewer"), "{own:?}");
+        // No name, no flag; a remote chain (its env policy) gets none either.
+        assert!(!args(vec!["-p"], " ").iter().any(|a| a == "--name"));
+        // A local profile's own `--strict-mcp-config` is no remote chain: it is named.
+        let strict = args(vec!["-p", "--strict-mcp-config"], "reviewer");
+        assert!(strict.windows(2).any(|w| w == ["--name", "reviewer"]), "{strict:?}");
+        let env =
+            std::collections::BTreeMap::from([(REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned())]);
+        assert!(claude_name_args(&env, &[], "reviewer").is_empty());
+    }
 
     #[test]
     fn hosted_remote_environment_cannot_be_reopened_by_a_profile_key_collision() {

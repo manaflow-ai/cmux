@@ -60,6 +60,66 @@
           }
         }
       }
+    },
+    "computerUse.target.captureExcluded": {
+      "comment": "A refusal Computer use returns to the agent for a window that keeps itself out of screen capture (a consent or password prompt).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer use cannot use this window. It is a prompt that only the person can answer, and it is not in screenshots."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作ではこのウインドウを使用できません。これは本人だけが応答できる確認画面で、スクリーンショットには写りません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Computersteuerung kann dieses Fenster nicht verwenden. Es ist eine Abfrage, die nur die Person beantworten kann, und es erscheint nicht in Bildschirmfotos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le contrôle de l’ordinateur ne peut pas utiliser cette fenêtre. C’est une demande à laquelle seule la personne peut répondre, et elle n’apparaît pas dans les captures d’écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للتحكم في الكمبيوتر استخدام هذه النافذة. إنها مطالبة لا يجيب عنها إلا الشخص نفسه، ولا تظهر في لقطات الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El control del ordenador no puede usar esta ventana. Es una solicitud que solo la persona puede responder y no aparece en las capturas de pantalla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作無法使用此視窗。這是只有本人才能回應的提示，且不會出現在截圖中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑操作无法使用此窗口。这是只有本人才能回应的提示，且不会出现在截图中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 제어는 이 창을 사용할 수 없습니다. 본인만 응답할 수 있는 확인 창이며 스크린샷에 나타나지 않습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -229,17 +229,22 @@ impl Brain {
                 let action = field("action").unwrap_or("status");
                 let no_message = field("message").is_none_or(|m| m.trim().is_empty());
                 let deny = field("option").is_none_or(|o| o.eq_ignore_ascii_case("deny"));
-                // `sessions` shows other chats' last lines: only to a turn
-                // that answers an agent, never to another person's.
                 if action == "status"
-                    || (action == "sessions" && !self.turn_agents.is_empty())
                     || (action == "interrupt" && no_message)
                     || (action == "answer" && deny && no_message)
                 {
                     return true;
                 }
             }
-            "mcp__optchat__tell" => {}
+            "mcp__optchat__tell" => {
+                // A trusted agent's turn (`relay.trustedAgents`) may tell any
+                // of the Chief's own subagents; never a session or a Chief.
+                if self.turn_relay.is_some()
+                    && field("id").is_some_and(|id| self.state.sub(id).is_some())
+                {
+                    return true;
+                }
+            }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
             // Nor spend the owner's money on a Cloud machine.
@@ -251,10 +256,13 @@ impl Brain {
         let Some(id) = field("id") else {
             return false;
         };
-        // An agent's ask turn may answer the sessions whose words it carries,
-        // never start a talk with another one (session_tell.rs).
-        if let Some(name) = super::session_tell::session_name(id) {
-            return self.turn_agents.contains(name);
+        // A reply to the other person's Chief whose request this turn runs
+        // (rights_gate.rs): the conversation's own talk, no local effect.
+        if tool == "mcp__optchat__tell"
+            && id.starts_with(crate::rights::CHIEF_PREFIX)
+            && self.turn_has_person(id)
+        {
+            return true;
         }
         self.state
             .sub(id)
@@ -271,6 +279,7 @@ impl Brain {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        self.audit_refusal(tool, Some(input), REFUSED_BY);
         // A model that calls it again and again is stopped, as for a
         // refused permission request.
         if self.turn_ask {
@@ -279,6 +288,14 @@ impl Brain {
         Err(format!(
             "refused: this turn carries another person's text, so {tool} may not run with these arguments"
         ))
+    }
+
+    /// The trusted agent session(s) that drove the running ask turn (or the
+    /// last one, for its calls that reach the host after it ended); None
+    /// for any other turn.
+    pub(super) fn relay_sender(&self) -> Option<String> {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if ask { self.turn_relay.clone() } else { None }
     }
 
     /// A permission request of a child that runs with policy `ask` (spawned
@@ -320,9 +337,10 @@ impl Brain {
     /// subagent.
     pub fn spawn_policy(&self) -> Option<&'static str> {
         // The shared rule (cmux_chief::policy::spawn_floor).
+        // A trusted agent's turn spawns with the owner's policy.
         cmux_chief::policy::spawn_floor(
             false,
-            self.turn_ask,
+            self.turn_ask && self.turn_relay.is_none(),
             self.ask_child_live(),
             self.ask_subagent_live(),
         )
@@ -358,6 +376,11 @@ impl Brain {
         } else {
             self.forget_unanswered(&pending.session_id, &pending.permission_id);
         }
+        self.audit_refusal(
+            &pending.tool,
+            pending.request.pointer("/toolCall/rawInput"),
+            approver,
+        );
         if let Some(dir) = &self.settings.trace_dir {
             let fields = json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
@@ -440,14 +463,14 @@ impl Brain {
         self.unanswered = keep;
         for u in due {
             let p = &u.pending;
-            // A subagent whose workspace opened after it asked: the person
-            // sees the prompt with a working Allow button now.
+            // A subagent whose workspace opened, or whose Home card arrived,
+            // after it asked: the person has a working Allow button now.
             if u.why != NOT_DELIVERED
                 && let Some(id) = self.state.sub_by_session(&p.session_id)
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_shown(s))
+                    .is_some_and(|(_, s)| self.approval_shown(s))
             {
                 continue;
             }
@@ -488,6 +511,24 @@ impl Brain {
                 if let Err(e) = crate::approval::record(dir, fields) {
                     (self.log)(&format!("recording a refusal in the trace: {e}"));
                 }
+            }
+            if let Some(id) = self.state.sub_by_session(&p.session_id)
+                && self.state.sub(&id).is_some_and(|(_, sub)| {
+                    sub.permission.as_ref().is_some_and(|current| {
+                        current.id == p.permission_id && current.request == p.request
+                    })
+                })
+            {
+                self.cancel_home_approval(&id);
+                let outcome = if result.is_ok() {
+                    "its request was denied"
+                } else {
+                    "the request is no longer answerable here; its denial could not be confirmed"
+                };
+                self.tell_person_once(
+                    &p.permission_id,
+                    &format!("{id}'s approval expired because it was not answered; {outcome}."),
+                );
             }
             if let Some(id) = self.state.sub_by_session(&p.session_id)
                 && let Some(sub) = self.state.sub_mut(&id)

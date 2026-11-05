@@ -1,7 +1,18 @@
-import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
-import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { authLoginText, authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
+import React, {
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
+import { AddAccountDialog } from "./AddAccountDialog";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
@@ -9,9 +20,12 @@ import { EffortTrack } from "./EffortTrack";
 import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
+import { useChatDisplay } from "./chatDisplay";
+import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import {
   Menu,
   MenuButton,
@@ -58,6 +72,14 @@ export type QuickMenu = {
   /// Account presentation alternatives for the gallery; the compact submenu is the default. Every
   /// layout but inline lists Cmux routers under a Provider heading inside the Account choices.
   routeLayout?: "submenu" | "inline" | "grouped";
+  /// How wide the menu is, for the gallery's versions; `fit` is the default (Leo 2026-11-01: "i
+  /// also don't like the way this composer has so much space between stuff surely we can get more
+  /// compact horizontally" / "see claude code has that"). `fit`: as wide as the open tab's rows, as
+  /// Claude Code's menu is, with an effort column as wide as a level's name. `stable`: as wide as the
+  /// rows every tab shows. `snug`: `stable` with tighter columns and a lower floor. Each of these
+  /// keeps its widest width while open, so a tab switch never narrows it (#25796). `wide`: the fixed
+  /// 480px menu with the 112px effort column (before).
+  widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
@@ -99,7 +121,7 @@ export type EffortLook = "list" | "plain" | "slider";
 
 /// Whether a rail tab draws its harness's own symbol: a mark the AgentMark set has, never a
 /// monogram (a machine or session initial says nothing about the harness).
-function symbolOf(family: { mark?: string }): boolean {
+export function symbolOf(family: { mark?: string }): boolean {
   const mark = family.mark;
   if (!mark || !hasAgentMark(mark)) return false;
   // As AgentMark picks: a harness's own icon wins over its brand, but a glyph draws the brand's
@@ -111,7 +133,7 @@ function symbolOf(family: { mark?: string }): boolean {
 
 /// A harness with no symbol of its own draws its name's first letter as a mark in the symbols row,
 /// so every tab there is a mark and none is text.
-function initialOf(name: string): string {
+export function initialOf(name: string): string {
   return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toLocaleUpperCase();
 }
 
@@ -163,6 +185,8 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
+  /// Sets up a harness this machine does not have (its Install… row).
+  setUp?(): void;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
@@ -170,6 +194,8 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
+  /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
+  accountFamily?: string;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
@@ -208,7 +234,7 @@ export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
 
 /// The route a family's tab opens on: the chat's own when it runs this family, else the first
 /// that lists models, else the first.
-function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
+export function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
   const listsModels = (route: QuickFamily) =>
     !route.launch && !route.note && [...route.models, ...route.more].some((model) => !model.disabled);
   return (
@@ -255,7 +281,13 @@ export function searchGroups(
   const tabOf = new Map(tabs.flatMap((tab) => tab.routes.map((route) => [route.id, tab] as const)));
   const groups = new Map<string, QuickSearchGroup & { lead?: string; seen: Map<string, number> }>();
   for (const tab of tabs)
-    groups.set(tab.key, { id: tab.key, name: tab.name, rows: [], lead: leadRoute(tab, running).id, seen: new Map() });
+    groups.set(tab.key, {
+      id: tab.key,
+      name: tab.name,
+      rows: [],
+      lead: leadRoute(tab, running).id,
+      seen: new Map(),
+    });
   for (const row of found) {
     const key = tabOf.get(row.family)?.key ?? row.family;
     let group = groups.get(key);
@@ -288,7 +320,7 @@ export function twinRows(groups: readonly QuickSearchGroup[]): Set<QuickModel> {
 }
 /// The running model's row when several providers serve it: the running offer may be another
 /// provider's than the row lands, when the running one is unavailable.
-const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
+export const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
@@ -321,7 +353,10 @@ export function QuickModelMenu({
 }) {
   const t = useT();
   const settings = useComposerSettings();
-  const placement = menu.harnessPlacement ?? settings.harnessPlacement;
+  const display = useChatDisplay();
+  const placement =
+    menu.harnessPlacement ??
+    resolveHarnessPlacement(display.harnessPlacement, settings.harnessPlacement, display.managedHarnessPlacement);
   // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge
@@ -342,6 +377,7 @@ export function QuickModelMenu({
     currentModel?.efforts?.length === 0 ? [] : (effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? []);
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
+  const [addingAccount, setAddingAccount] = useState(false);
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
@@ -356,7 +392,6 @@ export function QuickModelMenu({
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
-  const [scrolled, setScrolled] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -365,7 +400,6 @@ export function QuickModelMenu({
       setQuery("");
       setMoreFor(undefined);
       setHeldFast(undefined);
-      setScrolled(false);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -378,13 +412,50 @@ export function QuickModelMenu({
   // A changed tab or filter starts with its first model in view.
   const body = useRef<HTMLDivElement | null>(null);
   const rail = useRef<HTMLFieldSetElement | null>(null);
+  const railEdges = useScrollEdges();
+  const bodyEdges = useScrollEdges();
+  const bodyRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      body.current = node;
+      bodyEdges(node);
+    },
+    [bodyEdges],
+  );
   useLayoutEffect(() => {
     const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
     selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [open, tab]);
+  // A compact width never narrows while the menu is open: a tab switch keeps the
+  // menu's width and the rail's place (#25796), though each tab's rows (Account and Effort show only
+  // on the chat's tab) want their own. The floor is the widest the menu has been since it opened;
+  // the observer goes with the rail, so it ends when the menu closes.
+  const railWidth = useRef<ResizeObserver | null>(null);
+  const holdsWidth = menu.widthLook !== "wide";
+  const railRef = useCallback(
+    (node: HTMLFieldSetElement | null) => {
+      railEdges(node);
+      rail.current = node;
+      railWidth.current?.disconnect();
+      railWidth.current = null;
+      const popupNode = node?.closest<HTMLElement>(".ui-popup");
+      if (!popupNode || !holdsWidth || typeof ResizeObserver === "undefined") return;
+      let widest = 0;
+      popupNode.style.minWidth = "";
+      const observer = new ResizeObserver(() => {
+        const width = popupNode.getBoundingClientRect().width;
+        if (width <= widest) return;
+        widest = width;
+        // Never past the room the pane gives (min-width beats max-width): a pane that narrows while
+        // the menu is open, or a first reading before the boundary applies, keeps it inside.
+        popupNode.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+      });
+      observer.observe(popupNode);
+      railWidth.current = observer;
+    },
+    [holdsWidth, railEdges],
+  );
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
-    setScrolled(false);
   };
   const focusedFor = useRef<string | undefined>(undefined);
   const search = menu.search;
@@ -534,7 +605,10 @@ export function QuickModelMenu({
       : model.efforts !== undefined
         ? reasoningChoices(
             model.efforts.map((value) => ({ value })),
-            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
+            {
+              efforts: model.efforts,
+              ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
+            },
             t,
           )
         : [];
@@ -708,6 +782,14 @@ export function QuickModelMenu({
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}
+      onAdd={
+        account.accounts.add && accounts.list?.family
+          ? () => {
+              onOpenChange(false);
+              setAddingAccount(true);
+            }
+          : undefined
+      }
       onPick={(routeId) => {
         onOpenChange(false);
         accounts.pick(routeId);
@@ -957,16 +1039,30 @@ export function QuickModelMenu({
           );
         })}
       </MenuRadioGroup>
-      {rows.length === 0 && (
+      {rows.length === 0 ? (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
             : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
         </MenuItem>
+      ) : (
+        // A harness that is not installed lists its models and says why none can start.
+        !query &&
+        shown?.note &&
+        shown.setUp && (
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {shown.note}
+          </MenuItem>
+        )
       )}
       {!query && shown?.note && shown.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
           <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+      {!query && shown?.note && shown.setUp && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.setUp?.()}>
+          <span className="acpmux-menu-label">{t("harnesses.install")}</span>
         </MenuItem>
       )}
     </>
@@ -1144,7 +1240,7 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && auth && authText(auth.verdict, t) && (
+      {auth && authText(auth.verdict, t) && (
         <>
           <MenuSeparator />
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
@@ -1152,7 +1248,7 @@ export function QuickModelMenu({
           </MenuItem>
           {canSessionLogin(auth.verdict) && auth.onLogin && (
             <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+              <span className="acpmux-menu-label">{authLoginText(auth.verdict, t)}</span>
             </MenuItem>
           )}
           {auth.onRefresh && (
@@ -1206,160 +1302,179 @@ export function QuickModelMenu({
   // pushing the segments past the narrow chat boundary.
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
-      {families.list
-        .flatMap((family) => [...family.models, ...family.more])
+      {((menu.widthLook ?? "fit") !== "fit" || !shownTab ? families.list : shownTab.routes)
+        // The rows a tab shows, never its Legacy models: the longest model name of any harness's
+        // Legacy list sized the whole menu, so every row's keys sat far from its name.
+        .flatMap((family) => (menu.widthLook === "wide" ? [...family.models, ...family.more] : family.models))
         .map((model) => (
           <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
             <span className="acpmux-menu-label">{model.name}</span>
             {/* The effort column: its fixed width (CSS), never the levels side by side. */}
             {menu.inlineEffort === true && <span className="acpmux-quick-width-probe-efforts" />}
+            {/* The star and the ⌘N key after it, so every tab's rows fit whichever tab shows. */}
+            <span
+              className={`acpmux-quick-width-probe-trail${families.stars ? " acpmux-quick-width-probe-starred" : ""}`}
+            />
           </div>
         ))}
     </div>
   ) : null;
   return (
-    <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
-        {children}
-      </MenuButton>
-      <MenuPopup
-        side={side}
-        flip={false}
-        align="start"
-        label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
-        boundary={CHAT_COLUMN}
-        // A native menu panel cannot draw the harness strip or the More models scroll area.
-        // Keep this combined surface inside the window in both directions.
-        escapes={!families}
-        // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
-        onKeyDown={keyDown}
-      >
-        {widthProbe}
-        {showField && (
-          <div className="acpmux-quick-search">
-            <SearchIcon size={14} />
-            <input
-              ref={field}
-              type="search"
-              aria-label={t("picker.search")}
-              placeholder={t("picker.search")}
-              autoComplete="off"
-              spellCheck={false}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                toTop();
-              }}
-              onKeyDown={fieldKeyDown}
-            />
-          </div>
-        )}
-        {families ? (
-          <div className="acpmux-quick-layout">
-            {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
-              {tabs.map((entry) => {
-                const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
-                const name = entry.name;
-                return (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    aria-label={name}
-                    // While a search shows, no tab is the list's: the matches are every harness's.
-                    aria-pressed={!query && entry === shownTab}
-                    disabled={entry.routes.every((route) => route.launch) && families.forkReady === false}
-                    // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                    // name's initial), never a machine or session initial; its accessible name and
-                    // title identify the harness.
-                    title={family.note ? `${name} · ${family.note}` : name}
-                    className="acpmux-quick-rail-tab"
-                    // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
-                    tabIndex={-1}
-                    onClick={() => {
-                      if (entry.routes.length === 1 && family.launch && !family.note) {
-                        onOpenChange(false);
-                        families.onLaunch?.(family.id);
-                        return;
-                      }
-                      setTab(family.id);
-                      setQuery("");
-                      toTop();
-                    }}
-                  >
-                    {family.starred ? (
-                      <StarIcon />
-                    ) : symbolOf(family) ? (
-                      <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
-                    ) : placement === "symbols" ? (
-                      <span className="acpmux-quick-rail-initial" aria-hidden="true">
-                        {initialOf(name)}
-                      </span>
-                    ) : null}
-                    {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
+    <>
+      <Menu open={open} onOpenChange={onOpenChange}>
+        <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
+          {children}
+        </MenuButton>
+        <MenuPopup
+          side={side}
+          flip={false}
+          align="start"
+          label={t("picker.model")}
+          className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "fit"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+          boundary={CHAT_COLUMN}
+          // A native menu panel cannot draw the harness strip or the More models scroll area.
+          // Keep this combined surface inside the window in both directions.
+          escapes={!families}
+          // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
+          onKeyDown={keyDown}
+        >
+          {widthProbe}
+          {showField && (
+            <div className="acpmux-quick-search">
+              <SearchIcon size={14} />
+              <input
+                ref={field}
+                type="search"
+                aria-label={t("picker.search")}
+                placeholder={t("picker.search")}
+                autoComplete="off"
+                spellCheck={false}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  toTop();
+                }}
+                onKeyDown={fieldKeyDown}
+              />
+            </div>
+          )}
+          {families ? (
+            <div className="acpmux-quick-layout">
+              {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
+              <fieldset
+                ref={railRef}
+                className="acpmux-quick-rail ui-scroll-edge-fade"
+                aria-label={t("picker.harness")}
+              >
+                {tabs.map((entry) => {
+                  const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
+                  const name = entry.name;
+                  return (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      aria-label={name}
+                      // While a search shows, no tab is the list's: the matches are every harness's.
+                      aria-pressed={!query && entry === shownTab}
+                      disabled={entry.routes.every((route) => route.launch) && families.forkReady === false}
+                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
+                      // name's initial), never a machine or session initial; its accessible name and
+                      // title identify the harness.
+                      title={family.note ? `${name} · ${family.note}` : name}
+                      className="acpmux-quick-rail-tab"
+                      // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
+                      tabIndex={-1}
+                      onClick={() => {
+                        if (entry.routes.length === 1 && family.launch && !family.note) {
+                          onOpenChange(false);
+                          families.onLaunch?.(family.id);
+                          return;
+                        }
+                        setTab(family.id);
+                        setQuery("");
+                        toTop();
+                      }}
+                    >
+                      {family.starred ? (
+                        <StarIcon />
+                      ) : symbolOf(family) ? (
+                        <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
+                      ) : placement === "symbols" ? (
+                        <span className="acpmux-quick-rail-initial" aria-hidden="true">
+                          {initialOf(name)}
+                        </span>
+                      ) : null}
+                      {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
                       FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
                       THAT'S THE POINT"): the name is the tab's accessible name and its tooltip. */}
-                    <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
-                      {name}
+                      <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
+                        {name}
+                      </span>
+                    </button>
+                  );
+                })}
+                {families.onAddHarness && (
+                  <button
+                    type="button"
+                    className="acpmux-quick-rail-tab acpmux-quick-rail-add"
+                    tabIndex={-1}
+                    aria-label={t("modelPicker.addHarness")}
+                    title={t("modelPicker.addHarness")}
+                    onClick={() => {
+                      onOpenChange(false);
+                      families.onAddHarness?.();
+                    }}
+                  >
+                    <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
+                      +
                     </span>
+                    <span className="sr-only">{t("modelPicker.addHarness")}</span>
                   </button>
-                );
-              })}
-              {families.onAddHarness && (
-                <button
-                  type="button"
-                  className="acpmux-quick-rail-tab acpmux-quick-rail-add"
-                  tabIndex={-1}
-                  aria-label={t("modelPicker.addHarness")}
-                  title={t("modelPicker.addHarness")}
-                  onClick={() => {
-                    onOpenChange(false);
-                    families.onAddHarness?.();
-                  }}
-                >
-                  <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
-                    +
-                  </span>
-                  <span className="sr-only">{t("modelPicker.addHarness")}</span>
-                </button>
-              )}
-            </fieldset>
-            <div
-              className="acpmux-quick-body"
-              ref={body}
-              data-scrolled={scrolled ? "" : undefined}
-              onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
-            >
-              <div className="acpmux-quick-list">{list}</div>
+                )}
+              </fieldset>
+              <div className="acpmux-quick-body ui-scroll-edge-fade" ref={bodyRef}>
+                <div className="acpmux-quick-list">{list}</div>
+              </div>
             </div>
-          </div>
-        ) : (
-          list
-        )}
-        {menu.update && (
-          <div className="acpmux-quick-update">
-            <span>{menu.update.text}</span>
-            <MenuItem
-              className="acpmux-quick-update-action"
-              onSelect={() => {
-                menu.update?.run();
-                onOpenChange(false);
-              }}
-            >
-              {t("harness.update")}
-            </MenuItem>
-          </div>
-        )}
-      </MenuPopup>
-    </Menu>
+          ) : (
+            list
+          )}
+          {menu.update && (
+            <div className="acpmux-quick-update">
+              <span>{menu.update.text}</span>
+              <MenuItem
+                className="acpmux-quick-update-action"
+                onSelect={() => {
+                  menu.update?.run();
+                  onOpenChange(false);
+                }}
+              >
+                {t("harness.update")}
+              </MenuItem>
+            </div>
+          )}
+        </MenuPopup>
+      </Menu>
+      {addingAccount && account?.accounts.add && accounts.list?.family && (
+        <AddAccountDialog
+          add={account.accounts.add}
+          family={accounts.list.family}
+          existing={accounts.list.ids ?? accounts.list.accounts.map((choice) => choice.id)}
+          onClose={() => setAddingAccount(false)}
+          onAdded={() => {
+            setAddingAccount(false);
+            onOpenChange(true);
+          }}
+        />
+      )}
+    </>
   );
 }
 
 /// The rail's Starred tab: an outline star.
-function StarIcon({ filled = false }: { filled?: boolean }) {
+export function StarIcon({ filled = false }: { filled?: boolean }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
       <path
         d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
         fill={filled ? "currentColor" : "none"}
@@ -1395,20 +1510,23 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 /// The Account submenu: the harness's own login (the chat's default binding), then each route
 /// for a direct account serving this chat, plus its current binding when that is a transport or
 /// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
-/// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
-/// one; a switch acpmux refused says so first.
+/// is disabled: unbinding the chat would leave it on that route. With no routes it lists CLI login
+/// alone, with no note about route files (Leo 2026-10-28: "add accounts as route files in whatever.
+/// I feel like that's just weird"); a switch acpmux refused says so first.
 function AccountRows({
   list,
   failed,
   switchFailed,
   onPick,
   grouped = false,
+  onAdd,
 }: {
   list?: ChatAccountList;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
   grouped?: boolean;
+  onAdd?(): void;
 }) {
   const t = useT();
   const refused = switchFailed && (
@@ -1463,9 +1581,9 @@ function AccountRows({
           choiceRows(choices)
         )}
       </MenuRadioGroup>
-      {choices.length === 0 && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {t("picker.accountHint")}
+      {onAdd && (
+        <MenuItem className="acpmux-quick-item" onSelect={onAdd}>
+          {t("picker.addAccount")}
         </MenuItem>
       )}
     </>
@@ -1475,7 +1593,7 @@ function AccountRows({
 /// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
 /// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
 /// family) stays named on the Account row until a switch succeeds or the chat changes.
-function useAccountList(open: boolean, account: QuickMenu["account"]) {
+export function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
   const [switchFailed, setSwitchFailed] = useState(false);

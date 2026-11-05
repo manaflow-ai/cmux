@@ -7,6 +7,7 @@ import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import { UNATTRIBUTED_USER } from "./usage-user.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
+import { platformCloud } from "./platform-cloud.ts"
 
 /**
  * One automation run (decision D13: the Workflow owns the run: steps, sleeps,
@@ -45,7 +46,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         const body = p.body
         const r: JobDelivery = await step.do("cmux:chief", { retries: { limit: 5, delay: 2000, backoff: "exponential" } }, async () => {
           const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(body.chief, body.conversation))) as unknown as { chiefJob(j: ChiefJob): Promise<JobDelivery> }
-          const out = await brain.chiefJob({ run: p.run, automation: p.automation, chief: body.chief, conversation: body.conversation, prompt: body.prompt, trigger: p.trigger.type, ...(p.input === undefined ? {} : { input: p.input }), charged_user: p.charged_user ?? null })
+          const out = await brain.chiefJob({ run: p.run, automation: p.automation, chief: body.chief, conversation: body.conversation, prompt: body.prompt, ...(body.destination ? { destination: body.destination } : {}), trigger: p.trigger.type, ...(p.input === undefined ? {} : { input: p.input }), charged_user: p.charged_user ?? null })
           if (!out.ok && out.retry) throw new Error(`${out.code}: ${out.message}`)
           return out
         })
@@ -126,7 +127,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
 
 /** The run team's CloudDO as the machine port (automationExec). */
 const machineExecFor = (env: Env, team: string, user: string | null): MachineExec => {
-  const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as { automationExec(e: string, u: string | null, m: string, c: string, s: Uint8Array | null, t: number): ReturnType<MachineExec["exec"]> }
+  const stub = platformCloud(env.CLOUD_DO, team)
   return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
 }
 

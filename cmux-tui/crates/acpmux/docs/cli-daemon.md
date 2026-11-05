@@ -13,6 +13,8 @@ it is not running. Each `daemon` command's `--help` lists every flag and ends wi
 | Run it in the foreground | `acpmux daemon run` |
 | Print the config path and contents | `acpmux daemon config` |
 | Change one config key | `acpmux daemon config --set session.memory_mb=8192` |
+| Permission mode new chats start in (`yolo` = full access, `standard`, `ask`, `default`) | `acpmux daemon config --set permissions.default=yolo` |
+| The same for one harness (wins over the default) | `acpmux daemon config --set permissions.codex=ask` |
 | Reload the catalog config without stopping sessions | `acpmux daemon reload` |
 | See what a log compaction pass would remove | `acpmux daemon retention --dry-run` |
 | Configured harnesses with their defaults | `acpmux daemon harnesses` |

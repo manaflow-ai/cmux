@@ -9,10 +9,22 @@
 
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolder";
+import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
-export type CloudStart = { task: string; cwd?: string; home?: boolean; harness?: string; model?: string };
+export type CloudStart = {
+  task: string;
+  attachments?: ComposerAttachment[];
+  cwd?: string;
+  home?: boolean;
+  harness?: string;
+  model?: string;
+  environment?: string;
+  reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
+};
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
 /// it has one; else the machine's home folder, with nothing copied (a chat in no project, or one
@@ -37,28 +49,83 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 /// sent, and the Cloud start then failed with pathOutsideRoots. A project folder granted to a tab
 /// the check then hands to a run is harmless. Only a folder Cloud would copy (cloudStartFolder);
 /// a home or root answer asks nothing here (the local start still asks on Return).
-export function newTabProjectPick(callNative: Native, offerable: boolean): { onProjectPicked?: (cwd: string) => void } {
+/// `granted` gets the folder and its grant's promise, so a Cloud send of that folder made right
+/// after the pick waits for it instead of racing it (cloudFolderGrants).
+export function newTabProjectPick(
+  callNative: Native,
+  offerable: boolean,
+  granted?: (cwd: string, grant: Promise<unknown>) => void,
+): { onProjectPicked?: (cwd: string) => void } {
   if (!offerable) return {};
   return {
     onProjectPicked: (cwd) => {
-      if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
+      if (!("cwd" in cloudStartFolder(cwd))) return;
+      const grant = pickFolder(callNative, cwd, () => undefined);
+      granted?.(cwd, grant);
     },
   };
+}
+
+/// How long a Cloud send waits for its folder's grant (workspace.useFolder) before it goes anyway.
+/// A grant that never answers must not hold the composer forever: past this the start goes, and a
+/// folder still not granted gets the host's worded "pick the folder" refusal (#34406), with the
+/// prompt still in the composer.
+export const CLOUD_FOLDER_GRANT_WAIT_MS = 3000;
+
+/// The folder grants the page's Cloud picks made (the composer's Cloud row, the New Tab project
+/// pick), by folder as cloudStartFolder spells it. A Cloud start waits for the grant of the folder it
+/// sends, never another pick's, and at most `waitMs`. A grant leaves once it settles.
+export function cloudFolderGrants(waitMs: number = CLOUD_FOLDER_GRANT_WAIT_MS) {
+  const grants = new Map<string, Promise<unknown>>();
+  return {
+    /// A grant of `cwd` is out. A folder Cloud never copies is never sent, so nothing waits for it.
+    granting(cwd: string, grant: Promise<unknown>): void {
+      const folder = cloudStartFolder(cwd);
+      if (!("cwd" in folder)) return;
+      grants.set(folder.cwd, grant);
+      const leave = () => {
+        if (grants.get(folder.cwd) === grant) grants.delete(folder.cwd);
+      };
+      grant.then(leave, leave);
+    },
+    /// Settles once the grant of `cwd` settles (either way), or after `waitMs`; at once with none.
+    /// The timer is cleared when the grant wins, so nothing is left running.
+    settled(cwd: string | undefined): Promise<void> {
+      const grant = cwd ? grants.get(cwd) : undefined;
+      if (!grant) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, waitMs);
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        grant.then(done, done);
+      });
+    },
+  };
+}
+
+export type CloudFolderGrants = ReturnType<typeof cloudFolderGrants>;
+
+/// The pane's Cloud start (App.tsx `startCloud`): one at a time (oneCloudStart), and the host call
+/// goes once the grant of the folder it sends has settled or the wait ran out (cloudFolderGrants).
+export function grantedCloudStart(
+  callNative: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  grants: CloudFolderGrants,
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+  return oneCloudStart((method, params) =>
+    grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
+  );
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
 export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
 
-/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now (Labs
-/// went off, a chat is starting here), or attachments, since a Cloud chat takes text only for now
-/// (the folder is copied; a pasted file is not). Either way the prompt stays; nothing is sent as a
-/// chat here instead.
-export function cloudPageRefusal(
-  offered: boolean,
-  attachmentCount: number,
-): "cloud_not_now" | "cloud_attachments" | undefined {
-  if (!offered) return "cloud_not_now";
-  return attachmentCount > 0 ? "cloud_attachments" : undefined;
+/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
+/// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
+/// before provisioning and uploads them before opening the chat. A refused prompt stays in the composer.
+export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined {
+  return offered ? undefined : "cloud_not_now";
 }
 
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
@@ -69,10 +136,14 @@ export async function startCloudChat(
   key: string = crypto.randomUUID(),
 ): Promise<CloudStartAnswer> {
   const params: Record<string, unknown> = { task: start.task, key };
+  if (start.attachments?.length) params.attachments = start.attachments;
   if (start.cwd) params.cwd = start.cwd;
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
@@ -106,7 +177,122 @@ export function oneCloudStart(
   };
 }
 
+/// Where a Cloud start's key is kept between sends: the page's `localStorage`. The agent panes share
+/// one in-memory web data store (AgentPaneView+Warmup), so it outlives a page reload or a closed tab
+/// but not an app relaunch.
+export type CloudStartKeyStore = {
+  getItem(name: string): string | null;
+  setItem(name: string, value: string): void;
+};
+
+const CLOUD_START_KEYS = "cmux.cloudStart.keys";
+/// A kept key older than this is a new send: the host's ledger has long settled that start.
+const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+export function cloudStartFingerprint(start: CloudStart): string {
+  const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
+  const text = JSON.stringify([
+    start.task,
+    chips,
+    start.cwd ?? null,
+    start.home === true,
+    start.harness ?? null,
+    start.model ?? null,
+    start.environment ?? null,
+  ]);
+  // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b ^ code, 0x811c9dc5) >>> 0;
+  }
+  return `${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
+}
+
+/// The page's store, or none (a page with no `localStorage`, or one that throws): keys then live
+/// only as long as the page.
+function pageKeyStore(): CloudStartKeyStore | undefined {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/// One key per start the person asked for (#33493). A retry of a start whose answer was lost or
+/// failed (the same prompt sent again from the composer, also after a page reload) reuses its first
+/// key, so the host's ledger (cmux-tui `link/start_chat_cli.rs`, keyed by it) reaches the machine
+/// that start made or is making instead of creating a second one. The key is forgotten once the
+/// start opened its chat, or the cap card sent the prompt here instead; a changed prompt, folder,
+/// agent, model or environment is a new start with a new key.
+export function cloudStartKeys(
+  store: CloudStartKeyStore | undefined = pageKeyStore(),
+  now: () => number = Date.now,
+  newKey: () => string = () => crypto.randomUUID(),
+) {
+  type Kept = Record<string, { key: string; at: number }>;
+  const read = (): Kept => {
+    if (!store) return {};
+    try {
+      const value = JSON.parse(store.getItem(CLOUD_START_KEYS) ?? "{}") as unknown;
+      return value && typeof value === "object" && !Array.isArray(value) ? (value as Kept) : {};
+    } catch {
+      return {};
+    }
+  };
+  const write = (kept: Kept) => {
+    if (!store) return;
+    try {
+      store.setItem(CLOUD_START_KEYS, JSON.stringify(kept));
+    } catch {
+      // A full or refused store keeps nothing: the key still holds for this page's retries below.
+    }
+  };
+  // This page's own keys, so a store that refuses writes still dedupes the retries made here.
+  const local: Kept = {};
+  const fresh = (entry: { key: string; at: number } | undefined, at: number) =>
+    entry && typeof entry.key === "string" && typeof entry.at === "number" && at - entry.at < CLOUD_START_KEY_TTL_MS
+      ? entry
+      : undefined;
+  return {
+    /// The key for `start`: the kept one while its start has not opened a chat, else a new one, kept.
+    keyFor(start: CloudStart): string {
+      const at = now();
+      const name = cloudStartFingerprint(start);
+      const kept = read();
+      const found = fresh(kept[name], at) ?? fresh(local[name], at);
+      const key = found?.key ?? newKey();
+      for (const [other, entry] of Object.entries(kept)) if (!fresh(entry, at)) delete kept[other];
+      kept[name] = { key, at: found?.at ?? at };
+      local[name] = kept[name];
+      write(kept);
+      return key;
+    },
+    /// The start sent with `start` ended in `answer`: one that opened its chat, or whose prompt goes
+    /// to a chat on this Mac, is done, and the next send of the same prompt is a new start. A failure
+    /// keeps the key: the start may have made its machine, and the retry must reach it.
+    ended(start: CloudStart, answer: CloudStartAnswer) {
+      if (!answer.ok && !cloudRunsHere(answer)) return;
+      const name = cloudStartFingerprint(start);
+      const kept = read();
+      delete kept[name];
+      delete local[name];
+      write(kept);
+    },
+  };
+}
+
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";
+}
+
+/// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was
+/// made, and the page sends the kept prompt to a chat on this Mac instead.
+export function cloudRunsHere(answer: CloudStartAnswer): boolean {
+  return !answer.ok && answer.code === "run_on_this_mac";
 }

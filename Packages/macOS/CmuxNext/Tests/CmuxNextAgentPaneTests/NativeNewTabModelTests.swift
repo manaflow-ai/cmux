@@ -29,19 +29,37 @@ struct NativeNewTabModelTests {
         #expect(ranker.rows(for: "hacker", kind: .browser, omnibar: omnibar).map(\.id) == ["open", "page:https://news.ycombinator.com/"])
     }
 
-    @Test func thePalettesActionsLoadOnceAtTheFirstKeystroke() {
+    @Test func thePalettesActionsAreAskedForOnceAtTheFirstKeystrokeAndComeLater() {
         var empty = Self.page()
         empty.omnibar.actions = []
-        var loads = 0
+        var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
         let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
-                                      paletteActions: { loads += 1; return Self.page().omnibar.actions })
-        #expect(loads == 0, "the page shows before the palette's actions are listed")
+                                      paletteActions: { _, deliver in asks.append(deliver) })
+        #expect(asks.isEmpty, "the page shows before the palette's actions are listed")
         model.text = "toggle side"
-        #expect(loads == 1)
+        #expect(asks.count == 1)
+        // The keystroke's turn reads nothing: the rows have no action until the list comes.
+        #expect(!model.rows.contains { $0.id == "action:toggleSidebar" })
+        asks[0](Self.page().omnibar.actions)
         #expect(model.rows.contains { $0.id == "action:toggleSidebar" })
         model.text = "toggle"
         model.loadPaletteActions()
-        #expect(loads == 1, "listed once per page")
+        #expect(asks.count == 1, "asked once per page")
+    }
+
+    @Test func anAdoptedPageDropsTheEarlierPagesLateActions() {
+        var empty = Self.page()
+        empty.omnibar.actions = []
+        var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
+        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in })
+        let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
+        model.loadPaletteActions()
+        model.adopt(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
+        asks[0](Self.page().omnibar.actions)
+        #expect(model.page.omnibar.actions.isEmpty, "the earlier page's answer reached the adopted page")
+        model.loadPaletteActions()
+        asks[1](Self.page().omnibar.actions)
+        #expect(!model.page.omnibar.actions.isEmpty)
     }
 
     @Test func everyPaletteActionIsReachable() {

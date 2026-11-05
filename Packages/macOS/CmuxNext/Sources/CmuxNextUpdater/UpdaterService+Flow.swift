@@ -25,13 +25,14 @@ extension UpdaterService {
 
     /// The sidebar footer's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching.
+    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching
+    /// (with `updates.oneClickInstall`, it installs and relaunches instead).
     /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
         guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
-        return UpdateAvailableButton(version: version)
+        return UpdateAvailableButton(version: version, restarts: preferences.oneClickInstall)
     }
 
     /// The footer's update pill, or nil when it does not show.
@@ -43,8 +44,10 @@ extension UpdaterService {
     /// Available, the sheet's Update): download only. The update then waits on the Update Ready
     /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
     /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
-    /// link): the opt-in skips the first ask, never the relaunch's. It never asks to install, so a
-    /// repeated or late press (the download already running, or staged) does nothing.
+    /// link): the opt-in skips the first ask, never the relaunch's. With `updates.oneClickInstall`
+    /// this press is the relaunch's ask too: the update installs and cmux relaunches once it is
+    /// staged (``UpdateFlow``). Only the update-found step takes it, so a repeated or late press
+    /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
         if downloadAgainIfCancelled() { return }
@@ -214,13 +217,13 @@ extension UpdaterService {
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
-            installAbandoned?()
+            abandonInstall()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
             // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
-            installAbandoned?()
+            abandonInstall()
             presentUpdateUI?()
             #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("failure_sheet_presented")

@@ -17,7 +17,7 @@ import Testing
 /// Every launch is the Sparkle update relaunch: classic saved seconds ago, on
 /// quit, and removed its launch sentinel. Timing lines start with
 /// `CLASSIC-SIM` for the fleet log.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeSimulationTests {
     /// The first window shows before the migration's work, whatever classic held.
     static let firstWindowBudget: Duration = .seconds(10)
@@ -155,7 +155,7 @@ struct ClassicUpgradeSimulationTests {
         #expect(resume.decision == .resume && resume.opened.count == 3, "\(resume)")
         await sim.settle()
         // Open: the remade workspaces come back at the end of their container, not at their classic place.
-        try sim.verify(profile, classicBefore: before, orderIsKnownIssue: true)
+        try sim.verify(profile, classicBefore: before, orderKnownIssue: "a resumed run makes its workspaces last in the sidebar")
         await sim.shutdown()
     }
 
@@ -259,6 +259,87 @@ struct ClassicUpgradeSimulationTests {
             return .skipped
         }
         _ = await sim.launch()
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
+    /// The sidebar document places every workspace the run made, with the item the daemon confirmed (#28425).
+    /// The app hears the document's changes on `session.events`; a simulated app that does not never gets the
+    /// daemon's echo of an adopt or a move, so the document places none of the run's workspaces (no display) or
+    /// only the first one, from its own move (a display: the window's sidebar takes that move). The rest then
+    /// list newest first above it, and the order checks read the simulation, not the app.
+    @Test func theSidebarDocumentPlacesEveryWorkspaceTheRunMade() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac)
+        _ = await sim.launch()
+        await sim.settle()
+        let unplaced = sim.unplacedInDocument()
+        #expect(unplaced.isEmpty, "the sidebar document places no confirmed item for \(unplaced)")
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
+    /// A classic group keeps its members' order when other workspaces sit between them in classic's list (#28425).
+    /// Each workspace first takes the bottom of the loose rows, then joins its group; the group must take it after
+    /// its last member, not after the loose row it followed (which put every later member first in the group).
+    @Test func aGroupKeepsItsOrderWithWorkspacesBetweenItsMembers() async throws {
+        typealias Workspace = ClassicUpgradeProfile.Workspace
+        let workspaces: [Workspace] = [
+            Workspace(title: "first", group: "G-SPREAD"), Workspace(title: "loose 1"),
+            Workspace(title: "second", group: "G-SPREAD"), Workspace(title: "loose 2"),
+            Workspace(title: "third", group: "G-SPREAD"),
+        ]
+        let profile = ClassicUpgradeProfile(name: "spread", windows: [ClassicUpgradeProfile.Window(
+            workspaces: workspaces, groups: [ClassicUpgradeProfile.Group(id: "G-SPREAD", name: "Spread")])])
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac)
+        _ = await sim.launch()
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
+    /// Each workspace the run makes reaches the app's store as exact deltas, never as a coarse `tree-changed`
+    /// that makes the store read the whole tree again (#32408). A 512-workspace upgrade took 577 full store
+    /// snapshots: the store's work per workspace grew with the session (its last 64 workspaces took about four
+    /// times as long as its first 64). Creating N workspaces must take no full snapshot: O(changed), not O(session).
+    /// A connection's first snapshot (its connect, once per connection, whatever the run makes) is counted apart.
+    @Test func theRunTakesNoFullSnapshotForTheWorkspacesItMakes() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
+        let launch = await sim.launch()
+        #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        let snapshots = try #require(launch.snapshots)
+        #expect(snapshots == 0, "\(snapshots) full store snapshots while the run made \(profile.expectedCount) workspaces")
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
+    /// Each workspace the run makes is laid out from the app's store, never from a read of the daemon's whole tree
+    /// (#32408). The layout builder read `list-workspaces` two to four times for each workspace it filled, and that
+    /// reply holds every workspace: at 512 workspaces one read took about 0.4 s and every other request waited behind
+    /// it (the run's last 64 workspaces took seven times as long as its first 64). Laying out N workspaces must read
+    /// no whole tree: O(changed), not O(session).
+    @Test func theRunReadsNoWholeTreeForTheWorkspacesItMakes() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
+        let launch = await sim.launch()
+        #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        let reads = try #require(launch.treeReads)
+        #expect(reads == 0, "\(reads) whole-tree reads while the run made \(profile.expectedCount) workspaces")
         await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()

@@ -6,7 +6,8 @@ import Testing
 /// (`NSWindow(`, `NSPanel(`, a window or panel class's `(contentRect:`, `orderFront(`,
 /// `makeKeyAndOrderFront(`) puts `.closesItsWindows` on each top-level suite that holds its tests,
 /// so the suite closes and fails on what it leaves open (CmuxNextTestSupport/WindowLeakCheck.swift).
-/// Comments and string literals are ignored. The census at the test process's exit names a suite
+/// Tests in a top-level `extension` of a type count as that type's: its declaration, in any test
+/// file, carries the trait. Comments and string literals are ignored. The census at the test process's exit names a suite
 /// that opens windows some other way.
 @Suite
 struct WindowCleanupCoverageTests {
@@ -20,14 +21,17 @@ struct WindowCleanupCoverageTests {
     @Test func everySuiteThatOpensAWindowClosesWhatItLeaves() throws {
         let root = Self.tests.standardizedFileURL.path
         let enumerator = try #require(FileManager.default.enumerator(atPath: root))
-        var scanned = 0
-        var offenders: [String] = []
+        var files: [(path: String, text: String)] = []
         while let relative = enumerator.nextObject() as? String {
             guard relative.hasSuffix(".swift"), !relative.hasPrefix("Support/"), !relative.hasPrefix("CmuxNextTestSupport/")
             else { continue }
-            let text = try String(contentsOfFile: root + "/" + relative, encoding: .utf8)
-            scanned += 1
-            offenders += Self.uncheckedSuites(in: text).map { "\(relative):\($0.line): \($0.name)" }
+            files.append((relative, try String(contentsOfFile: root + "/" + relative, encoding: .utf8)))
+        }
+        let scanned = files.count
+        // An extension's tests run in the suite its type declares, which may live in another file.
+        let traited = files.reduce(into: Set<String>()) { $0.formUnion(Self.traitedTypes(in: $1.text)) }
+        let offenders = files.flatMap { file in
+            Self.uncheckedSuites(in: file.text, traited: traited).map { "\(file.path):\($0.line): \($0.name)" }
         }
         #expect(scanned > 1000, "found only \(scanned) Swift files under \(root)")
         #expect(offenders.isEmpty, """
@@ -65,6 +69,26 @@ struct WindowCleanupCoverageTests {
         #expect(Self.uncheckedSuites(in: quiet).isEmpty)
     }
 
+    /// MainPaneGutterSuites' pattern: tests in `extension Parent { struct Child { ... } }` run under
+    /// Parent, so Parent's declaration, here or in another file, must carry the trait.
+    @Test func theScanFindsTestsInAnExtensionOfATypeWithoutTheTrait() {
+        let opens = """
+        import AppKit
+        extension Unchecked {
+            @MainActor struct Child {
+                @Test func a() { let w = NSWindow(); w.close() }
+            }
+        }
+        extension Elsewhere: Sendable { @Test func b() {} }
+        extension Checked.Nested { @Test func c() {} }
+        @Suite(.closesItsWindows) struct Checked { struct Nested {} }
+        extension NSWindow { func helper() {} }
+        """
+        #expect(Self.uncheckedSuites(in: opens).map(\.name) == ["extension Unchecked", "extension Elsewhere"])
+        #expect(Self.uncheckedSuites(in: opens, traited: ["Elsewhere"]).map(\.name) == ["extension Unchecked"])
+        #expect(Self.traitedTypes(in: opens) == ["Checked"])
+    }
+
     // MARK: Scanner
 
     struct Suite: Equatable {
@@ -79,27 +103,51 @@ struct WindowCleanupCoverageTests {
         // Attribute arguments can contain nested calls, such as `.timeLimit(.minutes(2))`.
         // A declaration is either one line (consume its complete attribute argument) or a
         // continuation line after a multiline attribute, which `attributes(above:in:)` handles.
-        pattern: #"^\s*(?:@\w+(?:\([^\n]*\))?\s+)*(?:(?:public|internal|private|fileprivate|final|nonisolated)\s+)*(?:struct|class|enum|actor)\s+(\w+)"#
+        pattern: #"^\s*(?:@\w+(?:\([^\n]*\))?\s+)*(?:(?:public|internal|private|fileprivate|final|nonisolated)\s+)*(struct|class|enum|actor|extension)\s+(\w+)"#
     )
 
-    /// The top-level types in `text` that hold `@Test`s and lack the trait, when `text` opens a
-    /// window; with 1-based declaration lines.
-    static func uncheckedSuites(in text: String) -> [Suite] {
+    /// The top-level types in `text` that hold `@Test`s and lack the trait, and the top-level
+    /// extensions that hold `@Test`s of a type that lacks it (not in `traited` nor declared with it
+    /// in `text`), when `text` opens a window; with 1-based declaration lines.
+    static func uncheckedSuites(in text: String, traited: Set<String> = []) -> [Suite] {
         let code = codeOnly(text)
-        let whole = NSRange(code.startIndex..., in: code)
-        guard let opensWindow, let declaration,
-              opensWindow.firstMatch(in: code, range: whole) != nil else { return [] }
+        guard let opensWindow, opensWindow.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil else { return [] }
+        let known = traited.union(traitedTypes(in: text))
+        return topLevelBlocks(in: code).compactMap { block in
+            guard block.hasTest else { return nil }
+            if block.isExtension { return known.contains(block.name) ? nil : Suite(line: block.line, name: "extension \(block.name)") }
+            return block.hasTrait ? nil : Suite(line: block.line, name: block.name)
+        }
+    }
+
+    /// The top-level types `text` declares with the trait.
+    static func traitedTypes(in text: String) -> Set<String> {
+        Set(topLevelBlocks(in: codeOnly(text)).filter { !$0.isExtension && $0.hasTrait }.map(\.name))
+    }
+
+    /// A top-level declaration or extension: its 1-based line, its type's name (an extension of
+    /// `Outer.Inner` is `Outer`'s), and whether its body holds `@Test`s and its attributes the trait.
+    struct Block {
+        let line: Int
+        let name: String
+        let isExtension: Bool
+        let hasTest: Bool
+        let hasTrait: Bool
+    }
+
+    static func topLevelBlocks(in code: String) -> [Block] {
+        guard let declaration else { return [] }
         let lines = code.components(separatedBy: "\n")
-        var found: [Suite] = []
+        var found: [Block] = []
         var depth = 0
-        var current: (line: Int, name: String)?
+        var current: (line: Int, name: String, isExtension: Bool)?
         var opened = false
         var hasTest = false
         for (index, line) in lines.enumerated() {
             if depth == 0, current == nil,
                let match = declaration.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-               let name = Range(match.range(at: 1), in: line) {
-                current = (index, String(line[name]))
+               let kind = Range(match.range(at: 1), in: line), let name = Range(match.range(at: 2), in: line) {
+                current = (index, String(line[name]), line[kind] == "extension")
                 opened = false
                 hasTest = false
             }
@@ -110,10 +158,9 @@ struct WindowCleanupCoverageTests {
                     if current != nil { opened = true }
                 } else if character == "}" {
                     depth -= 1
-                    if let suite = current, opened, depth == 0 {
-                        if hasTest, !attributes(above: suite.line, in: lines).contains(trait) {
-                            found.append(Suite(line: suite.line + 1, name: suite.name))
-                        }
+                    if let block = current, opened, depth == 0 {
+                        found.append(Block(line: block.line + 1, name: block.name, isExtension: block.isExtension, hasTest: hasTest,
+                                           hasTrait: attributes(above: block.line, in: lines).contains(trait)))
                         current = nil
                     }
                 }

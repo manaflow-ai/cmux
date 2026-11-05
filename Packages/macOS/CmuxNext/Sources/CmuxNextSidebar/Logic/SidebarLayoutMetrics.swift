@@ -172,6 +172,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
+    /// The session tree: each started workspace's parent title, for a child that would draw its parent's
+    /// name (`WorkspaceRowContent.subagentOf`).
+    public var parentTitles: [WorkspaceID: String] = [:]
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
@@ -214,6 +217,7 @@ nonisolated extension SidebarLayoutOptions {
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
+        if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
         // off by default. The hover card keeps the pull request.

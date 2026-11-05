@@ -14,7 +14,7 @@ async function rss(pid) {
   return Number(status.match(/^VmRSS:\s+(\d+) kB$/m)?.[1]) * 1024;
 }
 for (const endpoint of ["sessions", "watch"]) {
-  const browser = await chromium.launch({ args: [
+  const browser = await chromium.launch({ channel: "chrome", args: [
     "--renderer-process-limit=1", "--disable-features=SpareRendererForSitePerProcess",
   ] });
   try {

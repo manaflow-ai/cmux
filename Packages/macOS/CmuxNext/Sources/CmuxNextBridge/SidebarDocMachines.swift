@@ -9,11 +9,15 @@ public import Foundation
 /// document: every entry point checks the store first.
 @MainActor
 public struct SidebarDocMachines {
+    private let document: @MainActor () -> SidebarDocStore?
     private let stores: @MainActor () -> [DaemonStore]
     private let machine: @MainActor (String) -> DaemonStore?
 
-    /// `stores`: every machine's store, the local one first; `machine`: the store of a machine id.
-    public init(stores: @escaping @MainActor () -> [DaemonStore], machine: @escaping @MainActor (String) -> DaemonStore?) {
+    /// `document`: the app's own document store (nil before it starts); `stores`: every machine's store, the local one
+    /// first; `machine`: the store of a machine id.
+    public init(document: @escaping @MainActor () -> SidebarDocStore?, stores: @escaping @MainActor () -> [DaemonStore],
+                machine: @escaping @MainActor (String) -> DaemonStore?) {
+        self.document = document
         self.stores = stores
         self.machine = machine
     }
@@ -32,7 +36,7 @@ public struct SidebarDocMachines {
     /// adopt still on the way) has none: a later change names it by its adopt again (`adoptRef`), so it does not depend
     /// on the earlier change reaching the daemon first (a pin, an archive, a drag or a reorder right after Cmd-N).
     public func item(workspace id: String) -> String? {
-        guard let store = SidebarDocStore.current, let (workspace, daemon) = workspace(id: id),
+        guard let store = document(), let (workspace, daemon) = workspace(id: id),
               let ref = SidebarDocSections.ref(of: workspace, session: daemon.registryID),
               let item = store.shown?.items[ref], store.records.items[item] != nil else { return nil }
         return item
@@ -40,8 +44,8 @@ public struct SidebarDocMachines {
 
     /// The drag half while the document is active.
     public func drag() -> SidebarDocDrag? {
-        guard let store = SidebarDocStore.current, store.isActive, store.shown != nil else { return nil }
-        return SidebarDocDrag(item: { key in
+        guard let store = document(), store.isActive, store.shown != nil else { return nil }
+        return SidebarDocDrag(document: store, item: { key in
             switch key {
             case .workspace(let id): item(workspace: id.rawValue)
             case .group(let group): group.rawValue
@@ -61,14 +65,14 @@ public struct SidebarDocMachines {
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
     public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String, undoable: Bool = true) -> Bool {
-        guard let store = SidebarDocStore.current, let drag = drag() else { return false }
+        guard let store = document(), let drag = drag() else { return false }
         return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
     }
 
     /// Places ids at the list position in the document in the same turn as their create.
     /// False leaves the older reorder path in charge when the document is inactive.
     public func place(_ ids: [WorkspaceID], at position: DropPosition, model: SidebarModel) -> Bool {
-        guard let store = SidebarDocStore.current, let drag = drag(),
+        guard let store = document(), let drag = drag(),
               store.handle(.reorder(ids, to: position), model: model, drag: drag,
                            pinTitle: SidebarDocStore.moveTitle, unpinTitle: SidebarDocStore.moveTitle, undoable: false)
         else { return false }
@@ -139,7 +143,7 @@ extension SidebarDocSections {
     /// Every workspace of `store` in the document's order (window membership order), whatever its room; nil off the
     /// document path.
     public func orderedIDs(of store: DaemonStore, unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [String]? {
-        guard let doc = SidebarDocStore.current, doc.isActive, let shown = doc.shown, let session = store.registryID else { return nil }
+        guard let doc = document(), doc.isActive, let shown = doc.shown, let session = store.registryID else { return nil }
         let listed = sections(shown, session: session, workspaces: store.workspaces, unplacedOrder: unplacedOrder).flatMap(\.workspaces).map(\.id)
         let seen = Set(listed)
         return listed + store.workspaces.map(\.id).filter { !seen.contains($0) }

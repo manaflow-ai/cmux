@@ -40,7 +40,7 @@ env:
 jobs:
   version:
     name: version
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:
@@ -92,9 +92,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
           - target: aarch64-unknown-linux-gnu
-            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
+            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_arm64 }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
     permissions:

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::store::{EventRecord, LocalStore, SessionMeta, Store};
+use std::io::Write;
 
 /// The app's open page (webviews `direct.ts`: `limit` 400, `OPEN_PAGE_BYTES` 128 KiB).
 const OPEN_LIMIT: usize = 400;
@@ -391,7 +392,7 @@ fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
 fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     let event = |seq: u64, text: &str| json!({"seq": seq, "kind": "agent_message_chunk", "msg": {"text": text}});
     let mut reply = json!({
-        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(9 << 20), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
+        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(MAX_REPLY_BYTES), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
         "events": [event(1, "a"), event(2, &"x".repeat(3 << 20))],
         "turnOpener": event(0, "go"),
     });
@@ -415,7 +416,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
     // from opening: past the detail, any field but the chat's identity goes to its empty value.
     let mut titled = json!({
-        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(15 << 20), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(MAX_REPLY_BYTES), "tags": ["a"], "models": "m".repeat(1 << 20)},
         "events": [event(1, "a")],
         "turnOpener": null,
     });
@@ -432,7 +433,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Not even the agent's own session id: the receipt that carries it goes last, after every
     // other field (the title here), and the chat's sessionId stays.
     let mut receipt = json!({
-        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(MAX_REPLY_BYTES)}},
         "events": [],
         "turnOpener": null,
     });
@@ -450,7 +451,7 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
     let mut kind = json!({
         "session": {"sessionId": "s", "status": "idle"},
-        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(15 << 20), "msg": {"a": 1}}],
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(MAX_REPLY_BYTES), "msg": {"a": 1}}],
         "turnOpener": null,
     });
     fit_reply(&mut kind);
@@ -522,6 +523,53 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
     assert_eq!(older.len(), 10);
     assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// The prompt index reads the log's copies of its prompts (`store/kind_index.rs`), not the log: a
+/// long chat's tool output is most of its bytes, and reading all of them held the rail's every
+/// pending tick blank for 10 s on a 566 MB log, past a peer's 30 s read deadline on longer ones
+/// (Leo, 2026-11-03: "the hover previews ... aren't loading past the first bits"). Each segment's
+/// bytes are blanked once its copy is made: the same file and length, so only the copies still
+/// hold the prompts.
+#[test]
+fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-prompt-index-copies-{}", uuid::Uuid::now_v7()));
+    let store = LocalStore::new(root.clone(), 16 << 10).unwrap();
+    store.save(&meta("c")).unwrap();
+    for rec in codex_chat(40, 6, 400, false) {
+        store.append("c", &rec).unwrap();
+    }
+    store.flush().unwrap();
+    let hub = hub(Box::new(store));
+    let all = hub.prompt_index("c", None).unwrap();
+    assert_eq!(all.len(), 40);
+    // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
+    hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
+    let events = root.join("c").join("events");
+    let segments: Vec<_> = std::fs::read_dir(&events).unwrap().map(|e| e.unwrap().path()).collect();
+    assert!(segments.len() > 3, "{} segments", segments.len());
+    for path in &segments {
+        let len = std::fs::metadata(path).unwrap().len() as usize;
+        let mut blank = " ".repeat(len - 1);
+        blank.push('\n');
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .write_all(blank.as_bytes())
+            .unwrap();
+    }
+    let read = hub.prompt_index("c", None).unwrap();
+    assert_eq!(
+        read.iter().map(|r| r.seq).collect::<Vec<_>>(),
+        all.iter().map(|r| r.seq).collect::<Vec<_>>()
+    );
+    assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
+    // `before` still bounds it.
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    assert_eq!(older.len(), 10);
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// How long the rail waits for a long chat's every prompt: paging the transcript back (the pane's

@@ -26,6 +26,27 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 category: .sidebar, symbol: "sidebar.squares.left", surfaces: [.palette, .keyboard],
                 cliName: "sidebar focus"
             ),
+            // Lawrence msg 20167: "we need a cmd shift p command like focus in sidebar/scroll to in sidebar". The
+            // workspace's row is shown, opened out of its folds, scrolled to and flashed; keyboard focus stays put.
+            // No default key: Cmd-Shift-J is Ghostty's write_screen_file and Chrome's Downloads, nothing else is clean.
+            ActionDescriptor(
+                id: "sidebar.revealWorkspace",
+                title: String(localized: "action.sidebar.revealWorkspace", defaultValue: "Reveal Workspace in Sidebar", table: "ActionCatalog", bundle: .module),
+                keywords: ["focus in sidebar", "scroll to in sidebar", "locate", "find", "show", "where", "workspace", "sidebar"],
+                category: .sidebar, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace],
+                cliName: "sidebar reveal-workspace",
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenus: [ActionSurfaceCatalog.p(.workspaceRow, .navigate, 0)])
+            ),
+            // The same reveal, then the workspace list takes the keyboard at that row (`focusSidebar`).
+            ActionDescriptor(
+                id: "sidebar.revealAndFocusWorkspace",
+                title: String(localized: "action.sidebar.revealAndFocusWorkspace", defaultValue: "Reveal and Focus Workspace in Sidebar",
+                              table: "ActionCatalog", bundle: .module),
+                keywords: ["focus in sidebar", "scroll to in sidebar", "locate", "find", "keyboard", "workspace", "sidebar"],
+                category: .sidebar, symbol: "scope", surfaces: [.palette, .keyboard],
+                cliName: "sidebar reveal-and-focus-workspace",
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
             ActionDescriptor(
                 id: "focusRightSidebar",
                 title: String(localized: "action.focusRightSidebar", defaultValue: "Focus Right Sidebar", bundle: .module),

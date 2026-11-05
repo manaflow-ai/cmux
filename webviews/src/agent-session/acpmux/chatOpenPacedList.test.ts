@@ -125,9 +125,9 @@ test("a chat its attach cannot find still waits for the list to say it is missin
 test("an attach reply names the open's row only for that chat on this machine", async () => {
   const { attachedLocalRow } = await import("./direct");
   expect(attachedLocalRow({ session: { sessionId: "a" } }, "a")).toEqual({ sessionId: "a" });
-  expect(attachedLocalRow({ session: { sessionId: "a", peer: "big-red" } }, "a")).toBeUndefined();
+  expect(attachedLocalRow({ session: { sessionId: "a", peer: "my-vm" } }, "a")).toBeUndefined();
   // A reply forwarded from a peer names it at the top level; its session detail has no `peer`.
-  expect(attachedLocalRow({ peer: "big-red", session: { sessionId: "a" } }, "a")).toBeUndefined();
+  expect(attachedLocalRow({ peer: "my-vm", session: { sessionId: "a" } }, "a")).toBeUndefined();
   expect(attachedLocalRow({ session: { sessionId: "b" } }, "a")).toBeUndefined();
   expect(attachedLocalRow({}, "a")).toBeUndefined();
   expect(attachedLocalRow(undefined, "a")).toBeUndefined();

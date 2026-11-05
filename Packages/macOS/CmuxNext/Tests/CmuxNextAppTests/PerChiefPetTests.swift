@@ -166,4 +166,28 @@ import Testing
         #expect(own[Self.scout] == .text("SC"))
         #expect(own[Self.main] == faces[Self.main])
     }
+
+    /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". Home draws a
+    /// Chief's picked character; a Chief nobody picked for is left out (its CH monogram), never the
+    /// default Chief's pick; and a first pick of the default character (orb) still redraws the header.
+    @Test func homeDrawsEachChiefsPickAndNoOneElses() async throws {
+        let h = try await make(#"{"home":{"chiefPetMascot":"fox"}}"#)
+        defer { h.tearDown() }
+        let picks = h.picks()
+        picks.remember("moon", for: Self.scout)
+        let picture: (String) -> URL? = {
+            ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: h.settings.snapshot, file: h.settings.fileRoot)
+        }
+        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
+        #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
+        #expect(faces["agent_new02"] == nil, "no pick: its monogram, not the default Chief's fox")
+
+        let newcomer = await h.popover(chief: "agent_new03", picks: picks)
+        let redraws = newcomer.redraws.count
+        try newcomer.pick("orb")
+        await h.until { newcomer.redraws.count > redraws }
+        #expect(newcomer.redraws.count > redraws, "picking the default character is a pick: the header wears it")
+        #expect(picture("agent_new03") == ChiefPetMascot.orb.avatarURL)
+    }
 }

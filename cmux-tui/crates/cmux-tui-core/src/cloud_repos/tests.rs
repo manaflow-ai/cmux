@@ -22,6 +22,7 @@ impl Backend for Fake {
         Ok(Catalog {
             repos: self.installation.clone(),
             install_url: self.install_url.borrow().clone(),
+            disconnected: self.install_url.borrow().is_some(),
         })
     }
     fn attached(&self, _: &str) -> Result<Vec<Value>, Failure> {
@@ -102,6 +103,9 @@ fn cloud_repo_typed_seed_failures_have_next_action() {
         "seed.disk_full",
         "seed.clone_failed",
         "seed.bad_request",
+        "seed.checkout_failed",
+        "seed.unknown_job",
+        "seed.unavailable",
         "seed.needs_github",
     ] {
         let fake = Fake {
@@ -224,4 +228,70 @@ fn cloud_repo_remote_gate_never_exports_mac_projects_or_accepts_lookalike_comman
     ] {
         assert!(!crate::server::FsGate.admit(&peer, &value.to_string()));
     }
+}
+
+// Shared hostile-link corpus exercises the same validator at every boundary.
+pub(super) const UNSAFE_INSTALL_URLS: &[&str] = &[
+    "",
+    "http://github.com/apps/cmux",
+    "javascript:alert(1)",
+    "https://evil.example/apps/cmux",
+    "https://github.com.evil.example/apps/cmux",
+    "https://github.com@evil.example/apps/cmux",
+    "https://user@github.com/apps/cmux",
+    "https://@github.com/apps/cmux",
+    "https://user:secret@github.com/apps/cmux",
+    "https://github.com:444/apps/cmux",
+    "https://github.com/apps/cmux\n",
+    "https://git\thub.com/apps/cmux",
+    "https://github.com/apps/\rcmux",
+    " https://github.com/apps/cmux",
+];
+
+#[test]
+fn cloud_repo_install_link_validation_and_engine_outputs_share_one_policy() {
+    for url in
+        ["https://github.com/apps/cmux/installations/new", "https://github.com:443/apps/cmux"]
+    {
+        assert!(engine::valid_install_url(url));
+        assert_eq!(Failure::needs_github(url).0["install_url"], url);
+    }
+    for url in UNSAFE_INSTALL_URLS {
+        assert!(!engine::valid_install_url(url), "{url:?}");
+        let failure = Failure::needs_github(url).0;
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(failure.get("install_url").is_none());
+        assert!(failure["message"].as_str().unwrap().contains("Mac"));
+        let fake = Fake { install_url: RefCell::new(Some((*url).into())), ..Default::default() };
+        let listed = list(&fake, None).unwrap();
+        assert_eq!(listed["repos"], json!([]));
+        assert!(listed.get("connect").is_none());
+        let failure = add(&fake, &args("project")).unwrap_err().0;
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(failure.get("install_url").is_none());
+        for code in ["seed.needs_github", "repo.needs_github", "seed.no_access", "repo.no_access"] {
+            let failure = engine::seed_failure(&json!({"error_code":code,"install_url":url})).0;
+            assert!(failure.get("install_url").is_none(), "{code}: {failure}");
+            assert!(!failure["message"].as_str().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn cloud_repo_list_keeps_local_and_installation_rows_without_an_unsafe_connect_link() {
+    let fake = Fake {
+        sources: vec![repo("local/tool", "local")],
+        installation: vec![repo("org/other", "installation")],
+        install_url: RefCell::new(Some("https://evil.example/install".into())),
+        ..Default::default()
+    };
+    let listed = list(&fake, None).unwrap();
+    assert_eq!(listed["repos"].as_array().unwrap().len(), 2);
+    assert_eq!(listed["repos"][0]["fullName"], "local/tool");
+    assert_eq!(listed["repos"][1]["fullName"], "org/other");
+    assert!(listed.get("connect").is_none());
+    assert_eq!(add(&fake, &args("other")).unwrap()["repo"], "org/other");
+    let failure = add(&fake, &args("missing")).unwrap_err().0;
+    assert_eq!(failure["code"], "seed.bad_request");
+    assert!(failure["message"].as_str().unwrap().contains("refresh"));
 }

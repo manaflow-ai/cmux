@@ -95,7 +95,7 @@ struct DividerCursorUnderDockTests {
         pointer = CGPoint(x: beside.midX, y: beside.midY)
         screen.refreshDividerHover()
         #expect(handle.isHovered, "beside the dock the divider still hovers")
-        let lines = screen.dividerLineRects.filter { $0.intersects(handle.frame) }
+        let lines = ScreenDividers(screen: screen).lineRects.filter { $0.intersects(handle.frame) }
         try #require(!lines.isEmpty, "the hovered divider draws its line")
         for line in lines {
             let drawnUnder = line.intersection(cover)

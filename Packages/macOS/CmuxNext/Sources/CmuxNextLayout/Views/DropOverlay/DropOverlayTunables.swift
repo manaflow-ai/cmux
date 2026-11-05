@@ -31,8 +31,8 @@ public nonisolated enum DropOverlayTunables {
     public static let floatingInset = DerivedTunable<CGFloat>.number(
         "drop.overlay.floatingInset", .dropOverlay, "Floating inset", help: "Inset of the overlay inside a pane without pane chrome, and in column gaps. Default: Space 2.",
         range: 0...24, step: 0.5, unit: .points, code: "DropOverlayTunables.floatingInset") { Metrics.space2 }
-    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "8 is classic cmux; -1 follows the pane (or panel) corner radius.",
-                                            8, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
+    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "-1 (default): a pane zone is concentric with its pane (the corner radius less the zone's 4 pt inset); gaps follow the panel radius. 8 is classic cmux.",
+                                            -1, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
     public static let showLabel = toggle("showLabel", "Label", help: "Show the drop label (Split Right, Move Here).", true, property: "showLabel")
     public static let labelMinWidth = number("labelMinWidth", "Label minimum width", help: "Targets narrower than this hide the label.",
                                              90, range: 0...400, step: 1, unit: .points, property: "labelMinWidth")
@@ -132,16 +132,8 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content resizes live on every frame (Hold content size in pane motion keeps it at the larger size instead); Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
-    // @intent live resize (Lawrence 2026-10-23): on every frame of a split, close, column or zoom each
-    // terminal and page shows its content at exactly that frame's size, no frozen content, no
-    // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
-    // (content keeps the larger of its starting and final size until the spring lands) to compare.
-    public static let holdsContentInMotion = Tunable<Bool>.toggle(
-        "motion.pane.holdContent", .springs, "Hold content size in pane motion",
-        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (default): content resizes live on every frame.",
-        default: false, code: "LayoutTunables.holdsContentInMotion")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -166,7 +158,7 @@ public nonisolated enum LayoutTunables {
 
     public static var all: [TunableDescriptor] {
         [dockedWorkspaces.descriptor, prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+         paneMotionVariant.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

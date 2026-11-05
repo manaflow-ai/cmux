@@ -4,6 +4,37 @@ use super::*;
 
 const HOST: &str = "host_abc";
 
+/// The API and generated Cloud wire type return integer Unix milliseconds.
+#[test]
+fn cloud_token_grant_decodes_backend_millisecond_expiry() {
+    let wire = serde_json::json!({
+        "token": "one-dial-token", "expires_at": 1_792_430_000_000_u64,
+        "host": HOST, "epoch": 4, "services": ["ssh"], "future_field": true
+    });
+    let grant: LinkTokenGrant = serde_json::from_value(wire).unwrap();
+    assert!(grant.covers(HOST, Service::Ssh));
+    assert_eq!(serde_json::to_value(&grant).unwrap()["expires_at"], 1_792_430_000_000_u64);
+    assert!(!format!("{grant:?}").contains("one-dial-token"));
+}
+
+#[test]
+fn cloud_token_grant_refuses_non_integer_expiry() {
+    for expiry in [
+        serde_json::json!("2026-10-05T00:05:00Z"),
+        serde_json::json!("1792430000000"),
+        serde_json::json!(1.5),
+        serde_json::Value::Null,
+    ] {
+        assert!(
+            serde_json::from_value::<LinkTokenGrant>(serde_json::json!({
+                "token": "one-dial-token", "expires_at": expiry,
+                "host": HOST, "epoch": 4, "services": ["ssh"]
+            }))
+            .is_err()
+        );
+    }
+}
+
 fn info(revision: u64) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
         "machine": "vm_1",
@@ -83,6 +114,13 @@ fn backend_errors_map_to_dial_errors() {
     assert_eq!(map("auth.forbidden"), DialError::NotAuthorized);
     assert_eq!(map("cloud.machine.not_bound"), DialError::Unreachable);
     assert_eq!(map("internal"), DialError::Unreachable);
+    // The detail names what failed, where the code is only `unreachable`.
+    assert_eq!(
+        ConnectInfoError::from_code("cloud.machine.not_bound", "m").detail(),
+        "cloud.machine.not_bound: the machine is not bound yet"
+    );
+    assert_eq!(ConnectInfoError::from_code("internal", "m").detail(), "internal: m");
+    assert!(ConnectInfoError::Invalid(InvalidInfo::BadKey).detail().contains("BadKey"));
     assert!(is_cloud_host(HOST));
     assert!(!is_cloud_host("inst_1"));
     assert!(info(1).allows(Service::Ssh));

@@ -65,7 +65,8 @@ impl Hub {
         }
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
-            o.insert("unread".into(), Value::Bool(!self.shown(session)));
+            let trigger = o.get("trigger") == Some(&Value::Bool(true));
+            o.insert("unread".into(), Value::Bool(!trigger && !self.shown(session)));
         }
         msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);

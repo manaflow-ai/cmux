@@ -47,12 +47,12 @@ subscription goes. The portal route uses the same function for old
   (`/dashboard/billing?change=max`), which keeps the billing interval and prices
   any subscription.
 - An account with no subscription to switch (an operator grant, a company
-  account or Founder's Edition) buys Max through a new Checkout.
-- Founder's Edition is a one-time purchase of Pro for life, stored as an active
-  Pro row marked `founders_edition`; it is never a subscription to switch or
-  cancel. A founder on Max returns to Pro by cancelling Max (the dashboard's Pro
-  card opens that cancel dialog), never by switching onto a paid Pro price, and
-  `planChange.ts` refuses that switch.
+  account or a legacy Founder purchase) buys Max through a new Checkout.
+- The Founder offer is no longer sold. Existing Founder purchases are one-time
+  Pro for life, stored as an active Pro row marked `founders_edition`; it is
+  never a subscription to switch or cancel. A founder on Max returns to Pro by
+  cancelling Max (the dashboard's Pro card opens that cancel dialog), never by
+  switching onto a paid Pro price, and `planChange.ts` refuses that switch.
 
 ## Changing a price
 
@@ -100,7 +100,7 @@ The paid allowance lives in `web/services/vms/machineSpec.ts` and
 | Plan | Active VMs | Shared pool | Disk per VM | Largest VM |
 | --- | --- | --- | --- | --- |
 | Plus (`go`) | 1 saved VM total, paused included | none (one machine) | 128 GB | 8 vCPU / 16 GB (Pro sizes), no monthly hour cap |
-| Pro, Founder's Edition | 5 | 20 vCPU / 40 GB RAM | 128 GB | 8 vCPU / 16 GB (`lg`) |
+| Pro, legacy one-time grants | 5 | 20 vCPU / 40 GB RAM | 128 GB | 8 vCPU / 16 GB (`lg`) |
 | Team | 5 per paid seat | 20 vCPU / 40 GB RAM per paid seat, one pool for the team | 128 GB | 8 vCPU / 16 GB (`lg`) |
 | Max | 5 | 80 vCPU / 160 GB RAM | 256 GB | 32 vCPU / 64 GB (`2xl`) |
 

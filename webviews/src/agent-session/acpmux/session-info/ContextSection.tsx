@@ -12,6 +12,8 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Button } from "../../../ui/Button";
+import "../../../ui/controls.css";
 import type { AcpmuxContextBreakdown } from "../model";
 import "./sessionInfo.css";
 import "./ContextSection.css";
@@ -160,7 +162,7 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
             aria-expanded={open.has(list.id)}
             onClick={() => toggle(list.id)}
           >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
             <span className="acpmux-session-info-row__end">{list.items.length}</span>
           </button>
@@ -246,9 +248,9 @@ export function ContextSection({
               {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
             </span>
           )}
-          <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
+          <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
             {t("sessionInfo.context.compactSession")}
-          </button>
+          </Button>
         </div>
       )}
     </div>

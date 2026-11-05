@@ -9,12 +9,12 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           checks, then auto-merge. Nothing here waits for a person.
   high    auth and credentials, socket and relay access policy (with peer and code-signature
           trust), stored-data migrations, release, signing, notarization and the updater, the
-          risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
           pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -178,6 +179,18 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("high", "release, signing, notarization or update path", (
         ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
         "scripts/ci/lib/*",
+    )),
+    # The pre-push hook's trust boundary (docs/contributor-verification.md): what decides which check code the hook
+    # runs on a push (web_lint_prepush.py; prepush-gate.py, which picks the reviewed copy or the pushed code for each
+    # of its checks; push_range.py, which commits a push owns, and so which changes to check code the hook sees),
+    # the hook itself, and how its reviewed copy is installed and refreshed (install-git-hooks.sh,
+    # refresh_checks.py, and post-merge, which decides when the checkout reinstalls it). A normal change could make the
+    # hook run code a push controls; #34124 finds and closes several such routes. The lint rules it runs
+    # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
+    ("high", "the pre-push hook's trust boundary", (
+        "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
+        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
@@ -572,10 +585,11 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -791,13 +805,44 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def merge_base_of(repo: str, pr: dict) -> str:
-    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read.
+    From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
+    if repo_dir:
+        try:
+            sha = subprocess.run(["git", "-C", repo_dir, "merge-base", pr["base"]["sha"], pr["head"]["sha"]],
+                                 check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
+
+
+def event_pull_request(path: str | None, number: str, attempt: str | None = None) -> dict | None:
+    """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
+    is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
+    (body, labels, user, author_association, head and base), as of the event, and saves that REST
+    call on every first attempt. A later event runs this again, and its run cancels this one.
+    A re-run (GITHUB_RUN_ATTEMPT above 1) gets the original event's payload, frozen at that event,
+    so it reads the pull request live instead: re-running an old run must grade today's head,
+    description and labels, as it always did."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1") if attempt is None else attempt
+    if not path or attempt.strip() not in ("", "1"):
+        return None
+    try:
+        pull = json.loads(Path(path).read_text()).get("pull_request")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
+        return None
+    if not ((pull.get("head") or {}).get("sha") and (pull.get("base") or {}).get("sha")):
+        return None
+    return pull
 
 
 def pr_mode(args: argparse.Namespace) -> int:
@@ -807,7 +852,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = gh_json("api", base)
+    pr = event_pull_request(getattr(args, "event", None), args.number) or gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
@@ -815,7 +860,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     removes = {path: e.get("previous_filename") or path for path, e in rust.items()
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
-    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
     grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
                      rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
@@ -840,7 +885,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)
@@ -1026,6 +1071,8 @@ def main(argv: list[str] | None = None) -> int:
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
+    p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
+                   "GET pulls/N call")
     args = parser.parse_args(argv)
 
     if args.mode == "classify":

@@ -28,6 +28,7 @@ use super::{
     BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
 };
 use crate::Actor;
+use crate::mux::TabSplit;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CLOSED_CONVERSATION_TABS_CAPABILITY, CONVERSATION_KIND,
@@ -78,6 +79,21 @@ pub(super) struct NewConversationTabParams {
     split: Option<ConversationTabSplitParams>,
 }
 
+impl NewConversationTabParams {
+    /// A Native owner provisions this machine's agent tabs only. Other
+    /// conversation owners and app pages keep their existing admission path.
+    #[cfg(unix)]
+    pub(super) fn native_agent_tab(&self, mux: &Mux) -> bool {
+        self.conversation.is_none()
+            && self.owner.is_none()
+            && self.page.is_none()
+            && self.route.is_none()
+            && self.agent_session.as_ref().is_some_and(|agent| {
+                agent.host == super::agent_session_attach::agent_session_start::store_host(mux)
+            })
+    }
+}
+
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
 
@@ -89,6 +105,8 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 
 /// The new pane of a conversation tab's split: its side of the source pane
 /// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
+/// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`)
+/// takes the same object.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
@@ -101,7 +119,8 @@ pub(super) struct ConversationTabSplitParams {
 }
 
 impl ConversationTabSplitParams {
-    fn target(self, pane: Option<PaneId>) -> anyhow::Result<ConversationTabTarget> {
+    /// The validated split of `pane`; malformed input is a bad request.
+    pub(super) fn tab_split(self, pane: Option<PaneId>) -> anyhow::Result<TabSplit> {
         let pane = pane.ok_or_else(|| anyhow::anyhow!("bad request: split needs pane"))?;
         let direction = match self.direction.as_str() {
             "right" => "right",
@@ -122,12 +141,7 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
             })?;
         }
-        Ok(ConversationTabTarget::Split {
-            pane,
-            direction,
-            pane_id: self.pane_id,
-            split_id: self.split_id,
-        })
+        Ok(TabSplit { pane, direction, pane_id: self.pane_id, split_id: self.split_id })
     }
 }
 
@@ -335,7 +349,7 @@ pub(super) fn create(
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
     let target = match (pane, workspace, split) {
-        (_, None, Some(split)) => split.target(pane)?,
+        (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
         (None, Some(workspace), None) => ConversationTabTarget::Workspace(workspace),
         (_, Some(_), Some(_)) => anyhow::bail!("bad request: split goes with pane, not workspace"),

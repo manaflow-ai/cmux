@@ -146,6 +146,8 @@ impl Drop for FakeAcpmux {
 /// own, and sessions after the watch answer's own.
 #[derive(Clone, Default)]
 pub(super) struct Fixture {
+    /// Enable the first-chat catalog/new-session fixture, with this trust decision.
+    pub(super) start_folder_trusted: Option<bool>,
     pub(super) page: Vec<Value>,
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
@@ -186,6 +188,20 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "families": {"claude": ["default"]}, "refusedFamilies": [],
+                "session": {"family": "claude", "mode": "default"},
+            })),
+            "_acpmux/harnesses" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "defaultHarness": "claude", "families": {"claude": {}}, "harnesses": {},
+            })),
+            "acp.trust.get" | "acp.trust.set" if fixture.start_folder_trusted.is_some() => {
+                Some(json!({"cwd": params["cwd"], "decided": true,
+                    "level": if fixture.start_folder_trusted == Some(true) { "trusted" } else { "untrusted" }}))
+            }
+            "session/new" if fixture.start_folder_trusted.is_some() => Some(json!({
+                "sessionId": SESSION, "_meta": {"acpmux": {"harness": "claude"}},
+            })),
             "_acpmux/attach" => {
                 if let Some(gate) = &fixture.attach_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -263,6 +279,15 @@ fn serve(
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
+                "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
+            "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
+                Some(json!({FAKE_ERROR: "bad code", FAKE_ERROR_DATA: {"reason": "bad_code"}}))
+            }
+            "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
+            "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
+            "_acpmux/agent_login/cancel" => Some(json!({})),
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),
@@ -626,6 +651,8 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":1,"cmd":"agent-session-attach","surface":surface}),
         json!({"id":2,"cmd":"agent-session-events","surface":surface}),
         json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
+        json!({"id":12,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"content",
+               "content":[{"type":"image","mimeType":"image/png","data":"eA=="}]}),
         json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
         json!({"id":5,"cmd":"agent-session-permission","surface":surface,
                "permission_id":"perm_attach","option_id":"allow"}),
@@ -776,6 +803,11 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(sent["params"]["sessionId"], json!(SESSION), "session comes from the store record");
     assert_eq!(sent["params"]["eventStream"], json!(true));
     assert_eq!(sent["params"]["kinds"], json!(["transcript"]));
+    assert_eq!(
+        sent["params"]["waitLogs"],
+        json!(false),
+        "the open's page does not wait for a restarted daemon's log restore"
+    );
 
     // The record acpmux sent before its reply follows the reply.
     let early = client.event(WAIT).expect("the early record");
@@ -916,6 +948,69 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
 }
 
 #[test]
+fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_session() {
+    let fake = FakeAcpmux::start("prompt-content");
+    let mux = mux_with(&fake, "asa-prompt-content");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| { value == agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY })
+    );
+    let mut client = Client::connect(&mux, "prompt-content");
+    assert_eq!(attach(&mut client, surface)["ok"], true);
+    let _ = fake.frame();
+    let image = json!({"type":"image", "mimeType":"image/png", "name":"shot.png",
+        "data":"AAAA".repeat(agent_session_attach::MAX_PROMPT_BYTES / 4 + 1)});
+    let mixed = json!([
+        {"type":"text", "text":"before"}, image,
+        {"type":"text", "text":"pasted", "_meta":{"cmux":{"pasted":true}}},
+        {"type":"document", "mimeType":"application/pdf", "data":"JVBERi0=", "name":"a.pdf"},
+        {"type":"audio", "mimeType":"audio/wav", "data":"UklGRg=="},
+        {"type":"resource_link", "uri":"file:///home/cmux/work/shot.png", "name":"shot.png"},
+        {"type":"text", "text":"after"}
+    ]);
+    let spaced = json!([
+        {"type":"text", "text":" "}, image, {"type":"text", "text":" "}, image,
+        {"type":"text", "text":"\n"}
+    ]);
+    for (id, content) in
+        [("mixed", mixed), ("attachment-only", json!([image])), ("spaced-images", spaced)]
+    {
+        let reply = client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+            "prompt_id":id, "content":content}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(
+            fake.frame()["params"],
+            json!({"sessionId":SESSION, "prompt":content,
+            "_meta":{"acpmux":{"promptId":id}}})
+        );
+    }
+    for invalid in [
+        json!({"content":[]}),
+        json!({"content":[null]}),
+        json!({"content":[{"type":"text", "text":" "}]}),
+        json!({"content":[{"type":"text", "text":""}, {"type":"text", "text":" \n"}]}),
+        json!({"text":"legacy", "content":[{"type":"text", "text":"other"}]}),
+        json!({"content":[{"type":"image", "mimeType":"image/png", "data":""}]}),
+        json!({"content":[{"type":"resource_link", "uri":""}]}),
+        json!({"content":[{"type":"text", "text":"x", "_meta":{"acpmux":{"author":"owner"}}}]}),
+        json!({"content":[{"type":"command", "text":"x"}]}),
+        json!({"content":[{"type":"text", "text":"x", "sessionId":"other"}]}),
+    ] {
+        let mut frame = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"bad"});
+        for (key, value) in invalid.as_object().unwrap() {
+            frame[key] = value.clone();
+        }
+        assert_code(&client.request(frame), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+#[test]
 fn cancel_goes_to_the_pinned_session() {
     let fake = FakeAcpmux::start("cancel");
     let mux = mux_with(&fake, "asa-cancel");
@@ -931,6 +1026,92 @@ fn cancel_goes_to_the_pinned_session() {
     assert_eq!(sent["method"], json!("session/cancel"));
     assert_eq!(sent["params"], json!({"sessionId": SESSION}));
     assert!(sent.get("id").is_none(), "cancel is a notification");
+}
+
+// MARK: Sign-in
+
+/// A Cloud chat's own sign-in (`agent-session-login-v1`): each step goes to acpmux's
+/// `_acpmux/agent_login/*` with the tab's own session where it names one, and acpmux's refusal
+/// comes back as an answer with its reason, so the app's card says why.
+#[test]
+fn login_steps_go_to_acpmux_on_the_pinned_session() {
+    let fake = FakeAcpmux::start("login");
+    let mux = mux_with(&fake, "asa-login");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "login");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-login","surface":surface,"op":"start",
+                               "agent":"claude"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (frame, method, params, data) in [
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"claude"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "claude", "sessionId": SESSION}),
+            json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
+                   "needsCode": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"wrong"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "sessionId": SESSION, "code": "wrong"}),
+            json!({"refused": {"reason": "bad_code"}}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"abc#def"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "sessionId": SESSION, "code": "abc#def"}),
+            json!({"signedIn": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"codex","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId": "login_1", "sessionId": SESSION}),
+            json!({}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "the session is the tab's own; nothing else is passed");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"claude",
+               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
+               "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
 }
 
 // MARK: Settings

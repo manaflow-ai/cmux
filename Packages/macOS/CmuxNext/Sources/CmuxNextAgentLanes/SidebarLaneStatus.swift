@@ -10,6 +10,10 @@ extension SidebarRowFeed {
     @MainActor public var laneRowSource: SidebarMapping.RowSource {
         SidebarLaneStatus.applying(rowSource, lanes: .shared, turns: .shared, marks: .shared)
     }
+
+    @MainActor public func laneRowSource(chiefAvatar: @escaping (String) -> SidebarChiefAvatar?) -> SidebarMapping.RowSource {
+        SidebarLaneStatus.applying(rowSource, lanes: .shared, turns: .shared, marks: .shared, chiefAvatar: chiefAvatar)
+    }
 }
 
 /// Rows can show their agent sessions' acpmux lane state (`sidebar.laneStatus`, off by default):
@@ -27,7 +31,8 @@ enum SidebarLaneStatus {
     /// usage warnings (the row's warning badge). The toggles, the lanes and the read marks are read
     /// inside the row's mapping, so flipping a toggle, a lane change or a mark maps that row again.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
-                         turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared) -> SidebarMapping.RowSource {
+                         turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared,
+                         chiefLanes: AgentLaneStore = .chief, chiefAvatar: ((String) -> SidebarChiefAvatar?)? = nil) -> SidebarMapping.RowSource {
         { workspace, machine, make in
             let merged: SidebarRowFeed.Make = {
                 var row = make()
@@ -37,6 +42,20 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
                 row.usageWarnings = usageWarnings(local)
+                if let chiefAvatar {
+                    let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
+                        guard let ref = tab.agentSession, let id = ref.session,
+                              ref.host == turns.localHost || ref.host.hasPrefix("chief:") else { return nil }
+                        // UUID identity, not display names. A Chief-home session can be mirrored in either store.
+                        for store in [lanes, chiefLanes] {
+                            guard let lane = store.lane(id), lane.peer == nil, let parent = lane.parent,
+                                  let chief = store.chiefParticipants[parent] else { continue }
+                            return chief
+                        }
+                        return nil
+                    }
+                    row.chiefAvatar = owned.first.flatMap(chiefAvatar)
+                }
                 guard mergesState || namesState || saysStep else { return row }
                 if mergesState { merge(local, into: &row) }
                 if namesState { row.agentChip = chip(local, marks: marks.state) }

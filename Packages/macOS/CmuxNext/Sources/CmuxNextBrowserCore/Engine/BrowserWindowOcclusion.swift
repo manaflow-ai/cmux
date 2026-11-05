@@ -27,3 +27,9 @@ extension Notification.Name {
 /// page re-apply even where nothing it reads changed (a page window that something other than the fork
 /// moved, such as an Accessibility client, goes back over its host).
 public let browserPagesForceUpdateKey = "force"
+
+/// `userInfo` key of ``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``: true when the request comes
+/// from a layout motion frame that moved panes or divider lines and changed no clip shape (no strip clip, corner or
+/// padding change). A page whose rect in its window, window frame, scale, hidden state, own occlusion and the window's
+/// occluders over it are as the fork last read them then works out no geometry (HOT PATH AUDIT frames, cef-geometry).
+public let browserPagesGeometryOnlyKey = "geometryOnly"

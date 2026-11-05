@@ -5,6 +5,12 @@ import Foundation
 extension MobileCompatSession {
     /// Default grid when neither the phone nor the daemon reports one.
     static let fallbackSize = CellSize(cols: 80, rows: 24)
+    /// The largest grid a phone may ask for, and the most terminal streams one connection holds.
+    static let maximumSize = CellSize(cols: 1000, rows: 500)
+    static let maximumStreams = 32
+
+    /// A stream's key: the lookup of a `surface_id` ignores case, so its streams must too.
+    private func streamKey(_ surfaceID: String) -> String { surfaceID.uppercased() }
 
     func dispatchTerminal(_ request: MobileRPCRequest) async throws -> JSONValue? {
         let method = request.method.hasPrefix("mobile.") ? String(request.method.dropFirst(7)) : request.method
@@ -30,9 +36,10 @@ extension MobileCompatSession {
     /// offset live `terminal.bytes` continue from.
     private func replay(_ request: MobileRPCRequest) async throws -> JSONValue {
         let (surfaceID, location, generation) = try await locate(request)
-        let size = requestedSize(request) ?? location.tab.size ?? Self.fallbackSize
+        let requested = try requestedSize(request)
+        let size = requested ?? location.tab.size ?? Self.fallbackSize
         let stream = try await restartStream(surfaceID: surfaceID, tab: location.tab, generation: generation, size: size)
-        if requestedSize(request) != nil { await stream.resize(cols: size.cols, rows: size.rows) }
+        if requested != nil { await stream.resize(cols: size.cols, rows: size.rows) }
         guard let (snapshot, seq) = await stream.initialReplay() else {
             throw MobileRPCError("terminal_unavailable", "the terminal closed before its replay")
         }
@@ -50,11 +57,11 @@ extension MobileCompatSession {
     /// The phone's visible grid: it owns geometry while it looks at the terminal.
     private func viewport(_ request: MobileRPCRequest) async throws -> JSONValue {
         let (surfaceID, location, generation) = try await locate(request)
-        guard let size = requestedSize(request) else {
+        guard let size = try requestedSize(request) else {
             throw MobileRPCError.invalidParams("viewport_columns and viewport_rows are required")
         }
         let stream: MobileCompatTerminalStream
-        if let existing = streams[surfaceID], await !existing.isEnded {
+        if let existing = streams[streamKey(surfaceID)], await !existing.isEnded {
             stream = existing
         } else {
             stream = try await restartStream(surfaceID: surfaceID, tab: location.tab, generation: generation, size: size)
@@ -75,9 +82,7 @@ extension MobileCompatSession {
             throw MobileRPCError.invalidParams("text is required")
         }
         if !text.isEmpty {
-            let stream = streams[surfaceID]
-                ?? streams.first { $0.key.caseInsensitiveCompare(surfaceID) == .orderedSame }?.value
-            await stream?.activate()
+            await streams[streamKey(surfaceID)]?.activate()
             try await backend.send(location.tab.surface, bytes: Data(text.utf8), paste: paste)
         }
         return .object([
@@ -89,8 +94,8 @@ extension MobileCompatSession {
 
     private func closeTerminal(_ request: MobileRPCRequest) async throws -> JSONValue {
         let (surfaceID, location, _) = try await locate(request)
-        if let stream = streams.removeValue(forKey: surfaceID) {
-            surfaceSeq[surfaceID] = await stream.nextSeq
+        if let stream = streams.removeValue(forKey: streamKey(surfaceID)) {
+            surfaceSeq[streamKey(surfaceID)] = await stream.nextSeq
             await stream.stop()
         }
         if let terminal = location.tab.terminalID { try await backend.closeTerminal(terminal) }
@@ -109,9 +114,13 @@ extension MobileCompatSession {
 
     // MARK: Helpers
 
-    private func requestedSize(_ request: MobileRPCRequest) -> CellSize? {
+    /// The phone's grid, nil when it sent none (or a non-positive one); a grid over the limits is refused.
+    private func requestedSize(_ request: MobileRPCRequest) throws -> CellSize? {
         guard let cols = request.int("viewport_columns"), let rows = request.int("viewport_rows"),
               cols > 0, rows > 0 else { return nil }
+        guard cols <= Self.maximumSize.cols, rows <= Self.maximumSize.rows else {
+            throw MobileRPCError.invalidParams("viewport_columns and viewport_rows are at most \(Self.maximumSize.cols) x \(Self.maximumSize.rows)")
+        }
         return CellSize(cols: cols, rows: rows)
     }
 
@@ -120,11 +129,11 @@ extension MobileCompatSession {
         guard let surfaceID = request.string("surface_id") else {
             throw MobileRPCError("terminal_id_required", "surface_id is required")
         }
-        if cached, let location = locations[surfaceID.uppercased()] {
+        if cached, let location = locations[surfaceID.uppercased()], !hides(location.workspace) {
             return (surfaceID, location, nil)
         }
         let tree = try await backend.tree()
-        guard let location = MobileWorkspaceRows.locate(surfaceID: surfaceID, in: tree) else {
+        guard let location = MobileWorkspaceRows.locate(surfaceID: surfaceID, in: tree, hides: hides) else {
             locations[surfaceID.uppercased()] = nil
             throw MobileRPCError.notFound("no terminal \(surfaceID)")
         }
@@ -135,14 +144,18 @@ extension MobileCompatSession {
     /// Replaces this connection's stream for `surfaceID`, continuing its numbering.
     private func restartStream(surfaceID: String, tab: TabSnapshot, generation: DaemonGeneration?,
                                size: CellSize) async throws -> MobileCompatTerminalStream {
-        if let old = streams.removeValue(forKey: surfaceID) {
-            surfaceSeq[surfaceID] = await old.nextSeq
+        let key = streamKey(surfaceID)
+        guard streams[key] != nil || streams.count < Self.maximumStreams else {
+            throw MobileRPCError("too_many_terminals", "this connection already streams \(Self.maximumStreams) terminals")
+        }
+        if let old = streams.removeValue(forKey: key) {
+            surfaceSeq[key] = await old.nextSeq
             await old.stop()
         }
         let channel = try await backend.attach(tab, generation: generation, size: size)
         let stream = MobileCompatTerminalStream(surfaceID: surfaceID, channel: channel,
-                                                startSeq: surfaceSeq[surfaceID] ?? 0)
-        streams[surfaceID] = stream
+                                                startSeq: surfaceSeq[key] ?? 0)
+        streams[key] = stream
         let emit = emit
         await stream.start { surface, seq, bytes in
             await emit(MobileRPCWire.event(topic: "terminal.bytes", payload: .object([

@@ -24,7 +24,8 @@ export type IntakeOptions = {
   cancelled?: UploadCancelled;
 };
 
-export type IntakeError = AttachmentError | { text: string };
+/// `final`: the host refused the upload outright, so it is not tried again on its own.
+export type IntakeError = AttachmentError | { text: string; final?: boolean };
 
 /// What happens to each file of a batch, by its index, the moment it happens: a chip never waits
 /// on the rest of its batch (Leo, 2026-10-24: "the attachments, they freeze").
@@ -33,7 +34,7 @@ export type IntakeEvents = {
   ready?(index: number, attachment: ComposerAttachment): void;
   /// File `index` could not be attached, and why.
   failed?(index: number, error: IntakeError): void;
-  /// File `index` is streaming to the session's machine: its tile no longer holds a send.
+  /// File `index` is streaming to the session's machine (a send still waits for it).
   uploading?(index: number): void;
   /// How much of file `index` reached the session's machine, 0 to 1.
   progress?(index: number, done: number): void;
@@ -178,7 +179,10 @@ export async function intakeFiles(
     await Promise.all(
       waiting.map(async ({ index, file }, at) => {
         const { image } = await prepared[index]!;
-        const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
+        // A later file may fail after earlier files finished. Keep every returned path, even when
+        // the batch also carries an error, so completed uploads remain attachable and only the
+        // failed/unattempted chips offer Retry.
+        const path = sent && "paths" in sent ? sent.paths[at] : undefined;
         if (path && image) {
           image.originalPath = path;
           image.originalName = file.name;
@@ -191,7 +195,9 @@ export async function intakeFiles(
           });
         else if (!options.cancelled?.(index)) {
           const reason: IntakeError =
-            sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
+            sent && "error" in sent
+              ? { text: sent.error, final: sent.final }
+              : { name: file.name, reason: "unsupported" };
           if (image) events.originalFailed?.(index, reason);
           else fail(index, reason);
         }

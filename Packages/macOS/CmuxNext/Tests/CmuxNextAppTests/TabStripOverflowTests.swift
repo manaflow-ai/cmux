@@ -38,8 +38,10 @@ import Testing
         let harness = Harness(count: 60)
         defer { harness.window.closeAfterTest() }
         let metrics = harness.strip.metrics
-        // Room for the favicon and the x (Lawrence 2026-10-20, was Chrome's 32) inactive, Chrome's 56 selected.
-        #expect(metrics.minInactiveTabWidth == metrics.faviconCloseWidth && metrics.minActiveTabWidth == 56,
+        // Room for the favicon, a few title characters and the x (Lawrence 2026-10-20 and msg 19596, was
+        // Chrome's 32) inactive; the selected minimum (Chrome's 56) never goes under it.
+        #expect(metrics.minInactiveTabWidth == metrics.crowdedMinimumWidth
+                && metrics.minActiveTabWidth == max(56, metrics.crowdedMinimumWidth),
                 "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")

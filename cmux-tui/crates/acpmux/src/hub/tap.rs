@@ -229,7 +229,15 @@ impl Hub {
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
                         crate::claude_stdio::leave_out_bodies(&kind, &mut line);
-                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
+                        let retry = (!muted && method == "claude.system.api_retry")
+                            .then(|| super::turn_retry::claude_retry(&line));
+                        let logged =
+                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
+                        // The model request failed and Claude Code tries again (`turn_retry.rs`).
+                        if let Some(retry) = retry {
+                            tap_hub.turn_retrying(&tap_session, retry);
+                        }
+                        return logged;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -279,6 +287,8 @@ impl Hub {
             // Whether this update changed which background subagents run: a root learned late
             // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
             let mut background_changed = false;
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            let mut running_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
@@ -294,13 +304,31 @@ impl Hub {
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
+                let running_before = tree.running_count();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
+                running_changed = tree.running_count() != running_before;
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     tap_hub.background_turn_update(&tap_session, &params["update"]);
+                }
+                // A wrap-up's first answer is the turn's suggestion where the harness makes none
+                // (`wrap_up_suggestion.rs`).
+                if subagent.is_none() && !muted && !kind.ends_with(".replay") {
+                    crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
+                }
+                // A predicted next prompt reaches the composer only when likely to be taken
+                // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.
+                if subagent.is_none() && !muted && kind == "prompt_suggestion" {
+                    let harness =
+                        tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
+                    crate::suggestion_gate::filter_update(
+                        &tap_session.id,
+                        &harness,
+                        &mut params["update"],
+                    );
                 }
             }
             // A live update's workflow changes feed the daemon's index of them.
@@ -337,6 +365,17 @@ impl Hub {
             }
             if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
+            }
+            // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
+            if running_changed {
+                let count =
+                    tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
+                tap_hub.append(
+                    &tap_session,
+                    "mux",
+                    super::views::SUBAGENTS_RUNNING,
+                    json!({"count": count}),
+                );
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {

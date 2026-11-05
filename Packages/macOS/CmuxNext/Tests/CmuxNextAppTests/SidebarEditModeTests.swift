@@ -144,11 +144,11 @@ import Testing
     }
 
     /// Add Items' cards: Home, Notifications, History, Bookmarks and the launchers (Search Chats, New
-    /// Terminal, New Browser Tab, New Agent Chat, Customize) beside the Chief's, each on when the
+    /// Terminal, New Browser Tab, New Agent Chat, Customize, Automations) beside the Chief's, each on when the
     /// sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
     @Test func theSidebarCategoryListsTheBuiltInItems() {
         let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "search_chats", "new_terminal", "new_browser",
-                                     "new_agent_chat", "customize"]
+                                     "new_agent_chat", "customize", "automations"]
         let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
         #expect(Set(items) == builtIns)
 
@@ -161,6 +161,7 @@ import Testing
         #expect(store.names == builtIns.union(["chief"]))
         #expect(store.isShown("home"), "the default sidebar's Home (an app item) reads as off")
         #expect(!store.isShown("bookmarks"))
+        #expect(!store.isShown("automations"), "Automations stays opt-in in the default layout")
         #expect(store.isShown("chief"), "the Chief's own answer was lost")
         _ = store.set("bookmarks", true)
         _ = store.set("history", false)

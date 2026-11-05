@@ -16,23 +16,36 @@ import CmuxNextWakeups
 /// first surface, and delayed that surface and its first frame. A launch
 /// whose first window shows no terminal never settles; the palette then
 /// does its first-open work when it first opens, as without warm-up.
+///
+/// It never settles before the first window frame is committed
+/// (`FirstFrameGate`): a page or an agent shown first makes the pane region
+/// ready while `applicationDidFinishLaunching` still builds the window, and
+/// the deferred work then delayed that frame by about 33 ms (REOPEN-F7).
 @MainActor
 final class LaunchSettle {
     private var waiters: [@MainActor () -> Void] = []
     private(set) var isSettled = false
+    /// `settle` was called; the launch settles at the first window frame.
+    private var settleAsked = false
     private var unavailableWatch: Task<Void, Never>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
+    /// The first window frame (`AppDelegate.firstFrame`).
+    private let firstFrame: FirstFrameGate
+    /// The agent pages still drawing their last page (tests pass their own).
+    private let imageHold: LaunchImageHold
 
-    init(reveal: LaunchReveal = .shared) {
+    init(reveal: LaunchReveal = .shared, firstFrame: FirstFrameGate, imageHold: LaunchImageHold = .shared) {
         self.reveal = reveal
+        self.firstFrame = firstFrame
+        self.imageHold = imageHold
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
     /// its last frame (at once when both hold).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
+        if isSettled { imageHold.whenClear(work) } else { waiters.append(work) }
     }
 
     /// Returns once `whenSettled` work would run, or after `limit` (a launch
@@ -46,18 +59,25 @@ final class LaunchSettle {
         backstop.cancel()
     }
 
-    /// Settles (first call only) and runs the waiters in order.
+    /// Settles (first call only) once the first window frame is committed (at once after it), and runs the
+    /// waiters in order.
     func settle() {
-        guard !isSettled else { return }
-        isSettled = true
+        guard !settleAsked else { return }
+        settleAsked = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
-        // The agent pages' warm-up page is done: their first page made its own process by now.
+        // The agent pages' warm-up page is not needed: their first page made its own process by now. Here, not at
+        // the first window frame: the warm-up starts at that frame (`startLaterTabWarmups`), and must see this first.
         AgentPaneView.finishWarmup()
+        firstFrame.whenOpen { [weak self] in self?.finishSettle() }
+    }
+
+    private func finishSettle() {
+        isSettled = true
         let waiting = waiters
         waiters.removeAll()
         // An agent page still loading behind its last frame paints first (LaunchImageHold).
-        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
+        imageHold.whenClear { for work in waiting { work() } }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the

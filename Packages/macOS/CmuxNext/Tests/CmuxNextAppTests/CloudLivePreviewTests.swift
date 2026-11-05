@@ -57,33 +57,25 @@ struct CloudLivePreviewTests {
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
     }
 
-    @Test func stagingPreviewsUsePlatformWhileOtherOwnersKeepTheirExistingBrowserRoute() {
-        var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
-        #expect(configuration.platformPreviewAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
-        #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://other-owner.standin.invalid"]) == nil)
-        #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.standin.invalid"])?.host == "platform.standin.invalid")
-        for invalid in ["http://platform.standin.invalid", "https://user:secret@platform.standin.invalid", "https://platform.standin.invalid/path"] {
-            #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": invalid]) == nil)
-        }
-        configuration.isProductionAuth = true
-        #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
-        #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.standin.invalid"]) == nil)
-        configuration.isProductionAuth = false
-        configuration.isDebugBuild = false
-        #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
-        configuration.isDebugBuild = true
-        configuration.linkSource = .legacy
-        #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
+    @Test func selectedBackendSuppliesPreviewAndArtifactOrigins() {
+        let configuration = CloudConfiguration.resolve(bundleID: nil,
+            bundled: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.invalid"], process: [:], isDebugBuild: true)
+        #expect(configuration.platformPreviewAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
+        #expect(configuration.artifactsAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
     }
 
-    @Test func refreshNeverAddsAPreviewToTheClassicAPI() async {
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://classic.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-one" }, session: session())
-        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
-            try await api.refreshPreviews("vm-one")
-        }
-        #expect(PreviewAPI.seen.isEmpty)
+    @Test func artifactsOriginFollowsCloudEnvironmentAndDebugOverrides() {
+        let selected = CloudConfiguration.resolve(bundleID: nil,
+            bundled: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.invalid"], process: [:], isDebugBuild: false)
+        #expect(selected.artifactsAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
+    }
+
+    @Test func selectedBackendOwnsPreviewRouting() {
+        let configuration = CloudConfiguration.resolve(bundleID: nil,
+            bundled: ["CMUX_VM_API_BASE_URL": "https://backend.fixture.invalid",
+                      "CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.invalid"],
+            process: [:], isDebugBuild: true)
+        #expect(configuration.platformPreviewAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
     }
 
     @Test func browserPathKeepsTheAuthenticationBootstrapAndItsToken() throws {

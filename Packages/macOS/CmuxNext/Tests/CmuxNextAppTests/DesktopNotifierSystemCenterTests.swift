@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDesign
+@testable import CmuxNextNotifications
 import Testing
 
 /// Which launches post through the system notification center: a user's launch always; an automation

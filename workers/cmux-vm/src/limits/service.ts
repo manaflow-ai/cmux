@@ -4,6 +4,7 @@
  * the memory layer runs the same ledger in process for tests.
  */
 import { SnapshotCaptureResult, type SnapshotCaptureCommand } from "./snapshot-capture.ts";
+import { MeshCreationResult, type MeshCreationCommand } from "./mesh-creation.ts";
 import { Context, Data, Effect, Layer, Schema } from "effect";
 import { GeneratedCreationPage, type GeneratedCreation } from "../domain/generated-creation.ts";
 import type { TenantId } from "../lib/ids.ts";
@@ -26,6 +27,7 @@ import {
 export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ readonly cause: unknown }> {}
 
 export interface TenantLimitsService {
+  readonly meshCreation: (tenantId: TenantId, command: MeshCreationCommand) => Effect.Effect<MeshCreationResult, LimitsUnavailable>;
   readonly quarantineForkClaim: (tenantId: TenantId, key: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly snapshotCapture: (tenantId: TenantId, command: SnapshotCaptureCommand) => Effect.Effect<SnapshotCaptureResult, LimitsUnavailable>;
   readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
@@ -55,6 +57,7 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
+  meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult>;
   quarantineForkClaim(key: string, nowMs: number): Promise<boolean>;
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult>;
   beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean>;
@@ -85,6 +88,9 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     );
   const confirmed = (value: boolean) => value ? Effect.void : Effect.fail(new LimitsUnavailable({ cause: "creation write was not confirmed" }));
   return {
+    meshCreation: (tenantId, command) => call((ledger, now) => ledger.meshCreation(command, now))(tenantId).pipe(
+      Effect.flatMap((value) => Schema.decodeUnknown(MeshCreationResult)(value).pipe(Effect.mapError((cause) => new LimitsUnavailable({ cause })))),
+    ),
     quarantineForkClaim: (tenantId, key) => call((ledger, now) => ledger.quarantineForkClaim(key, now))(tenantId),
     snapshotCapture: (tenantId, command) => call((ledger, now) => ledger.snapshotCapture(command, now))(tenantId),
     beginCreateSend: (tenantId, key, vmId, token) => call((ledger, now) => ledger.beginCreateSend(key, vmId, token, now))(tenantId),
@@ -125,6 +131,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
     makeService((tenantId): LedgerHandle => {
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
+        meshCreation: (command, nowMs) => decoded(MeshCreationResult)(stub.meshCreation(command, nowMs)),
         quarantineForkClaim: (key, nowMs) => decoded(Schema.Boolean)(stub.quarantineForkClaim(key, nowMs)),
         snapshotCapture: (command, nowMs) => decoded(SnapshotCaptureResult)(stub.snapshotCapture(command, nowMs)),
         beginCreateSend: (key, vmId, token, nowMs) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token, nowMs)),

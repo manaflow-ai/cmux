@@ -89,6 +89,7 @@ extension PageWebView {
             return
         }
         // The Chromium page has the keys in its own window: its view is the first responder there.
+        if action == #selector(NSText.paste(_:)) { chromiumPasted() }
         NSApp.sendAction(action, to: nil, from: nil)
     }
 }

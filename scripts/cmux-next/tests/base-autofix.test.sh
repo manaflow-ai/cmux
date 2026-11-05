@@ -69,6 +69,19 @@ bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > 
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
 grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
+# The base autofix rewrites the app-host files from the committed export
+# anyway (app platform checks them against it): #32097 changed the operation
+# catalog while the Mac exports were deferred, and app platform stayed red.
+# The test runner has no bun: a stand-in runs the generator's one write.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho from-stale-export > cmux-tui/crates/cmux-app-host/generated/scopes.json\n' > "$tmp/fakebin/bun"
+chmod +x "$tmp/fakebin/bun"
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
+[[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must still wait for verified action exports"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the base app-host files must not wait for the Mac exports"
+grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
+! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.
@@ -113,4 +126,22 @@ printf '// edited\npublic enum S {}\n' > "$repo/$settings"
 bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
 [[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
 grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
+# --sdk resyncs the SDKs' resource API descriptors after a catalog-only change
+# (#34498 changed resource-operations-v2.json and left every catalog_sha256
+# stale, a base red the PR could not fix: the descriptors are generated). The
+# real sync script runs on a one-operation catalog.
+git -C "$repo" checkout -q -- .
+mkdir -p "$repo/cmux-tui/spec" "$repo/cmux-tui/bindings/rust/scripts"
+cp "$ROOT_DIR/cmux-tui/bindings/rust/scripts/sync-resource-api.py" "$repo/cmux-tui/bindings/rust/scripts/"
+for package in cpp go java python rust typescript zig; do mkdir -p "$repo/cmux-tui/bindings/$package"; done
+printf '{"protocol":"p","operations":{"a.get":{"class":"read"}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm descriptors
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on current descriptors"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "current descriptors must stay unchanged"
+printf '{"protocol":"p","operations":{"a.get":{"class":"read","params":["id"]}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
+grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
 echo "base autofix: ok"

@@ -149,16 +149,22 @@ pub(super) fn call(
     }
 }
 
-/// Prints a refusal: the checkout link of a plan refusal on its own line.
-/// Exit 4 for a plan refusal (a person can act on it), 3 signed out, 1 else.
-pub(super) fn print_refusal(error: &Value, output: OutputMode) -> i32 {
-    let code = error.get("code").and_then(Value::as_str).unwrap_or("error");
-    let exit = match code {
+/// The exit code of a refusal: 4 for a plan refusal (a person can act on
+/// it), 3 signed out, 5 an app without the method, 1 else.
+pub(super) fn refusal_exit(error: &Value) -> i32 {
+    match error.get("code").and_then(Value::as_str).unwrap_or("error") {
         "automation.plan.required" => 4,
         "automation.signed_out" | "not_signed_in" => 3,
         "method_not_found" => 5,
         _ => 1,
-    };
+    }
+}
+
+/// Prints a refusal: the checkout link of a plan refusal on its own line.
+/// Exit as [`refusal_exit`].
+pub(super) fn print_refusal(error: &Value, output: OutputMode) -> i32 {
+    let code = error.get("code").and_then(Value::as_str).unwrap_or("error");
+    let exit = refusal_exit(error);
     if output == OutputMode::Json {
         println!("{}", json!({"ok": false, "error": error}));
         return exit;

@@ -11,7 +11,9 @@ Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` work
 tag's CLI against its daemon). With `--budget-frames N` (which times the warm arm alone unless `--arms` says otherwise) the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
+`link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
+and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -37,6 +39,12 @@ Fleet: cmux-ci run --class exclusive --measurement --label measure --script scri
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
+# `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh passes it through): the fleet entry
+# runs scripts/cmux-next/new-pane-start-state-bench.py on the same tagged app instead, with the same arguments.
+if "--bench=new-pane-start-state" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
 import bench_arms  # noqa: E402
@@ -60,6 +68,7 @@ parser.add_argument("--arms", default=None,
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -71,6 +80,10 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"instant-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+LINK_PAGE = os.path.join(SCRATCH, "link.html")
+open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
+LINK_URL = opts.link_url or "file://" + LINK_PAGE
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser")  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -158,12 +171,29 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command == "new_workspace":
+    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
+    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+        rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+        wait(lambda: len(panes()) <= before_panes, 10)
+        return
     rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
     wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+
+
+def home_dock():
+    """Home shown with its dock alone and focused (`link_home`): `home.show` from a script, as the sidebar's Home row."""
+    if len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True
+    rpc("action.run", {"action": "home.show", "wait": True})
+    return wait(lambda: len(panes()) == 1 and (focused() or {}).get("kind") != "terminal", 10)
+
+
+def ready(command, settle=True):
+    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    return home_dock() if command == "link_home" else ensure_terminal(settle)
 
 
 def focused():
@@ -185,14 +215,18 @@ def ensure_terminal(settle=True):
 
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
-    result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
-    result.update({"phase": phase, "run": index})
-    result.setdefault("command", command)
+    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
+    sent = "link_right" if command == "link_home" else command
+    params = {"action": "bench_create", "command": sent}
+    if sent == "link_right":
+        params["url"] = LINK_URL
+    result = rpc("debug.new_tab", params, timeout=20) or {}
+    result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
           f"err={result.get('error')}", flush=True)
     return result
 
@@ -202,6 +236,8 @@ def arm_quick(window):
     the same command, so it finds the stand-in or spare the first press took. Both results are undone."""
     rows = []
     for command in COMMANDS:
+        if command not in KEYS:
+            continue  # no key (link_right, split_browser): timed by the warm arm alone
         for index in range(opts.quick_runs):
             if not ensure_terminal():
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
@@ -237,8 +273,8 @@ def arm_cold(relaunch):
                 print(f"cold {command} #{index}: launch failed: {error}", flush=True)
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
                 continue
-            if command != "new_workspace" and not ensure_terminal(settle=False):
-                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused terminal"})
+            if command != "new_workspace" and not ready(command, settle=False):
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
             rows.append(timed(command, "cold", index, arm="cold"))
     return rows
@@ -264,8 +300,8 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+            if command != "new_workspace" and not ready(command):
+                sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
                 rpc("debug.hangs", {"clear": True})
@@ -345,6 +381,9 @@ def summary(rows):
                 "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
+                "page_p50": pct([r.get("page_ms") for r in sel], .5),
+                "page_p95": pct([r.get("page_ms") for r in sel], .95),
+                "page_max": pct([r.get("page_ms") for r in sel], 1),
             }
     return out
 
@@ -436,7 +475,7 @@ def main():
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
-                                for metric in ("visible_ms", "confirmed_ms", "key_ms")}
+                                for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())}
                       for command in COMMANDS}
     result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
                           for command, arms in result["arms"].items()}

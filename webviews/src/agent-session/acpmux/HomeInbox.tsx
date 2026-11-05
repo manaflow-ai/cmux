@@ -79,6 +79,7 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   verify: "needsYou.kind.verify",
   held: "needsYou.kind.held",
   input: "needsYou.kind.input",
+  tab: "needsYou.kind.tab",
 };
 
 /// The answers a row gives in place: an approval's allow and deny. A question's choices, a held

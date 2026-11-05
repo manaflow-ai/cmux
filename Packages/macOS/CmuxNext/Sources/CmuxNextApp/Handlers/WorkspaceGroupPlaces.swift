@@ -14,7 +14,7 @@ enum WorkspaceGroupPlaces {
 
     private static func addToSection(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let layout = context.services.sidebarLayout
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = context.services.sidebarDoc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let doc = layout.document
         // The palette and menus pass a section target; the CLI may name it.
         let section = if let target = invocation["section"]?.targetValue {

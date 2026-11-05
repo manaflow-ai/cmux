@@ -216,7 +216,7 @@ jobs:
           fi
           if [[ -x webviews/node_modules/.bin/playwright ]]; then
             cd webviews
-            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+            ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           fi
 
       - name: Install gallery dependencies and browsers
@@ -232,7 +232,7 @@ jobs:
               exit 2
             fi
           fi
-          bunx --no-install playwright install --with-deps chromium webkit
+          bunx --no-install playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
 
       # A script outside the checkout (a capture written to /tmp and run with bun) finds no
@@ -253,7 +253,7 @@ jobs:
             let version = "unknown";
             try { version = require("playwright/package.json").version; } catch {}
             const where = process.env.PLAYWRIGHT_BROWSERS_PATH || "the default browsers path";
-            require("playwright").chromium.launch({ headless: true })
+            require("playwright").chromium.launch({ channel: "chrome", headless: true })
               .then((browser) => browser.close())
               .catch((error) => {
                 const reason = String((error && error.message) || error).split("\n")[0];
@@ -343,13 +343,42 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          try:
+              command_words = shlex.split(command_text)
+          except ValueError:
+              # It is still a valid shell command when the unmatched quote is
+              # inside a comment; leave it on the normal execution path.
+              command_words = []
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          display_command = (
+              command_words[:2] == ['cmux-ci', 'run']
+              and '--display' in command_words
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\n'))
+          )
+          if display_command:
+              result = dict(
+                  source_sha=actual,
+                  source_tree=tree,
+                  head_after=actual,
+                  command_started_at=time.time(),
+                  command_seconds=0,
+                  skipped_display=True,
+                  command=os.environ['FAST_CHECKS_COMMAND'],
+                  run_id=os.environ['GITHUB_RUN_ID'],
+                  cpu_count=os.cpu_count(),
+                  exit_code=0,
+              )
+              print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
+              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              raise SystemExit(0)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(

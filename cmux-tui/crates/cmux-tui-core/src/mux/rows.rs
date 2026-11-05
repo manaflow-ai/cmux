@@ -165,7 +165,7 @@ impl Mux {
         transaction: Option<String>,
     ) -> anyhow::Result<Arc<Surface>> {
         let height = checked_height(height)?;
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;

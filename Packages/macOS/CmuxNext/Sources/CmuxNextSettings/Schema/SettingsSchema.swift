@@ -12,15 +12,15 @@ public nonisolated enum SettingsSchema {
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
         let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + SubsessionSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
-            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
-            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor]
+            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors + RemoteSettingsSchema.descriptors
+            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor] + CmuxConfigSnapshot.imessageDescriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
@@ -61,7 +61,7 @@ public nonisolated enum SettingsSchema {
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["diagnostics.viewHangReport"]
+        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]
@@ -213,6 +213,8 @@ public nonisolated enum SettingsSchema {
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
+        ] + TabSettingsSchema.verticalTabs(group: tabs) + [
+            TabSettingsSchema.hideLoneChatTab(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
         ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(

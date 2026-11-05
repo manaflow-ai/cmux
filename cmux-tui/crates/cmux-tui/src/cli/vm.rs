@@ -17,6 +17,13 @@
 //! name only for that set. `cmux vm` is a hidden alias of `cmux machine` for
 //! every verb; only `vm ls|list` keeps listing the VM API's VMs, as it always did.
 //!
+//! `cmux machine new` is the one way to make a machine. With the cmux app on
+//! this Mac and no VM API credential, it makes the same Cloud machine the
+//! app's New Cloud Machine… does (the app action `cloud new-machine`, whose
+//! old spelling stays as a hidden alias) and prints how to reach it; a flag
+//! only the VM API takes (`--snapshot`, `--image`, …), a credential of its
+//! own, or no app sends it to the VM API as before ([`new_route`]).
+//!
 //! `cmux machine key new` with no credential of its own (no `CMUX_VM_API_KEY`,
 //! no config file) asks the cmux app (`vm.agent_key.create`, the socket's usual
 //! same-process rule) to mint a VM-only agent key with the signed-in session,
@@ -386,6 +393,157 @@ fn prepared(args: &[String]) -> Option<(GlobalArgs, Scope, Vec<String>)> {
     Some((global, scope, rest))
 }
 
+/// Where `cmux machine new` goes: the app's Cloud create, or the VM API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NewRoute {
+    /// The app action `cloud new-machine`: a Cloud machine in the sidebar.
+    App,
+    /// The cmux VM API (cmux-vm's `create`).
+    VmApi,
+}
+
+/// Flags only the app's Cloud create takes (`cmux action describe cloud new-machine`).
+const APP_CREATE_FLAGS: [&str; 6] =
+    ["--size", "--persistent", "--repo", "--machine-config", "--bootstrap", "--bootstrap-script"];
+
+/// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
+const VM_API_CREATE_FLAGS: [&str; 5] =
+    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
+
+/// Where `<scope> new <tail>` goes. `vm new` (the old name) stays the VM
+/// API's. A flag only one side takes picks that side; otherwise a VM API
+/// credential of the caller's own (`has_credential`) keeps it on the VM API,
+/// as it always ran, and with none the app makes it when there is one
+/// (`app_present`), since the VM API would only refuse it for want of a key.
+pub(super) fn new_route(
+    scope: Scope,
+    tail: &[String],
+    has_credential: impl FnOnce() -> bool,
+    app_present: bool,
+) -> NewRoute {
+    if scope == Scope::Vm {
+        return NewRoute::VmApi;
+    }
+    let flags: Vec<&str> = tail
+        .iter()
+        .take_while(|word| *word != "--")
+        .filter(|word| word.starts_with("--"))
+        .map(|word| word.split('=').next().unwrap_or(word))
+        .collect();
+    if flags
+        .iter()
+        .any(|flag| VM_API_CREATE_FLAGS.contains(flag) || CMUX_VM_VALUE_GLOBALS.contains(flag))
+    {
+        return NewRoute::VmApi;
+    }
+    if flags.iter().any(|flag| APP_CREATE_FLAGS.contains(flag)) {
+        return NewRoute::App;
+    }
+    if !app_present || has_credential() {
+        return NewRoute::VmApi;
+    }
+    NewRoute::App
+}
+
+/// `cmux machine new --help`: both routes, the app's first.
+const NEW_HELP: &str = "\
+usage: cmux machine new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
+                        [--repo OWNER/NAME[@REF]] [--machine-config FILE]
+                        [--bootstrap lane --bootstrap-script FILE] [--json]
+
+Make a Cloud machine. With the cmux app signed in, this is the same machine
+File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
+confirm when an agent asks, and it prints the machine's target and how to open
+a terminal, start an agent or run a command there. With no flags it takes the
+app's default size and keeps running when idle; `cmux cloud set-idle-pause`
+sets a pause, and --persistent makes sure none is set.
+
+  cmux machine new
+  cmux machine new --name api-dev --size medium --repo OWNER/NAME
+
+Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
+config file or `cmux machine key new`), it makes a VM API machine instead,
+which also takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
+--public-egress, --idle-timeout SECONDS and --idempotency-key KEY. Run
+`cmux vm new --help` for those.
+
+`cmux cloud new-machine` is the old name of the app route and still works.
+";
+
+/// What a person reads after `cmux machine new` (the app's `cloud new-machine`)
+/// made a machine: its name and target, then the three things one does next,
+/// each with the `--socket` / `--app-socket` this command was routed through so
+/// it reaches the same app. `None` for every other run, for a JSON or quiet
+/// caller, and when a bootstrap or machine config ran: then the full field
+/// table prints, with its status, reason and the commands to check or recover.
+pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) -> Option<String> {
+    if params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = result.get("result")?;
+    let setup_ran = |key: &str| {
+        result.get(key).is_some_and(|setup| {
+            setup.get("status").and_then(Value::as_str).is_none_or(|status| status != "none")
+        })
+    };
+    if setup_ran("bootstrap") || setup_ran("machine_config") {
+        return None;
+    }
+    let cmux = cmux_with_route(global);
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return Some(format!(
+            "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
+             `{cmux} machine list` when it is ready.\n"
+        ));
+    }
+    let id = result.get("machine_id")?.as_str()?;
+    let target = result
+        .get("target")
+        .and_then(Value::as_str)
+        .map_or_else(|| format!("machine:{id}"), str::to_owned);
+    let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
+    let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
+    let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
+    Some(format!(
+        "Created Cloud machine {name}: {status}.\n\n\
+         Next:\n  \
+         open a terminal:  {cmux} cloud ssh --target {target}\n  \
+         start an agent:   {cmux} cloud start-session --target {target} --agent claude\n  \
+         run a command:    {cmux} cloud exec --target {target} --command 'uname -a'\n"
+    ))
+}
+
+/// `cmux` with the socket flags this command was given, shell-quoted and
+/// pinned absolute, so a suggested command reaches the same app.
+fn cmux_with_route(global: &GlobalArgs) -> String {
+    let quote = |word: &str| {
+        if word.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b)) {
+            word.to_owned()
+        } else {
+            format!("'{}'", word.replace('\'', "'\\''"))
+        }
+    };
+    let pinned =
+        |path: &std::path::Path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut words = vec!["cmux".to_owned()];
+    for (flag, path) in [("--socket", &global.socket), ("--app-socket", &global.app_socket)] {
+        if let Some(path) = path {
+            words.push(quote(&format!("{flag}={}", pinned(path).to_string_lossy())));
+        }
+    }
+    words.join(" ")
+}
+
+/// `cmux machine new … --help`: a help flag anywhere before `--` prints
+/// `NEW_HELP` instead of sending `help` to the app or the VM API.
+pub(super) fn new_wants_help(scope: Scope, tail: &[String]) -> bool {
+    scope == Scope::Machine
+        && tail
+            .iter()
+            .take_while(|word| *word != "--")
+            .any(|word| matches!(word.as_str(), "-h" | "--help"))
+}
+
 /// `cmux machine VERB …` for this module's verbs, and `cmux vm …`. `None` for
 /// any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -403,6 +561,27 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Some(words) = cloud_access(rest) {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
+    let env = |name: &str| std::env::var(name).ok();
+    if let [verb, tail @ ..] = rest
+        && matches!(verb.as_str(), "new" | "create")
+    {
+        if new_wants_help(scope, tail) {
+            print!("{NEW_HELP}");
+            return Some(0);
+        }
+        let has_credential =
+            || has_own_credential(&env) || !matches!(cmux_vm::token::read_stored(&env), Ok(None));
+        // A named socket that is not the app's makes `run_cli_action` answer
+        // `None`, and the VM API takes it as before.
+        let app_present = global.app_socket.is_some()
+            || global.socket.is_some()
+            || super::cloud_machines::app_found();
+        if new_route(scope, tail, has_credential, app_present) == NewRoute::App
+            && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
+        {
+            return Some(code);
+        }
+    }
     let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
@@ -414,7 +593,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    let env = |name: &str| std::env::var(name).ok();
     if is_token_create(&plan) && !has_own_credential(&env) {
         return Some(mint_through_app(&global, &plan));
     }
@@ -546,21 +724,20 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
 /// service answered (401 11, 402 12, 403 13, 429 16, 503 18, no answer 3), so
 /// scripts tell the cases apart the same way on either mint path.
 pub(super) fn mint_exit(code: &str, status: Option<u64>) -> i32 {
+    use cmux_cloud_config::agent_key::{Outcome, outcome};
     use cmux_vm::exit;
-    match code {
-        "labs_off" | "no_team" | "feature.disabled" => 3,
-        "not_signed_in" => exit::UNAUTHENTICATED,
-        "plan_required" => exit::PAYMENT_REQUIRED,
-        "forbidden" => exit::FORBIDDEN,
-        "rate_limited" => exit::QUOTA_EXCEEDED,
-        "invalid_params" => exit::USAGE,
-        "method_not_found" => 5,
-        "unavailable" => match status.and_then(|status| u16::try_from(status).ok()) {
-            None | Some(0) => exit::NETWORK,
-            Some(status) if status >= 500 => exit::SERVICE_UNAVAILABLE,
-            Some(status) => exit::for_status(status),
-        },
-        _ => exit::UNEXPECTED,
+    // What each refusal means is the app's and this CLI's shared rule (cmux-cloud-config).
+    match outcome(code, status) {
+        Outcome::Network => exit::NETWORK,
+        Outcome::Unauthenticated => exit::UNAUTHENTICATED,
+        Outcome::PaymentRequired => exit::PAYMENT_REQUIRED,
+        Outcome::Forbidden => exit::FORBIDDEN,
+        Outcome::QuotaExceeded => exit::QUOTA_EXCEEDED,
+        Outcome::Usage => exit::USAGE,
+        Outcome::MethodNotFound => 5,
+        Outcome::ServiceUnavailable => exit::SERVICE_UNAVAILABLE,
+        Outcome::Status(status) => exit::for_status(status),
+        Outcome::Unexpected => exit::UNEXPECTED,
     }
 }
 

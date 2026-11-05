@@ -1,0 +1,105 @@
+{
+  "id": "quit-keep-leaves-terminal-daemons",
+  "priority": "P1",
+  "title": "Quit and Keep Sessions with one idle terminal: 30 s later only that terminal's daemon, its plugin and its host run; the terminal comes back",
+  "why": "R-LIFECYCLE ORPHANS: Quit and Keep Sessions with an idle terminal keeps exactly what holds that terminal (pty-holder.md D1): the app session's daemon, its screen detection plugin and the terminal's host. On build 3a43a131 the Chief owner and its plugin and the acpmux daemon and router also ran on with parent 1 (the cmux-tui daemon's chat notices watch kept acpmux; nothing kept the Chief owner but no rule stopped it). It expects agents off (the capture slot's default): a working agent keeps acpmux by design.",
+  "source": "R-LIFECYCLE ORPHANS (handoff/rewrites/R-LIFECYCLE/DESIGN.md section 8), fleet repro rlc-orphans-base-3..6",
+  "first_in_app": true,
+  "budget_seconds": 150,
+  "steps": [
+    {
+      "do": "fresh_app"
+    },
+    {
+      "do": "key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "open-terminal"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "term",
+      "timeout": 20
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo keep-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "the terminal works",
+      "since": "typed",
+      "timeout": 10,
+      "all": [
+        {
+          "daemon_line": "keep-${nonce}-42"
+        },
+        {
+          "app_text_line": "keep-${nonce}-42"
+        },
+        {
+          "frame_text": "keep-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "quit-keep",
+      "leftovers_after": 30,
+      "mark": "after-keep"
+    },
+    {
+      "do": "expect",
+      "title": "30 s after Quit and Keep Sessions with one idle terminal: only the app session's daemon, its plugin and the terminal's host run",
+      "timeout": 2,
+      "all": [
+        {
+          "quit_leftovers": {
+            "allow": [
+              {
+                "match": "/cmux-tui --headless --session cmux-app-",
+                "why": "the app session's daemon: it holds the kept terminal (pty-holder.md D1)"
+              },
+              {
+                "match": "/cmux-agent-screen-detection$",
+                "why": "that daemon's screen detection plugin; it ends with the daemon (the Chief owner and its plugin must be gone)"
+              },
+              {
+                "match": "(^|/)cmux-tui __terminal-host ",
+                "why": "the kept terminal's host"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "term"
+    },
+    {
+      "do": "expect",
+      "title": "after the reopen the kept terminal is back with its text",
+      "since": "after-keep",
+      "timeout": 45,
+      "all": [
+        {
+          "daemon_line": "keep-${nonce}-42"
+        },
+        {
+          "app_text_line": "keep-${nonce}-42"
+        },
+        {
+          "frame_text": "keep-${nonce}-42"
+        }
+      ]
+    }
+  ]
+}

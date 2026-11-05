@@ -42,6 +42,11 @@ enum ConfirmationStrings {
         String(localized: "confirm.stillRunning", defaultValue: "Still running: \(programs).", table: "Handlers", bundle: .module)
     }
 
+    /// "No answer from: build logs. A program may still be running.", naming closing terminals by their tab titles.
+    static func noAnswer(_ terminals: String) -> String {
+        String(localized: "confirm.noAnswer", defaultValue: "No answer from: \(terminals). A program may still be running.", table: "Handlers", bundle: .module)
+    }
+
     /// "Claude is still working.", naming the agent in the closing terminal.
     static func agentStillWorking(_ agent: String) -> String {
         String(localized: "confirm.agentWorking", defaultValue: "\(agent) is still working.", table: "Handlers", bundle: .module)

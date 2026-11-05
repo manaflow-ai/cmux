@@ -48,6 +48,20 @@ if [ "$TRACK" = nightly-next ]; then
     *) refuse "NIGHTLY_NEXT_WRITER read live is '${writer:-<empty>}', not mac" ;;
   esac
   echo "NIGHTLY_NEXT_WRITER read live: mac; this pipeline publishes nightly-next"
+  # No nightly from a tree whose webview checks are red (check-nightly-webviews, beside the build): #32056's
+  # TS2448 broke every agent pane and was published on 2026-11-02. A refusal publishes nothing; a later green tip does.
+  status=0
+  verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" webview-verdict --source "$SOURCE" \
+    --result "${WEBVIEW_CHECK:-}" --checked-sha "${WEBVIEW_CHECK_SHA:-}" --build-sha "$BUILD_SHA" \
+    --run-id "${RECOVERED_RUN_ID:-}" --repo "$GITHUB_REPOSITORY")" || status=$?
+  [ "$status" = 0 ] || refuse "${verdict:-the webview check verdict is unreadable}"
+  echo "$verdict"
+  # A listed bad commit without its fix (.github/nightly-known-bad.json, read live): held, not a failure.
+  python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" known-bad --repo "$GITHUB_REPOSITORY" --sha "$BUILD_SHA" \
+    --github-output "$RUNNER_TEMP/known-bad.out" || true
+  if grep -qx "skip=true" "$RUNNER_TEMP/known-bad.out" 2>/dev/null; then
+    stand_down "$(sed -n 's/^reason=//p' "$RUNNER_TEMP/known-bad.out")"
+  fi
 fi
 if [ "$SOURCE" = recovered ]; then
   status=0

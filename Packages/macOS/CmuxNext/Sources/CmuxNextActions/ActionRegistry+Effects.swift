@@ -60,8 +60,8 @@ extension ActionRegistry {
             let title = title(for: id) ?? id.rawValue
             track(result: Task { [weak self] in
                 let answer = await result()
-                if case .failure(let failure) = answer, !reported, !failure.shown {
-                    self?.remoteFailureObserver?(id, failedText(title, failure))
+                if case .failure(let failure) = answer, !reported, let notice = failedText(title, failure) {
+                    self?.remoteFailureObserver?(id, notice)
                 }
                 return answer
             })
@@ -83,7 +83,7 @@ extension ActionRegistry {
         // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
         track(Task { [weak self] in
             guard let failure = await work.value else { return nil }
-            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
+            if !reported, let notice = failedText(title, failure) { self?.remoteFailureObserver?(id, notice) }
             return failure
         })
     }
@@ -97,7 +97,7 @@ extension ActionRegistry {
         let task: ActionWork = Task { [weak self] in
             guard let failure = await send() else { return nil }
             rollback?(failure)
-            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
+            if !reported, let notice = failedText(title, failure) { self?.remoteFailureObserver?(id, notice) }
             return failure
         }
         track(task)
@@ -112,17 +112,25 @@ extension ActionRegistry {
     ///   - title: The change's name when the action's title does not say it (a drag says "Move").
     ///   - failure: Why it failed.
     public func reportFailure(of id: ActionID, title: String? = nil, _ failure: ActionWorkFailure) {
-        remoteFailureObserver?(id, failedText(title ?? self.title(for: id) ?? id.rawValue, failure.message))
+        guard let notice = failedText(title ?? self.title(for: id) ?? id.rawValue, failure) else { return }
+        remoteFailureObserver?(id, notice)
+    }
+
+    /// Reports `task`, the daemon half of action `id`, to a capturing caller (a CLI, socket or MCP run awaits it and gets
+    /// the typed failure, ``track(_:)``). A run nobody waits on (keyboard, menu, palette) shows its failure once where a
+    /// failed change shows ("<action> did not apply: <reason>"), unless the person already saw it
+    /// (``ActionWorkFailure/shown``): a person's New Workspace refused on a full disk showed nothing (restore fuzz h3).
+    public func trackOrReport(_ task: ActionWork, as id: ActionID) {
+        if isCapturingWork { return track(task) }
+        // task-owner: one-shot; ends with `task`, and holds the registry weakly.
+        Task { @MainActor [weak self] in
+            guard let self, let failure = await task.value, let notice = failedText(title(for: id) ?? id.rawValue, failure) else { return }
+            remoteFailureObserver?(id, notice)
+        }
     }
 }
 
-/// The notice for a failed remote half (Localizable.xcstrings).
-private func failedText(_ title: String, _ failure: ActionWorkFailure) -> String {
-    // A typed refusal (the pane is still opening) is already the person's sentence; a daemon error gets its frame.
-    if failure.refusal != nil { return failure.message }
-    return failedText(title, failure.message)
-}
-
-private func failedText(_ title: String, _ reason: String) -> String {
-    String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .module), title, reason)
+/// The notice for a failed remote half, or nil when it goes to the log only (``ActionWorkFailure/notice(title:)``).
+private func failedText(_ title: String, _ failure: ActionWorkFailure) -> String? {
+    failure.notice(title: title)
 }

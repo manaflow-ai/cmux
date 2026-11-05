@@ -191,11 +191,16 @@ struct SidebarAgentRowPresentationTests {
 
     @MainActor
     @Test func legacyDefaultLookingUserNamesRespectDaemonCompatibility() throws {
-        for legacy in [false, true] {
-            let workspace = try fixture(name: "workspace-7", nameSource: .user, nameRevision: 0)
-            let turns = turnStore(title: nil, generatedTitle: nil)
-            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
-                        allowsLegacyDefaults: legacy).title == (legacy ? "Review the release" : "workspace-7"))
+        for name in ["workspace-7", "~"] {
+            for legacy in [false, true] {
+                let workspace = try fixture(name: name, nameSource: .user, nameRevision: 0)
+                let turns = turnStore(title: nil, generatedTitle: nil)
+                // #26719 heals never-renamed numbered defaults regardless of daemon capability.
+                // Other legacy defaults still follow the capability's naming provenance.
+                let expected = name == "workspace-7" || legacy ? "Review the release" : name
+                #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
+                            allowsLegacyDefaults: legacy).title == expected)
+            }
         }
     }
 
@@ -217,6 +222,22 @@ struct SidebarAgentRowPresentationTests {
         let workspace = try fixture(nameSource: .auto, freeFormPrompt: true)
         let turns = turnStore(title: "Implement the adapter and report the result.", generatedTitle: nil)
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
+    }
+
+    /// An unnamed chat whose title was never generated reads as its tab does, not as the daemon's default
+    /// (Leo, 2026-11-05: "this workspace didn't inherit the agent chat name. Like it's still just called
+    /// Workspace whatever."). Its generated title replaces that once it arrives; a rename still wins.
+    @MainActor
+    @Test func anUnnamedChatWithoutAGeneratedTitleNamesItsRowAsItsTab() throws {
+        let workspace = try fixture(name: "workspace-347", nameSource: .auto, freeFormPrompt: true)
+        let placeholder = turnStore(title: "can u try doing the workflow here", generatedTitle: nil, sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title
+            == "can u try doing the workflow here")
+        let titled = turnStore(title: "Run the workflow", generatedTitle: "Run the workflow", sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: titled).title == "Run the workflow")
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: false, turns: placeholder).title == "workspace-347")
+        let renamed = try fixture(name: "workspace-347", nameSource: .user, nameRevision: 1, freeFormPrompt: true)
+        #expect(row(renamed, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title == "workspace-347")
     }
 
     @MainActor

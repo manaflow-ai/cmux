@@ -28,7 +28,7 @@ export const CHANGES_SHOWN = 5;
 /// Lines a pull request adds and removes in one kind of file.
 export type LineCounts = { readonly additions: number; readonly deletions: number };
 export type ChangeKind = "code" | "tests" | "generated" | "docs";
-const KINDS: readonly ChangeKind[] = ["code", "tests", "generated", "docs"];
+export const KINDS: readonly ChangeKind[] = ["code", "tests", "generated", "docs"];
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
   code: "sessionInfo.changes.code",
   tests: "sessionInfo.changes.tests",
@@ -218,6 +218,7 @@ function PullRequestRow({
   const state = glyphState(pr, live);
   const title = live.title ?? pr.title;
   const repoName = pr.repo.split("/").pop() ?? pr.repo;
+  const shortReference = `${repoName} #${pr.number}`;
   const reference = `${pr.repo}#${pr.number}`;
   const checks = ended(state) ? undefined : live.checks;
   const failing = ended(state) ? 0 : (live.failing ?? (checks === "failing" ? -1 : 0));
@@ -249,7 +250,13 @@ function PullRequestRow({
         <span className="acpmux-session-info-pr__text">
           {/* The owner sits beside the title, so the line under it keeps the row's whole width. */}
           <span className="acpmux-session-info-pr__head">
-            <span className="acpmux-session-info-pr__title">{title || `#${pr.number}`}</span>
+            {/* Untitled, the reference is the title, said once: never `#N` over `repo #N` (Leo
+                2026-10-21: "#23377 / cmux #23377"). */}
+            {title ? (
+              <span className="acpmux-session-info-pr__title">{title}</span>
+            ) : (
+              <span className="acpmux-session-info-pr__title acpmux-session-info-pr__ref">{shortReference}</span>
+            )}
             {live.owner && (
               <span className="acpmux-session-info-pr__owner">
                 <span className="acpmux-session-info-sr-only">{t("sessionInfo.changes.ownerLabel")} </span>
@@ -258,7 +265,7 @@ function PullRequestRow({
             )}
           </span>
           <span className="acpmux-session-info-pr__line">
-            <span className="acpmux-session-info-pr__ref">{`${repoName} #${pr.number}`}</span>
+            {title && <span className="acpmux-session-info-pr__ref">{shortReference}</span>}
             {live.additions !== undefined && live.deletions !== undefined && (
               <LineTotals additions={live.additions} deletions={live.deletions} breakdown={live.breakdown} />
             )}
@@ -322,7 +329,7 @@ function PullRequestRow({
         href={pr.url}
         anchor={anchor}
         hover={hover}
-        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        mark={<GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" />}
         siteTitle={site?.title}
         pullRequest={{ repo: pr.repo, number: pr.number, title: title || undefined, state }}
         side="top"

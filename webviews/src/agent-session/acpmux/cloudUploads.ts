@@ -9,21 +9,25 @@ export type UploadCancelled = ((index: number) => boolean) & {
   subscribe?(index: number, changed: () => void): () => void;
 };
 
-export type UploadResult = { paths: string[] } | { error: string } | undefined;
+/// `final`: the host refused the file outright (the app could not save it), so trying again would
+/// fail the same way; any other error (a link down, a timeout) may pass on the next try.
+export type UploadResult =
+  | { paths: string[] }
+  | { paths: string[]; error: string; final?: boolean }
+  | { error: string; final?: boolean }
+  | undefined;
 /// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
 export type UploadProgressReport = (index: number, done: number) => void;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
+/// Host error codes that fail the same way every time: the app could not save the file.
+const REFUSED = new Set(["io", ...NOT_TAKEN]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
-
-/// How long one staging step (begin or one chunk) may wait for the host. The native finish keeps its
-/// own bounded idle/per-chunk deadline while streaming, so elapsed transfer time has no page cap.
-export const UPLOAD_STEP_DEADLINE_MS = 30_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
 /// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
-export function callWithin(call: Call, ms: number | null = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
+export function callWithin(call: Call, ms: number | null = null, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
@@ -92,6 +96,17 @@ function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
 
+/// The answer for a failed upload: its words, and whether the host refused it outright.
+function uploadError(error: unknown, paths?: string[]): UploadResult {
+  const text = error instanceof Error ? error.message : String(error);
+  const failure = REFUSED.has((error as { code?: string } | null)?.code ?? "")
+    ? { error: text, final: true }
+    : { error: text };
+  return paths?.some(Boolean)
+    ? { paths: Array.from({ length: paths.length + 1 }, (_, index) => paths[index] ?? ""), ...failure }
+    : failure;
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -142,18 +157,18 @@ export async function uploadToMachine(
           return { error: translate("upload.hostTooLarge") };
         return legacyUpload(files, call, cancelled);
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error, paths);
     }
     begun = true;
     const begin = object(started);
     if (index === 0 && typeof begin.batchToken === "string" && begin.batchToken) batchToken = begin.batchToken;
     const token = begin.token;
-    if (typeof token !== "string" || !token) return { error: translate("upload.notStarted") };
+    if (typeof token !== "string" || !token) return uploadError(new Error(translate("upload.notStarted")), paths);
     const controller = new AbortController();
     const unsubscribe = cancelled.subscribe?.(index, () => {
       if (cancelled(index)) controller.abort();
     });
-    const step = callWithin(host, UPLOAD_STEP_DEADLINE_MS, controller.signal);
+    const step = callWithin(host, null, controller.signal);
     const finishCall = callWithin(host, null, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)
@@ -173,20 +188,20 @@ export async function uploadToMachine(
       const [path, extra] = uploadedPaths(await finishCall("chat.upload.finish", { token }));
       if (!path || extra) throw new Error(translate("upload.notCompleted"));
       if (cancelled(index)) throw CANCELLED;
-      paths.push(path);
+      paths[index] = path;
     } catch (error) {
       // Keep cancellation owned until the host has stopped reading and removed its stage.
       await call("chat.upload.cancel", { token }).catch(() => undefined);
       if (error === CANCELLED) {
-        paths.push("");
+        paths[index] = "";
         continue;
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error, paths);
     } finally {
       unsubscribe?.();
     }
   }
-  return { paths };
+  return { paths: paths.map((path) => path ?? "") };
 }
 
 /// An older host's one-frame upload (24 MiB at most): it cannot stop once sent, so a file cancelled

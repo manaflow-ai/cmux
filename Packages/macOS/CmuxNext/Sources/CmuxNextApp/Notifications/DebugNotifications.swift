@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextNotifications
 import CmuxNextSettings
 
 /// `debug.notifications`: unread tabs with their source, the attention marks

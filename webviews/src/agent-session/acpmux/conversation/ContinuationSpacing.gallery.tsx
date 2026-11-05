@@ -64,7 +64,7 @@ export default componentEntry<Props>({
   variants: {
     shipped: {
       props: {},
-      note: "Selected: half the turn gap (the shared 8px message gap); speaker changes keep 16px.",
+      note: "Shipped: the grid's block gap (24) between one agent's replies and before another agent's line, the turn gap (32) before a prompt (design/grid.md 5.5, #27580).",
     },
     "two-thirds": {
       props: { gap: "calc(var(--cv-turn-gap) * 2 / 3)" },

@@ -276,11 +276,18 @@ pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<S
 }
 
 /// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
-/// `now_ms`: its own `hold` (`hold`), else a top-level `reservations` entry naming it
+/// `now_ms`: its `retired` flag, its own `hold` (`hold`), else a top-level `reservations` entry naming it
 /// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
 /// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
 /// reads them).
 fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> Option<String> {
+    // A machine the registry marks `retired` (true, or when and why) is gone for good; route-matrix and
+    // lane-place skip the same flag.
+    match machine.get("retired") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => {}
+        Some(Value::String(s)) if !s.trim().is_empty() => return Some(format!("retired: {s}")),
+        Some(_) => return Some("retired".into()),
+    }
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
@@ -626,7 +633,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             w.refused.as_deref().unwrap_or_default()
         ),
         Some(w) => format!("{}: {}", w.name, w.why),
-        None => "no host has room for this; `acpmux host place --json` says why each was refused"
+        None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
             .to_owned(),
     };
     json!({

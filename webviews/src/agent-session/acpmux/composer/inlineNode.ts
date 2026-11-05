@@ -9,8 +9,15 @@
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
-import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
+import {
+  type EditorState,
+  NodeSelection,
+  Plugin,
+  Selection,
+  TextSelection,
+  type Transaction,
+} from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet, type EditorView, type NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
 import {
   escapeTextMarks,
@@ -157,12 +164,77 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
   return tr.docChanged ? tr : null;
 }
 
+/// A chip's face: the button that covers its picture, sheet or page and opens it on a click
+/// (attachmentIntake.tsx AttachmentChip, VideoAttachmentTile, inlineAttachments.tsx). A press on it
+/// that moves is the chip's drag, as anywhere else on the chip (Leo, 2026-11-02: "I can't drag to
+/// reorder these inline attachments very easily anymore"); a press that stays is its click.
+const CHIP_FACE =
+  ".acpmux-attachment-open, .acpmux-attachment-pasted-open, .acpmux-attachment-document-open, .acpmux-text-card__open";
+
+/// A drag's own events: the editor's wherever they land on a chip, its buttons too, so a chip dragged
+/// over another one's thumbnail or × still drops into the text there.
+const DRAG_EVENTS = new Set(["dragstart", "drag", "dragend", "dragenter", "dragover", "dragleave", "drop"]);
+
+/// The button `target` is in, inside a chip's element `dom`; none for the chip itself.
+const buttonIn = (target: EventTarget | null, dom: HTMLElement) =>
+  target instanceof Element && target !== dom ? target.closest("button") : null;
+
+/// Whether `target` is one of a chip's small controls (its ×, Retry): every button but its face.
+const onControl = (target: EventTarget | null, dom: HTMLElement) => {
+  const button = buttonIn(target, dom);
+  return Boolean(button && !button.matches(CHIP_FACE));
+};
+
+/// A placed attachment dragged in the text and dropped on another one: it goes before that chip or
+/// after it, by which half of it the pointer is over (in the text's direction). WebKit, the app's
+/// engine, reads no caret over a draggable chip, and ProseMirror then puts every drop on a chip
+/// before it, so a chip dragged onto its right-hand neighbour never moved. False for any other drop,
+/// which ProseMirror places.
+export function dropOnChip(view: EditorView, event: DragEvent, moved: boolean): boolean {
+  // ProseMirror keeps the dragged node's selection on `dragging` (its Dragging class); its types omit it.
+  const dragging = (view.dragging as { node?: NodeSelection } | null)?.node;
+  if (!moved || !(dragging instanceof NodeSelection) || dragging.node.type.name !== INLINE_NODE) return false;
+  const under = view.dom.ownerDocument.elementFromPoint(event.clientX, event.clientY);
+  const chip = under?.closest<HTMLElement>("[data-inline-attachment]");
+  if (!chip || !view.dom.contains(chip)) return false;
+  const target = inlineNodes(view.state.doc).find(({ pos }) => view.nodeDOM(pos) === chip);
+  if (!target || target.pos === dragging.from) return false;
+  const box = chip.getBoundingClientRect();
+  const rtl = view.dom.ownerDocument.defaultView?.getComputedStyle(chip).direction === "rtl";
+  const after = event.clientX > box.left + box.width / 2 !== rtl;
+  const tr = view.state.tr.delete(dragging.from, dragging.to);
+  const at = tr.mapping.map(after ? target.pos + 1 : target.pos);
+  tr.insert(at, dragging.node);
+  tr.setSelection(NodeSelection.create(tr.doc, at));
+  event.preventDefault();
+  view.focus();
+  view.dispatch(tr.setMeta("uiEvent", "drop"));
+  return true;
+}
+
 function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeView {
   const id = idOf(node);
   const dom = view.dom.ownerDocument.createElement("span");
   dom.className = "acpmux-md-inline";
   dom.contentEditable = "false";
   dom.dataset.inlineAttachment = id;
+  // A press on the × or Retry that moves never drags the chip out from under it: the press is the
+  // control's (the node is draggable, so the browser would start one from anywhere inside it). The
+  // drag's own target is the chip's element, never the control, so the press says where it began.
+  // Both press events: WebKit sends no pointerdown for a press right after a drag, only mousedown.
+  let pressOnControl = false;
+  const press = (event: Event) => {
+    pressOnControl = onControl(event.target, dom);
+  };
+  dom.addEventListener("pointerdown", press, true);
+  dom.addEventListener("mousedown", press, true);
+  dom.addEventListener("dragstart", (event) => {
+    if (pressOnControl || onControl(event.target, dom)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    pressOnControl = false;
+  });
   views.add(id, dom);
   return {
     dom,
@@ -170,11 +242,83 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
     update: (next) => next.type === node.type && idOf(next) === id,
     // The chip drawn inside is the composer's.
     ignoreMutation: () => true,
-    // Its buttons (×, Retry, open) are the chip's; a press elsewhere on it selects the node.
-    stopEvent: (event) =>
-      event.target instanceof Element && event.target !== dom && Boolean(event.target.closest("button")),
+    // Its buttons (×, Retry, open) are the chip's. A press on its face (the open button over the
+    // whole thumbnail) is the editor's too, so the chip drags from anywhere on it; its click stays the
+    // face's (`handleClickOn` below). A press elsewhere on it selects the node.
+    stopEvent: (event) => {
+      if (DRAG_EVENTS.has(event.type)) return false;
+      const button = buttonIn(event.target, dom);
+      if (!button) return false;
+      return !(event.type === "mousedown" && button.matches(CHIP_FACE));
+    },
     destroy: () => views.remove(id, dom),
   };
+}
+
+/// A piece of a selection as a copy carries it (composer/composerCopy.ts): a run of its text, as the
+/// field copies text (a line or block break a newline), or a placed attachment, by id.
+export type SelectionPart = { text: string } | { id: string };
+
+/// Stands in for each placed attachment while the selection's text is read: a private-use character,
+/// never in a node's text the field's own copy writes (`selectionParts`).
+const PART_MARK = "\uE000";
+
+/// The selection of `state` as its runs of text and its placed attachments, in order. Text runs
+/// read as the field's own copy does (MarkdownField `copiedText`).
+export function selectionParts(state: EditorState): SelectionPart[] {
+  const { from, to } = state.selection;
+  const ids: string[] = [];
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) ids.push(idOf(node));
+  });
+  const text = state.doc.textBetween(from, to, "\n", (leaf) =>
+    leaf.type.name === INLINE_NODE ? PART_MARK : (leaf.type.spec.leafText?.(leaf) ?? ""),
+  );
+  const parts: SelectionPart[] = [];
+  text.split(PART_MARK).forEach((run, index) => {
+    const id = index > 0 ? ids[index - 1] : undefined;
+    if (id !== undefined) parts.push({ id });
+    if (run) parts.push({ text: run });
+  });
+  return parts;
+}
+
+/// Whether the selection of `state` holds the whole draft: Select All, or a drag from its start to
+/// its end.
+export function wholeSelected(state: EditorState): boolean {
+  const { selection, doc } = state;
+  if (selection.empty) return false;
+  return selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to;
+}
+
+/// The placed attachments inside a selection wear the selection's tint, as its text does: a chip is
+/// not text, so the browser's own highlight passes over it (Leo, 2026-11-01: "select all in composer
+/// which also selects all the attachments").
+function selectedDecorations(state: EditorState): DecorationSet | null {
+  const { selection, doc } = state;
+  if (selection.empty) return null;
+  const marks: Decoration[] = [];
+  doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+    if (node.type.name === INLINE_NODE)
+      marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "acpmux-md-inline-selected" }));
+  });
+  return marks.length ? DecorationSet.create(doc, marks) : null;
+}
+
+/// Which way a key moves the caret through the document by one character: -1 back, 1 forward, 0
+/// for any other key. Left and Right follow the text's direction at the caret, as ProseMirror's own
+/// arrows do; the Mac's Ctrl-B and Ctrl-F always go back and forward.
+function horizontalStep(view: EditorView, event: KeyboardEvent): -1 | 0 | 1 {
+  if (event.isComposing || event.metaKey || event.altKey || event.shiftKey) return 0;
+  if (event.ctrlKey) {
+    if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return 0;
+    return event.code === "KeyB" ? -1 : event.code === "KeyF" ? 1 : 0;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return 0;
+  const { node } = view.domAtPos(view.state.selection.head);
+  const at = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const rtl = at ? view.dom.ownerDocument.defaultView?.getComputedStyle(at).direction === "rtl" : false;
+  return (event.key === "ArrowLeft") !== rtl ? -1 : 1;
 }
 
 export function inlinePlugin(views: InlineViews) {
@@ -182,8 +326,31 @@ export function inlinePlugin(views: InlineViews) {
     () =>
       new Plugin({
         props: {
+          decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
+          // A click on a chip's face opens it (its own handler) and leaves the selection where it
+          // was: the press that started it is the editor's only so the chip can be dragged.
+          handleDrop: (view, event, _slice, moved) => dropOnChip(view, event, moved),
+          handleClickOn: (_view, _pos, node, _nodePos, event) =>
+            node.type.name === INLINE_NODE &&
+            event.target instanceof Element &&
+            Boolean(event.target.closest("button")),
           handleKeyDown: (view, event) => {
+            // Left and Right step over a placed attachment as over one character, never selecting it
+            // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
+            // treat them like it's one character"), as do the Mac's Ctrl-B and Ctrl-F. ProseMirror's
+            // own Shift+arrow already extends over it as one unit.
+            const step = horizontalStep(view, event);
+            if (step !== 0) {
+              const { selection } = view.state;
+              if (!selection.empty || !(selection instanceof TextSelection)) return false;
+              const { $head } = selection;
+              const adjacent = $head.textOffset ? null : step < 0 ? $head.nodeBefore : $head.nodeAfter;
+              if (adjacent?.type.name !== INLINE_NODE) return false;
+              const to = $head.pos + step * adjacent.nodeSize;
+              view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
+              return true;
+            }
             if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;

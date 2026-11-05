@@ -2,6 +2,9 @@
 # nightly.yml publish-nightly-identity-legacy: "Generate the old feed's appcast".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# Rewritten from the verdicts below (nightly_next_ring.py legacy).
 set -euo pipefail
 SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
 export SPARKLE_PRIVATE_KEY

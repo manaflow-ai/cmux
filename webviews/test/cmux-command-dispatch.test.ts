@@ -49,9 +49,9 @@ test("valid commands retain their actions", () => {
 });
 
 test("Claude terminal-only commands retain their harness and attachment boundary", () => {
-  expect(composerCommand("/login", "claude")?.kind).toBe("cliOnly");
-  expect(composerCommand("/login", "codex")).toBeUndefined();
-  expect(composerCommand("/login", "claude", 1)).toBeUndefined();
+  expect(composerCommand("/logout", "claude")?.kind).toBe("cliOnly");
+  expect(composerCommand("/logout", "codex")).toBeUndefined();
+  expect(composerCommand("/logout", "claude", 1)).toBeUndefined();
 });
 
 test("GUI commands the harness also takes are cmux's, never refused, and sent as typed without a host", () => {

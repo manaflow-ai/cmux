@@ -69,6 +69,9 @@ impl Hub {
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        // Deferred startup must restore ownership epochs before the move watchdog can issue an
+        // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
+        self.watch_transfers();
         // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
         self.logs_ready.send_replace(true);
         self.forget_pair_peers();
@@ -165,6 +168,10 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            session.invalidate_ownership_epoch();
+            tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
+        }
         self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
@@ -179,6 +186,8 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        // A copy's first start runs none of what waited (`clone_boot.rs`).
+        self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
@@ -289,13 +298,18 @@ impl Hub {
         }
         // Scan the whole log: a long turn can stream far more records
         // than any fixed tail window after its `turn_started`.
-        let mut open: Option<(u64, Value)> = None;
+        let mut open: Option<(u64, Value, Value, bool)> = None;
         let kinds = ["turn_started", "turn_result"];
         self.store
             .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                        open = Some((
+                            e.seq,
+                            e.msg.get("turnId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("promptId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("trigger") == Some(&Value::Bool(true)),
+                        ))
                     }
                     "turn_result" => open = None,
                     _ => {}
@@ -303,10 +317,26 @@ impl Hub {
                 true
             })
             .ok()?;
-        let (seq, turn_id) = open?;
+        let open = open?;
+        // A copy's first start: stopped, not continued (`clone_boot.rs`).
+        if let Some(from) = self.clone_of() {
+            self.settle_cloned_turn(session, from, open);
+            return None;
+        }
+        let (seq, turn_id, prompt_id, trigger) = open;
         let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
-        let error = "the daemon restarted before this turn settled";
-        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+        let error = if trigger {
+            "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
+        } else {
+            "the daemon restarted before this turn settled"
+        };
+        if trigger {
+            self.append(session, "mux", super::background_turn::RECORD_KIND, json!({
+                "state":"ended", "id":format!("bg-trigger-{}", turn_id.as_str().unwrap_or_default()),
+                "trigger":"system", "quiet":false, "reason":"exit"
+            }));
+        }
+        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error}));
         self.save_meta(session);
         continued
     }
@@ -337,5 +367,31 @@ pub(crate) struct AdoptionReady<'a>(pub(crate) &'a tokio::sync::watch::Sender<bo
 impl Drop for AdoptionReady<'_> {
     fn drop(&mut self) {
         self.0.send_replace(true);
+    }
+}
+
+/// Tests: a one-shot note a thread sends when it reaches a point of the catch-up
+/// (`Hub::catch_up`): a test knows from it where that thread is, with no timer.
+#[cfg(test)]
+pub(crate) type CatchUpNote = std::cell::RefCell<Option<std::sync::mpsc::Sender<&'static str>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread says so, once, when its catch-up of a chat is under way (past the check
+    /// that the chat is not caught up yet, before it counts the tail).
+    pub(crate) static NOTE_IN_CATCH_UP: CatchUpNote = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before its catch-up takes the chat's append lock.
+    pub(crate) static NOTE_BEFORE_CATCH_UP_LOCK: CatchUpNote =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: this thread's replay (`Hub::scan_events`) says so, once, right before it reads the
+    /// log, past its catch-up or its skip of it.
+    pub(crate) static NOTE_BEFORE_REPLAY_SCAN: CatchUpNote = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: sends `what` on the note in `slot`, if this thread has one, and drops the note.
+#[cfg(test)]
+pub(super) fn catch_up_note(slot: &'static std::thread::LocalKey<CatchUpNote>, what: &'static str) {
+    if let Some(note) = slot.with(|note| note.borrow_mut().take()) {
+        let _ = note.send(what);
     }
 }

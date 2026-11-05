@@ -51,8 +51,20 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     const lock = readInputsLock();
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
+    // One source of truth: the native bake installs the lock's claude, the devbox image the Dockerfile's
+    // CMUX_IMAGE_CLAUDE_CODE_VERSION. A lock left behind shipped 2.1.267, which the API refuses (2.1.280 or newer).
+    const dockerfile = readFileSync(new URL("../services/vms/images/devbox/Dockerfile", import.meta.url), "utf8");
+    const pin = /^ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
+    const claude = readInputsLock().programs.find((p) => p.name === "claude");
+    expect(pin).toBeDefined();
+    expect(claude?.version).toBe(pin);
+    expect(claude?.expect).toBe(pin);
+    expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
@@ -65,6 +77,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);

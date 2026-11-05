@@ -14,6 +14,8 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   globalSetup: "./e2e/dashboard/global-setup.ts",
   use: {
+    // System Google Chrome: Playwright's bundled Chromium lacks recent security fixes (webviews/test/support/systemChrome.ts).
+    channel: "chrome",
     baseURL: process.env.CMUX_WEB_TEST_BASE_URL ?? "http://localhost:4389",
     storageState: "./e2e/dashboard/.auth/state.json",
     trace: "retain-on-failure",

@@ -60,7 +60,27 @@ import Testing
         #expect(first?.fields["origin"] == "cli")
     }
 
-    @Test(arguments: ["automation.create", "automation.update", "automation.delete", "automation.run"])
+    /// Teleport (docs/automations-teleport-teams.md): the accept, fence, release and abort steps are
+    /// keyed mutations, and the audit log is a read, so `cmux automation teleport|audit` reach Cloud.
+    @Test(arguments: ["automation.import", "automation.teleport.begin", "automation.teleport.complete", "automation.teleport.abort"])
+    func teleportStepsGoToV1OpsWithTheirKey(op: String) async {
+        let recorder = Recorder()
+        let answer = Self.object(await Self.relay(recorder, reply: #"{"ok":true,"value":{"id":"auto_x"}}"#)
+            .forward(Self.data(["op": op, "params": ["automation": "auto_x"], "idempotency_key": "teleport:tp_1"])))
+        #expect(answer["ok"] as? Bool == true)
+        let first = await recorder.first
+        #expect(first?.path == "v1/ops")
+        #expect(first?.fields["idempotency_key"] == "teleport:tp_1")
+    }
+
+    @Test func theAuditLogIsARead() async {
+        let recorder = Recorder()
+        _ = await Self.relay(recorder, reply: #"{"ok":true,"value":{"entries":[]}}"#)
+            .forward(Self.data(["op": "automation.audit.list", "params": [String: Any]()]))
+        #expect(await recorder.first?.path == "v1/read")
+    }
+
+    @Test(arguments: ["automation.create", "automation.update", "automation.delete", "automation.run", "automation.import", "automation.teleport.begin"])
     func aMutationWithoutAKeyIsRefusedBeforeAnyCall(op: String) async {
         let recorder = Recorder()
         let answer = Self.object(await Self.relay(recorder, reply: "{}").forward(Self.data(["op": op, "params": [String: Any]()])))

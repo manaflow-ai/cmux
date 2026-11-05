@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextPages
 import Testing
 
 /// 2026-10-31 (Lawrence, "what's new page looks bad"): the What's New page opens as the What's New

@@ -80,12 +80,17 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
-    /// Agent work's spinner (the agent working-state mark): the macOS activity indicator's spokes,
-    /// stepping round one spoke at a time on the shared clock. It replaced a 3/4 arc turning
-    /// smoothly (Leo 2026-11-01: "who even decided to put that 3/4 circle"); loading (a page, a
-    /// command) keeps its arc.
+    /// The agent working-state mark's glyph: the original thin 3/4 arc (`StatusIndicatorConfig.arcLength`
+    /// of the circle at the indicator's thickness, no track), turning smoothly once per spinner period
+    /// on the shared clock, as at e2e596e4b69a~1 (Lawrence msg 19638: "we need it to be reverted back
+    /// to original state"). #29903's spokes, #31455's sweep and #32730's heavier ring are taken back;
+    /// changing it needs Lawrence's ask. The spokes stay only as the explicit "macOS Spinner" style.
+    public static let workingGlyph: Glyph = .arc
+
+    /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
+    /// working row moves in phase (#29903).
     public static func working(tint: Tint) -> StatusIndicatorPlan {
-        StatusIndicatorPlan(glyph: .native, animation: .step, tint: tint)
+        StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: tint)
     }
 
     /// The plan for `state` in `style`. `animates` is false while the host
@@ -108,7 +113,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
             // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc;
             // the working dot stays a dot.
-            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == .native { plan.glyph = .mark(.vector(.idle)) }
+            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == workingGlyph { plan.glyph = .mark(.vector(.idle)) }
         }
         return plan
     }
@@ -147,7 +152,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             }
             switch style {
             case .none: return .hidden
-            case .arc: return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
+            // The working mark's arc, so a check or a page loading turns the one spinner (webviews/test/one-spinner.test.ts).
+            case .arc: return StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: .loading)
             case .native: return StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading)
             case .dot: return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading)
             case .braille: return StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading)

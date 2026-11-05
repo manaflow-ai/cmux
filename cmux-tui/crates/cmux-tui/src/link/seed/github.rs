@@ -59,8 +59,8 @@ pub(super) fn redact(url: &str) -> String {
 }
 
 fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
+    let (head, rest) = text.split_at_checked(prefix.len())?;
+    head.eq_ignore_ascii_case(prefix).then_some(rest)
 }
 
 fn valid_owner(owner: &str) -> bool {

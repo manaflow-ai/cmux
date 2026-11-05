@@ -6,7 +6,7 @@
 // is a row like the others, in its pending state, with no label saying it comes next (Leo,
 // 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"). A running agent is a
 // spinner, never a pulsing dot.
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { compactTokens } from "../conversation/CompactionNote";
 import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
@@ -52,33 +52,27 @@ export function WorkflowTasks({
   const now = useNow(running.length > 0);
   return (
     <div className="acpmux-workflow-tasks">
-      {/* A group's count only when both groups show: the section's own head already counts what runs. */}
-      {running.length > 0 && finished.length > 0 && (
-        <h4 className="acpmux-workflow-tasks__group">{t("rail.running", { count: running.length })}</h4>
-      )}
-      {running.map((workflow) => (
-        <WorkflowTask
-          key={workflow.id}
-          workflow={workflow}
-          now={now}
-          onStop={onStop}
-          onOpenSubagent={onOpenSubagent}
-          onOpenWorkflowAgent={onOpenWorkflowAgent}
-          agentRowVariant={agentRowVariant}
-        />
-      ))}
-      {running.length > 0 && finished.length > 0 && (
-        <h4 className="acpmux-workflow-tasks__group">{t("rail.finished", { count: finished.length })}</h4>
-      )}
-      {finished.map((workflow) => (
-        <WorkflowTask
-          key={workflow.id}
-          workflow={workflow}
-          now={now}
-          onOpenSubagent={onOpenSubagent}
-          onOpenWorkflowAgent={onOpenWorkflowAgent}
-          agentRowVariant={agentRowVariant}
-        />
+      {/* One keyed list preserves phase disclosure and row identity across lifecycle changes. */}
+      {[...running, ...finished].map((workflow, index) => (
+        <Fragment key={workflow.id}>
+          {/* Only mixed groups need headings; the section already counts what runs. */}
+          {running.length > 0 && finished.length > 0 && (index === 0 || index === running.length) && (
+            <h4 className="acpmux-workflow-tasks__group">
+              {index === 0
+                ? t("rail.running", { count: running.length })
+                : t("rail.finished", { count: finished.length })}
+            </h4>
+          )}
+          <WorkflowTask
+            workflow={workflow}
+            now={now}
+            finishedHeadingShown={running.length > 0 && finished.length > 0}
+            onStop={isRunning(workflow) ? onStop : undefined}
+            onOpenSubagent={onOpenSubagent}
+            onOpenWorkflowAgent={onOpenWorkflowAgent}
+            agentRowVariant={agentRowVariant}
+          />
+        </Fragment>
       ))}
     </div>
   );
@@ -100,6 +94,7 @@ const tokensLabel = (t: Translate, tokens: number) =>
 function WorkflowTask({
   workflow,
   now,
+  finishedHeadingShown,
   onStop,
   onOpenSubagent,
   onOpenWorkflowAgent,
@@ -107,6 +102,7 @@ function WorkflowTask({
 }: {
   workflow: WorkflowSummary;
   now: number;
+  finishedHeadingShown: boolean;
   onStop?: (id: string) => Promise<unknown>;
   onOpenSubagent?: (id: string) => void;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
@@ -118,21 +114,22 @@ function WorkflowTask({
   const elapsed =
     workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
   const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
-  // Running: what its agents do now. Finished: that it was a workflow, how it ended and its size.
+  // Running: what its agents do now. Finished: how it ended and its size.
+  const status =
+    workflow.state === "completed"
+      ? finishedHeadingShown
+        ? undefined
+        : t("bgTask.state.completed")
+      : stateWord(t, workflow.state);
   const meta = running
     ? [...countLine(t, counts), ...tokens]
-    : [
-        t("workflow.kind"),
-        workflow.state === "completed" ? t("bgTask.state.completed") : stateWord(t, workflow.state),
-        t("subagents.pill", { n: counts.total }),
-        ...tokens,
-      ];
+    : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens];
   return (
     <section className="acpmux-workflow-task" data-state={workflow.state} aria-label={workflow.title}>
       <div className="acpmux-workflow-task__head">
         <span className="acpmux-workflow-task__name">{workflow.title}</span>
         {elapsed !== undefined && <span className="acpmux-session-info-task__time">{formatDuration(elapsed)}</span>}
-        {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} />}
+        {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} solid />}
       </div>
       {meta.length > 0 && <p className="acpmux-workflow-task__meta">{meta.join(" · ")}</p>}
       {workflow.description && (
@@ -268,7 +265,7 @@ export function WorkflowAgentRow({
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
   const modelLabel = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-  const message = agent.lastMessage ?? agent.doing;
+  const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
   const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
   const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the

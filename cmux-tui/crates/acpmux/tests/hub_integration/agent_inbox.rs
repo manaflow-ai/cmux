@@ -382,6 +382,7 @@ async fn another_agents_steer_goes_in_when_no_prompt_waits() {
 #[tokio::test]
 async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     let (hub, mut c, id, running, turn, mine, gate, next) = turn_with_a_waiting_prompt().await;
+    assert!(hub.resolve(&id).unwrap().turn().unwrap().persons, "the running turn is the person's");
     let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
                        "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}});
     let steer = c.send(method::SESSION_PROMPT, steer).await;
@@ -396,6 +397,38 @@ async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     for path in [gate, next] {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING". The person's
+/// Return steers into the running turn even when another agent's message started it (a lane
+/// report, an inbox notice): it never queues behind that turn as one of its own (takes back the
+/// person's half of #35142). Other agents' messages still wait behind the person's turn and
+/// prompt (`inbox.rs`).
+#[tokio::test]
+async fn the_persons_steer_goes_into_a_turn_another_agent_started() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "coord").await;
+    let gate = fifo("gate");
+    let turn = c.send(method::SESSION_PROMPT, agents_gated_turn(&id, &gate)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let agents = hub.resolve(&id).unwrap().turn().unwrap();
+    assert!(!agents.persons, "another agent's turn: {agents:?}");
+
+    // The person's steer, as the chat sends it on Return: into the agent's running turn.
+    let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "are you SURE"}],
+                       "_meta": {"acpmux": {"promptId": "p-me", "steer": true}}});
+    let mine = c.send(method::SESSION_PROMPT, steer).await;
+    let answered = answers(&mut c, &[mine]).await;
+    assert_eq!(answered[&mine]["stopReason"], "steered", "{}", answered[&mine]);
+    assert_eq!(answered[&mine]["_meta"]["acpmux"]["turnId"], agents.turn_id.as_str());
+    let all = prompts(&hub, &id);
+    let me = all.iter().find(|m| m["promptId"] == "p-me").expect("the person's prompt is logged");
+    assert_eq!(me["turnId"], agents.turn_id.as_str(), "into the running turn: {all:?}");
+    assert_eq!(hub.resolve(&id).unwrap().queued(), 0, "nothing queued: {all:?}");
+    open(&gate).await;
+    answers(&mut c, &[turn]).await;
+    let _ = std::fs::remove_file(gate);
 }
 
 /// Leo, 2026-11-01: "why do the x messages from y sessions seem to always piggyback on my messages
@@ -839,7 +872,7 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
 
-/// Labs team messaging (`meshRelay.teamMessaging`) is off here, as on most daemons: a chat's agent
+/// Team messaging (`meshRelay.teamMessaging`) is off here (no team hub): a chat's agent
 /// still reads every word of its inbox. `inbox_read` reads it, and so do the team mailbox's inbox,
 /// read and ack, which an agent started before the inbox has instead of `inbox_read`, and which
 /// `acpmux inbox` calls (`hub/inbox_team_page.rs`). Three helpers saw only a notice's
@@ -904,7 +937,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     assert!(refused.is_err_and(|e| e.contains("inbox.not_found")));
     // A connection of no chat (the person's) is told team messaging is off, as before.
     let person = c.request(method::MUX_TEAM_INBOX, json!({})).await;
-    assert!(person.is_err_and(|e| e.contains("team messaging is disabled")));
+    assert!(person.is_err_and(|e| e.contains("team messaging is off")));
 }
 
 /// A chat whose agent was started with no cmux tools (`ACPMUX_AGENT_TOOLS=0`) cannot read an inbox:

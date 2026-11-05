@@ -414,6 +414,44 @@ fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
     assert_eq!(autocompact(&codex, None), (Capped, Some(180_000)));
 }
 
+/// acpmux gives a Claude Code session its own autocompact window only when nothing the person
+/// set decides one (`harness_limits::lift_claude`, Leo 2026-10-20: 400K).
+#[test]
+fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut source, _) = claude(home.path());
+    let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert!(!claude_autocompact_unset(&source), "--autocompact in its argv");
+    source.argv = argv(&["claude"]);
+    assert!(claude_autocompact_unset(&source), "no flag, env or settings file");
+    let settings = home.path().join("settings.json");
+    std::fs::write(&settings, r#"{"theme": "dark", "env": {"FOO": "1"}}"#).unwrap();
+    assert!(claude_autocompact_unset(&source), "settings that name no window");
+    std::fs::write(&settings, r#"{"autoCompactWindow": "auto"}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "the person's auto stays");
+    std::fs::write(&settings, r#"{"env": {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"}}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "a window in settings.json's env");
+    std::fs::write(&settings, "{not json").unwrap();
+    assert!(!claude_autocompact_unset(&source), "settings it cannot read");
+    std::fs::remove_file(&settings).unwrap();
+    let project = home.path().join("repo");
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    source.cwd = project.join("sub");
+    assert!(claude_autocompact_unset(&source), "a project with no settings");
+    std::fs::write(project.join(".claude/settings.local.json"), r#"{"autoCompactWindow": 600000}"#)
+        .unwrap();
+    assert!(!claude_autocompact_unset(&source), "a project's window, from a folder under it");
+    std::fs::remove_file(project.join(".claude/settings.local.json")).unwrap();
+    source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
+    assert!(!claude_autocompact_unset(&source), "the env's window");
+    source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+    let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    source.env.insert(key.into(), value.into());
+    assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
+    source.argv = None;
+    assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");
+}
+
 /// A first read that starts after the day began, or a backlog it left, cannot say the day's
 /// counts: they are unknown (null), never the lower number read so far. Once the reads reach
 /// the end and cover the day, they are known.
@@ -855,4 +893,41 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
     again.as_object_mut().unwrap().remove("timestamp");
     append(&path, &[report, again]);
     assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(10));
+}
+
+#[test]
+fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    // A cold call writes the prompt to the hour-long cache; the next two read it back.
+    let cold = json!({"input_tokens": 10, "cache_creation_input_tokens": 90_000,
+        "cache_creation": {"ephemeral_1h_input_tokens": 90_000, "ephemeral_5m_input_tokens": 0},
+        "cache_read_input_tokens": 0, "output_tokens": 100});
+    append(
+        &path,
+        &[
+            assistant("msg_1", "2026-10-30T11:00:00Z", cold, false),
+            assistant("msg_2", "2026-10-30T11:10:00Z", usage(10, 0, 90_000, 100), false),
+            // A subagent's call is the chat's spend too.
+            assistant("msg_3", "2026-10-30T11:20:00Z", usage(10, 0, 90_000, 100), true),
+        ],
+    );
+    let mut tracker = Tracker::default();
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.calls24h, Some(3));
+    // 180,000 of 270,030 prompt tokens came from the cache.
+    assert_eq!(stats.cache_read_share24h, Some(0.6666));
+    // 1h writes at twice the $4 input: 90,000 * 8 = $0.72; 30 input at $4, 300 output at $20,
+    // 180,000 reads at $0.20: $0.76212 over three calls.
+    assert_eq!(stats.cost_usd24h, Some(0.7621));
+    // Per call keeps sub-cent precision, so a cheap call never reads as $0.
+    assert_eq!(stats.cost_per_call_usd24h, Some(0.25404));
+
+    // A day later no call is left: the share is unknown, never 0%.
+    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(
+        (later.calls24h, later.cache_read_share24h, later.cost_per_call_usd24h),
+        (Some(0), None, None)
+    );
 }

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -35,7 +36,9 @@ public final class AgentPaneView: NSView {
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
-    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.owe(to: self) } } }
+    /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
+    let shownPushes = AgentPaneShownPushes()
     /// The newest recently closed items for the New Tab page's Recently Closed section.
     public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
@@ -58,10 +61,14 @@ public final class AgentPaneView: NSView {
     let crashRetry = AgentPageCrashRetry()
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
+    /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
+    let flickerLog: AgentPageFlickerLog?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: ChromeLabel?
+    var otherInstallNotice: AgentPaneNotice?
+    /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
+    var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
-    var remoteApprovalsNotice: NSStackView?
+    var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -70,6 +77,9 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
+    /// The app's table of processes that post input (`AppServices.personInput.sources`): whether a key or click
+    /// is the person's (``AgentPanePersonInput``) is read from it, never by a system call per event.
+    let eventSources: EventSourceProcesses
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
     let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -94,6 +104,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
+    var actAsMeBadge: AgentPaneActAsMeBadge?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -131,8 +143,16 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Where (screen points) and when (system uptime) this page's context menu last opened:
+    /// Inspect Element starts the picker there, with no app-wide right-click monitor.
+    public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page lies outside the window until it draws the chat a tab adopted it for
+    /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
+    var holdsPageAway = false
+    /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
+    var chromiumMove: ChromiumMove?
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -164,12 +184,18 @@ public final class AgentPaneView: NSView {
     ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
+    ///   - flickerLog: The app's flicker ring file (``AgentPaneShared/flickerLog``); nil (tests) writes none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil) {
+                 panelProvider: (any PageProvider)? = nil,
+                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
+                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil) {
         self.terminations = terminations ?? Self.processGroups.terminations
+        self.flickerLog = flickerLog
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
+        self.eventSources = eventSources
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
         self.source = source
@@ -180,11 +206,14 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
+            provider.tailHost = model.host
+            provider.tabKey = { [weak model] in model?.tabKey() }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium)
+                                                                 chromium: chromium, panelProvider: panelProvider)
             else { return nil }
             self.page = page
             pageEvents = provider
+            model.mediaOrigin = AgentPaneMediaGrants.pageOrigin
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
@@ -236,10 +265,14 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
+            self?.onNativeToolMenuRequested?(id, menuItemID)
+        }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
+        flickerLog?.watchWindows()
         if let page {
             attachPage(page)
         } else {
@@ -272,6 +305,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -308,6 +342,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
+        installSessionInfo()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -382,7 +417,9 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            actAsMeBadge?.stop()
             sessionStatusObservation?.cancel()
+            model.sessionInfo.hostObservation?.cancel()
         }
     }
 
@@ -391,8 +428,12 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        let frame = topBar.contentFrame(in: bounds)
+        let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
+        if let page { page.frame = shown } else { webView.frame = shown }
+        placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layoutSessionInfo()
         redraw.laidOut(self)
     }
 
@@ -439,6 +480,11 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
+        model.sessionInfo.hostObservation?.cancel()
+        model.sessionInfo.hostObservation = nil
+        model.sessionInfo.onChange = nil
+        model.sessionInfo.update(nil)
+        applySessionInfo()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
@@ -451,6 +497,8 @@ public final class AgentPaneView: NSView {
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
+        model.onTabRowToolMenuRequested = nil
+        onNativeToolMenuRequested = nil
         model.transport.onQuestionStateChanged = nil
         model.onQuestionKeySessionChange = nil
         questionKeyBinding = nil
@@ -488,6 +536,8 @@ public final class AgentPaneView: NSView {
 
     /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
     public var onNativeToolOwnerChange: (() -> Void)?
+    /// Called by the page's palette to open a native tab-row menu.
+    public var onNativeToolMenuRequested: ((String, String?) -> Void)?
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
@@ -507,6 +557,10 @@ public final class AgentPaneView: NSView {
         }
         applyTheme()
     }
+
+    /// Low Power Mode turning on cancels a sidebar hover the page still waits on (`forwardHover`);
+    /// made on the first hover, released with the view.
+    var hoverPowerWatch: LowPowerModeObservation?
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
@@ -546,7 +600,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
+        themeSessionInfo(tokens)
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

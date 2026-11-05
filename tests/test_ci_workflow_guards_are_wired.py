@@ -45,6 +45,12 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
+    # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
+    "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
+    # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
+    "tests/test_ci_hosted_light_rescue.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
@@ -62,10 +68,22 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
     # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
     "tests/test_nightly_next_launch_smoke.py",
+    # lane = "manual" for the same rule. It checks the one-mini routing (vars.CI_NIGHTLY_MINI) of nightly.yml
+    # and the tag permission probe; run it by hand after changing either. Exit: as above.
+    "tests/test_nightly_one_mini.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
     "tests/test_nightly_next_artifact_check.py",
+    # lane = "manual" for the same rule (their tests/test-execution.toml entries say so: wiring them as
+    # linux-guard reddened tooling-tests on every pull request). Run each by hand after changing what it reads:
+    # .github/runners.json linux_sizes or a Blacksmith Linux runs-on (#30360);
+    "tests/test_ci_blacksmith_linux_sizes.py",
+    # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
+    "tests/test_ci_overflow_pick_reads_pool.py",
+    # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
+    # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
+    "tests/test_ci_cloud_probe_rescue.py",
 }
 
 

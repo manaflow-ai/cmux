@@ -18,10 +18,19 @@ public final class TerminalHostView: NSView {
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
-    /// Shown over the last screen while the link is down (click-through).
-    private let banner = TerminalStatusBanner()
-    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
-    private let scroller = TerminalScroller()
+    /// The label over the last screen while the link is down (click-through), built the first time
+    /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
+    private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
+        self?.addChrome(banner, .statusLabel)
+    }, didReveal: { [weak self] in self?.needsLayout = true })
+    private let statusClock: any Clock<Duration>
+    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
+    /// so it is built the first time the viewport moves through the scrollback, not with the
+    /// terminal (an NSScrollView, its document and two observers: 5.2 ms of main thread per HEAVY
+    /// workspace switch, STATUS 8158).
+    private var scroller: TerminalScroller?
+    /// The surface's last scrollbar state (Ghostty's scrollbar action), kept while no scroller is built.
+    private var scrollbar: TerminalScrollbar?
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -42,6 +51,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -54,7 +66,7 @@ public final class TerminalHostView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
         let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
-        let width = bounds.width - scroller.reservedWidth
+        let width = bounds.width - scrollerWidth
         return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (terminalBounds.height - gridHeight) / 2))
     }
 
@@ -67,7 +79,21 @@ public final class TerminalHostView: NSView {
             oldValue?.removeFromSuperview()
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+                addChrome(bottomAccessory, .accessory)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addChrome(topOverlay, .overlay)
             }
             needsLayout = true
         }
@@ -94,7 +120,9 @@ public final class TerminalHostView: NSView {
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
-    init() {
+    /// - Parameter clock: The clock of the status label's reveal delays; tests pass a manual clock.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        statusClock = clock
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -103,11 +131,6 @@ public final class TerminalHostView: NSView {
         paintBackground()
         // Frame layout (`layout()`), not Auto Layout: a pane resized every
         // frame of a drag solves no constraints here.
-        addSubview(banner)
-        addSubview(scroller, positioned: .below, relativeTo: banner)
-        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
-        scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
-        scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
@@ -142,41 +165,87 @@ public final class TerminalHostView: NSView {
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-        addSubview(bar, positioned: .above, relativeTo: banner)
+        addChrome(bar, .overlay)
         needsLayout = true
     }
 
-    /// The link status label over the terminal (hidden while connected).
-    var statusText: String? {
-        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+    /// The link status label over the terminal, nil while none shows (connected, or a transient
+    /// status still within its reveal delay).
+    var statusText: String? { statusLabel.shownText }
+
+    /// Whether a transient status waits out its reveal delay before its label shows (tests).
+    var statusLabelWaits: Bool { statusLabel.isWaiting }
+
+    /// The layers of what the host shows over its surface, back to front. The surface and a held
+    /// frame over it (``TerminalFrameHold``, directly above the surface) are below all of them.
+    private enum ChromeLayer: Int, Comparable {
+        case scroller, accessory, statusLabel, overlay
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// The layer of `view`, nil for the surface, a held frame and anything else that is not chrome.
+    private func chromeLayer(of view: NSView) -> ChromeLayer? {
+        if view === scroller { return .scroller }
+        if view === bottomAccessory { return .accessory }
+        if view === statusLabel.banner { return .statusLabel }
+        if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
+            || view is TerminalFindBarView { return .overlay }
+        return nil
+    }
+
+    /// Adds `view` at `layer`: directly below the lowest chrome of its layer or above (a newer
+    /// overlay goes under the older ones, as each went directly above the label before), else on
+    /// top. Chrome built on first use (the label, the scroller, the buttons) so never goes under a
+    /// held frame, which sits directly above the surface.
+    private func addChrome(_ view: NSView, _ layer: ChromeLayer) {
+        let above = subviews.first { $0 !== view && (chromeLayer(of: $0).map { $0 >= layer } ?? false) }
+        if let above {
+            addSubview(view, positioned: .below, relativeTo: above)
+        } else {
+            addSubview(view)
+        }
     }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
-        banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
-        syncRestartButton()
+        var changed = statusLabel.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+        changed = syncRestartButton() || changed
         if retryButton == nil, TerminalRetryButton.shows(status) {
             let button = TerminalRetryButton()
             // The same re-attach a click in the disconnected terminal starts.
             button.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
-            addOverlay(button)
+            statusLabel.prepareView()
             retryButton = button
+            addChrome(button, .overlay)
         }
-        retryButton?.show(status)
-        needsLayout = true
+        if let retryButton {
+            let hidden = retryButton.isHidden
+            retryButton.show(status)
+            changed = changed || hidden != retryButton.isHidden
+        }
+        // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
+        if changed { needsLayout = true }
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
-    /// link to it (Recover), and the App gave an action.
-    private func syncRestartButton() {
+    /// link to it (Recover), and the App gave an action. Returns whether it was built or its
+    /// visibility changed.
+    @discardableResult
+    private func syncRestartButton() -> Bool {
         let offered = shownStatus == .exited || shellStall == .linkLost
+        var built = false
         if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
-            addOverlay(button)
+            statusLabel.prepareView()
             restartButton = button
+            addChrome(button, .overlay)
+            built = true
         }
-        restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus, stall: shellStall)
+        guard let restartButton else { return false }
+        let hidden = restartButton.isHidden
+        restartButton.onRestart = restartAction
+        restartButton.show(shownStatus, stall: shellStall)
+        return built || hidden != restartButton.isHidden
     }
 
     /// The restart button's title while shown ("Restart Shell Here" or
@@ -184,11 +253,6 @@ public final class TerminalHostView: NSView {
     var restartButtonTitle: String? {
         guard let restartButton, !restartButton.isHidden else { return nil }
         return restartButton.shownTitle
-    }
-
-    /// Above the status banner, as the find bar is.
-    private func addOverlay(_ view: NSView) {
-        addSubview(view, positioned: .above, relativeTo: banner)
     }
 
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
@@ -201,8 +265,8 @@ public final class TerminalHostView: NSView {
         if sizedForChip == nil {
             let chip = TerminalSizedForChip()
             chip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
-            addOverlay(chip)
             sizedForChip = chip
+            addChrome(chip, .overlay)
         }
         sizedForChip?.show(sizedFor)
         needsLayout = true
@@ -211,16 +275,14 @@ public final class TerminalHostView: NSView {
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
-        banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
-        needsLayout = true
+        if statusLabel.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall) { needsLayout = true }
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
-        banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
-        syncRestartButton()
-        needsLayout = true
+        let changed = statusLabel.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        if syncRestartButton() || changed { needsLayout = true }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -240,9 +302,10 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.frame = surfaceFrame
-        // Below the scroller and the status banner, which stay over every swapped-in surface.
-        addSubview(surfaceView, positioned: .below, relativeTo: scroller)
+        let placement = surfacePlacement
+        surfaceView.place(placement.frame, anchor: placement.anchor)
+        // At the back: the scroller and the overlays stay over every swapped-in surface.
+        addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
@@ -258,58 +321,111 @@ public final class TerminalHostView: NSView {
                 self.followScrollbar(of: surfaceView)
             }
         }
+        showScrollbar(bar)
+    }
+
+    /// Shows `bar` on the scroller. With none built yet, it is built on the first move through the
+    /// scrollback (the only change an overlay scroller shows); output that follows the bottom
+    /// only keeps the state.
+    func showScrollbar(_ bar: TerminalScrollbar?) {
+        let previous = scrollbar
+        scrollbar = bar
+        if let scroller { return scroller.update(bar) }
+        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return }
+        let scroller = makeScroller()
+        scroller.update(previous)
         scroller.update(bar)
     }
 
-    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
-    /// for working out a terminal's grid before its host exists.
-    public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
-        let reserved = NSScroller.preferredScrollerStyle == .legacy
-            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
-        return max(0, hostWidth - reserved)
+    /// Whether the scroller is built (tests).
+    var hasScroller: Bool { scroller != nil }
+
+    private func makeScroller() -> TerminalScroller {
+        let scroller = TerminalScroller()
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
+        scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
+        self.scroller = scroller
+        // Above the surface and a held frame, below the accessory, the status label and the overlays.
+        addChrome(scroller, .scroller)
+        scroller.frame = scroller.strip(in: terminalBounds)
+        // Its clip view takes the new frame now: the first update lays out the knob and flashes it this turn.
+        scroller.tile()
+        needsLayout = true
+        return scroller
     }
 
-    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
-    /// a pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
-    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
-    private var surfaceFrame: CGRect {
+    /// The strip the scroller keeps free beside the surface: none, since it is pinned to the
+    /// overlay style (``SystemScrollers/nativeStyle``), built or not.
+    var scrollerWidth: CGFloat {
+        scroller?.reservedWidth ?? TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle)
+    }
+
+    /// The width a surface gets in a host `hostWidth` points wide (less the scroller's strip), for working out a
+    /// terminal's grid before its host exists. The strip is the host's own (``TerminalScroller/reservedWidth``): the
+    /// terminal's scroller is pinned to ``SystemScrollers/nativeStyle`` whatever the system's "Show scroll bars"
+    /// setting, so a Mac set to legacy scrollers (a mini with no trackpad) reserves nothing either.
+    public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
+        max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
+    }
+
+    /// The surface's frame and the edge it rides while its frame differs from the area's (a hold, or a size Ghostty has
+    /// not shown yet): the host, less a legacy scroller's strip (none: the scroller is overlay), on the top. While a
+    /// pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``), pinned to
+    /// the hold's edge of the area; the host clips it and paints the terminal background beside it. While the host
+    /// follows its pane, ``followedSurfaceFrame(_:in:)`` gives both, from one decision.
+    private var surfacePlacement: (frame: CGRect, anchor: PaneMotionAnchor) {
         let area = terminalBounds
+        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
-            return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
+            return (CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height), hold.anchor)
         }
-        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
+        return (CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height), .top)
     }
 
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
     /// scroller's.
     func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
-        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
+        CGSize(width: max(0, hostSize.width - scrollerWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
-    private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
+    /// when it began; nil at rest.
+    var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows
     /// once, not once per frame. `anchor`: the edge it rides (the bottom keeps a prompt on the last row in view).
     func holdSurface(size: CGSize, anchor: PaneMotionAnchor) {
         surfaceHold = (size, anchor)
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        placeSurface()
     }
 
-    /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
+    /// The hold ends: the spring landed, or (with `motion.frameOwner.terminals` on) a press whose terminal follows its
+    /// pane (`restAt`). The surface takes the host's area again (the same size, unless the landing differs).
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        placeSurface()
     }
 
-    public override func layout() {
+    /// The current surface takes its frame and its anchor (``surfacePlacement``).
+    private func placeSurface() { // perf-hot: 4ms motion-frame
+        guard let current else { return }
+        let placement = surfacePlacement
+        current.place(placement.frame, anchor: placement.anchor)
+    }
+
+    public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
         super.layout()
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
-        let strip = scroller.strip(in: terminalBounds)
-        if scroller.frame != strip { scroller.frame = strip }
+        placeSurface()
+        if let scroller {
+            let strip = scroller.strip(in: terminalBounds)
+            if scroller.frame != strip { scroller.frame = strip }
+        }
         if let bottomAccessory, !bottomAccessory.isHidden {
             let frame = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: accessoryHeight)
             if bottomAccessory.frame != frame { bottomAccessory.frame = frame }
@@ -322,15 +438,20 @@ public final class TerminalHostView: NSView {
     /// the find bar in the top-trailing corner. Hidden ones are skipped.
     private func layoutOverlays() {
         let buttons: [NSView] = ([restartButton, retryButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
-        if !banner.isHidden || !buttons.isEmpty {
+        if statusLabel.banner?.isHidden == false || !buttons.isEmpty {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
         if let sizedForChip, !sizedForChip.isHidden {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
-            let trailing = bounds.width - scroller.reservedWidth - inset
+            let trailing = bounds.width - scrollerWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.
@@ -344,9 +465,13 @@ public final class TerminalHostView: NSView {
     }
 
     private func layoutStatus(buttons: [NSView]) {
-        let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
-            CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
-        }
+        // Every status that shows a button shows a label too; with none built, the buttons sit where it would.
+        let bottom = CGRect(x: bounds.midX, y: terminalBounds.minY + 12, width: 0, height: 0)
+        let banner = statusLabel.banner.map { label in
+            place(label, maxWidth: bounds.width - 24) { size in
+                CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
+            }
+        } ?? bottom
         for button in buttons {
             _ = place(button, maxWidth: bounds.width) { size in
                 CGPoint(x: (self.bounds.width - size.width) / 2, y: banner.maxY + 8)

@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 
@@ -26,32 +28,64 @@ extension CloudService {
         return machines
     }
 
+    /// A machine's record: `cloud.machine.get` on the app server link.
+    func machineRecord(_ id: String) async throws -> CloudMachine {
+        try await Self.appServerRecord(id, ops: appOps)
+    }
+
+    static func appServerRecord(_ id: String, ops: CloudAppOp) async throws -> CloudMachine {
+        guard let machine = CloudMachine(next: try await ops("cloud.machine.get", .object(["machine": .string(id)]), nil, .script))
+        else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.get answered no machine") }
+        return machine
+    }
+
+    /// The backend team a composer reservation and its bind name: the team the machine list and creates
+    /// use (the install token's team claim), so the reserved machine is one the list shows. Naming the
+    /// active Stack team instead put a team account's reserved machine in that team's store, which this
+    /// list never reads ("No Cloud machine has the id vm_…").
+    func reservationTeam() async throws -> String? {
+        MacInstallIdentity.team(ofToken: try await installIdentity.installToken())
+    }
+
+    /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
+    func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
+        let record = try await machineRecord(id)
+        return (record, CloudMachineStats(state: record.status.rawValue))
+    }
+
     /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through
     /// ``CloudMachineCreateFlow``, with the request's one idempotency key (cmuxterm-hq#4709): the
     /// creation's Retry sends the same key to the same team, so a create whose answer was lost
     /// answers its first machine instead of making a second.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
+    func appServerCreate(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
-                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+                         onSent: @escaping @MainActor @Sendable () async -> Void,
+                         persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
         let pinned = creation?.request ?? request
         let identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now. A Retry
         // stays with the first send's team, and is refused if the token now bills another one.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned)
-        let sent: @MainActor @Sendable () async -> Void = { [weak creation] in
+        let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
+            try await persistSent?(team)
             creation?.markRequestSent(team: team)
             await onSent()
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
+        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
+        // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
+        // Every attempt asks with its own key: a same-key retry would replay a failed ensure.
+        _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user)
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
         do {
-            record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+            record = try await flow.create(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, key: pinned.idempotencyKey,
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
-                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment)
-        } catch let failure as CloudAppOpFailure where Self.isDefinitiveRefusal(failure) {
+                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment, request: pinned,
+                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
+        } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
@@ -67,66 +101,6 @@ extension CloudService {
         // The team the approval bills: the install token's team claim, captured now.
         let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
-    }
-
-    /// A machine action (Kill, Pause, Resume, Rename, idle pause, resize, snapshots, restore) on a
-    /// Worker machine: its app server op, never `/api/vm`, where the machine has no record.
-    /// `byPerson`: the person's own gesture in this app, already confirmed where the action needs it
-    /// (the registry's sheet for Kill). Only then is a server-held approval answered with the
-    /// person's own session. Any other caller (the CLI, MCP, an agent, a script) sends the op as
-    /// `script` and gets the server's `approval.pending` back, for the person to answer in the feed.
-    @discardableResult
-    func appServerMachineCall(_ op: String, _ machineID: String, _ fields: [String: JSONValue] = [:], byPerson: Bool) async throws -> JSONValue {
-        var args = fields
-        args["machine"] = .string(machineID)
-        return try await appServerCall(op, args: .object(args), byPerson: byPerson)
-    }
-
-    /// One app server mutation, by the person (approval loop, `user`) or not (`script`, no approval answered).
-    func appServerCall(_ op: String, args: JSONValue, byPerson: Bool) async throws -> JSONValue {
-        guard byPerson else { return try await appOps(op, args, UUID().uuidString, .script) }
-        return try await appServerApprovedCall(op, args: args, confirm: { true })
-    }
-
-    /// `cloud.machine.get`: a Worker machine's live record (the classic `/api/vm/{id}` read).
-    func appServerMachine(_ machineID: String) async throws -> CloudMachine {
-        let answer = try await appOps("cloud.machine.get", .object(["machine": .string(machineID)]), nil, .script)
-        guard let machine = CloudMachine(next: answer) ?? answer["machine"].flatMap(CloudMachine.init(next:)) else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.get answered no machine")
-        }
-        return machine
-    }
-
-    /// `cloud.machine.resize` with the classic resize's fields (vCPUs, MiB of memory and disk).
-    func appServerResize(_ machineID: String, cpu: Int?, memoryMb: Int?, storageMb: Int?, byPerson: Bool) async throws {
-        var size: [String: JSONValue] = [:]
-        if let cpu { size["cpu"] = .number(Double(cpu)) }
-        if let memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
-        if let storageMb { size["disk_mb"] = .number(Double(storageMb)) }
-        try await appServerMachineCall("cloud.machine.resize", machineID, ["size": .object(size)], byPerson: byPerson)
-    }
-
-    /// `cloud.snapshot.create`: the new snapshot's id.
-    func appServerSnapshot(_ machineID: String, name: String?, byPerson: Bool) async throws -> String {
-        let answer = try await appServerMachineCall("cloud.snapshot.create", machineID, name.map { ["name": .string($0)] } ?? [:], byPerson: byPerson)
-        guard let id = answer["snapshot"]?["id"]?.stringValue else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.snapshot.create answered no snapshot")
-        }
-        return id
-    }
-
-    /// `cloud.snapshot.delete`.
-    func appServerDeleteSnapshot(_ snapshotID: String, byPerson: Bool) async throws {
-        _ = try await appServerCall("cloud.snapshot.delete", args: .object(["snapshot": .string(snapshotID)]), byPerson: byPerson)
-    }
-
-    /// `cloud.snapshot.restore`: the new machine's id.
-    func appServerRestore(snapshotID: String, byPerson: Bool) async throws -> String {
-        let answer = try await appServerCall("cloud.snapshot.restore", args: .object(["snapshot": .string(snapshotID)]), byPerson: byPerson)
-        guard let id = answer["machine"]?["id"]?.stringValue else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.snapshot.restore answered no machine")
-        }
-        return id
     }
 
     /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
@@ -152,7 +126,7 @@ extension CloudService {
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
     /// call, and `team` is the team its approvals are answered for.
     private func appServerFlow(team: String, run: @escaping CloudAppOp) -> CloudMachineCreateFlow {
-        let approvals = CloudApprovalAnswer(call: sessionCall())
+        let approvals = CloudApprovalAnswer(call: sessionCall()) { [approvalHolds] in await approvalHolds.isAnswered($0, team: $1) }
         return CloudMachineCreateFlow(
             run: run,
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
@@ -162,43 +136,22 @@ extension CloudService {
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
+            },
+            validateOptions: { [configuration, work] params in
+                try await CloudEnvironmentBootstrap(work: work).checkCreate(
+                    backend: configuration.ownerAPIBaseURL(), params: JSONEncoder().encode(params))
             }
         )
     }
 
-    /// The server refused the create before making anything (no plan, the plan's machine limit or
-    /// size, an approval denied or expired, which the contract asks again with a new key), an answer
-    /// a same-key Retry would only replay. A lost answer, a timeout or a relay that is down is
-    /// uncertain, so it keeps the key.
-    nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
-        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked",
-         "approval_denied", "approval.denied", "approval_expired", "approval.expired",
-         // cloud.environment.boot: secrets the Vault can't serve yet, no usable snapshot, an environment
-         // or snapshot that is gone. Each is stored with the key; a Retry after the fix needs a new one.
-         "secrets_unavailable", "no_snapshot_configured", "not_found"]
-            .contains { failure.code.hasSuffix($0) }
-    }
-
-    /// The team an app-server create goes to: the install token's team `current`, or, once
-    /// `request` was sent, the team of its first send, which `current` must still be: the key is
-    /// scoped per team, so the same key in another team would be a second machine.
     static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {
-        guard request.wasSent, let first = request.team else { return current }
-        guard first == current else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-        return first
+        try CloudMachineCreateRetry().team(current: current, request: request, changedTeam: ActionFailure(message: CloudStrings.createRetryOtherTeam))
     }
 
-    /// The relay call of a create pinned to `team`: every call, the first and each same-key retry
-    /// after an approval, checks the install token still bills `team` right before it goes out, and
-    /// is refused, unsent, if the install switched teams meanwhile (during the confirmation or a
-    /// retry's backoff). Only a call that passes marks the request sent.
     nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
-                                      sent: @escaping @MainActor @Sendable () async -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
-        { op, args, key, origin in
-            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-            await sent()
-            return try await ops(op, args, key, origin)
-        }
+                                      sent: @escaping @MainActor @Sendable () async throws -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
+        CloudMachineCreateRetry().pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
+            changedTeam: { ActionFailure(message: CloudStrings.createRetryOtherTeam) }, ops: ops)
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
@@ -234,41 +187,18 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
-                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
-        if case .upgrade(let need) = prompt {
-            // No window or sidebar to show the card in: nothing is opened without the person's click.
-            guard let asks, window != nil else { return false }
-            let upgrade = await asks.ask(CloudStrings.upgradeTitle, detail: CloudStrings.upgradeDetail(need.reason), symbol: "cloud", yes: CloudStrings.upgradeButton, no: CloudStrings.notNow)
-            if upgrade { openPricing(StaticURL.pricing.url) }
-            return upgrade
-        }
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
+                                         chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }, stopAsking: (@MainActor () async -> Void)? = nil) async -> Bool {
         let intro: String, machine: CloudMachineCreateFlow.Machine
         switch prompt {
         case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
         case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
-        case .upgrade: return false // answered above
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
-        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
-        return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
-                    identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
-        }
-    }
-}
-
-/// Answers every redirect with "do not follow" (completion-handler form).
-private nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
-extension CloudService {
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
+        if case .agentRequest = prompt, let asks { return window != nil ? await CloudCreateRequestAsk.ask(asks, intro: intro, lines: lines, asker: machine.askedBy, present: chatOpen, stopAsking: stopAsking) : false }
+        // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
+        guard let window else { return false }
+        return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
+                                                                 button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
     }
 }

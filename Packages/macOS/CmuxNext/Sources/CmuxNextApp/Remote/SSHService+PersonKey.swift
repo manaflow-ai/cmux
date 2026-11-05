@@ -18,9 +18,9 @@ extension SSHService {
         let commandLine = SSHCommandLine()
         let binary = host.remoteBinary
         do {
-            // A running daemon holds another key or none: hand its agents off and stop it first
-            // (durable agents survive; the new run adopts them, and their prompts get new nonces).
-            _ = try await SSHProcessRunner.run(commandLine.command(host, "\(binary) acp daemon shutdown --keep-agents </dev/null"),
+            // A running daemon holds another key or none: hand its agents off and stop it first, as an
+            // update restart (agents and pending retries carry over; their prompts get new nonces).
+            _ = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(RemoteAgentDaemonStatus.shutdownKeepingAgents(binary: binary).utf8)),
                                                environment: environment, deadline: .seconds(60),
                                                label: "acpmux shutdown \(host.destination)")
             let started = try await SSHProcessRunner.run(
@@ -100,10 +100,10 @@ extension SSHService {
         return handed
     }
 
-    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/idleForUpdate(ownInstance:)``).
-    func agentDaemonIdleForUpdate(_ session: SSHMachineSession) async -> Bool {
+    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/mayUpdateAutomatically(ownInstance:)``).
+    func agentDaemonAllowsAutomaticUpdate(_ session: SSHMachineSession) async -> Bool {
         let ours = AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)
-        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForUpdate(ownInstance: ours) == true
+        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.mayUpdateAutomatically(ownInstance: ours) == true
     }
 
     /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with

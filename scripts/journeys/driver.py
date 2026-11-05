@@ -32,6 +32,7 @@ import random
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -71,8 +72,12 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         "app_grid": "app"}
 # Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
 EXT_CONDITIONS = {}
-# The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
+# The extension conditions that are negative (an extension's NEGATIVE): a live one is read again every poll, never
+# latched; a frame one fails at once on a frame whose detail says seen (step_expect), else it is tried again.
 EXT_NEGATIVE = set()
+# `relaunch` kinds that quit through the app's own quit actions, with no dialog (QuitOrigin.explicit).
+QUIT_ACTIONS = {"quit-keep": "quitKeepSessions", "quit-end-sessions": "quitEndSessions",
+                "quit-end-everything": "quitEndEverything"}
 # Seconds a quit (Cmd-Q or a crash) may take to end the app's process, and a relaunch to answer.
 QUIT_SECONDS = 60
 RELAUNCH_SECONDS = 90
@@ -86,6 +91,11 @@ CREATION_HOLD_SECONDS = 2.5
 NEW_TERMINAL_KEY = {"key": "`", "modifiers": ["control"]}
 # Launch variables a relaunch passes on (restore-journey.py's rule): what a capture slot sets.
 LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
+
+
+# A creation's stand-in tab id (ProvisionalTab.idPrefix) and the daemon's public terminal id form.
+PROVISIONAL_TAB_PREFIX = "pending_tab_"
+DAEMON_TERMINAL_PREFIX = "term_"
 
 
 def now():
@@ -180,6 +190,15 @@ class App:
             return True
         stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
         return bool(stat) and not stat.startswith("Z")
+
+    def daemon_pid(self):
+        """The pid of the daemon the app says it is connected to (`debug.daemon`), or None."""
+        try:
+            state = self.rpc("debug.daemon", timeout=5) or {}
+        except (StepError, OSError, ValueError):
+            return None
+        pid = state.get("pid") if isinstance(state, dict) else None
+        return int(pid) if pid else None
 
     def daemon_socket(self):
         """The app daemon's socket, from its own `--socket` argument: the daemon the app says it is
@@ -288,10 +307,59 @@ class App:
         return path
 
     def read_text(self, image):
+        """The text lines of IMAGE (a Read: whether the reader read it in bands, and its bands that show ink and read no
+        text (unread) or show no ink at all (blank))."""
         done = subprocess.run([self.ocr, str(image)], capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise StepError(f"text recognition failed on {Path(image).name}: {(done.stderr or done.stdout).strip()[-200:]}")
-        return [line for line in done.stdout.splitlines() if line.strip()]
+        err = done.stderr or ""
+
+        def bands(pattern):
+            found = re.search(pattern, err)
+            return [int(b) for b in re.findall(r"[0-9]+", found.group(1))] if found else []
+
+        return Read([line for line in done.stdout.splitlines() if line.strip()], bands(r"no text in bands? ([0-9][0-9, ]*)"),
+                    blank=bands(r"blank bands? ([0-9][0-9, ]*)"), banded="lines in 4 bands" in err)
+
+
+class Read(list):
+    """The text lines of one image, and the bands of it (1 is the top) in which the reader read no text.
+    scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands; on
+    macOS 27 a band can read nothing although it shows text, so such a read is partial: a check that text is absent
+    must not pass on it (cmux-ad m10 1, review 1 of #35282). UNREAD: the bands that show ink and read no text; BLANK:
+    the bands that show no ink at all (empty terminal rows: they hold no text, so they do not make the read partial;
+    review 2 of #35282); BANDED: the read came from bands."""
+
+    def __init__(self, lines=(), unread=(), blank=(), banded=None):
+        super().__init__(lines)
+        self.unread = list(unread)
+        self.blank = list(blank)
+        self.banded = bool(self.unread or self.blank) if banded is None else bool(banded)
+
+
+def unread_bands(lines):
+    """The bands of a read that show ink and read no text ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "unread", None) or [])
+
+
+def blank_bands(lines):
+    """The bands of a read that show no ink ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "blank", None) or [])
+
+
+def band_detail(lines):
+    """{"bands": {"unread": [...], "blank": [...]}} for a frame check's detail when LINES came from a band read, else {}."""
+    return {"bands": {"unread": unread_bands(lines), "blank": blank_bands(lines)}} if getattr(lines, "banded", False) else {}
+
+
+def lacks_not_judged(want, lines, present=()):
+    """Why a `lacks` check of WANT cannot be judged on LINES (a band that shows ink read nothing), or None. A forbidden
+    text the read does find (PRESENT) is there, partial read or not: the check fails (None here)."""
+    unread = unread_bands(lines)
+    if not want.get("lacks") or not unread or present:
+        return None
+    return (f"band{'s' if len(unread) > 1 else ''} {', '.join(map(str, unread))} of the reader's 4 read no text: "
+            "a lacks check needs the whole frame read")
 
 
 def descendants(table, roots):
@@ -351,7 +419,8 @@ def ocr_contains(lines, wanted):
 
 
 def negative(name, want):
-    """Whether a condition claims something is NOT there: read again every poll, never latched."""
+    """Whether a condition claims something is NOT there: a live one is read again every poll, never latched; a frame
+    one fails at once on a frame whose detail says seen."""
     if name in ("daemon_lacks", "app_text_lacks") or name in EXT_NEGATIVE:
         return True
     # daemon_history with `lacks`; app_rows with `hold` (the view must stay as it is, e.g. while output arrives).
@@ -437,30 +506,37 @@ class Journey:
         # A second new_terminal in one journey (a second window) finds its own terminal, not the first's.
         self.term = self.pane = self.host_pid = None
         reply = self.app.rpc("action.run", {"action": "newTab", "args": {"name": self.sub(step.get("name", self.id)), "focus": True}})
+        created = self.created_terminal(reply)
         end = now() + float(step.get("timeout", 20))
+        why = "no new focused terminal pane yet"
         while now() < end:
-            for pane in self.app.panes():
-                if pane.get("focused") and pane.get("terminal_id") and pane["terminal_id"] not in before:
-                    # The daemon's id of the terminal: the tab's `terminal` in the app's topology
-                    # (debug.surfaces' terminal_id is the app's own id, not a daemon selector).
-                    self.pane = pane.get("pane")
-                    self.host_pid = int(pane["host_pid"]) if pane.get("host_pid") else None
+            view = next((p for p in self.app.panes()
+                         if p.get("focused") and p.get("terminal_id") and p["terminal_id"] not in before), None)
+            if view:
+                # The daemon's id of the terminal: the tab of the creation's key, the one the reply names (either
+                # form) or, with none in the reply, the view's (creation_place). Never the pane's selected tab: inside
+                # the creation's stand-in that is pending_tab_ with the host id, which no daemon selector resolves.
+                if created:
+                    place, why = self.key_place(created, self.topology())
+                    if place and place[1].get("id") != view.get("pane"):
+                        # Another new terminal has the focus for a moment (another window): read again; at the
+                        # deadline the step fails naming both panes.
+                        place, why = None, (f"the focused new pane {view.get('pane')} is not the pane "
+                                            f"{place[1].get('id')} of the created terminal {created}")
+                else:
+                    place, why = self.creation_place(view, self.topology())
+                term = place[2] if place else None
+                if term:
+                    self.term, self.pane = term, view.get("pane")
+                    self.host_pid = int(view["host_pid"]) if view.get("host_pid") else None
                     # The shell drew its first prompt (any text) in the daemon's screen.
-                    last = "empty screen"
-                    while now() < end:
-                        try:
-                            if not self.term:
-                                self.term = self.daemon_terminal(self.sub(step.get("name", self.id)), self.pane)
-                            if self.app.screen(self.term)["text"].strip():
-                                return {"pane": self.pane, "terminal": self.term, "host_pid": self.host_pid,
-                                        "workspace": pane.get("workspace"), "daemon_socket": self.app._daemon_sock,
-                                        "action_reply": reply}
-                        except StepError as error:
-                            last = str(error)
-                        time.sleep(0.2)
-                    raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-400:]}")
+                    self.wait_screen(end)
+                    return {"pane": self.pane, "terminal": self.term, "host_pid": self.host_pid,
+                            "workspace": view.get("workspace"), "daemon_socket": self.app._daemon_sock,
+                            "action_reply": reply}
             time.sleep(0.2)
-        raise StepError(f"newTab showed no new focused terminal pane within {step.get('timeout', 20)} s: {json.dumps(reply)[:200]}")
+        raise StepError(f"newTab showed no adoptable new focused terminal pane within {step.get('timeout', 20)} s "
+                        f"({why}): {json.dumps(reply)[:200]}")
 
     def new_terminal_by_key(self, step):
         """The person's new terminal: presses NEW_TERMINAL_KEY (the app's own binding, never changed here) and
@@ -491,45 +567,44 @@ class Journey:
     def step_script_new_terminal(self, step):
         """Automation on purpose: a script's `action.run newTab` (`name`, `focus`, default true) through the
         socket, as `cmux workspace new --focus` sends it. Does not wait for the workspace to show (a script's
-        new workspace shows only when no text input has the person's keyboard): waits for the topology to list
-        a workspace named `name` with a terminal, makes that terminal current (no pane: the app may not show
-        it) and waits for its shell's first prompt in the daemon's screen."""
+        new workspace shows only when no text input has the person's keyboard): makes the terminal the reply
+        says it created current (its public id at once; a host id once its tab is the daemon's; no pane: the
+        app may not show it) and waits for its shell's first prompt in the daemon's screen. A reply that names
+        no created terminal is refused by name."""
         name = self.sub(step.get("name", self.id))
         reply = self.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": bool(step.get("focus", True))}})
+        created = self.created_terminal(reply)
+        if not created:
+            raise StepError(f"the script's newTab {name!r}: its reply names no created terminal (created: "
+                            f"{json.dumps((reply or {}).get('created') if isinstance(reply, dict) else reply)[:200]}); "
+                            "the driver does not take a tab of the topology in its place")
         end = now() + float(step.get("timeout", 20))
-        last = "no reply"
-        while now() < end:
-            try:
-                self.term, self.pane, self.host_pid = self.daemon_terminal(name, None), None, None
-                if self.app.screen(self.term)["text"].strip():
-                    return {"terminal": self.term, "workspace": name, "action_reply": reply}
-            except StepError as error:
-                last = str(error)
-            time.sleep(0.2)
-        raise StepError(f"the script's newTab {name!r} listed no terminal with a prompt within {step.get('timeout', 20)} s: {last[-300:]}")
+        term, why = (created, None) if created.startswith(DAEMON_TERMINAL_PREFIX) else (None, "not read yet")
+        while not term and now() < end:  # a host id: its tab, once that tab is the daemon's
+            place, why = self.key_place(created, self.topology())
+            term = place[2] if place else None
+            if not term:
+                time.sleep(0.2)
+        if not term:
+            raise StepError(f"the script's newTab {name!r}: the created terminal {created} has no daemon terminal id "
+                            f"within {step.get('timeout', 20)} s ({why})")
+        self.term, self.pane, self.host_pid = term, None, None
+        self.wait_screen(end)
+        return {"terminal": self.term, "workspace": name, "action_reply": reply}
 
-    def daemon_terminal(self, workspace_name, pane_key):
-        """The daemon terminal id of the selected tab in `pane_key` of the workspace named `workspace_name`."""
-        snap = self.app.rpc("snapshot.get") or {}
-        topo = snap.get("topology") if isinstance(snap, dict) else None
-        found = []
-        for ws in (topo or {}).get("workspaces", []):
-            if ws.get("name") != workspace_name:
-                continue
-            for screen in ws.get("screens", []):
-                for pane in screen.get("panes", []):
-                    for tab in pane.get("tabs", []):
-                        term = tab.get("terminal")
-                        term = term.get("id") if isinstance(term, dict) else term
-                        if term:
-                            found.append((pane.get("id") == pane_key, bool(tab.get("selected")), str(term)))
-        if not found:
-            names = [w.get("name") for w in (topo or {}).get("workspaces", [])]
-            sample = next((t for w in (topo or {}).get("workspaces", []) if w.get("name") == workspace_name
-                           for s in w.get("screens", []) for p in s.get("panes", []) for t in p.get("tabs", [])), None)
-            raise StepError(f"the topology has no terminal tab in a workspace named {workspace_name!r} "
-                            f"(workspaces {names[:8]}, a tab {json.dumps(sample)[:300]})")
-        return sorted(found, reverse=True)[0][2]
+    @staticmethod
+    def created_terminal(reply):
+        """The key of the terminal an `action.run` reply says it created, or None. The reply names what the action made
+        (`created`, after the work settled) as the app's public ids: a terminal as its tab's terminalResourceID ??
+        terminalID (PublicIDTargetResolver), so the daemon's public id (term_...) or, while the app's mirror has no
+        public id for it yet, the host id the app chose at the creation (32 hex digits). Either is the creation's own
+        key (key_place). `created` leaves out an object that did not show within its 2 s limit: then None."""
+        made = reply.get("created") if isinstance(reply, dict) else None
+        terms = [str(x) for x in made or []
+                 if str(x).startswith(DAEMON_TERMINAL_PREFIX) or re.fullmatch(r"[0-9a-f]{32}", str(x))]
+        if len(terms) > 1:
+            raise StepError(f"the action created {len(terms)} terminals ({terms[:4]}); one was expected")
+        return terms[0] if terms else None
 
     def step_neutral_prompt(self, step):
         # Set-up, not under test: written into the PTY by the daemon, as a paste would be.
@@ -880,7 +955,11 @@ class Journey:
         lines = self.app.read_text(image)
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
-        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present,
+                  **band_detail(lines)}
+        partial = lacks_not_judged(want, lines, present)
+        if partial:
+            return False, dict(detail, lacks_not_judged=partial)
         return bool(want.get("shows")) and not missing and not present, detail
 
     def cond_quit_leftovers(self, want, cache):
@@ -942,6 +1021,47 @@ class Journey:
             self.host_pid = host_pid
         return {"terminal": self.term, "pane": self.pane, "host_pid": self.host_pid}
 
+    def creation_place(self, view, topo):
+        """((workspace, pane, daemon terminal id), None) of the terminal a debug.surfaces pane row `view` shows, else
+        (None, why not yet): key_place of the row's `terminal_id` (the terminal host id the app chose when the
+        terminal was created) in the row's pane."""
+        if not view.get("terminal_id"):
+            return None, f"pane {view.get('pane')}: its view names no terminal"
+        return self.key_place(str(view["terminal_id"]), topo, pane_id=view.get("pane"))
+
+    def key_place(self, key, topo, pane_id=None):
+        """((workspace, pane, daemon terminal id), None) of the terminal whose creation `key` names, else (None, why
+        not yet). `key` is the daemon's public id (term_...), or the host id the app chose at the creation (32 hex
+        digits): a view's `terminal_id`, or a reply's `created` while the app's mirror has no public id yet. Every tab
+        of the terminal carries the host id as `terminal_key`. A creation's stand-in carries it too (Ctrl-`'s
+        pending_tab_..., a split's provisional tab_...), but its `terminal` is that host id, which no daemon selector
+        resolves; the daemon's tab takes its place with the daemon's public id. Only that tab counts: never a selected
+        tab, never the only terminal of a workspace, never a probe. `pane_id`: that pane's tabs only. A topology whose
+        terminal tabs carry no `terminal_key` raises: it cannot name the terminal (STATUS 9672; the kits' #29179); an
+        app page tab never has the key, so only terminal tabs decide that."""
+        tabs = [(ws, pane, tab, term) for ws, pane, tab, term in self.places(topo)
+                if pane_id is None or pane.get("id") == pane_id]
+        terminals = [tab for _, _, tab, term in tabs if term]
+        where = f"pane {pane_id}" if pane_id is not None else "the topology"
+        if terminals and not any("terminal_key" in tab for tab in terminals):
+            raise StepError(f"{where}: this build's topology has no terminal_key, so the terminal a pane shows cannot "
+                            "be named (a build before e348cfc325a8); the driver does not guess")
+        why = None
+        for ws, pane, tab, term in tabs:
+            if key.startswith(DAEMON_TERMINAL_PREFIX):
+                if term == key:
+                    return (ws, pane, term), None
+                continue
+            if tab.get("terminal_key") != key:
+                continue
+            if str(tab.get("id", "")).startswith(PROVISIONAL_TAB_PREFIX):
+                why = f"pane {pane.get('id')} still shows the creation's stand-in tab {tab.get('id')}"
+            elif not (term or "").startswith(DAEMON_TERMINAL_PREFIX):
+                why = f"tab {tab.get('id')} of pane {pane.get('id')} has no daemon terminal id yet ({term})"
+            else:
+                return (ws, pane, term), None
+        return None, why or f"{where} has no tab of the terminal {key} yet"
+
     def wait_screen(self, end):
         """Until the daemon's screen of the current terminal shows any text (the shell's first prompt)."""
         last = "empty screen"
@@ -957,7 +1077,16 @@ class Journey:
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
         waits for a focused terminal pane showing a terminal the journey has not seen, adopts it (`as` names
-        it) and waits for its shell's first prompt in the daemon's screen."""
+        it) and waits for its shell's first prompt in the daemon's screen.
+
+        The creation is known by its key from the first read: the view's `terminal_id` is the terminal host id the
+        app chose for the create, and every tab of that terminal carries it as `terminal_key`. The key's frame shows
+        a stand-in tab (`pending_tab_...`) whose `terminal` is that host id, which no daemon selector resolves; the
+        daemon's tab takes its place about 0.3 s later with the daemon's public id (`term_...`). So the step adopts
+        only the focused pane's tab whose `terminal_key` is the view's `terminal_id`, once it is the daemon's tab (its
+        id is not a stand-in's and its `terminal` is a `term_` id): never the stand-in's id, never the pane's old
+        selected tab, never a probe of a guess. A topology without `terminal_key` cannot name the creation and is
+        refused by name (STATUS 9672; the kits' #29179)."""
         end = now() + float(step.get("timeout", 20))
         last = None
         while now() < end:
@@ -967,13 +1096,9 @@ class Journey:
                 if view["terminal_id"] in self.known_views:
                     last = f"the focused pane {view.get('pane')} still shows a terminal seen before"
                     continue
-                place = None
-                topo = self.topology()
-                for ws, pane, tab, term in self.places(topo):
-                    if pane.get("id") == view.get("pane") and tab.get("id") == pane.get("selected_tab") and term:
-                        place = (ws, pane, term)
+                place, why = self.creation_place(view, self.topology())
                 if not place:
-                    last = f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
+                    last = why
                     continue
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
@@ -1090,13 +1215,35 @@ class Journey:
             except (StepError, OSError, ValueError) as error:
                 record["reply"] = f"no answer (expected): {str(error)[-120:]}"
             end = now() + QUIT_SECONDS
+        elif how in QUIT_ACTIONS:
+            # A quit of one kind with no dialog (QuitOrigin.explicit): the File menu's own actions.
+            try:
+                record["reply"] = app.rpc("action.run", {"action": QUIT_ACTIONS[how], "args": {}}, timeout=10)
+            except (StepError, OSError, ValueError) as error:
+                record["reply"] = f"no answer: {str(error)[-120:]}"
+            end = now() + QUIT_SECONDS
+        elif how in ("kill-app", "kill-both"):
+            # SIGKILL: none of the app's quit path runs (and with kill-both, none of its daemon's either).
+            if how == "kill-both":
+                record["daemon_pid"] = app.daemon_pid()
+                if not record["daemon_pid"]:
+                    raise StepError("relaunch (kill-both): debug.daemon names no daemon pid")
+                os.kill(record["daemon_pid"], signal.SIGKILL)
+            os.kill(old, signal.SIGKILL)
+            end = now() + QUIT_SECONDS
         else:
-            raise StepError(f"relaunch: how is quit or crash, not {how!r}")
+            raise StepError(f"relaunch: how is quit, crash, kill-app, kill-both or one of {sorted(QUIT_ACTIONS)}, not {how!r}")
         while now() < end and app.alive(old):
             time.sleep(0.25)
         if app.alive(old):
             raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
         record["ended_after_s"] = round(now() - started, 2)
+        if callable(step.get("after_end")):
+            # A caller's read between the end and the reopen (the action fuzzer: what the daemon kept).
+            try:
+                record["after_end"] = step["after_end"]()
+            except (StepError, OSError, ValueError) as error:
+                record["after_end"] = {"error": str(error)[-200:]}  # still reopen: the caller judges the error
         if step.get("leftovers_after") is not None:
             # What a person's Mac still runs after the quit: every process run from this bundle (its
             # path) or owned by it (`--owner BUNDLE_ID`, the terminal hosts), `leftovers_after` seconds on.
@@ -1145,8 +1292,10 @@ class Journey:
                 alias["pane"] = place[1].get("id")
         record["named_terminals"] = found
         # Restore settles when every shown terminal view is attached live (restore-journey.py's rule); then the
-        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS).
-        settled = False
+        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS). A loaded topology with no
+        # terminal tab has no view to wait for: it is settled at once (else every such reopen waited out the whole
+        # RELAUNCH_SECONDS, and a journey of quits with no terminal did not fit its lease).
+        settled = bool(topo) and not any(term for *_, term in self.places(topo))
         while now() < end and not settled:
             try:
                 shown = [p for p in app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]
@@ -1230,6 +1379,10 @@ class Journey:
                 s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
+                elif s["negative"] and isinstance(detail, dict) and detail.get("seen"):
+                    # A negative frame condition saw on a frame what must not be there (its detail says `seen`): a
+                    # later frame without it does not undo that frame, so it is not tried again.
+                    break
                 elif now() >= frame_until and tries >= 2:
                     break
         failed = []
@@ -1559,7 +1712,8 @@ def load_extensions(module):
             if name in KIND:
                 raise SystemExit(f"driver: {path.name} redefines condition {name!r}")
             KIND[name], EXT_CONDITIONS[name] = kind, fn
-        # `NEGATIVE`: the group's conditions that claim something did NOT happen (read every poll and through `settle`).
+        # `NEGATIVE`: the group's conditions that claim something did NOT happen (a live one is read every poll and
+        # through `settle`; a frame one stops its tries on a frame whose detail says seen).
         EXT_NEGATIVE.update(n for n in getattr(ext, "NEGATIVE", ()) if n in EXT_CONDITIONS)
 
 

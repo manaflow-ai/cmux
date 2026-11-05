@@ -64,3 +64,83 @@ async fn a_root_learned_late_ends_the_work_below_it_held() {
     assert!(summary["subagentsWorkingSince"].is_null(), "{summary}");
     hub.shutdown_all().await;
 }
+
+/// The sidebar hover card's count (Leo 2026-11-01: "this hover preview being able to see the #
+/// of associated subagents"): the summary says how many subagents run and names the first, and
+/// every change of the count is a `subagents_running` record, which watchers hear as
+/// `session_changed`. Without a running turn only a background subagent still counts.
+#[tokio::test]
+async fn running_subagents_reach_the_summary_and_each_change_is_recorded() {
+    let (hub, session) = chat().await;
+    session.meta.lock().unwrap().agent_session_id = Some("acp-root".to_owned());
+    let tap = hub.session_tap(&session);
+    let spawn = |id: &str, name: &str, background: bool| {
+        update(json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id,
+            "name": name, "background": background}))
+    };
+    tap(Direction::In, &spawn("a", "Review the sidebar", true), None);
+    tap(Direction::In, &spawn("b", "Fix the build", true), None);
+    tap(Direction::In, &spawn("c", "Gallery shots", true), None);
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["subagentsRunning"], json!(3), "{summary}");
+    assert_eq!(
+        summary["subagentNames"],
+        json!(["Review the sidebar", "Fix the build", "Gallery shots"]),
+        "{summary}"
+    );
+    assert_eq!(summary["commandsRunning"], json!(0), "{summary}");
+
+    tap(
+        Direction::In,
+        &update(json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "b",
+            "state": "completed"})),
+        None,
+    );
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["subagentsRunning"], json!(2), "{summary}");
+    assert_eq!(summary["subagentNames"], json!(["Review the sidebar", "Gallery shots"]));
+
+    let counts: Vec<Value> = hub
+        .events(&session.id, 0, 256)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "mux" && e.kind == super::views::SUBAGENTS_RUNNING)
+        .map(|e| e.msg["count"].clone())
+        .collect();
+    assert_eq!(counts, vec![json!(1), json!(2), json!(3), json!(2)], "one record per change");
+    hub.shutdown_all().await;
+}
+
+/// cmux#32727: a chat whose turn ended while a background command it started still ran (a Claude
+/// background shell fetching and test-merging a branch) showed its running command and no
+/// spinner in the sidebar: the summary read `done`. The status dot stays `working` while the
+/// command runs. Only the dot: the command is not work below the turn, so the turn's unread mark
+/// and its end notice do not wait for a dev server to exit.
+#[tokio::test]
+async fn a_background_command_left_running_keeps_the_dot_working() {
+    let (hub, session) = chat().await;
+    let shell = |state: &str| {
+        json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "acp-root",
+            "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg",
+                "state": state, "command": "git fetch origin && git merge --no-commit origin/main"}}})
+    };
+    assert!(hub.session_summary(&session)["indicator"].is_null(), "nothing runs yet");
+
+    let rec = hub.append(&session, "in", "background_task_update", shell("running"));
+    hub.note_process(&session, &rec, None);
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["commandsRunning"], json!(1), "{summary}");
+    assert_eq!(summary["indicator"], json!("working"), "the row spins while the command runs");
+    assert_eq!(hub.work_below_since(&session), None, "the unread mark does not wait on it");
+    assert!(
+        hub.events(&session.id, 0, 10_000).unwrap().iter().any(|e| e.kind == "process_update"),
+        "watchers hear the change as session_changed (`process_update`)"
+    );
+
+    let rec = hub.append(&session, "in", "background_task_update", shell("completed"));
+    hub.note_process(&session, &rec, None);
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["commandsRunning"], json!(0), "{summary}");
+    assert_ne!(summary["indicator"], json!("working"), "no spinner once the command ends");
+    hub.shutdown_all().await;
+}

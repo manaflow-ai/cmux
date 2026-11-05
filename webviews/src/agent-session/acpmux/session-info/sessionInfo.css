@@ -8,10 +8,11 @@
    full-length thing. It's still just this constrained height for, like, no reason at all"). Overlay (the
    default, in every pane): it floats outside the chat's layout and never takes a column (Leo, 2026-10-24:
    "it was never supposed to be a sidebar; y'all kept doing sidebars"), and opening or closing it moves
-   nothing else: the chat's column stays where it is, and where the right gutter cannot hold the panel it
-   floats over the chat (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
-   fucking layout"). Push (Settings Push
-   always only): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
+   nothing else while the right gutter holds it. Where it cannot, it pushes into the chat gradually, and
+   where pushing would leave the chat under a readable width it floats over the chat above the composer
+   (SessionInfo.tsx sessionInfoStage; Leo, 2026-11-03: "not affecting layout at all -> gradually pushing
+   into the chat layout -> overlay"). Push (that middle range, and Settings Push always at every width):
+   an item of the shell's flex row, so it reserves its width and the chat reflows narrower
    beside it, but top-aligned at its own height, so the column below it is the chat's own page, not an
    empty slab. Its width comes from the viewer's drag (inline style); it slides in from the right and back
    out, and the width never animates. No section is a card (Leo, 2026-10-22: "tmi and too many boxes"):
@@ -45,6 +46,14 @@
   );
   border-radius: var(--acpmux-session-info-panel-radius);
 }
+/* Its edge, in every place: a hairline in the pane's border color on its rounded corners, and no fill of its
+   own where nothing runs under it (Leo, 2026-11-03: "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION
+   INFO / but i think having a border for it might be better"). Over the chat's column it keeps the glass under
+   the hairline, so the transcript's text never reads through its own. SessionInfo.gallery.tsx hairlineEdge
+   keeps it so. */
+.acpmux-session-info[data-placement] {
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-edge, var(--agent-border));
+}
 /* Lying over the chat's column (the right gutter cannot hold it), it stops above the composer's stack
    (SessionInfo.tsx sessionInfoOverChat, --acpmux-session-info-foot), so it never covers the composer. */
 .acpmux-session-info[data-placement="overlay"][data-over-chat] {
@@ -65,10 +74,24 @@
     transition-property: opacity, translate, max-height;
   }
 }
-/* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */
+/* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place.
+   By default it pushes into the chat gradually (SessionInfo.tsx pushedRoom): the part of its width the
+   chat's own gutter still holds (--acpmux-session-info-overlap) is a negative left margin, so it takes
+   only the rest from the chat and draws over that gutter, above the chat. */
 .acpmux-session-info[data-placement="push"] {
   align-self: flex-start;
-  margin: var(--acpmux-session-info-top, 0px) var(--acpmux-session-info-inset) 0 0;
+  z-index: var(--layer-overlay);
+  margin: var(--acpmux-session-info-top, 0px) var(--acpmux-session-info-inset) 0
+    calc(-1 * var(--acpmux-session-info-overlap, 0px));
+}
+/* Pushing with the App's native panel (SessionInfo.tsx): the page's place for it, the same width and
+   right margin as the pushed card, so the chat's column ends at the panel's left edge. */
+.acpmux-session-info-room {
+  flex: none;
+  min-width: 0;
+  /* The card's inset (--acpmux-session-info-inset below), SessionInfo.tsx FLOAT_MARGIN. */
+  margin-right: var(--grid-gap);
+  pointer-events: none;
 }
 /* Every shell-side panel contributes one term to the native tab row's width. Session Info's
    room is measured before the artifact column by SessionInfo.tsx; subtracting the main column's
@@ -79,6 +102,16 @@
 }
 .acpmux-shell[data-session-info-chat-placement="push"] {
   --acpmux-session-info-push: calc(var(--acpmux-header-room, 100%) - 100%);
+}
+/* Pushing moves the transcript's column left and never narrows it (SessionInfo.tsx pushKeepsColumn;
+   Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
+   itself and its text shouldn't be affected by the session info"). The page pins the column to the
+   width it has in the whole pane (--acpmux-session-info-column) and centers it unrounded in the chat
+   beside the panel, so no frame of the slide, whatever the chat's width then, takes a pixel off it and
+   wraps a line anew. The settled room keeps the panel's exact dragged width plus its inset (pushedRoom),
+   so an off-grid panel does not leave a painted gap beside the chat. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main {
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--acpmux-session-info-column, var(--cv-column))) / 2));
 }
 .acpmux-shell .acpmux-header {
   width: calc(
@@ -136,11 +169,25 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-session-info[data-placement="push"]:is([data-presence="from"], [data-presence="leaving"]) {
-    margin-right: calc(-1 * min(var(--acpmux-session-info-width, 0px), max(0px, 100% - 24px)));
+    margin-right: calc(
+      var(--acpmux-session-info-overlap, 0px) - min(var(--acpmux-session-info-width, 0px), max(0px, 100% - 24px))
+    );
   }
 }
 .acpmux-session-info[data-placement="overlay"] {
   --ui-enter-distance: 24px;
+}
+/* A floating Session Info opens in its final place on the click. Its exit still slides away, and
+   the foot of an already open panel still follows a growing composer. */
+.acpmux-session-info[data-placement="overlay"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info[data-placement="overlay"][data-presence="shown"][data-over-chat][data-foot-moves] {
+    transition-property: max-height;
+  }
 }
 .acpmux-session-info[data-resizing] {
   user-select: none;
@@ -174,8 +221,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
+  gap: var(--grid-gap);
+  height: var(--grid-row);
   padding: 6px 10px 0 14px;
 }
 .acpmux-session-info[data-chrome="close"] .acpmux-session-info__body {
@@ -201,10 +248,52 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 10px 10px;
+  gap: var(--grid-gap-block);
+  padding: var(--grid-gap) var(--grid-sidebar-highlight-inset);
   overflow-x: hidden;
   overflow-y: auto;
+  /* No scrollbar at all, as Claude Code's panel: it scrolls by wheel, trackpad and keyboard, and the
+     edge fades below say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar in
+     claude code it's just scrollable"). No thumb draws and none takes width, so nothing sits beside a
+     section's grip or the trailing column. Hidden in both engines, as the session rail's list
+     (threadMinimap.css); check-scrollbars.sh lists the exception. */
+  scrollbar-width: none;
+}
+.acpmux-session-info__body::-webkit-scrollbar {
+  display: none;
+}
+/* Rows scrolled past the body's top or bottom fade into the glass at that edge (scrollEdges.ts marks
+   which edges have more), as the Summary card and the menus do, a little shorter so it stays quiet:
+   never a hard cut through a row. Leo, 2026-10-28: "We should have a bit of that, like blur fading
+   thing for this area as well. Just a little bit." The mask is on or off per edge, never animated. */
+.acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+  --acpmux-session-info-fade-top: 0px;
+  --acpmux-session-info-fade-bottom: 0px;
+  --acpmux-session-info-fade: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-session-info-fade-top),
+    #000 calc(100% - var(--acpmux-session-info-fade-bottom)),
+    transparent
+  );
+  -webkit-mask-image: var(--acpmux-session-info-fade);
+  mask-image: var(--acpmux-session-info-fade);
+}
+.acpmux-session-info__body[data-fade-top] {
+  --acpmux-session-info-fade-top: 12px;
+}
+.acpmux-session-info__body[data-fade-bottom] {
+  --acpmux-session-info-fade-bottom: 16px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 /* A section is no box of its own: its rows sit on the glass, never a fill, solid or tinted. */
 .acpmux-session-info-section {
@@ -213,11 +302,14 @@
   border-radius: var(--acpmux-session-info-row-radius);
   background: none;
 }
-/* The six-dot handle that moves a section (SessionInfoGroup.tsx): in the body's right padding, at the
-   right end of the section's head past its trailing column, as Claude Code draws it (Leo, 2026-10-31:
-   "ok we can click and drag but my screenshots were literally claude code having it on the fucking
-   right"), so the title keeps the text column it has with no handle, and seen only on hover, keyboard focus or while it drags, so before a drag the
-   panel draws as it did. It takes no room in the section, and a drag lights only the handle. */
+/* The six-dot handle that moves a section (SessionInfoGroup.tsx): left of the section's title, in the
+   head's leading padding before its icon column, so it sits by the title and far from the scrollbar's
+   thumb (Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have
+   the drag grabber to the left of the title"). It
+   overlaps no icon or title, and the title keeps the text column it has with no handle. It shows only
+   while its head (a bare section's first row) or the handle itself is hovered, on keyboard focus, or
+   while it drags, as the native panel's grip does (#32674): no glyph at rest, and not for a pointer
+   over the section's other rows. It takes no room in the section, and a drag lights only the handle. */
 .acpmux-session-info-section {
   position: relative;
 }
@@ -225,10 +317,18 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The body's 6px side padding (data-layout). */
-  right: -6px;
-  width: 6px;
-  height: 28px;
+  /* Wholly inside the head's hover pill, in its leading padding before the icon column, and on the
+     head's middle line (Leo, 2026-11-04: "this is off", of the grip centred on the pill's edge, half in
+     and half out). The dots centre on the room left of a row icon's ink (the padding and the 14px icon's
+     margin in its 16px box), so they have about the same gap to the pill's edge as to the icon. The
+     handle is the padding's width and ends where the icon box starts, so it takes no click from the
+     icon. The gallery compares other centres through --acpmux-session-info-grip-center. */
+  --acpmux-session-info-grip-room: calc(var(--grid-gap) + var(--grid-base) / 4);
+  left: calc(
+    var(--acpmux-session-info-grip-center, calc(var(--acpmux-session-info-grip-room) / 2)) - var(--grid-gap) / 2
+  );
+  width: var(--grid-gap);
+  height: var(--grid-row);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -243,7 +343,17 @@
   touch-action: none;
   appearance: none;
 }
-.acpmux-session-info-section:hover > .acpmux-session-info-section__handle,
+.acpmux-session-info-section__handle > svg {
+  flex: none;
+  overflow: visible;
+  transform: var(--acpmux-session-info-grip-turn, none);
+}
+.acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)
+  > .acpmux-session-info-section__handle,
+.acpmux-session-info-section:has(> .acpmux-session-info-section__head:hover) > .acpmux-session-info-section__handle,
+.acpmux-session-info-section[data-bare]:has(> :not(.acpmux-session-info-section__handle) > :first-child:hover)
+  > .acpmux-session-info-section__handle,
+.acpmux-session-info-section__handle:hover,
 .acpmux-session-info-section__handle:focus-visible,
 .acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
   opacity: 1;
@@ -263,21 +373,25 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  padding-right: 6px;
-  padding-left: 6px;
+  /* The grid's side inset each side. */
+  padding-right: var(--grid-sidebar-highlight-inset);
+  padding-left: var(--grid-sidebar-highlight-inset);
 }
 .acpmux-session-info-group {
   flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-.acpmux-session-info-group[data-group="about"] {
-  gap: 0;
+  gap: var(--grid-gap-inner);
 }
 .acpmux-session-info__body[data-layout="glance"] > .acpmux-session-info-group + .acpmux-session-info-group {
-  padding-top: 8px;
+  position: relative;
+}
+.acpmux-session-info__body[data-layout="glance"] > .acpmux-session-info-group + .acpmux-session-info-group::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--grid-gap-block) / 2);
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
 /* Gallery alternative (rules): every section titled, a hairline between each. */
@@ -307,41 +421,68 @@
 }
 /* The panel's sections in the person's one order (SessionInfoGroup.tsx SessionInfoSectionList): each slot keeps
    its block (data-group), and a hairline sits wherever two adjacent slots come from different blocks
-   (data-run-start). In the default order this is the three blocks above, pixel for pixel: 6px between
-   a block's sections, none inside where it runs, and 8px, the hairline, 8px between blocks. */
+   (data-run-start). The list owns the spacing (design/grid.md section 3), tighter than the transcript's
+   so the sections read as one list of rows (Leo, 2026-11-04: "there's a bit too big of a gap between
+   sections"): one base step between a block's sections, one inner gap between blocks, with the hairline
+   centred in it. Row height and each section's own spacing stay as they are. */
 .acpmux-session-info-sections {
   position: relative;
   flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--grid-base);
 }
 .acpmux-session-info-slot {
   position: relative;
   flex: none;
   min-width: 0;
 }
-.acpmux-session-info-slot + .acpmux-session-info-slot {
-  margin-top: 6px;
-}
-.acpmux-session-info-slot[data-group="about"] + .acpmux-session-info-slot[data-group="about"] {
-  margin-top: 0;
-}
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start] {
-  margin-top: calc(16px + var(--cmux-hairline, 0.5px));
+  margin-top: calc(var(--grid-gap-inner) - var(--grid-base));
 }
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start]::before {
   content: "";
   position: absolute;
-  top: calc(-8px - var(--cmux-hairline, 0.5px));
+  top: calc(-1 * var(--grid-gap-inner) / 2);
   right: 0;
   left: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   pointer-events: none;
 }
+/* The panel's one Show more (SessionInfoSectionList `more`): a whole-row fold under Leo's four, its
+   label, then the less-used sections it holds, cut to the row. No hover fill, as every fold. */
+.acpmux-session-info-more {
+  min-width: 0;
+}
+.acpmux-session-info-more > span {
+  flex: none;
+}
+.acpmux-session-info-more > .acpmux-session-info-more__names {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-session-info-more:hover {
+  color: var(--agent-text);
+}
+/* Gallery-only `capped` look: each open section's body cut at three rows, with its own Show more. */
+.acpmux-session-info-slot[data-capped] .ui-disclosure-panel {
+  max-height: calc(3 * var(--grid-row));
+  overflow: hidden;
+}
+.acpmux-session-info-slot:has(.ui-disclosure-trigger[aria-expanded="false"]) > .acpmux-session-info-cap-fold,
+.acpmux-session-info-slot[data-capped] .acpmux-session-info-pr-fold {
+  display: none;
+}
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
-   carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
-   the rows it passes. At rest no section is a box (session-panel.md). */
+   carries no hairline, and only while held does it take a shadow and its head's hover tint, so it reads
+   as picked up. At rest no section is a box (session-panel.md). It stands on the panel's glass as the
+   sidebar's picked-up row stands on the window's (#32330): a tint over the glass, never the page color,
+   which drew a near-opaque slab (Leo, 2026-11-05: "it becomes opaque"). Its neighbours make way before it
+   covers half of one (heldPlace.ts). */
 .acpmux-session-info-sections[data-dragging] {
   cursor: grabbing;
   user-select: none;
@@ -356,12 +497,13 @@
   visibility: hidden;
 }
 .acpmux-session-info-slot[data-lifted] > .acpmux-session-info-section {
-  background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
-  box-shadow:
-    var(--elevation-2),
-    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+  background: var(--acpmux-session-info-row-hover);
+  box-shadow: var(--elevation-2);
 }
 /* Gallery alternative (rules): a hairline over every section but the first. */
+.acpmux-session-info__body:is([data-layout="rules"], [data-layout="groups"]) .acpmux-session-info-sections {
+  gap: 0;
+}
 .acpmux-session-info__body[data-layout="rules"] .acpmux-session-info-slot {
   margin-top: 0;
 }
@@ -409,11 +551,13 @@
    Subagents' fold rows, a subagent or a started chat) hovers one way: a faint tint of the text over
    whatever the card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light
    slab over the card), and inside the card's padding with the card's radius less that padding, so a
-   hover never reaches past the card's edge. */
+   hover never reaches past the card's edge. A Sources row lights only when it takes a click (its
+   file or link, as a pull request's row): an MCP tool's row or a file outside the folder is no
+   target, and the row and its link never both tint (two tints stacked to 14% over the link). */
 .acpmux-session-info {
   --acpmux-session-info-card-radius: 10px;
   --acpmux-session-info-panel-radius: 14px;
-  --acpmux-session-info-inset: 8px;
+  --acpmux-session-info-inset: var(--grid-gap);
   --acpmux-session-info-card-pad: 4px;
   --acpmux-session-info-row-radius: max(4px, calc(var(--acpmux-session-info-card-radius) - var(--acpmux-session-info-card-pad)));
   --acpmux-session-info-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
@@ -421,8 +565,7 @@
 .acpmux-session-info-section .ui-disclosure-trigger:hover,
 .acpmux-session-info-row--button:hover:not(:disabled),
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
-.acpmux-session-info-source:hover,
-.acpmux-session-info-source__link:hover,
+.acpmux-session-info-source:has(> .acpmux-session-info-source__link:hover),
 .acpmux-session-info-task__open:hover:not(:disabled),
 .acpmux-session-info-icon-button:hover:not(:disabled),
 button.acpmux-session-info-port:hover,
@@ -450,17 +593,17 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-section__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   box-sizing: border-box;
   border-radius: var(--acpmux-session-info-row-radius);
   text-align: left;
 }
 .acpmux-session-info-section :is(.ui-disclosure-trigger, .acpmux-session-info-section__head):has(> .acpmux-session-info-section__icon) {
   /* Context and Connectors share the Environment rows' icon and text columns. */
-  gap: var(--ds-space-2);
+  gap: var(--grid-gap);
 }
 .acpmux-session-info-section .ui-disclosure-trigger {
   margin: 0;
@@ -477,20 +620,39 @@ button.acpmux-session-info-port:hover,
   outline-offset: -1.5px;
 }
 .acpmux-session-info-section__title {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-weight: 500;
 }
+/* The fold chevron sits one grid gap after the title, as the native panel draws it (#32674), and shows
+   only while the head is hovered or has keyboard focus. At rest it keeps its room (hidden, not gone),
+   so the title never moves when it shows (cmux#32765; Leo, 2026-11-02: "WE FUCKING HAD THESE"). */
 .acpmux-session-info-section__fold {
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
+  visibility: hidden;
+}
+.acpmux-session-info-section .ui-disclosure-trigger:hover > .acpmux-session-info-section__fold,
+.acpmux-session-info-section .ui-disclosure-trigger:focus-visible > .acpmux-session-info-section__fold {
+  visibility: visible;
+}
+.acpmux-session-info-section :is(.ui-disclosure-trigger, .acpmux-session-info-section__head):not(:has(> .acpmux-session-info-section__icon)) > .acpmux-session-info-section__title {
+  margin-left: calc(var(--grid-icon-box) + var(--grid-gap));
 }
 .acpmux-session-info-section__meta {
-  flex: 0 1 auto;
+  /* Counts yield to the section name before either reaches the trailing control. */
+  flex: 1 1 0;
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
   margin-left: auto;
+  justify-content: flex-end;
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -535,10 +697,10 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
@@ -551,8 +713,8 @@ button.acpmux-session-info-port:hover,
 }
 .acpmux-session-info-row > svg {
   flex: none;
-  width: var(--acpmux-glyph-slot);
-  height: var(--acpmux-glyph-slot);
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
 .acpmux-session-info-row--button {
@@ -626,41 +788,28 @@ button.acpmux-session-info-port:hover,
   color: var(--agent-text);
   text-decoration: underline;
 }
+/* A grant's Revoke shows only while its own row is hovered or holds focus, at once, with no fade
+   (as the pull request chips' × does, #28533): a list of grants does not repeat a lit Revoke on
+   every row. At rest it is transparent, not hidden, so Tab still reaches it; the row itself takes
+   no highlight, only the button lights on its own hover. */
+.acpmux-session-info-row--grant > .acpmux-session-info-link {
+  opacity: 0;
+  transition: none;
+}
+.acpmux-session-info-row--grant:is(:hover, :focus-within) > .acpmux-session-info-link {
+  opacity: 1;
+}
 .acpmux-session-info-switch {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
 }
-/* Remote Control draws as a switch, as Claude desktop's Session Info and our Settings switches do,
-   never a bare checkbox: a 36x20 track (the control-height scale) with a 16px knob, filled when on.
-   The knob is a gradient on the input itself: no extra markup, and it changes in one frame. */
+/* Remote Control uses the shared ui/Switch primitive and its 32x20 grid control. */
 .acpmux-session-info-switch__input {
   flex: none;
-  margin: 0 0 0 auto;
-  appearance: none;
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at center, #fff 7.5px, transparent 8px) no-repeat 0 / 20px 20px,
-    color-mix(in srgb, var(--agent-text) 22%, transparent);
-  cursor: default;
-}
-.acpmux-session-info-switch__input:checked {
-  /* As Settings' switch (`ds-switch`): the text color's track and the surface's knob, so the knob
-     shows in every theme (an accent track hid a white knob where the accent is white). */
-  background:
-    radial-gradient(circle at center, var(--cmux-elevated-background, #fff) 7.5px, transparent 8px) no-repeat 16px /
-      20px 20px,
-    var(--agent-text);
-}
-[dir="rtl"] .acpmux-session-info-switch__input {
-  background-position-x: 16px, 0;
-}
-[dir="rtl"] .acpmux-session-info-switch__input:checked {
-  background-position-x: 0, 0;
+  margin-inline-start: auto;
 }
 .acpmux-session-info-icon-button {
   flex: none;
@@ -704,8 +853,8 @@ button.acpmux-session-info-port:hover,
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  padding-right: 4px;
+  gap: var(--grid-gap);
+  padding-right: var(--grid-gap);
   border-radius: var(--acpmux-session-info-row-radius);
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
@@ -714,8 +863,8 @@ button.acpmux-session-info-port:hover,
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 5px 4px 5px 8px;
+  gap: var(--grid-gap);
+  padding: var(--grid-base) 0 var(--grid-base) var(--grid-gap);
   border-radius: var(--acpmux-session-info-row-radius);
   color: inherit;
   text-decoration: none;
@@ -743,7 +892,11 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-pr__icon {
   flex: none;
   display: inline-flex;
-  margin-top: 3px;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-session-info-pr[data-state="open"] .acpmux-session-info-pr__icon {
@@ -768,7 +921,7 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-pr__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
 }
 .acpmux-session-info-pr__title {
@@ -781,7 +934,7 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-pr__line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
@@ -818,7 +971,7 @@ button.acpmux-session-info-port:hover,
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--grid-base);
 }
 /* The checks annotation gives way before everything else on the line (#28774's review): failing,
    its parts are the line's own items (display: contents), so "N failing" stays whole and the
@@ -867,7 +1020,7 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-pr__owner {
   flex: none;
   max-width: 40%;
-  padding: 0 6px;
+  padding: 0 var(--grid-base);
   overflow: hidden;
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -879,7 +1032,7 @@ button.acpmux-session-info-port:hover,
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-info-pr__more {
-  margin-top: 4px;
+  margin-top: var(--grid-pill-inset);
 }
 /* One ⋯ per pull request row, shown only on the row you point at or tab into, and kept lit while its
    menu is open: a control repeated on every row is noise (Leo, 2026-10-26, on hover-revealed
@@ -902,14 +1055,15 @@ button.acpmux-session-info-port:hover,
   }
 }
 .acpmux-session-info-pr-fold {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-session-info-source {
   min-width: 0;
   display: flex;
   align-items: center;
-  height: var(--ui-row-height);
-  padding: 0 8px;
+  gap: var(--grid-gap);
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   border-radius: var(--acpmux-session-info-row-radius);
 }
 .acpmux-session-info-source__link {
@@ -921,8 +1075,8 @@ button.acpmux-session-info-port:hover,
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--ui-row-height);
+  gap: var(--grid-gap);
+  height: var(--grid-row);
   padding: 0;
   border-radius: var(--acpmux-session-info-row-radius);
   color: inherit;
@@ -936,6 +1090,8 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-source__link > svg,
 .acpmux-session-info-source > svg {
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
 .acpmux-session-info-source__label {
@@ -945,7 +1101,7 @@ button.acpmux-session-info-port:hover,
   white-space: nowrap;
 }
 .acpmux-session-info-sources-fold {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-session-info-breakdown__rows {
   display: grid;
@@ -961,9 +1117,10 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-server {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  padding: 2px 4px 2px 8px;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+  padding: var(--grid-pill-inset) var(--grid-gap);
 }
 .acpmux-session-info-task > svg,
 .acpmux-session-info-task__open > svg {
@@ -972,17 +1129,18 @@ button.acpmux-session-info-port:hover,
 }
 /* A command's row is a button that opens its terminal; Stop sits beside it. */
 .acpmux-session-info-task--command {
-  gap: 2px;
-  padding: 0 4px 0 0;
+  gap: var(--grid-gap);
+  padding: 0 var(--grid-gap) 0 0;
 }
 .acpmux-session-info-task__open {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  padding: 2px 4px 2px 8px;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+  padding: var(--grid-pill-inset) var(--grid-gap);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
@@ -998,15 +1156,15 @@ button.acpmux-session-info-port:hover,
 }
 .acpmux-session-info-server {
   align-items: flex-start;
-  padding-top: 5px;
-  padding-bottom: 5px;
+  padding-top: var(--grid-base);
+  padding-bottom: var(--grid-base);
 }
 .acpmux-session-info-server__dot {
   flex: none;
   width: 7px;
   height: 7px;
   /* Keep the status mark's size while sharing the task glyph's leading column. */
-  margin: 6px calc((var(--acpmux-glyph-slot) - 7px) / 2) 0;
+  margin: calc((var(--grid-icon-box) - 7px) / 2) calc((var(--grid-icon-box) - 7px) / 2) 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
@@ -1020,7 +1178,7 @@ button.acpmux-session-info-port:hover,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -1029,8 +1187,8 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-port {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 4px;
+  gap: var(--grid-base);
+  padding: 0 var(--grid-base);
   border: 0;
   border-radius: 4px;
   background: none;
@@ -1067,10 +1225,10 @@ button.acpmux-session-info-port:focus-visible {
 .acpmux-session-info-fold {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 26px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
   background: none;
@@ -1087,10 +1245,10 @@ button.acpmux-session-info-port:focus-visible {
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-session-info-subagents__more {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-session-info-subagents > .acpmux-session-info-subagents__ended {
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-session-info-subagents > .acpmux-session-info-subagents__ended:hover {
@@ -1100,7 +1258,7 @@ button.acpmux-session-info-port:focus-visible {
   flex: none;
 }
 .acpmux-session-info-subagents__list {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-session-info-menu {
   min-width: 180px;
@@ -1175,7 +1333,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-session-info-scope[data-variant="card"] {
   flex: none;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--grid-gap);
   padding: 8px 10px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: var(--acpmux-session-info-card-radius);
@@ -1183,7 +1341,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-session-info-scope__glyph {
   display: inline-flex;
   flex: none;
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-session-info-scope__text {
@@ -1200,4 +1358,196 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* Session Info's rows share their leading and trailing slots, including compact glyphs. */
+.acpmux-session-info :is(.acpmux-session-info-task__open, .acpmux-session-info-task, .acpmux-session-info-source__link, .acpmux-session-info-fold) > svg {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-session-info .acpmux-session-info-section__icon {
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-session-info .acpmux-session-info-context__swatch {
+  margin-inline: calc((var(--grid-icon-box) - 10px) / 2);
+}
+
+.acpmux-session-info :is(.acpmux-summary-row, .acpmux-session-info-fold, .acpmux-session-info-row, .ui-disclosure-trigger) {
+  box-sizing: border-box;
+  height: var(--grid-row);
+  border-block: var(--grid-pill-inset) solid transparent;
+  background-clip: padding-box;
+}
+.acpmux-session-info .acpmux-summary-row {
+  gap: var(--grid-gap);
+  padding-inline: var(--grid-gap);
+}
+.acpmux-session-info .acpmux-lineage__icon {
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-session-info .acpmux-agent-line__stop-slot {
+  margin-right: var(--grid-gap);
+}
+
+.acpmux-session-info-fold:not(:has(> svg)) {
+  padding-left: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+}
+
+/* StopButton also appears in the running tray; only panel rows take these slots. */
+.acpmux-session-info__body .acpmux-session-info-icon-button {
+  width: var(--grid-icon-box);
+  height: var(--grid-pill);
+}
+/* Cloud repository attachment rows and their instant-open picker. */
+.acpmux-cloud-environment-row .acpmux-session-info-row__end {
+  margin-left: auto;
+}
+.acpmux-session-info-row--button[data-open] {
+  background: var(--acpmux-session-info-row-hover);
+}
+.acpmux-cloud-repository-popover {
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px;
+}
+.acpmux-cloud-repository-picker {
+  display: grid;
+  gap: 8px;
+}
+.acpmux-cloud-repository-search {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 6px;
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-cloud-repository-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.acpmux-cloud-repository-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--agent-text);
+  background: transparent;
+  text-align: left;
+}
+.acpmux-cloud-repository-option:hover,
+.acpmux-cloud-repository-option:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.acpmux-cloud-repository-option:disabled {
+  cursor: wait;
+}
+.acpmux-cloud-repository-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-cloud-repository-source {
+  margin-left: auto;
+  color: color-mix(in srgb, var(--agent-text) 52%, transparent);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.acpmux-cloud-repository-progress,
+.acpmux-cloud-repository-empty,
+.acpmux-cloud-repository-error {
+  padding: 4px 8px;
+  color: color-mix(in srgb, var(--agent-text) 65%, transparent);
+  font-size: var(--text-detail);
+}
+.acpmux-cloud-repository-error {
+  color: var(--agent-error, #d66);
+}
+.acpmux-cloud-repository-connect {
+  display: block;
+  padding: 4px 8px;
+  color: var(--accent-color);
+  font-size: var(--text-detail);
+}
+/* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
+   in the icon column, centred on the step's first line; the words start on the text column and wrap,
+   so a long step reads whole. The marks are the transcript todo list's (conversation.css .cv-plan):
+   a filled check is done, the shared spinner runs, a dashed ring waits, a plain ring was left in
+   progress when the turn ended. A done step mutes; nothing is struck through or bold. */
+.acpmux-session-info-progress__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  /* One 16px line centred in the 28px row; a wrapped step grows by whole lines. */
+  padding: calc((var(--grid-row) - var(--grid-icon-box)) / 2) var(--grid-gap);
+  box-sizing: border-box;
+  line-height: var(--grid-icon-box);
+}
+.acpmux-session-info-progress__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
+  box-sizing: border-box;
+  border: 1.5px solid var(--agent-muted);
+  border-radius: 50%;
+}
+.acpmux-session-info-progress__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-session-info-progress__step[data-status="pending"] .acpmux-session-info-progress__ring {
+  border-style: dashed;
+}
+.acpmux-session-info-progress__step[data-status="in_progress"] .acpmux-session-info-progress__mark {
+  color: var(--agent-text);
+}
+.acpmux-session-info-progress__step[data-status="completed"] {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
+  border-color: transparent;
+  background: var(--agent-muted);
+  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
+     reads on the muted disc in light and dark alike. */
+  color: var(--acpmux-base, Canvas);
+}
+/* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info-progress__step,
+  .acpmux-session-info-progress__ring {
+    transition:
+      color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
 }

@@ -13,8 +13,8 @@ import CmuxNextSidebar
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
-    /// The Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
-    static var multiViewEnabled: Bool { SidebarTunables.multiView.value }
+    /// The setting or Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
+    static var multiViewEnabled: Bool { SidebarTunables.multiViewOn }
 
     /// Puts the window frame on screen: its docked workspaces (`window.dockedWorkspaces`, `state.docks`) at their
     /// edges, and on the stage the workspace the sidebar selected, or `state.viewSet` around it (`sidebar.multiView`).
@@ -22,7 +22,7 @@ extension WindowController {
     /// ends (nil) once the stage's workspace is not in it or one is left; docks of such workspaces go too (W3). Runs in
     /// the turn that shows a workspace or a page, so no frame shows the old arrangement.
     func arrangeOnScreen() {
-        let multi = SidebarTunables.multiView.value, docking = LayoutTunables.dockedWorkspaces.value
+        let multi = SidebarTunables.multiViewOn, docking = LayoutTunables.dockedWorkspaces.value
         guard multi || docking else { return leaveMultiView() }
         guard let content else {
             // A top page or the connecting view fills the content area: no workspace is on screen.
@@ -130,7 +130,7 @@ extension WindowController {
     /// takes it where the layout has no split edge (`WorkspaceDragResolver.outcome`): Home's pinned dock takes no drop,
     /// and a screen edge dock band would merge the workspace into a new dock of the shown one.
     func besideEdge(at screenPoint: CGPoint, dragging ids: [String], group: String?) -> TabDropEdge? {
-        guard SidebarTunables.multiView.value, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
+        guard SidebarTunables.multiViewOn, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
               ids.first != target.workspace.id, let window = target.contentView.window else { return nil }
         let view = target.contentView
         let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
@@ -148,7 +148,7 @@ extension WindowController {
     /// A press in a workspace shown beside the focused one focuses it first, so the press lands in focused content.
     /// The view the press hits decides, so a sheet, popover or floating pane over it keeps the press.
     func focusOnScreenWorkspace(at windowPoint: CGPoint) {
-        guard SidebarTunables.multiView.value || LayoutTunables.dockedWorkspaces.value, let shown = content?.workspace.id,
+        guard SidebarTunables.multiViewOn || LayoutTunables.dockedWorkspaces.value, let shown = content?.workspace.id,
               let hit = window?.contentView?.hitTest(windowPoint) else { return }
         for id in besideIDs where id != shown {
             guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor, hit.isDescendant(of: view) else { continue }

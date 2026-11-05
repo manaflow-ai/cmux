@@ -29,8 +29,9 @@ public final class SettingsApplier {
     @discardableResult
     public func apply(_ snapshot: CmuxConfigSnapshot) -> [SettingsDiagnostic] {
         var diagnostics = snapshot.diagnostics
-        if diagnostics.contains(where: { $0.kind == .unreadableFile }) {
-            // Keep the last good state rather than resetting everything.
+        if diagnostics.contains(where: { $0.kind == .unreadableFile && $0.file == nil }) {
+            // Keep the last good state rather than resetting everything. A theme file that does not
+            // parse holds nothing back: its last good text (or none) is already in the snapshot.
             return diagnostics
         }
 
@@ -61,6 +62,9 @@ public final class SettingsApplier {
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
+        if design.verticalTabs != snapshot.verticalTabs { design.verticalTabs = snapshot.verticalTabs }
+        if design.verticalTabsExpandOnHover != snapshot.verticalTabsExpandOnHover { design.verticalTabsExpandOnHover = snapshot.verticalTabsExpandOnHover }
+        if design.hideLoneChatTab != snapshot.hideLoneChatTab { design.hideLoneChatTab = snapshot.hideLoneChatTab }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }

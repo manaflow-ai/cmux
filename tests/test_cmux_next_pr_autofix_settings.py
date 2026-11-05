@@ -289,7 +289,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         work = Path(tempfile.mkdtemp())
         repo, bin_dir = work / "repo", work / "bin"
         for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
-                    "scripts/cmux-next/settings-exports.txt"):
+                    "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
+                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)

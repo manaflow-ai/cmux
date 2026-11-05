@@ -629,19 +629,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   color: var(--acpmux-composer-dim);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) across the row,
-   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays about as tall as one of the person's. */
-.acpmux-queued .cv-received {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: -3px 0;
-}
-.acpmux-queued .cv-received__line {
-  padding-right: 0;
-}
-.acpmux-queued .cv-received__line > .acpmux-queued-actions {
-  margin: 0 0 0 auto;
+/* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
+   one note, drawn as the paused note is but muted: it waits on the trust question above, not on an
+   error. */
+.acpmux-queue-paused.acpmux-queue-held {
+  color: var(--acpmux-composer-dim);
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -790,6 +782,46 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-image:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
+}
+/* A video's tile (QueuedImages.tsx): its first frame, with a play glyph and its length over the
+   frame's foot, as the composer's video chip draws them; past one row, "+N" (Leo, 2026-11-05). */
+.acpmux-queued-tiles {
+  display: contents;
+}
+.acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) {
+  /* Not edited: one row, never wrapping (an edit wraps, so each remove control shows). A pane too
+     narrow for the tiles cuts the last of them, never the "+N" after them. */
+  flex-wrap: nowrap;
+}
+.acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) > .acpmux-queued-tiles {
+  display: flex;
+  gap: inherit;
+  min-width: 0;
+  overflow: hidden;
+  /* Room for a focused tile's ring (1.5px and 1px out) inside the clip. */
+  margin: -4px;
+  padding: 4px;
+}
+.acpmux-queued-image-slot[data-video] .acpmux-queued-image {
+  position: relative;
+}
+.acpmux-queued-video.acpmux-attachment-video-length {
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-queued-images-more {
+  flex: none;
+  white-space: nowrap;
+  align-self: center;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: 600;
 }
 .acpmux-queued-image-remove {
   position: absolute;

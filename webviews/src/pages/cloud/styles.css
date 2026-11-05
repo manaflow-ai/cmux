@@ -85,9 +85,8 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* The classic migration banner and a plan refusal: one row, text then actions. */
-.cloud-migration,
-.cloud-plan-notice {
+/* The classic migration banner: one row, text then actions. */
+.cloud-migration {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -99,12 +98,13 @@ select {
   color: var(--cloud-text);
 }
 
-.cloud-create-sheet .cloud-plan-notice {
-  margin: 12px 0 0;
+/* A plan refusal is the shared notice's warning (ui/notice.css); the page only places it. */
+.cloud-plan-notice {
+  margin: 12px 16px 0;
 }
 
-.cloud-plan-notice {
-  border-color: color-mix(in srgb, var(--cloud-warn) 60%, transparent);
+.cloud-create-sheet .cloud-plan-notice {
+  margin: 12px 0 0;
 }
 
 .cloud-migration-text {
@@ -406,7 +406,8 @@ select {
 
 .cloud-detail-title {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--text-heading);
+  letter-spacing: var(--text-heading--letter-spacing);
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
@@ -620,7 +621,7 @@ select {
 }
 
 .cloud-badge {
-  font-size: 10px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 9px;
   border: 1px solid var(--cloud-separator);
@@ -720,6 +721,12 @@ select {
 
 .cloud-browser-url {
   overflow-wrap: anywhere;
+}
+
+.cloud-preview-share-status {
+  flex: 1 0 100%;
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
 }
 
 .cloud-browser-refused {

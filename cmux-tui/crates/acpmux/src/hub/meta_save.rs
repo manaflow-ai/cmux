@@ -258,6 +258,10 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait) -> Result<()> {
+        // A metadata change can affect another closed row too (for example a child's count in its
+        // parent). Mark every cached projection stale before the writer is scheduled; the next
+        // full build then observes the in-memory change even while this write is queued.
+        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
         session.meta_writer.commit(wait, &|| self.write_snapshot(session))
     }
 
@@ -267,9 +271,13 @@ impl Hub {
     /// session when the node is built, left about 450 of them in two hours (2026-10-20).
     fn write_snapshot(&self, session: &Session) -> Result<()> {
         if session.purged.load(Ordering::SeqCst) {
+            self.remove_cached_closed_summary(&session.id);
             return Ok(());
         }
         let meta = session.meta();
+        if meta.status != SessionStatus::Closed {
+            self.remove_cached_closed_summary(&session.id);
+        }
         #[cfg(debug_assertions)]
         hold_seam(&session.id);
         #[cfg(test)]
@@ -309,7 +317,11 @@ fn hold_seam(session_id: &str) {
     // Removed first, so the next daemon does not kill itself again.
     if std::fs::remove_file(dir.join(format!("kill-{session_id}"))).is_ok() {
         // SAFETY: a signal to this process; the test that asked for it restarts the daemon.
-        unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(libc::getpid(), libc::SIGKILL)
+        };
+        // Off unix the seam does not kill: the tests that ask for it run on unix only.
     }
     let hold = dir.join(format!("hold-{session_id}"));
     if std::fs::rename(&hold, dir.join(format!("held-{session_id}"))).is_err() {

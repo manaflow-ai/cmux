@@ -1,5 +1,5 @@
 //! A peer daemon's link reads only this daemon's own sessions in its `_acpmux/watch` reply.
-//! The link drops every mirrored row (`peer.rs` `watch_sessions`), and on big-red those rows
+//! The link drops every mirrored row (`peer.rs` `watch_sessions`), and on one lane VM those rows
 //! were 4815 of 5241 (2026-10-30): 17 MB with tools, over the 15 MiB message limit, so every
 //! peer's handshake there failed.
 

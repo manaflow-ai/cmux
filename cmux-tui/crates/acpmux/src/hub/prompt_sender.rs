@@ -53,6 +53,13 @@ pub(super) fn add_sender(
     if let Some(thread) = provenance.and_then(|p| p.get("threadId")).and_then(Value::as_str) {
         sender.insert("threadId".into(), json!(thread));
     }
+    // A Chief's turn sent it (`prompt_provenance::stamp_chief`): that Chief's
+    // participant id, so a relay to another Chief (`cmux chief acp`) can send
+    // the reply back into the sender's chat.
+    let chief = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_CHIEF));
+    if let Some(chief) = chief.and_then(Value::as_str) {
+        sender.insert("chief".into(), json!(chief));
+    }
     // Params are always an object here (`prompt_params`, a steer's); anything
     // else is left as it is.
     let Some(fields) = params.as_object_mut() else { return };
@@ -88,6 +95,21 @@ mod tests {
         assert_eq!(
             params["_meta"],
             json!({"steer": true, "acpmux": {"sender": {"name": "lane-a"}}})
+        );
+    }
+
+    #[test]
+    fn a_chiefs_message_names_its_chief() {
+        // A Chief's turn session sent it (`prompt_provenance::stamp_chief`):
+        // the relay of another Chief (`cmux chief acp`) routes its reply
+        // back into that Chief's chat by this id.
+        let provenance = json!({"kind": "session_message", "from": "s-turn",
+            "fromName": "Codex Chief", "fromChief": "agent_codex", "threadId": "t2"});
+        let params =
+            prompt_params("s", json!([]), Some("Codex Chief"), Some("question"), Some(&provenance));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "Codex Chief", "class": "question", "threadId": "t2", "chief": "agent_codex"})
         );
     }
 

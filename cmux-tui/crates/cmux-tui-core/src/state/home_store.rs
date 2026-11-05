@@ -106,6 +106,15 @@ impl EmptyWorkspaceMark {
         *self != Self::None
     }
 
+    /// Whether the raw tree reads this mark (`kind`, `app`) from the presentation snapshot. Then
+    /// the creation reloads that snapshot after its commit and before it builds its
+    /// `workspace-added` entity, so the event names the kind every later tree read names
+    /// (`workspace-kind-v1`, `app-screens-v1`): a home announced as `normal` showed as an
+    /// ordinary workspace row until the next tree read.
+    pub(crate) fn shows_in_tree(&self) -> bool {
+        matches!(self, Self::Home | Self::App(_))
+    }
+
     /// The field the creation fingerprint carries for this mark.
     pub(crate) fn fingerprint_field(&self) -> Option<(&'static str, serde_json::Value)> {
         match self {

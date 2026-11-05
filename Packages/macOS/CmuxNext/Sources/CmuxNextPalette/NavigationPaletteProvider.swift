@@ -45,10 +45,37 @@ public final class NavigationPaletteProvider: PaletteProvider {
     @MainActor
     static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?) -> [PaletteItem] {
         let recency = recencyRanks(entries)
-        return entries.map { entry in
+        return distinctTitles(entries).map { entry in
             let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
             return item(entry, recencyBoost: boost, source: source)
         }
+    }
+
+    /// `entries` with each tab that only repeats its workspace's name (an untitled agent chat reads
+    /// as its workspace) titled by its kind instead, numbered when its workspace holds several of
+    /// that kind: "Agent Chat 1", "Agent Chat 2". The workspace's own row already reads that name,
+    /// and its subtitle still does (Leo 2026-11-03: "some of these are way too duplicated").
+    static func distinctTitles(_ entries: [PaletteNavigationEntry]) -> [PaletteNavigationEntry] {
+        func repeats(_ entry: PaletteNavigationEntry) -> (key: String, kind: PaletteNavigationEntry.TabKind)? {
+            guard case .tab(let kind) = entry.kind, let workspace = entry.workspaceTitle,
+                  folded(entry.title) == folded(workspace), !workspace.isEmpty else { return nil }
+            return ("\(entry.workspaceID ?? workspace)\u{1F}\(kind.rawValue)", kind)
+        }
+        var counts: [String: Int] = [:]
+        for entry in entries { if let key = repeats(entry)?.key { counts[key, default: 0] += 1 } }
+        var seen: [String: Int] = [:]
+        return entries.map { entry in
+            guard let (key, kind) = repeats(entry) else { return entry }
+            seen[key, default: 0] += 1
+            var titled = entry
+            titled.title = (counts[key] ?? 0) > 1 ? PaletteStrings.numberedKind(kindLabel(kind), seen[key] ?? 1) : kindLabel(kind)
+            titled.keywords.append(entry.title)
+            return titled
+        }
+    }
+
+    private static func folded(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
     /// Rank by last use, newest first, of the entries that were ever used.
@@ -78,7 +105,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item = PaletteItem(
                 id: entry.itemID, title: entry.title.isEmpty ? PaletteStrings.kindPane : entry.title,
                 subtitle: parents.isEmpty ? nil : parents.joined(separator: " · "),
-                accessory: entry.isCurrent ? PaletteStrings.current : PaletteStrings.kindPane,
+                accessory: PaletteStrings.kindWithState(PaletteStrings.kindPane, state: entry.isCurrent ? PaletteStrings.current : nil),
                 symbol: "rectangle.split.2x1", section: paneSection,
                 keywords: [PaletteStrings.paneKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID,
                 rankBias: paneBias + recencyBoost)
@@ -88,7 +115,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item = PaletteItem(
                 id: entry.itemID, title: entry.title.isEmpty ? PaletteStrings.tabSearchUntitled : entry.title,
                 subtitle: parts.isEmpty ? nil : parts.joined(separator: " · "),
-                accessory: entry.isCurrent ? PaletteStrings.current : kindLabel(kind),
+                accessory: PaletteStrings.kindWithState(kindLabel(kind), state: entry.isCurrent ? PaletteStrings.current : nil),
                 symbol: symbol(kind), brand: entry.agent, section: TabPaletteProvider.section,
                 keywords: [PaletteStrings.tabKeyword, entry.url, entry.cwd, entry.agent].compactMap { $0 } + sessionWords(entry.sessionID)
                     + entry.keywords,
@@ -99,7 +126,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
     }
 
     /// A session id and, for an `acp:` handle, the bare id: either finds the row.
-    static func sessionWords(_ id: String?) -> [String] {
+    public static func sessionWords(_ id: String?) -> [String] {
         guard let id else { return [] }
         let prefix = PaletteNavigationEntry.acpPrefix
         if id.hasPrefix(prefix) { return [id, String(id.dropFirst(prefix.count))] }

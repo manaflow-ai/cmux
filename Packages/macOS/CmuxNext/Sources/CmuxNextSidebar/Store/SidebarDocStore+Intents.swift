@@ -27,9 +27,12 @@ extension SidebarDocStore {
             guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
                 return self.move(moving, to: target, title: title)
             }
-            send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title, undoable: undoable)
+            let stamps = Self.roomOps(moving: moving, into: target.section, room: newItemRoom(), records: settledRecords)
+            send(ops: adopt + [["op": "move", "items": moving, "to": to]] + stamps, title: title, undoable: undoable)
         }
-        if let (ops, undoable) = groupOps(intent, items: items) {
+        // The acting window's space as its state has it: Space > New Group switches the window first, and the model
+        // hears of the switch a turn later.
+        if let (ops, undoable) = groupOps(intent, room: newItemRoom() ?? model.activeProfileID?.rawValue, items: items) {
             send(ops: adopt + ops, title: Self.moveTitle, undoable: undoable)
             return true
         }

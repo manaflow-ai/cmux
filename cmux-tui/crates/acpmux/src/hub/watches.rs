@@ -281,7 +281,7 @@ async fn page(hub: &Hub, id: &str, key: &str) -> Result<bool, RpcError> {
                 &next,
                 key,
                 vec![format!(
-                    "Peer {peer} is offline; this does not resolve the watch. Run acpmux host doctor {peer} --json."
+                    "Peer {peer} is offline; this does not resolve the watch. Run acpmux machine doctor {peer} --json."
                 )],
                 false,
             )?;

@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod machine;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -59,7 +60,8 @@ fn run_marker() -> String {
         Sha256::digest(seed.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("{MARKER}{hex}")
 }
-const CACHE_VERSION: u32 = 2;
+// Older caches could contain machine declarations imported through a shell hook.
+const CACHE_VERSION: u32 = 3;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -162,8 +164,15 @@ pub fn begin() -> Plan {
         return Plan { run_shell: true, wait: true };
     };
     let stale = cache.saved_at.is_none_or(|t| now_secs().saturating_sub(t) > MAX_AGE.as_secs());
-    // Only names the current rule keeps (an older cache may hold more).
-    let vars = cache.vars.into_iter().filter(|(k, v)| storable(k, v)).collect();
+    // Machine values belong only to local spawns, even if a shell profile
+    // also sourced that file before this cache was written.
+    let _ = machine::read();
+    let machine_names = machine::names();
+    let vars = cache
+        .vars
+        .into_iter()
+        .filter(|(k, v)| !machine_names.contains(k) && storable(k, v))
+        .collect();
     st.imported = Some(build(for_children(vars), cache.path));
     st.outcome = Outcome::Cached;
     st.secret_names = cache.secret_names.clone();
@@ -241,6 +250,9 @@ async fn import_once(read: &str) -> bool {
     let marker = run_marker();
     // Capture before reading the shell. import() retries when files change mid-read.
     let machine_stamp = machine_files_stamp();
+    // Keep declarations seen before and after the shell read out of generic
+    // imports, including a file revoked or renamed while the shell was running.
+    let _ = machine::read();
     // Names only, read with the stamp: the values still come from the shell.
     let delivered = delivered_names();
     *DELIVERED.write().unwrap_or_else(|e| e.into_inner()) = delivered;
@@ -261,8 +273,12 @@ async fn import_once(read: &str) -> bool {
         return false;
     };
     let (login, login_path) = parse_env0(&text, &marker);
-    // Only what a child or the daemon itself may use is kept, in memory too.
-    let login: Vec<(String, String)> = login.into_iter().filter(|(k, v)| storable(k, v)).collect();
+    // Literal machine declarations are local-spawn authority. A profile may
+    // also source them, but they must not enter generic login APIs or the cache.
+    let _ = machine::read();
+    let machine_names = machine::names();
+    let login: Vec<(String, String)> =
+        login.into_iter().filter(|(k, v)| !machine_names.contains(k) && storable(k, v)).collect();
     save_cache(read, &login, login_path.as_deref());
     let imported = build(for_children(login), login_path);
     let added = imported.vars.len();
@@ -500,6 +516,9 @@ pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
 
 /// A variable the import added, by name.
 pub fn var(key: &str) -> Option<String> {
+    if machine::names().contains(key) {
+        return None;
+    }
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
     st.imported.as_ref()?.vars.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
@@ -715,17 +734,83 @@ pub fn allowed_var(key: &str) -> Option<String> {
         .then_some(v)
 }
 
+/// Profile and route references must not recover a machine value from the
+/// daemon's inherited environment after the local-only overlay refuses it.
+pub(crate) fn reference_var(key: &str) -> Option<String> {
+    let _ = machine::read();
+    if machine::names().contains(key) {
+        return None;
+    }
+    allowed_var(key).or_else(|| std::env::var(key).ok())
+}
+
+/// A nested Claude scrub runs after login env is applied. Restore only the
+/// current local machine declarations it removed; never restore an inherited
+/// value or expose this overlay to remote-origin launches.
+pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
+    cmd.envs(nested_local(crate::vault::env_for_children(), machine::read()));
+}
+
+/// The nested-Claude keys of the local overlay a scrub removed, in the order
+/// a launch puts them back: the vault's, then `machine.env`'s.
+pub(crate) fn nested_local(
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    vault
+        .into_iter()
+        .chain(machine)
+        .filter(|(key, _)| crate::config::is_nested_claude_key(key))
+        .collect()
+}
+
 fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
+    pairs_with(family, profile, crate::vault::env_for_children(), machine::read())
+}
+
+fn pairs_with(
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
     // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
     // every local child: the person sent it for this machine's shells and
     // agents. Remote-origin launches never call this (`apply_remote_tokio`).
-    pairs()
+    let names = machine::names();
+    let values: BTreeMap<_, _> = pairs()
         .into_iter()
-        .filter(|(k, v)| allowed_with(k, v, family, profile) || delivered(k))
-        .collect()
+        .filter(|(k, v)| {
+            !names.contains(k) && (allowed_with(k, v, family, profile) || delivered(k))
+        })
+        .collect();
+    // Read literals at the local spawn boundary; never expose them through
+    // var/allowed_var/nested_overrides or persist them in login-env.json.
+    // Explicit profile/preset/session env is applied after this overlay.
+    overlay(values, vault, machine)
+}
+
+/// The local overlay over the allow-listed login values: the person's vault
+/// (`crate::vault`), then this machine's delivered `machine.env`, which is
+/// specific to it. Profile, preset and session env go on after it.
+pub(crate) fn overlay(
+    login: BTreeMap<String, String>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut values = login;
+    values.extend(vault);
+    values.extend(machine);
+    values.into_iter().collect()
+}
+
+/// Whether an env name may come from a person's or machine's declarations:
+/// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
+pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
+    machine::allowed_name(name)
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
@@ -735,10 +820,15 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }
+    let names = machine::names();
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
     let Some(i) = &st.imported else { return Vec::new() };
-    let nested: Vec<(String, String)> =
-        i.vars.iter().filter(|(k, _)| crate::config::is_nested_claude_key(k)).cloned().collect();
+    let nested: Vec<(String, String)> = i
+        .vars
+        .iter()
+        .filter(|(k, _)| !names.contains(k) && crate::config::is_nested_claude_key(k))
+        .cloned()
+        .collect();
     drop(st);
     nested.into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
 }
@@ -754,11 +844,18 @@ pub fn effective_for(
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
     let nested = std::env::var_os("CLAUDECODE").is_some();
+    let (vault, machine) = (crate::vault::env_for_children(), machine::read());
+    // A launch's scrub removes the nested keys, then puts back the login
+    // values, the vault's and `machine.env`'s (`restore_machine_tokio`).
+    let mut restored = nested_overrides(family);
+    restored.extend(nested_local(vault.clone(), machine.clone()));
+    let local = pairs_with(family, Some(profile), vault, machine);
+    let names = machine::names();
     layered(
-        std::env::vars(),
+        std::env::vars().filter(|(key, _)| !names.contains(key)),
         nested,
-        pairs_for(family, Some(profile)),
-        nested_overrides(family),
+        local,
+        restored,
         profile,
     )
 }
@@ -785,12 +882,20 @@ pub(crate) fn layered(
 /// Apply the allow-listed login environment every child gets (PATH,
 /// version managers, proxies, CA) to a command.
 pub fn apply_std(cmd: &mut std::process::Command) {
-    cmd.envs(pairs_for(None, None));
+    let values = pairs_for(None, None);
+    for key in machine::names() {
+        cmd.env_remove(key);
+    }
+    cmd.envs(values);
 }
 
 /// Same, for tokio's process builder.
 pub fn apply_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(pairs_for(None, None));
+    let values = pairs_for(None, None);
+    for key in machine::names() {
+        cmd.env_remove(key);
+    }
+    cmd.envs(values);
 }
 
 /// The allow-listed login environment for a harness of `family`, with
@@ -801,7 +906,11 @@ pub fn apply_tokio_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) {
-    cmd.envs(pairs_for(family, profile));
+    let values = pairs_for(family, profile);
+    for key in machine::names() {
+        cmd.env_remove(key);
+    }
+    cmd.envs(values);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -836,7 +945,11 @@ pub fn apply_std_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) {
-    cmd.envs(pairs_for(family, profile));
+    let values = pairs_for(family, profile);
+    for key in machine::names() {
+        cmd.env_remove(key);
+    }
+    cmd.envs(values);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1179,9 +1292,17 @@ fn delivered_names() -> Vec<String> {
 }
 
 /// The machine files' metadata stamp (never a value), for keys that must
-/// change when a delivery or revocation does (the agent pool's).
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
 pub fn machine_stamp() -> Option<String> {
-    machine_files_stamp()
+    let vault = crate::vault::stamp();
+    match (machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 fn machine_files_stamp() -> Option<String> {
@@ -1392,5 +1513,40 @@ mod effective_tests {
         assert!(!nested.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(nested["CLAUDE_CODE_OAUTH_TOKEN"], "login");
         assert_eq!(nested["HOME"], "/u");
+    }
+
+    /// Under a nested Claude Code session the scrub drops the vault's and
+    /// `machine.env`'s Claude keys too; a launch puts them back
+    /// (`restore_machine_tokio`) and a sign-in check must see the same:
+    /// session over machine over vault over login over the daemon.
+    #[test]
+    fn a_nested_check_restores_the_vault_and_machine_like_a_launch() {
+        let vault = pairs(&[("ANTHROPIC_BASE_URL", "vault"), ("ANTHROPIC_MODEL", "vault")]);
+        let machine = BTreeMap::from([("ANTHROPIC_MODEL".to_owned(), "machine".to_owned())]);
+        let login = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL".to_owned(), "login".to_owned()),
+            ("ANTHROPIC_SMALL_FAST_MODEL".to_owned(), "login".to_owned()),
+        ]);
+        let mut restored = pairs(&[("ANTHROPIC_SMALL_FAST_MODEL", "login")]);
+        restored.extend(super::nested_local(vault.clone(), machine.clone()));
+        let profile = BTreeMap::from([("ANTHROPIC_MODEL".to_owned(), "session".to_owned())]);
+        let env = layered(
+            pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_BASE_URL", "daemon"), ("HOME", "/u")]),
+            true,
+            super::overlay(login, vault, machine.clone()),
+            restored,
+            &profile,
+        );
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "vault");
+        assert_eq!(env["ANTHROPIC_SMALL_FAST_MODEL"], "login");
+        assert_eq!(env["ANTHROPIC_MODEL"], "session");
+        let env = layered(
+            pairs(&[("CLAUDECODE", "1")]),
+            true,
+            Vec::new(),
+            super::nested_local(pairs(&[("ANTHROPIC_MODEL", "vault")]), machine),
+            &BTreeMap::new(),
+        );
+        assert_eq!(env["ANTHROPIC_MODEL"], "machine");
     }
 }

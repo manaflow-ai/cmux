@@ -47,6 +47,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Desktop apps on the Mac (computer use) | [cmux-cua](cmux-cua/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Long-term memory shared by agent sessions, on one machine or several | [cmux-agent-memory](cmux-agent-memory/SKILL.md) |
+| Find cmux operations a few at a time instead of loading every tool | [cmux-code-mode](cmux-code-mode/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |

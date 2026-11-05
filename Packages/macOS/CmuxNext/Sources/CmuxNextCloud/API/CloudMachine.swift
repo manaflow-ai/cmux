@@ -288,15 +288,6 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities?.supports(operation) ?? true
     }
 
-    /// Whether New Cloud Workspace with no machine named may open on this machine instead
-    /// of starting (and billing) a new VM: it runs, or the idle timer paused it
-    /// (opening resumes it). A changing, failed, destroyed or person-paused machine is
-    /// never picked until its terminal record arrives (Lawrence msg 1334: Cloud workspaces
-    /// sit in their machine's one group).
-    public var takesUnnamedWorkspaces: Bool {
-        !shownStatus.isChanging && (status.isLive || (status == .paused && pauseReason == .idle))
-    }
-
     /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
     /// user's name, else the generated slug (`kind-aqua-sandpiper`); nil when it has neither.
     public var shownName: String? { displayName?.nonEmpty ?? slug?.nonEmpty }
@@ -396,11 +387,12 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var invitation: Invitation?
     /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
-    /// sandboxed; a value of another type fails the attach.
-    public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// sandboxed; a value of another type fails the attach. The word's rules are Rust's
+    /// (cmux-cloud-start-core `vm_kind`).
+    public var callerOwnsVM: Bool { CloudStartCore().vmKind(vmKind).ownsVm }
     /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
     /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
-    public var callerIsTeammate: Bool { vmKind == "team" }
+    public var callerIsTeammate: Bool { CloudStartCore().vmKind(vmKind).teammate }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

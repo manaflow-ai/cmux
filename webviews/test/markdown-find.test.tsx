@@ -162,3 +162,14 @@ test("the pill shows the count and steps with Enter", async () => {
   expect(host.querySelector("#md-find-count")?.textContent).toBe("find.count:2/2");
   await act(async () => root.unmount());
 });
+
+test("a match after İ in source mode is selected at the right characters", () => {
+  const find = page("", "source", "İa needle\nİİ NEEDLE");
+  find.show("needle");
+  expect(find.getState().matches.length).toBe(2);
+  const textarea = document.querySelector<HTMLTextAreaElement>(".md-source")!;
+  const selected = () => textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
+  expect(selected()).toBe("needle");
+  find.next();
+  expect(selected()).toBe("NEEDLE");
+});

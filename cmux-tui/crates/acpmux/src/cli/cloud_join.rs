@@ -9,7 +9,10 @@ use std::path::PathBuf;
 mod recovery;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
-pub const DEFAULT_HUB: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The hub a join with no `--hub` uses: cmux-platform's production origin
+/// (Leo, 2026-11-04: "If I tell you to do something, don't stick it into
+/// dev. Put it into prod."). `--hub` still names another one.
+pub const DEFAULT_HUB: &str = cmux_cloud_client::backend::Backend::Production.platform();
 pub const CONSENT_REQUIRED: &str = "consent_required";
 const MAX_TOKEN_BYTES: usize = 512;
 const CREDENTIAL_FILE: &str = "machine-credential.json";
@@ -115,7 +118,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
-        team_messaging: false,
+        team_messaging: true,
         control_from: Vec::new(),
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
@@ -130,6 +133,17 @@ fn mesh_relay_configured() -> bool {
 
 fn load() -> Result<Option<MachineCredential>> {
     load_at(&state_dir())
+}
+
+/// The joined machine credential, for the vault pull (`crate::vault`), which
+/// sends it only as the bearer of its own hub request.
+pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
+    load()
+}
+
+/// A stored hub origin, checked as `host join` checks it.
+pub(crate) fn hub_origin(value: &str) -> Result<String> {
+    origin(Some(value.to_owned()))
 }
 
 pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
@@ -307,24 +321,22 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     )
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::BUILD, "channel":null});
+    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::build(), "channel":null});
     out["joinIncomplete"] = json!(pending_origin.is_some());
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
     out["lastRefusal"] = consent_status()["lastRefusal"].clone();
     if !record.credential.is_empty() {
         // GET is read-only: doctor must never replace the daemon's live sessions.
-        if let Ok(res) = http_client()?
-            .get(format!(
-                "{}/v1/machines/credentials/self",
-                origin(Some(record.hub_origin.clone()))?
-            ))
-            .bearer_auth(&record.credential)
-            .send()
-            .await
-        {
+        let hub = origin(Some(record.hub_origin.clone()))?;
+        let answer = hub_client(&hub, Some(&record.credential))?.machine_redeem_self().await;
+        let status = match answer {
+            Ok(_) => Some(200),
+            Err(error) => cmux_cloud_client::ApiError::from_api(error).await.status,
+        };
+        if let Some(status) = status {
             out["hubReachable"] = json!(true);
-            if res.status().as_u16() == 401 {
+            if status == 401 {
                 record_auth_result(&record.credential, true, false)?;
                 out["revoked"] = json!(true);
             }
@@ -377,7 +389,21 @@ pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
 }
 
-fn http_client() -> Result<reqwest::Client> {
+/// The hub's generated client (cmux-cloud-client), as `bearer` when given,
+/// with the join's 10 s deadline and no redirects.
+pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_client::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_cloud_client::client_for(
+        hub,
+        bearer,
+        None,
+        concat!("acpmux/", env!("CARGO_PKG_VERSION")),
+        std::time::Duration::from_secs(10),
+    )
+    .context("build hub client")
+}
+
+pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

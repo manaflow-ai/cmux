@@ -60,9 +60,9 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
       expect(normal.paddingStart).toBe(8);
       expect(normal.paddingEnd).toBe(8);
       expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
-      // Claude's look pins the shield under the + glyph (composer-alignment-centers.test.ts); Codex's
-      // + sits on its own box inset, which no test pins yet, so only the capsule is checked there.
-      if (look === "claude") expect(normal.shieldUnderPlus).toBe(true);
+      // Both looks pin the shield under the + glyph (composer-alignment-centers.test.ts): Codex's
+      // lays the buttons out as Claude's (composerLook.ts).
+      expect(normal.shieldUnderPlus).toBe(true);
       await page.hover(".acpmux-access-trigger");
       expect(await measure()).toEqual(normal);
       await page.close();

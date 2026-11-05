@@ -53,6 +53,7 @@ pub struct LiveApplier {
     /// The app's daemon socket (the `daemon` service's default session).
     pub daemon_socket: PathBuf,
     pub chief_socket: Option<PathBuf>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 impl Applier for LiveApplier {
@@ -75,6 +76,17 @@ fn refused(why: impl Into<String>) -> Rejection {
 
 fn unavailable(why: impl Into<String>) -> Rejection {
     Rejection::Unavailable(why.into())
+}
+
+/// `_acpmux/info` is the authority that resolves a phone-facing alias to the
+/// ACP session id. An absent or malformed result is unknown and therefore
+/// refused before any mutation can be sent.
+fn resolved_session(info: &Value) -> Result<String, Rejection> {
+    info.get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|session| !session.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| refused("acpmux did not identify the session"))
 }
 
 /// `_acpmux/permission_respond` params for a question or permission reply,
@@ -210,6 +222,18 @@ pub async fn reply_to_notification(
     surface: Option<u64>,
     text: &str,
 ) -> Result<(), Rejection> {
+    reply_to_notification_with_exposure(daemon_socket, phone, notification, surface, None, text, None).await
+}
+
+async fn reply_to_notification_with_exposure(
+    daemon_socket: &std::path::Path,
+    phone: &str,
+    notification: u64,
+    surface: Option<u64>,
+    target_session: Option<&str>,
+    text: &str,
+    session_exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Result<(), Rejection> {
     let policy = DaemonPolicy::new(phone);
     let mut lines = Lines::connect(daemon_socket).await?;
     let ledger =
@@ -232,13 +256,17 @@ pub async fn reply_to_notification(
     let agents = lines.call_daemon(&policy, &agents_line(found)).await?;
     match agent_session(&agents, found) {
         AgentOnTerminal::None => {}
-        AgentOnTerminal::Unknown => return Err(refused("an agent runs in that terminal; answer it in the app")),
+        AgentOnTerminal::Unknown => {
+            return Err(refused("an agent runs in that terminal; answer it in the app"));
+        }
         AgentOnTerminal::Session(session) => {
+            exposure_allows(session_exposure, Some(&session))?;
             let identify =
                 lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
             if !has_capability(&identify, SEND_EXPECT_AGENT) {
                 return Err(refused("update cmux on this Mac to reply to an agent from a notification"));
             }
+            exposure_allows(session_exposure, Some(&session))?;
             let Some(answer) = lines
                 .call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program, &session))
                 .await?
@@ -248,10 +276,28 @@ pub async fn reply_to_notification(
             return failed(&answer).map_or(Ok(()), |why| Err(refused(why)));
         }
     }
+    // A terminal without an agent mapping is an unrelated terminal and keeps
+    // its existing reply behavior. If the reply itself names a session, use it
+    // as the final exposure key before the first terminal write.
+    exposure_allows(session_exposure, target_session)?;
     for line in terminal_lines(found, text, &program) {
+        exposure_allows(session_exposure, target_session)?;
         let answer = lines.call_daemon(&policy, &line).await?;
         if let Some(why) = failed(&answer) {
             return Err(refused(why));
+        }
+    }
+    Ok(())
+}
+
+fn exposure_allows(
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    session: Option<&str>,
+) -> Result<(), Rejection> {
+    if let (Some(session), Some(exposure)) = (session, exposure) {
+        let state = exposure.borrow().clone();
+        if !state.available || state.blocked.contains(session) {
+            return Err(refused("this chat is not exposed to iPhone Remote Control"));
         }
     }
     Ok(())
@@ -268,6 +314,7 @@ pub async fn answer_notification_reply(
     phone: &str,
     spent: Option<&crate::mailbox::SpentReplies>,
     line: &[u8],
+    session_exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) -> String {
     let request: Value = serde_json::from_slice(line).unwrap_or_default();
     let id = request.get("id");
@@ -294,7 +341,16 @@ pub async fn answer_notification_reply(
             }
         }
     }
-    let outcome = reply_to_notification(daemon_socket, phone, notification, None, text).await;
+    let outcome = reply_to_notification_with_exposure(
+        daemon_socket,
+        phone,
+        notification,
+        None,
+        None,
+        text,
+        session_exposure,
+    )
+    .await;
     if let (Some(spent), Some(reply)) = (spent, reply_id) {
         match &outcome {
             Err(Rejection::Unavailable(_)) => spent.release_link_reply(reply),
@@ -403,9 +459,13 @@ fn failed(reply: &Value) -> Option<String> {
 }
 
 impl LiveApplier {
+    fn exposure_allows(&self, session: Option<&str>) -> Result<(), Rejection> {
+        exposure_allows(self.session_exposure.as_ref(), session)
+    }
     async fn respond(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
         let info = acpmux.call("_acpmux/info", json!({"sessionId": reply.target.session_id})).await?;
+        let session = resolved_session(&info)?;
         let pending = info
             .get("pending")
             .and_then(Value::as_array)
@@ -416,17 +476,27 @@ impl LiveApplier {
             })
             .cloned()
             .ok_or(Rejection::NotPending)?;
-        let params = permission_params(reply, &pending)?;
+        let mut params = permission_params(reply, &pending)?;
+        params["sessionId"] = Value::String(session.clone());
+        // This is deliberately the last policy read before the mutation. The
+        // signed alias is never used as the exposure key or wire session id.
+        self.exposure_allows(Some(&session))?;
         acpmux.call("_acpmux/permission_respond", params).await.map(|_| ())
     }
 
     async fn prompt(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
-        acpmux
+        let info = acpmux
             .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
             .await
             .map_err(|_| Rejection::NotPending)?;
-        acpmux.prompt(prompt_params(reply)).await
+        let session = resolved_session(&info)?;
+        let mut params = prompt_params(reply);
+        params["sessionId"] = Value::String(session.clone());
+        // Keep this check immediately before the prompt send: a revocation
+        // during alias resolution must win over a stale signed reply.
+        self.exposure_allows(Some(&session))?;
+        acpmux.prompt(params).await
     }
 
     async fn chief(&self, reply: &Reply) -> Result<(), Rejection> {
@@ -455,7 +525,16 @@ impl LiveApplier {
             .and_then(|n| n.parse().ok())
             .ok_or_else(|| refused("no notification"))?;
         let text = reply.text.as_deref().unwrap_or_default();
-        reply_to_notification(&self.daemon_socket, &reply.phone, notification, Some(surface), text).await
+        reply_to_notification_with_exposure(
+            &self.daemon_socket,
+            &reply.phone,
+            notification,
+            Some(surface),
+            reply.target.session_id.as_deref(),
+            text,
+            self.session_exposure.as_ref(),
+        )
+        .await
     }
 }
 
@@ -646,6 +725,28 @@ mod tests {
     }
 
     #[test]
+    fn an_info_answer_must_name_a_canonical_session() {
+        assert_eq!(resolved_session(&json!({"sessionId": "s-canonical"})).unwrap(), "s-canonical");
+        assert!(resolved_session(&json!({"sessionId": ""})).is_err());
+        assert!(resolved_session(&json!({"pending": []})).is_err());
+    }
+
+    #[test]
+    fn exposure_checks_use_the_resolved_session_id() {
+        let (tx, exposure) = tokio::sync::watch::channel(crate::control::SessionExposure {
+            available: true,
+            configured: true,
+            allowed: Default::default(),
+            blocked: ["s-canonical".to_owned()].into_iter().collect(),
+        });
+        assert!(exposure_allows(Some(&exposure), Some("s-canonical")).is_err());
+        assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_ok());
+        let previous = exposure.borrow().clone();
+        tx.send_replace(crate::control::SessionExposure { available: false, ..previous });
+        assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_err());
+    }
+
+    #[test]
     fn an_allow_carries_the_phones_approval_and_a_deny_none() {
         let allow = permission_params(&reply("permission", ActionKind::Allow), &pending()).unwrap();
         assert_eq!(allow["optionId"], "allow");
@@ -766,7 +867,10 @@ mod tests {
         assert_eq!(agent_session(&filtered, 7), AgentOnTerminal::Session("s-1".into()));
         assert_eq!(agents_line(7)["surface"], 7);
         let daemon = DaemonPolicy::new("phone-1");
-        assert!(!matches!(daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()), Verdict::Refuse(_)));
+        assert!(!matches!(
+            daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()),
+            Verdict::Refuse(_)
+        ));
     }
 
     #[test]
@@ -817,5 +921,71 @@ mod tests {
         assert_eq!(paste["paste"], true);
         assert_eq!(paste["expect_foreground"], "/usr/bin/vim");
         assert_eq!(enter["text"], "\r");
+    }
+}
+
+#[cfg(test)]
+mod live_notification_exposure_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    #[tokio::test]
+    async fn live_notification_reply_cannot_type_into_a_blocked_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let backend = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, mut write) = socket.into_split();
+            let mut lines = BufReader::new(read).lines();
+            let mut commands = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let cmd = request["cmd"].as_str().unwrap().to_owned();
+                commands.push(cmd.clone());
+                let data = match cmd.as_str() {
+                    "list-notifications" => {
+                        json!({"notifications":[{"notification":12,"surface":7,"reply":true,
+                        "created_at_ms":crate::mailbox::now()*1000,"poster_pid":5000,"poster_executable":"/usr/local/bin/claude"}]})
+                    }
+                    "process-info" => {
+                        json!({"foreground_pid":5000,"foreground_executable":"/usr/local/bin/claude"})
+                    }
+                    "list-agents" => {
+                        json!({"agents":[{"surface":7,"agent":"claude","state":"blocked","agent_session_id":"chat-off"}]})
+                    }
+                    "identify" => json!({"capabilities":[SEND_EXPECT_AGENT]}),
+                    _ => json!({}),
+                };
+                let answer = json!({"id":request["id"],"ok":true,"data":data});
+                write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+            }
+            commands
+        });
+        let (_tx, exposure) = tokio::sync::watch::channel(crate::control::SessionExposure {
+            configured: true,
+            blocked: ["chat-off".to_owned()].into_iter().collect(),
+            ..crate::control::SessionExposure::default()
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            answer_notification_reply(
+                &path,
+                "phone",
+                None,
+                br#"{"id":"phone-reply","cmd":"notification-reply","notification":12,"text":"do it"}"#,
+                Some(&exposure),
+            ),
+        )
+        .await
+        .unwrap();
+        let result: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error_code"], "refused");
+        assert!(result["error"].as_str().unwrap().contains("not exposed"));
+        let commands =
+            tokio::time::timeout(std::time::Duration::from_secs(5), backend).await.unwrap().unwrap();
+        assert!(commands.iter().any(|cmd| cmd == "list-agents"));
+        assert!(!commands.iter().any(|cmd| cmd == "send"));
     }
 }

@@ -14,6 +14,8 @@ struct FeedInboxHeader: View {
     let markRead: () -> Void
     let refresh: () -> Void
     let addConnection: () -> Void
+    /// The host can send a reply to a report (the Feed page), so the Reports tab is offered.
+    var showsReports = false
     @Environment(\.feedColors) private var colors
 
     var body: some View {
@@ -21,6 +23,7 @@ struct FeedInboxHeader: View {
             HStack(spacing: 5) {
                 connectionTab(.github, title: FeedStrings.github, icon: .brandGithub)
                 connectionTab(.feed, title: FeedStrings.title, icon: .inbox)
+                if showsReports { connectionTab(.reports, title: FeedStrings.reportsTitle, icon: .agentChat) }
                 Spacer(minLength: 0)
                 if canAddConnection {
                     Button(action: addConnection) {
@@ -36,6 +39,13 @@ struct FeedInboxHeader: View {
             }
             .padding(.horizontal, 10).frame(height: 43)
             FeedHairline()
+            // The reports basket has its own list and reply box; the item search and triage stay with the items.
+            if filter.connection != .reports { triage }
+        }
+    }
+
+    private var triage: some View {
+        VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
                 ThemedField(text: $filter.query, placeholder: FeedStrings.filterInbox, font: .systemFont(ofSize: 12),
@@ -75,7 +85,7 @@ struct FeedInboxHeader: View {
             FeedIconLabel(title, icon: icon, textSize: 11.5)
                 .font(.system(size: 11.5, weight: filter.connection == connection ? .medium : .regular))
                 .padding(.horizontal, 9).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6).fill(filter.connection == connection ? colors.selection : .clear))
+                .background(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).fill(filter.connection == connection ? colors.selection : .clear))
         }
         .buttonStyle(.plain)
         .foregroundStyle(filter.connection == connection ? colors.primary : colors.secondary)

@@ -29,6 +29,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 
 # variable -> the literal the repository sets, which an unset read must use.
 # Each is cheap: the compile-only suite over the full macOS suite, and the
@@ -41,6 +43,9 @@ CHEAP_DEFAULTS = {
 
 VARS_REFERENCE = re.compile(r"vars\.([A-Z0-9_]+)")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
+POOL_TERMINAL_FALLBACK = re.compile(
+    r"\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\s*\}\}"
+)
 
 # The repository-side switch for metered macOS capacity. Unset is the cheap
 # reading, so a fork pull request and a repository with no admin action both
@@ -66,6 +71,16 @@ PAID_CAPABLE_RUNNER_VARS = {
     "MACOS_RUNNER_DISPLAY": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_26_LARGE": "blacksmith-12vcpu-macos-26",
+}
+
+# Pool reads are the declared fallback for the same free Blacksmith sizes.
+# They intentionally have no scalar label to fall back to: the pool
+# reconciler may move the live member without a workflow edit.
+PAID_CAPABLE_POOL_DEFAULTS = {
+    "MACOS_RUNNER_15": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DISPLAY": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DUAL_XCODE": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_26_LARGE": "fromJSON(vars.RUNNER_POOLS).macos_26_large",
 }
 
 # The gate as it must appear immediately before the read. The lookbehind keeps
@@ -132,12 +147,15 @@ def is_comparison(text: str, end: int) -> bool:
 
 
 def default_chain_reaches_literal(text: str, end: int) -> bool:
-    """True when a chain of `|| vars.Y || 'literal'` ends in a literal."""
+    """True when a chain ends in a literal or declared runner pool."""
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
-            return re.match(r"\s*\|\|\s*'[^']+'", rest) is not None
+            return re.match(
+                r"\s*\|\|\s*(?:'[^']+'|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)",
+                rest,
+            ) is not None
         rest = rest[chained.end():]
 
 
@@ -251,14 +269,36 @@ def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
     return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
 
 
+# `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: the label, for a fork's run.
+FORK_WRAP = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
+
+
+def fork_view(text: str) -> str:
+    return FORK_WRAP.sub(r"\1", text)
+
+
 def check_runs_on(path: Path, errors: list[str]) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     for number, line in enumerate(lines, start=1):
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
-        expression = matched.group(1)
-        reads = list(VARS_REFERENCE.finditer(expression))
+        # A fork pull request takes each fork-wrapped pool read's label (runs_on_labels.FORK_WRAPPED_POOL_READ).
+        expression = fork_view(matched.group(1))
+        line = fork_view(line)
+        # A terminal declared-pool read is the route's fallback. It replaces
+        # the old scalar literal even when intermediate selectors (overflow,
+        # retry and admission variables) sit between the first read and the
+        # final pool member.
+        if POOL_TERMINAL_FALLBACK.search(expression):
+            continue
+        # RUNNER_POOLS is the declarative route source. Its member read is a
+        # valid terminal fallback; unlike scalar vars it must not be replaced
+        # with a literal label.
+        reads = [read for read in VARS_REFERENCE.finditer(expression)
+                 if read.group(1) != "RUNNER_POOLS"]
         if not reads:
             continue
         if all(pool_read_after_fork_branch(expression, read) for read in reads):
@@ -325,6 +365,8 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
+        # The fallback a run that is not a fork's takes: each fork-wrapped pool read is its read.
+        line = unwrap_fork_pool_reads(line)
         for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
             for read in re.finditer(rf"vars\.{name}\b", line):
                 if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
@@ -338,12 +380,14 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
                         f"vars.{name} || '{free_label}'`"
                     )
                     continue
-                fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
-                if fallback is None or fallback.group(1) != free_label:
-                    actual = fallback.group(1) if fallback else "nothing"
+                fallback = re.match(r"\s*\|\|\s*(?:'([^']+)'|(fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+))",
+                                    line[read.end():])
+                expected_pool = PAID_CAPABLE_POOL_DEFAULTS[name]
+                actual = (fallback.group(1) or fallback.group(2)) if fallback else "nothing"
+                if fallback is None or actual not in (free_label, expected_pool):
                     errors.append(
                         f"{path.name}:{number}: gated vars.{name} falls back to "
-                        f"{actual!r}, but its free steady state is {free_label!r}"
+                        f"{actual!r}, but its free steady state is {free_label!r} or {expected_pool}"
                     )
 
 

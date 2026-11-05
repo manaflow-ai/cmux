@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./NoticeSlot";
+import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// One current rule of this Mac's acpmux forum (`_acpmux/forum/rules`, hq#2570): the newest
 /// announcement of its key. A person's rule is an instruction to every agent; an agent's is
@@ -52,6 +53,7 @@ export function RulesNotice({ rules }: { rules: ForumRule[] }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const listId = useId();
+  const listEdges = useScrollEdges();
   // Standing information in the one notice slot above the composer: it shows for as long as
   // rules exist, so every other notice (an error, a running step, a hint, an update the person
   // started) draws first and the rules come back once it clears.
@@ -79,7 +81,7 @@ export function RulesNotice({ rules }: { rules: ForumRule[] }) {
           </button>
         </p>
         {open ? (
-          <ul className="acpmux-rules-list" id={listId}>
+          <ul ref={listEdges} className="acpmux-rules-list ui-scroll-edge-fade" id={listId}>
             {rules.map((rule) => (
               <li key={rule.id} data-rule-key={rule.key}>
                 <p className="acpmux-host-error-message">

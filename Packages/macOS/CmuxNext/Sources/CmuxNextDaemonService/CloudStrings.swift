@@ -32,14 +32,18 @@ public enum CloudStrings {
         // The missing capability ids stay in the Cloud diagnostics JSON
         // (`missing_features`); the text never shows them.
         case .limited:
-            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs cmux-tui %@. Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
+            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs an older cmux (%@). Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
                           compat.versionLabel)
         case .incompatible:
-            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a cmux-tui this app cannot use. Update the machine to connect.", table: "Cloud", bundle: .module)
+            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a version of cmux this app can't use. Update the machine to connect.", table: "Cloud", bundle: .module)
         }
     }
     /// A Cloud machine's link ended; v1 does not reconnect by itself.
     public static var linkDisconnected: String { String(localized: "cloud.link.disconnected", defaultValue: "Disconnected from the Cloud machine. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    /// The same, with why the link ended (the link's own words), so a dropped link is never a guess.
+    public static func linkDisconnected(because reason: String) -> String {
+        String(format: String(localized: "cloud.link.disconnectedBecause", defaultValue: "Disconnected from the Cloud machine (%@). Click Connect to connect again.", table: "Cloud", bundle: .module), reason)
+    }
     /// The app could not start or reach this Mac's connection helper.
     public static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     public static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
@@ -80,7 +84,7 @@ public enum CloudStrings {
         switch reason {
         case .freePlan, .server:
             String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
-        case .atLimit:
+        case .atLimit, .pool:
             String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
         }
     }
@@ -90,6 +94,8 @@ public enum CloudStrings {
         String(localized: "cloud.upgrade.required", defaultValue: "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing.", table: "Cloud", bundle: .module)
     }
     public static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
+    /// The create card's switch: creates the machine and stops asking (`cloud.agentsStartWithoutAsking` back on).
+    public static var createStopAsking: String { String(localized: "cloud.create.request.stopAsking", defaultValue: "Don't Ask Again", table: "Cloud", bundle: .module) }
     nonisolated public static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
     }
@@ -169,4 +175,6 @@ public enum CloudStrings {
 public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case freePlan, server
     case atLimit(Int)
+    /// The classic link's 402 for the plan's shared vCPU and memory pool, which counts only running machines.
+    case pool
 }

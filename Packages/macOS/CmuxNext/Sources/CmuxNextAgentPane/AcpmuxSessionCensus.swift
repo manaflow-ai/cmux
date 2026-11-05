@@ -157,7 +157,8 @@ public nonisolated struct AcpmuxQuit {
         let status: AcpmuxStatus
         let chief: [String]
         do {
-            status = try await AcpmuxStatusClient.status(socketPath: socket)
+            // A quit bound, not an answer deadline: quit does not wait out a wedged daemon.
+            status = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(2))
             chief = keep == .chief
                 ? keptSessions(result(try await activeSessions(socketPath: socket, deadline: .seconds(2))), keep: keep)
                 : []

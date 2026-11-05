@@ -25,6 +25,8 @@
 #               (a suite, or TARGET/SUITE/test for an XCTest method)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
+#             video   record the UI tests' iPhone screen (simctl recordVideo)
+#               to ui-video.mp4 in the artifact: before/after videos of a change
 #           The artifact keeps each run's log, its console output (a test's
 #           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
@@ -106,6 +108,7 @@ fi
 # test's optional selection (see MODE above), checked before anything is built.
 kit_only=()
 ui_suites=()
+ui_video=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -123,7 +126,8 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST and ui=LIST, got '$sel'" >&2; exit 2 ;;
+      video) ui_video=1 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -234,6 +238,9 @@ cleanup() {
     fi
     rm -rf "$mac_dd" || true
   fi
+  # Cloud routing payloads contain machine/team/session ids; remove this exact
+  # file even when SIGTERM/INT interrupts the Python leg before its finally.
+  if [[ -n "${work:-}" ]]; then rm -f "$work/cloud-routing-push.json" || true; fi
   if [[ "$mode" == release-build ]]; then
     # Keep failure evidence too, including FFI or project-generation failures.
     local log
@@ -242,6 +249,9 @@ cleanup() {
     done
     note "- exit status: $result" || result=1
     (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
+  fi
+  if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+    python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
   return "$result"
 }
@@ -396,12 +406,10 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 base_app=""
 if [[ "$mode" == listperf && -n "$listperf_base" ]]; then
   t0=$SECONDS
-  if ! git cat-file -e "$listperf_base^{commit}" 2>/dev/null; then
-    depth=()
-    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-    git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$listperf_base" ||
-      { echo "error: could not fetch base $listperf_base" >&2; exit 1; }
-  fi
+  # A fleet step's checkout has no origin: the base comes the way the step's own commit
+  # does (glaeda's mirror, the host reference, else GitHub by URL; cmux#31442).
+  bash scripts/ci/ios-sim-fetch-commit.sh "$listperf_base" ||
+    { echo "error: could not fetch base $listperf_base" >&2; exit 1; }
   base_src="$work/base-src"
   for f in "${listperf_rig[@]:0:1}"; do
     git cat-file -e "$listperf_base:$f" 2>/dev/null ||
@@ -533,12 +541,26 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  recorder=""
+  if [[ $ui_video -eq 1 ]]; then
+    # Booted first so the recording covers the whole run; the test run uses the booted device.
+    xcrun simctl boot "$ui_udid"
+    xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
+    recorder=$!
+  fi
   set +e
   xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
     -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
   ui_status=$?
+  if [[ -n "$recorder" ]]; then
+    # recordVideo finishes the file on SIGINT.
+    kill -INT "$recorder" 2>/dev/null
+    wait "$recorder"
+    note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+  fi
   set -e
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
@@ -799,18 +821,30 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
 fi
 
-# The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
-simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
-  python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
-cp "$work/build.log" "$out/build.log" 2>/dev/null || true
-# The app (so the same build runs on another Mac's simulator) and the recordings.
-ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
-if [[ -d "$work/corpus" ]]; then
-  mkdir -p "$out/corpus"
-  cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true
+# Cloud proof mode exports an allowlisted receipt only. The ordinary pair-e2e
+# mode keeps its existing diagnostics and app artifact. This boundary runs
+# after Python teardown, so a Python failure cannot leave raw Cloud captures in
+# the public archive; a missing receipt makes the step fail.
+if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "${pair_status:-0}" || pair_status=1
+  cat "$out/SUMMARY.md"
+  [[ "${pair_status:-0}" -eq 0 ]] || pair_status=1
+else
+  # The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
+  simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
+    python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
+  cp "$work/build.log" "$out/build.log" 2>/dev/null || true
+  # The app (so the same build runs on another Mac's simulator) and the recordings.
+  ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
+  if [[ -d "$work/corpus" ]]; then
+    mkdir -p "$out/corpus"
+    cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true
+  fi
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 fi
-(cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
-cat "$summary"
+if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  cat "$summary"
+fi
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi

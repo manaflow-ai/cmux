@@ -185,6 +185,43 @@ test("a burst of other chats' changes draws the pane once, in the next frame", a
   }
 });
 
+// A busy acpmux sends chats' summaries again with nothing changed (Leo, 2026-11-03: "im at 100% cpu
+// rn"): each one drew a full snapshot, so an idle pane rebuilt its transcript and list many times a
+// second. A summary equal to the one the pane holds changes nothing and draws nothing.
+test("another chat's summary sent again unchanged draws nothing", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    const before = snapshots();
+    for (let round = 0; round < 20; round++) {
+      for (let chat = 2; chat < 32; chat++)
+        socket.notify("_acpmux/session_changed", {
+          sessionId: id(chat),
+          // The same fields in another order: still the same summary.
+          session: Object.fromEntries(Object.entries(summary(chat)).reverse()),
+          kind: "updated",
+          seq: 10 + round,
+        });
+      flushFrames();
+      jest.advanceTimersByTime(1000);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // A real change still draws, once, in the next frame.
+    socket.notify("_acpmux/session_changed", {
+      sessionId: id(2),
+      session: { ...summary(2), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
 test("a hidden pane draws other chats' changes only when it shows again", async () => {
   const { socket, client, snapshots } = await openPane();
   try {
@@ -387,6 +424,49 @@ test("bench: client time for 30 running chats changing 20 times (600 changes)", 
     // One snapshot per frame at most: 20 frames.
     expect(drawn).toBeLessThanOrEqual(20);
   } finally {
+    client.close();
+  }
+});
+
+// Each frame from acpmux is parsed once (HOT PATH AUDIT area F, row W2,
+// handoff/hot-path-audit/stream/AUDIT.md): the wire log and the client read one parse. Before, a
+// streamed chunk's frame was parsed twice, once for the log and once for the client.
+test("a streamed chunk's frame is parsed once", async () => {
+  const { socket, client } = await openPane();
+  const parse = JSON.parse;
+  let parses = 0;
+  const frames = 50;
+  try {
+    const lines = Array.from({ length: frames }, (_, n) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: {
+          sessionId: SELECTED,
+          seq: 1000 + n,
+          at: 1000 + n,
+          dir: "in",
+          kind: "agent_message_chunk",
+          msg: {
+            method: "session/update",
+            params: {
+              sessionId: SELECTED,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${n} ` } },
+            },
+          },
+        },
+      }),
+    );
+    JSON.parse = ((text: string, reviver?: (this: unknown, key: string, value: unknown) => unknown) => {
+      parses += 1;
+      return parse(text, reviver);
+    }) as typeof JSON.parse;
+    for (const data of lines) socket.onmessage?.({ data });
+    JSON.parse = parse;
+    flushFrames();
+    expect(parses).toBe(frames);
+  } finally {
+    JSON.parse = parse;
     client.close();
   }
 });

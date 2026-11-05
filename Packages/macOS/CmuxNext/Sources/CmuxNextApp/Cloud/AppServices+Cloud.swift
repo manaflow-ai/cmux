@@ -1,5 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhone
@@ -10,6 +12,7 @@ import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
+import CmuxNextSettings
 import Foundation
 import Observation
 
@@ -94,9 +97,11 @@ extension AppServices {
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        // The plan gate's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
-                                                                           openPricing: { [weak self] _ in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
+        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
+        // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
+        cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
@@ -107,17 +112,21 @@ extension AppServices {
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
                     chief: { [weak self] in if let owner = self?.home.chief { IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath()) } else { nil } },
                     surfaceHosts: phoneSurfaceHosts(),
+                    cloudLinks: { [weak self] in await self?.phoneCloudLinks() ?? MobileHostCloudLinks() },
                     settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
+        // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
+        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
             var routerUser: String??
-            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
+            var leaseAccount = GitHubAppLease.Account()
+            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
                 self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
@@ -126,6 +135,15 @@ extension AppServices {
                 if routerUser != .some(user) {
                     routerUser = .some(user)
                     self.modelRouter?.accountChanged(user)
+                }
+                // The sign-in acpmux mints GitHub App tokens with (GitHubAppLease) follows the user
+                // and the active team (its cmux id), whose GitHub connection Cloud mints from.
+                let team = GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID,
+                                                      userID: user, stackTeamID: state.3, managed: state.4)
+                if leaseAccount.changed(user: user, team: team) {
+                    let project = cloud.auth.configuration.stackProjectID
+                    self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
+                                                       team: team)
                 }
                 // Phone access follows the account: start after sign-in, restart on a user or team switch,
                 // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
@@ -145,16 +163,67 @@ extension AppServices {
 }
 
 extension AppServices {
-    /// The phone tabs of this app's daemon as streamed simulators (``SimulatorSurfaceSources``); nil when none can stream.
-    func phoneSurfaceHosts() -> (any MobileHostSurfaceHosting)? {
-        guard SimulatorSurfaceSources.available(phones) else { return nil }
-        let sources = SimulatorSurfaceSources(phones: phones) { [weak self] raw in
+    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators
+    /// (``SimulatorSurfaceSources``, when SimulatorKit loads) and the owner's Cloud desktops
+    /// `c~<machine>~<team>`, view only (``CloudDesktopSurfaceSources``), on any Mac.
+    func phoneSurfaceHosts() -> any MobileHostSurfaceHosting {
+        let phoneTabs = SimulatorSurfaceSources.available(phones) ? SimulatorSurfaceSources(phones: phones) { [weak self] raw in
             guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
                   tab.page == InternalPageID.phone.rawValue else { return nil }
             let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
+        } : nil
+        let desktops = CloudDesktopSurfaceSources { [weak self] target in
+            guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
+            return try await self.phoneCloudDesktop(target)
         }
-        return MobileHostSurfaceClosures(start: { tab, onExit in try await sources.start(tab: tab, onExit: onExit) },
-                                         stop: { tab in await sources.stop(tab: tab) }, stopAll: { await sources.stopAll() })
+        return MobileHostSurfaceClosures(start: { tab, onExit in
+            if CloudDesktopSurfaceSources.target(of: tab) != nil { return try await desktops.start(tab: tab, onExit: onExit) }
+            guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
+            return try await phoneTabs.start(tab: tab, onExit: onExit)
+        }, stop: { tab in
+            if CloudDesktopSurfaceSources.target(of: tab) != nil { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) }
+        }, stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
+    }
+
+    /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
+    /// same check as hostd's), the same account after the hop, a running machine and a tunnel.
+    private func phoneCloudDesktop(_ target: CloudDesktopSurfaceSources.Target) async throws -> CloudDesktopSurfaceSources.Grant {
+        typealias Failure = CloudDesktopSurfaceSources.Failure
+        let account = (cloud.auth.user?.id, cloud.auth.teamID)
+        let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
+        // `phone.cloudDesktop` (default off): the person lets phones view the machine's screen.
+        guard settings?.snapshot.sessions.phoneSeesCloudDesktop == true, account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
+              cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
+              let session = machines.session(link.machineID) else { throw Failure.forbidden }
+        guard session.machine.shownStatus == .running else { throw Failure.asleep }
+        guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
+        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud, settings = settings
+        return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
+                     label: session.machineID) { [weak session, weak settings] in
+            guard let session, settings?.snapshot.sessions.phoneSeesCloudDesktop == true else { return false }
+            return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
+                && machines.session(session.machineID) === session && session.machine.shownStatus == .running
+        }
+    }
+
+    /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
+    /// and whether the plan pays for Cloud. Classic links never enter this directory.
+    func phoneCloudLinks() async -> MobileHostCloudLinks {
+        guard cloud.auth.isSignedIn, let user = cloud.auth.user?.id else { return MobileHostCloudLinks() }
+        let selectedTeam = cloud.auth.teamID
+        // The backend team in attention events is the install token claim, not a Stack team id.
+        guard let token = try? await cloud.installIdentity.installToken(),
+              let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
+        var result: [MobileHostCloudLink] = []
+        for session in machines.cloud {
+            guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
+            let socket = await link.currentLinkSocket
+            guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: user))
+        }
+        // An account transition during either actor hop invalidates the whole answer.
+        guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
     }
 }

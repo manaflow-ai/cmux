@@ -158,7 +158,7 @@ import Testing
         let fixture = SidebarNestedFixture(scenario: .narrow)
         let list = Self.list(fixture.sections, width: fixture.width)
         let cap = list.indent.visualCap(width: list.indentWidth)
-        // Since rows run to 1.5 pt from the right edge (157597d79a2) 196 pt fits one more level; it still stops short.
+        // Since rows ran to 1.5 pt from the right edge (157597d79a2) 196 pt fit one more level; with the 2026-11-02 gap it still stops short.
         #expect(cap < list.indent.maxVisualLevels, "196 pt does not fit every level: the indent stops at \(cap)")
         let deepest = list.displayed.rows.filter { row in
             switch row.key {

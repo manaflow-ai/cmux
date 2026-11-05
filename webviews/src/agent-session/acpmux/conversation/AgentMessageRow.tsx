@@ -12,6 +12,7 @@ import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { AgentTag } from "./AgentTag";
+import { useMessageLineLook } from "./messageLineLook";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -81,6 +82,11 @@ export function AgentMessageRow({
 }) {
   const bodyId = useId();
   const [before = "", after = ""] = sentence.split("\u0000");
+  // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
+  // stacked gallery version puts it under the row, on its own line.
+  const look = useMessageLineLook();
+  const inline = look === "single" && !open ? preview : "";
+  const below = look === "stacked" && !open ? preview : "";
   return (
     <div
       className={`cv-agentmsg${failed ? " is-failed" : ""}${className ? ` ${className}` : ""}`}
@@ -129,16 +135,23 @@ export function AgentMessageRow({
             onClick={onToggle}
           >
             {/* Open, the message is under the line: its first line here would say it twice. */}
-            <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
+            <span className="cv-agentmsg__preview">{inline}</span>
           </button>
           {/* The hover row stays in the sentence column: the trailing column holds only status. */}
           {actions}
         </span>
         {meta && <span className="cv-tool__trail">{meta}</span>}
         <span className="cv-tool__chevron cv-agentmsg__chevron" aria-hidden>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </div>
+      {below && (
+        // Its words are the toggle's label too, so a screen reader reads them there.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div className="cv-msgline__preview cv-agentmsg__below" aria-hidden onClick={onToggle}>
+          {below}
+        </div>
+      )}
       {open && (
         <div id={bodyId} className="cv-agentmsg__card selectable">
           {body}

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// knob, the interface size (`appearance.metrics.chromeFontSize`), scales all chrome. cmux.json's
 /// `appearance.metrics.tabFontSize` sizes tab titles on their own and `tabStripHeight` sizes the bar,
 /// whose pills grow with it; a load reaches a strip that is already on screen.
-@MainActor @Suite(.serialized) struct TabBarSizeSettingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabBarSizeSettingTests {
     /// Applies `metrics` the way a settings load does, with nothing else set.
     private func load(_ metrics: [String: Double] = [:]) {
         let appearance = JSONValue.object(["metrics": .object(metrics.mapValues { .number($0) })])

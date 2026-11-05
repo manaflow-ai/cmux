@@ -298,3 +298,38 @@ for (const [kind, toolKind] of GROUP_KINDS)
       renderProbe.mockRestore();
     }
   });
+
+test("a failed step of an opened command group opens to its command, Exit code 1, then its output", async () => {
+  const shell = (id: string, description: string, fields: Partial<NonNullable<AcpmuxActivity["tool"]>>) => ({
+    kind: "tool",
+    text: description,
+    tool: {
+      id,
+      title: description,
+      kind: "execute",
+      status: "completed",
+      description,
+      command: `run ${id}`,
+      ...fields,
+    },
+  });
+  const items: AcpmuxActivity[] = [
+    shell("bg-done", "Find the retry references", { background: { state: "completed", endedAt: 2 }, output: "a\n" }),
+    shell("failed", "Count the retry fixture cases", {
+      status: "failed",
+      output: "Exit code 1\nls: fixtures/retry-cases.json: No such file or directory",
+    }),
+    shell("passed", "Run the retry tests", { output: "12 pass\n" }),
+  ];
+  const container = await render(
+    <ToolGroupRow kind="commands" items={items} disclosureKey="failed-step-open" folded />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  const failed = container.querySelector<HTMLButtonElement>(".cv-step > .cv-command:has(> .cv-command__failed)")!;
+  expect(failed.getAttribute("data-tool-id")).toBe("failed");
+  await act(async () => failed.click());
+  expect(failed.getAttribute("aria-expanded")).toBe("true");
+  const shellBlock = container.querySelector(".cv-shell")!;
+  expect(shellBlock.querySelector(".cv-shell__exit")?.textContent).toBe("Exit code 1");
+  expect(shellBlock.textContent).toContain("No such file or directory");
+});

@@ -1314,3 +1314,39 @@ final class Seen: @unchecked Sendable {
         #expect(tabs.first?.systemImage == "iphone")
     }
 }
+
+// MARK: Title events
+
+@MainActor
+@Suite struct TitleActivityTests {
+    /// A shell sets its terminal title again and again with the same text: only a new
+    /// title is activity. Each repeat stamped the workspace as active now, re-listed it
+    /// and republished every workspace to the store (a whole-list update for nothing).
+    @Test func aRepeatedTitleIsNotActivity() async throws {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        let first = try #require(sync.activity[5])
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        #expect(sync.activity[5] == first)
+        #expect(sync.titleEventsIgnored == 1)
+        sync.handle(.titleChanged(surface: 5, title: "vim"))
+        #expect(sync.titleEventsIgnored == 1)
+        // Another surface's first title is activity.
+        sync.handle(.titleChanged(surface: 6, title: "zsh"))
+        #expect(sync.activity[6] != nil)
+        #expect(sync.titleEventsIgnored == 1)
+    }
+
+    /// Review P1 (#27664): a title event the latest snapshot already covers is dropped. It was
+    /// recorded as the surface's last title first, so the next real event with the same text
+    /// was taken for a repeat and never counted as activity.
+    @Test func aCoveredTitleEventDoesNotHideTheNextRealOne() {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.snapshotSequence = 10
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 9)
+        #expect(sync.activity[5] == nil, "an event the snapshot covers is not activity")
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 11)
+        #expect(sync.activity[5] != nil, "the real event after the snapshot is activity")
+        #expect(sync.titleEventsIgnored == 0)
+    }
+}

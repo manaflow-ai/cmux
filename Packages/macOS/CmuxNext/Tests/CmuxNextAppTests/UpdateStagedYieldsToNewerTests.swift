@@ -114,6 +114,9 @@ import CmuxNextWakeupsTestSupport
         let list = try! JSONSerialization.data(withJSONObject: pulled.map { ["build": $0, "reason": "crashed at launch in the fresh-home smoke"] })
         updater.pulledWatch.fetch = { _ in list }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which
+        // is newer than the staged one and reads the feed outside the schedule under test.
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
         updater.debugIndicatorPhase = .ready(version: "3.0.0")
@@ -144,15 +147,22 @@ import CmuxNextWakeupsTestSupport
         #expect(h.sparkle.backgroundChecks == 1, "nothing asked Sparkle to download the newer build")
     }
 
+    /// The staged probe's deadline sleeps on the clock at `offset`: other timers (the release
+    /// push's ping, say) sleep on it too, so any sleeper is not the signal that this one is set.
+    func probeArmed(_ h: Harness, at offset: TimeInterval) async throws {
+        let deadline = ManualClock.Instant(offset: .seconds(offset))
+        try #require(await eventually { h.clock.sleeperDeadlines.contains(deadline) }, "no probe was armed for \(offset) s")
+    }
+
     /// One probe per interval, and none while the staged build is still the newest one.
     @Test func theNewestStagedBuildIsKeptAndProbedOncePerInterval() async throws {
         let h = Self.make(ring: "nightly")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 0, "the newest staged build was dropped")
         #expect(h.sparkle.backgroundChecks == 0)
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval * 2)
         h.clock.advance(by: .seconds(Self.interval / 2))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 1, "the feed was read again before an interval passed")

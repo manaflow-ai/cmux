@@ -5,10 +5,12 @@
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Tool/work disclosures clicked at or near the end instead pin the bottom and move the thread
-// as one stack (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
-// near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
-// reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
+// Any disclosure clicked with the view at its very end instead pins the bottom and moves the thread
+// as one stack: what opens pushes the text above it up (Leo 2026-11-02), and what closes pulls it
+// down, leaving no blank room under the rows (App.tsx `beginBottomStackFold`, Leo 2026-11-03: "it's
+// weird to collapse and get all that empty space at the bottom"). Away from the end a close keeps
+// the clicked line: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as
+// the reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
@@ -43,9 +45,42 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
+/// How far up the view a disclosure line can sit, as a share of the view's height from its foot,
+/// and still pin the bottom when the view is at the latest row: what opens pushes the text above it
+/// up and nothing under it moves. A line further up opens downward, as away from the bottom (Leo,
+/// 2026-11-05: "obviously when you get >like 50-70% up the screen from the bottom then it starts
+/// doing it normally expanding down").
+export const BOTTOM_PIN_SHARE = 0.6;
+
 /// Whether the physical scroller is at (or within the normal follow deadband of) its end.
 export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
   return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
+}
+
+/// Whether a click on `toggle` opens what it holds: a closed disclosure (`aria-expanded="false"`, on
+/// itself or on its header's button) or the `<summary>` of a closed `<details>`.
+export function opensBody(toggle: HTMLElement): boolean {
+  if (toggle.tagName === "SUMMARY") return !(toggle.parentElement as HTMLDetailsElement | null)?.open;
+  const expanded = toggle.hasAttribute("aria-expanded")
+    ? toggle
+    : toggle.querySelector("[aria-expanded]:not([aria-haspopup])");
+  return expanded?.getAttribute("aria-expanded") === "false";
+}
+
+/// The cut that keeps a row moving up with the bottom stack from drawing past the line the rows
+/// under it hold (App.tsx): `over` is how far the row's foot lands below that line once it settles
+/// (0 for the opened row, less for one above it), `from` how far the stack starts below where it
+/// settles. Keyframes on the stack's own eased progress, so the cut row's foot reaches the line as
+/// the stack carries it there and nothing of it ever covers the held rows; none when it never does.
+export function pushUpCut(over: number, from: number): Keyframe[] {
+  const start = over + from;
+  if (from <= 0.5 || start <= 0.5) return [];
+  const until = Math.min(1, start / from);
+  return [
+    { offset: 0, clipPath: `inset(0 0 ${start}px 0)` },
+    { offset: until, clipPath: "inset(0 0 0px 0)" },
+    { offset: 1, clipPath: "inset(0 0 0px 0)" },
+  ];
 }
 
 export type FoldAnchor = {
@@ -56,10 +91,16 @@ export type FoldAnchor = {
   until: number;
 };
 
+/// A message row's first line, on its own line under the row (messageLineLook.ts, stacked: a sent
+/// message, an agent message, a received line, a folded group's head). It toggles its row, so a click
+/// on it holds the row's line, as a click on the line does; the first line itself goes as the row opens.
+const FIRST_LINE = ".cv-msgline__preview";
+
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
 export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement): HTMLElement | undefined {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
-  const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
+  const line = element?.closest(FIRST_LINE)?.previousElementSibling;
+  const toggle = line?.matches(FOLD_TOGGLE) ? (line as HTMLElement) : element?.closest<HTMLElement>(FOLD_TOGGLE);
   if (!toggle || !scroller.contains(toggle) || !toggle.closest(".acpmux-row")) return undefined;
   // A control of its own inside the toggle (a sent line's recipient, its Copy) opens nothing there.
   const control = element?.closest<HTMLElement>(NESTED_CONTROL);

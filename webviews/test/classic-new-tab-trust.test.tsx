@@ -205,10 +205,10 @@ async function askIn(folder: string, text: string) {
   );
   expect(option, "the picked folder's row").not.toBeNull();
   await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  // The page's field is the chat composer's prompt editor (MarkdownField): typed as a person would.
+  const field = host.querySelector<FieldElement>(".acpmux-newtab-field")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, text);
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type(text);
   });
   await act(async () =>
     host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),

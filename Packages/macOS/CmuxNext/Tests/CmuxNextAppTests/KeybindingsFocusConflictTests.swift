@@ -37,7 +37,7 @@ import Testing
         })
     }
 
-    static let actualSizes = ["browserZoomReset", "markdownZoomReset", "fileEditorZoomReset",
+    static let actualSizes = ["browserZoomReset", "agentPaneZoomReset", "markdownZoomReset", "fileEditorZoomReset",
                               "canvasZoomReset", "terminal.resetFontSize", "resetWorkspaceTerminalFontSize"]
 
     /// Shipped defaults share keys by design (the Chrome tab keys and Cmd-1…9, Home's chat keys,

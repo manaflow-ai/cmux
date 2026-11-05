@@ -2,8 +2,10 @@
 """Chat-load benchmark, daemon stage (perf100; Linux, reads /proc). No model calls.
 
 Opens each fixture chat (fixture.ts) the way the agent pane does (direct.ts `attach`): the same
-`_acpmux/attach` params, then the reads the pane makes after it (the open turn's prompt, the
-newest command list), then detach. Then it scrolls to the first message the way the pane's
+`_acpmux/attach` params, then the older-daemon opener fallback, the background command-list
+read, and detach. Each RPC has send/receive timestamps relative to the open. `first_page_ms`
+ends at the attach reply; `draw_ready_ms` includes the opener fallback but excludes the
+background command read and detach. Neither is a painted-frame measurement. Then it scrolls to the first message the way the pane's
 loadOlder does (`_acpmux/events` beforeSeq pages of 256 KB, transcript kinds) and counts every
 record, so a page that loses or repeats one fails the run.
 
@@ -105,25 +107,45 @@ def measured(pid, fn):
                     "read_mb": round((io_read(pid) - r0) / 1e6, 2), "peak_extra_mb": round((after["VmHWM"] - before) / 1024, 1)}
 
 
-def open_chat(rpc, sid):
-    """The pane's open: attach, then the reads direct.ts makes after it. Returns bytes and calls."""
+def open_chat(rpc, sid, expected_marker=None):
+    """Current direct.ts open contract, with background work timed separately from draw readiness."""
     calls = []
-    page, size = rpc.call("_acpmux/attach", {"sessionId": sid, "limit": 400, "maxBytes": OPEN_PAGE_BYTES,
-                                             "kinds": ATTACH_KINDS, "eventStream": True, "visible": True})
-    calls.append(("attach", size))
+    started = time.perf_counter()
+    stages = []
+
+    def call(name, method, params):
+        sent = time.perf_counter()
+        value, size = rpc.call(method, params)
+        received = time.perf_counter()
+        stages.append({"name": name, "sent_ms": round((sent - started) * 1000, 2),
+                       "received_ms": round((received - started) * 1000, 2),
+                       "wall_ms": round((received - sent) * 1000, 2), "bytes": size})
+        if name != "detach":
+            calls.append((name, size))
+        return value
+
+    page = call("attach", "_acpmux/attach", {"sessionId": sid, "limit": 400, "maxBytes": OPEN_PAGE_BYTES,
+                "kinds": ATTACH_KINDS, "eventStream": True, "visible": True, "waitLogs": False})
+    first_page_ms = stages[-1]["received_ms"]
     events = page.get("events", [])
     first = events[0] if events else None
-    if page.get("hasMore") and first and first["seq"] > 1 and not (first["kind"] == "user_message" and first["dir"] == "mux"):
-        _, s = rpc.call("_acpmux/events", {"sessionId": sid, "beforeSeq": first["seq"], "limit": 16, "kinds": ["user_message"]})
-        calls.append(("opener", s))
+    # An explicit null also means the daemon served the opener decision. Only an older daemon
+    # that omits the field needs the fallback scan (direct.ts servedTurnOpener).
+    if ("turnOpener" not in page and page.get("hasMore") and first and first["seq"] > 1
+            and not (first["kind"] == "user_message" and first["dir"] == "mux")):
+        call("opener", "_acpmux/events", {"sessionId": sid, "beforeSeq": first["seq"], "limit": 16,
+                                         "kinds": ["user_message"]})
+    draw_ready_ms = round((time.perf_counter() - started) * 1000, 2)
+    if expected_marker is not None and expected_marker not in json.dumps(events):
+        raise AssertionError("first page is missing the newest fixture message")
     kept = (page.get("session") or {}).get("availableCommands")
     if not kept and not any(e["kind"] == "available_commands_update" for e in events) and page.get("lastSeq", 0) > 0:
-        _, s = rpc.call("_acpmux/events", {"sessionId": sid, "beforeSeq": page["lastSeq"] + 1, "limit": 1,
+        call("commands", "_acpmux/events", {"sessionId": sid, "beforeSeq": page["lastSeq"] + 1, "limit": 1,
                                            "kinds": ["available_commands_update"]})
-        calls.append(("commands", s))
-    rpc.call("_acpmux/detach", {"sessionId": sid})
+    call("detach", "_acpmux/detach", {"sessionId": sid})
     return {"calls": [c for c, _ in calls], "bytes": sum(s for _, s in calls), "records": len(events),
-            "has_more": page.get("hasMore"), "first_seq": first["seq"] if first else None}
+            "has_more": page.get("hasMore"), "first_seq": first["seq"] if first else None,
+            "first_page_ms": first_page_ms, "draw_ready_ms": draw_ready_ms, "stages": stages}
 
 
 def scroll_to_first(rpc, sid, first_seq):
@@ -174,6 +196,7 @@ def main():
         argv += ["--allow-dev-origin", a.allow_dev_origin, "--dev"]
     r, w = os.pipe()
     argv += ["--ready-fd", str(w)]
+    started = time.perf_counter()
     proc = subprocess.Popen(argv, env=env, pass_fds=(w,), stdout=open(os.path.join(scratch, "daemon.out"), "w"),
                             stderr=subprocess.STDOUT, cwd=scratch, start_new_session=True)
     os.close(w)
@@ -181,21 +204,27 @@ def main():
         ready = rf.readline()
     if not ready:
         sys.exit("daemon did not start: " + open(os.path.join(scratch, "daemon.out")).read()[-2000:])
+    ready_ms = round((time.perf_counter() - started) * 1000, 2)
     pid = proc.pid
     rpc = Rpc(sock)
-    rpc.call("session/list", {})
-    result = {"stage": "daemon", "binary": a.binary, "host": socket.gethostname(), "sessions": []}
+    rpc.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "chat-load-bench", "version": "2"}})
+    initialized_ms = round((time.perf_counter() - started) * 1000, 2)
+    result = {"stage": "daemon", "version": 2, "binary": a.binary, "host": socket.gethostname(),
+              "ready_ms": ready_ms, "initialized_ms": initialized_ms, "sessions": []}
     try:
         for s in fixture["sessions"]:
             sid = s["id"]
             runs = []
             info = None
+            rpc_runs = []
             for i in range(a.repeat):
-                info, m = measured(pid, lambda: open_chat(rpc, sid))
+                info, m = measured(pid, lambda: open_chat(rpc, sid, s.get("lastMarker")))
                 runs.append(m)
-            row = {"turns": s["turns"], "records": s["records"], "log_mb": round(s["bytes"] / 1e6, 1),
+                rpc_runs.append({k: info[k] for k in ("first_page_ms", "draw_ready_ms", "stages")})
+            row = {"turns": s["turns"], "records": s["records"], "log_bytes": s["bytes"], "log_mb": round(s["bytes"] / 1e6, 1),
                    "first_open": runs[0], "open": {k: statistics.median(r[k] for r in runs) for k in runs[0]},
-                   "open_calls": info["calls"], "open_bytes": info["bytes"], "open_records": info["records"]}
+                   "open_calls": info["calls"], "open_bytes": info["bytes"], "open_records": info["records"],
+                   "rpc_runs": rpc_runs}
             if a.scroll == "1" and info["has_more"]:
                 sc, m = measured(pid, lambda: scroll_to_first(rpc, sid, info["first_seq"]))
                 row["scroll_to_first"] = {**sc, **m}

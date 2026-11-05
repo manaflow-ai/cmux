@@ -331,3 +331,119 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Leo, 2026-10-22: "switching model/harness/whatever shouldnt immediately stop things,
+/// switching is ok". A harness that takes its model at launch (`${model}` in its env, as Claude
+/// Code's `--model`) restarts to switch. A model picked during a turn never ends that turn: the
+/// agent restarts on the new model when the turn ends, on the same agent session, and the next
+/// prompt runs on it. Picked between turns, it applies to the next prompt as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_switch_during_a_turn_applies_after_it_and_never_stops_it() {
+    let root = scratch("model");
+    let good = root.join("good.sh");
+    launcher(&good);
+    let path = root.join("home").join("config.json");
+    let cfg = json!({
+        "harnesses": {"good": {"argv": ["/bin/sh", good], "family": "claude",
+                                "env": {"FAKE_MODEL": "${model}"}}},
+        "defaultHarness": "good",
+        "permissionPolicy": "approve-all",
+    });
+    std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+    let hub = hub_from_file(&root, &path);
+    let mut local = Client::open(&hub);
+
+    let chat = local.new_chat("good").await;
+    let pid = local.harness_pid(&chat).await;
+    let agent = local.agent_session(&chat).await;
+    assert!(agent.is_string(), "{agent}");
+
+    // A turn in progress, held on a FIFO, while the person picks another model.
+    let gate = root.join("gate");
+    let c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    local.2 += 1;
+    let turn_id = local.2;
+    let text = format!("gate: {}", gate.display());
+    let prompt = json!({"sessionId": &chat, "prompt": [{"type": "text", "text": text}]});
+    local.0.send(Message::request(turn_id, "session/prompt", prompt).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), local.1.recv())
+            .await
+            .expect("the gated turn never started")
+            .unwrap();
+        if line.contains("before-gate") {
+            break;
+        }
+    }
+    local.2 += 1;
+    let pick_id = local.2;
+    let pick = json!({"sessionId": &chat, "modelId": "m-next"});
+    local.0.send(Message::request(pick_id, "session/set_model", pick).to_line()).await.unwrap();
+    // The pick answers while the turn still runs, and the turn's own reply has not come.
+    let picked = loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), local.1.recv())
+            .await
+            .expect("the model pick never answered")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_ne!(v.get("id"), Some(&json!(turn_id)), "the pick ended the turn: {v}");
+        if v.get("id") == Some(&json!(pick_id)) {
+            break v;
+        }
+    };
+    // The turn runs to its end on the agent it started on: that agent still reads its gate
+    // (a FIFO no process reads refuses a non-blocking writer).
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut fifo = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&gate)
+            .expect("the pick stopped the turn's agent: nothing reads its gate");
+        fifo.write_all(b"go").unwrap();
+    }
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), local.1.recv())
+            .await
+            .expect("the gated turn never ended")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(turn_id)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
+    assert_eq!(picked["result"]["applied"], "afterTurn", "{picked}");
+
+    // The next turn runs on the new model, in a new process, on the same agent session.
+    let model = local
+        .ok(
+            "session/prompt",
+            json!({"sessionId": &chat, "prompt": [{"type": "text", "text": "env: FAKE_MODEL"}]}),
+        )
+        .await;
+    assert_eq!(model["stopReason"], "end_turn", "{model}");
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    assert_eq!(summary["preview"], "FAKE_MODEL=m-next", "{summary}");
+    let after = local.harness_pid(&chat).await;
+    assert_ne!(after, pid, "a new harness process");
+    assert_eq!(local.agent_session(&chat).await, agent, "the same agent session resumed");
+
+    // Between turns the pick applies now: the next prompt runs on it.
+    let idle =
+        local.ok("session/set_model", json!({"sessionId": &chat, "modelId": "m-idle"})).await;
+    assert_eq!(idle["applied"], "now", "{idle}");
+    local
+        .ok(
+            "session/prompt",
+            json!({"sessionId": &chat, "prompt": [{"type": "text", "text": "env: FAKE_MODEL"}]}),
+        )
+        .await;
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    assert_eq!(summary["preview"], "FAKE_MODEL=m-idle", "{summary}");
+    assert_ne!(local.harness_pid(&chat).await, after, "restarted on the idle pick");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

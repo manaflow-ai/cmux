@@ -278,7 +278,7 @@ mod tests {
             );
             assert_eq!(std::fs::metadata(&first).unwrap().permissions().mode() & 0o777, 0o700);
         }
-        assert_eq!(chat_folder(&home, 42, false), Some(first.clone()));
+        assert_eq!(chat_folder(&home, 42, false), Some(first));
         assert!(chat_folder(&home, 43, false).is_none());
         let _ = std::fs::remove_dir_all(home);
     }

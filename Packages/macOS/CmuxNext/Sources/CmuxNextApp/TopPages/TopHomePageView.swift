@@ -434,7 +434,7 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
@@ -534,7 +534,7 @@ final class TopHomePageView: NSView {
     /// the conversation shown before comes back, with the keyboard only when the page had it.
     func closeNewMessage() {
         guard let page = newMessage else { return }
-        let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
+        let (wasShowing, hadKeyboard) = (!page.isHidden, page.holdsKeyboard)
         endNewMessage()
         if wasShowing, let shown { list.select(shown) }
         if wasShowing, hadKeyboard { focusPrimaryInput() }

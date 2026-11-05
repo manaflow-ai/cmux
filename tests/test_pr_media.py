@@ -52,10 +52,13 @@ class Origin:
         temporary = tempfile.TemporaryDirectory(prefix="pr-media-origin-")
         case.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        empty = self.root / "gitconfig"
-        empty.write_text("")
+        config = self.root / "gitconfig"
+        # No detached gc or maintenance: one left running writes into origin.git while the cleanup removes it
+        # ("Directory not empty: 'origin.git'", cmux-next guards run 41422570131).
+        config.write_text("[gc]\n\tauto = 0\n\tautoDetach = false\n[maintenance]\n\tauto = false\n"
+                          "[receive]\n\tautogc = false\n")
         patcher = mock.patch.dict(os.environ, {
-            "GIT_CONFIG_GLOBAL": str(empty), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_NOSYSTEM": "1",
             "PR_MEDIA_REMOTE_URL": f"file://{self.root / 'origin.git'}",
             "PR_MEDIA_CACHE_DIR": str(self.root / "cache")})
         patcher.start()

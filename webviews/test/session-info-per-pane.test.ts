@@ -52,7 +52,7 @@ await requireBrowserLane("session-info-per-pane.test.ts", async () => {
     await pane?.close();
   });
 
-  /// Session Info offered (Debug Settings `agent.inspector`, pushed with the header state).
+  /// Session Info offered (Debug Settings `agent.sessionInfo`, pushed with the header state).
   const offer = (page: Page) =>
     page.evaluate(() => {
       const bridge = (window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } })

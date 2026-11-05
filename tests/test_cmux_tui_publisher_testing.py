@@ -86,7 +86,12 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate_runs_on(self.WORKFLOW)}"), 2)
+        # DAEMON_POOL is the gate's Blacksmith route. A publisher job placed on the live fleet Linux label
+        # reads as off-pool, so a deferring run tests the tree itself instead of waiting on it.
+        fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
+        gate = gate_runs_on(self.WORKFLOW)
+        self.assertIn(fleet, gate)
+        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(fleet, '')}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]

@@ -8,7 +8,7 @@
         "key": "settings.group.chats",
         "text": "Chats"
       },
-      "note": "Device-local chat indexing controls; all three keys are privacy decisions for the person.",
+      "note": "Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage.",
       "rows": [
         {
           "key": "agents.chats.enabled",
@@ -69,6 +69,27 @@
             "folders",
             "roots",
             "privacy"
+          ]
+        },
+        {
+          "key": "agents.chats.sessionRecap",
+          "title": {
+            "key": "settings.chats.sessionRecap",
+            "text": "Session Recap"
+          },
+          "help": {
+            "key": "settings.chats.sessionRecap.help",
+            "text": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agents",
+            "chats",
+            "recap",
+            "summary",
+            "away",
+            "claude"
           ]
         }
       ]

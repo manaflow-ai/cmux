@@ -196,6 +196,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_ATTACH,
         MUX_EVENTS,
         MUX_HISTORY,
+        MUX_SESSION_SEARCH,
         MUX_RESOLVE,
     ] {
         assert!(read_only_allows(m), "{m}");

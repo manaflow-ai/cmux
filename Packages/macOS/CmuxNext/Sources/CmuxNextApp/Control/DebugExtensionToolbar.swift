@@ -27,7 +27,7 @@ enum DebugExtensionToolbar {
         let target = params["tab"]?.stringValue.map { ActionTargetRef(kind: .tab, id: $0) }
         guard case .browser(let entry)? = ActionScope(services: services, invocation: ActionInvocation(target: target))
             .pane?.currentContent else { return nil }
-        return entry.chrome
+        return entry.chrome  // the pane's chrome, bound to its shown tab
     }
 
     static func toolbar(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {

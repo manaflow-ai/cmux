@@ -15,6 +15,9 @@ pub(crate) struct Repo {
 pub(crate) struct Catalog {
     pub repos: Vec<Repo>,
     pub install_url: Option<String>,
+    /// Installation state is independent of whether a safe recovery URL
+    /// was supplied. A missing/invalid URL must never imply connected.
+    pub disconnected: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -24,10 +27,37 @@ impl Failure {
         Self(json!({"code":code,"message":message}))
     }
     pub fn needs_github(url: &str) -> Self {
+        if !valid_install_url(url) {
+            return install_link_required();
+        }
         Self(
             json!({"code":"repo.needs_github", "message":"Connect GitHub in the card. This add will retry automatically when connected; no new message is needed.", "install_url":url}),
         )
     }
+}
+
+/// All installation-link sources share this origin check. URL parsing strips
+/// some controls, so reject them before parsing rather than trusting its output.
+pub(super) fn valid_install_url(value: &str) -> bool {
+    value.trim() == value
+        && !value.chars().any(char::is_control)
+        && value.split_once("://").is_some_and(|(_, rest)| {
+            !rest.split(['/', '?', '#']).next().unwrap_or_default().contains('@')
+        })
+        && url::Url::parse(value).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str() == Some("github.com")
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.port().is_none()
+        })
+}
+
+pub(super) fn install_link_required() -> Failure {
+    Failure::new(
+        "seed.bad_request",
+        "Open Add repository on your Mac to refresh the GitHub installation link, then retry.",
+    )
 }
 
 pub(crate) trait Backend {
@@ -132,7 +162,7 @@ pub(crate) fn list(backend: &impl Backend, query: Option<&str>) -> Result<Value,
     let sources = backend.sources()?;
     let catalog = backend.connector(query)?;
     let mut result = json!({"repos":merge(sources.into_iter().chain(catalog.repos), query)});
-    if let Some(url) = catalog.install_url {
+    if let Some(url) = catalog.install_url.filter(|url| valid_install_url(url)) {
         result.set("connect", json!({"install_url":url}));
     }
     Ok(result)
@@ -172,8 +202,12 @@ fn resolve(backend: &impl Backend, input: &str) -> Result<String, Failure> {
     if !matches.is_empty() {
         return choose(matches);
     }
-    if let Some(url) = catalog.install_url {
-        return Err(Failure::needs_github(&url));
+    if catalog.disconnected {
+        return Err(catalog
+            .install_url
+            .as_deref()
+            .map(Failure::needs_github)
+            .unwrap_or_else(install_link_required));
     }
     Err(Failure::new(
         "repo.not_found",
@@ -191,11 +225,13 @@ fn choose(matches: Vec<Repo>) -> Result<String, Failure> {
 }
 
 pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure> {
-    let session = args["session"].as_str().filter(|s| valid_name(s)).ok_or_else(|| {
-        Failure::new("seed.bad_request", "Open a Cloud chat and retry with its chat ID.")
-    })?;
-    let input = args["repo"]
-        .as_str()
+    let session =
+        args.get("session").and_then(Value::as_str).filter(|s| valid_name(s)).ok_or_else(|| {
+            Failure::new("seed.bad_request", "Open a Cloud chat and retry with its chat ID.")
+        })?;
+    let input = args
+        .get("repo")
+        .and_then(Value::as_str)
         .ok_or_else(|| Failure::new("seed.bad_request", "Choose a repository to add."))?;
     let reference = match args.get("ref") {
         None | Some(Value::Null) => None,
@@ -216,15 +252,13 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
     };
     let result = (|| {
         let repo = resolve(backend, input)?;
-        if let Some(existing) = backend
-            .attached(session)?
-            .into_iter()
-            .find(|r| r["repo"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(&repo)))
-        {
+        if let Some(existing) = backend.attached(session)?.into_iter().find(|r| {
+            r.get("repo").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(&repo))
+        }) {
             return Ok(existing);
         }
         let attached = backend.clone_repo(session, &repo, reference).map_err(|mut failure| {
-            if failure.0["code"] == "repo.no_access" {
+            if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access") {
                 failure.0.set("org", json!(repo.split('/').next().unwrap_or_default()));
             }
             failure
@@ -233,37 +267,44 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
         Ok(attached)
     })();
     result.map_err(|mut failure: Failure| {
-        if failure.0["code"] == "repo.needs_github" {
+        if failure.0.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
             let mut retry_args = json!({"session":session,"repo":input});
             if let Some(reference) = reference { retry_args.set("ref", json!(reference)); }
             failure.0.set("retry", json!({"action":"cloud.repo.add", "args":retry_args, "wait_action":"cloud.repo.wait_github"}));
         }
-        if failure.0["code"] == "repo.no_access" {
-            if let Ok(name) = normalize(input) {
-                if let Some((org, _)) = name.split_once('/') { failure.0.set("org", json!(org)); }
-            }
+        if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access")
+            && let Ok(name) = normalize(input)
+            && let Some((org, _)) = name.split_once('/')
+        {
+            failure.0.set("org", json!(org));
         }
         failure
     })
 }
 
 pub(crate) fn seed_failure(value: &Value) -> Failure {
-    let code = value["error_code"]
-        .as_str()
-        .or_else(|| value["code"].as_str())
+    let code = value
+        .get("error_code")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("code").and_then(Value::as_str))
         .unwrap_or("seed.clone_failed");
     if code == "seed.needs_github" || code == "repo.needs_github" {
-        return Failure::needs_github(value["install_url"].as_str().unwrap_or(""));
+        return Failure::needs_github(
+            value.get("install_url").and_then(Value::as_str).unwrap_or(""),
+        );
     }
     if code == "repo.no_access" || code == "seed.no_access" {
         let mut result = Failure::new(
             "repo.no_access",
             "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
         );
-        for key in ["org", "install_url"] {
-            if let Some(v) = value.get(key) {
-                result.0.set(key, v.clone());
-            }
+        if let Some(org) = value.get("org").and_then(Value::as_str) {
+            result.0.set("org", json!(org));
+        }
+        if let Some(url) =
+            value.get("install_url").and_then(Value::as_str).filter(|url| valid_install_url(url))
+        {
+            result.0.set("install_url", json!(url));
         }
         return result;
     }
@@ -275,6 +316,11 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
         "seed.bad_request" => {
             "Choose a valid GitHub repository and branch, then retry Add repository."
         }
+        "seed.checkout_failed" => {
+            "Choose an existing branch, tag or full commit SHA, then retry Add repository."
+        }
+        "seed.unknown_job" => "Retry Add repository to start a new clone job.",
+        "seed.unavailable" => "Open a chat on a Cloud machine, then retry Add repository.",
         _ => {
             "Retry Add repository. If cloning still fails, check repository access and the machine's network."
         }

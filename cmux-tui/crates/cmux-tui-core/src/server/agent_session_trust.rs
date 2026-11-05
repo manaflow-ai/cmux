@@ -102,6 +102,7 @@ impl TrustParams {
 /// trust and the acpmux socket).
 pub(super) fn trust(
     mux: &Arc<Mux>,
+    client: u64,
     id: Option<Value>,
     socket: PathBuf,
     params: TrustParams,
@@ -110,7 +111,7 @@ pub(super) fn trust(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
+    if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if !own_agent_tab(mux, params.surface) {
@@ -286,7 +287,7 @@ pub(super) fn routed(
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err(fail(Refusal::NotTrusted));
     }
-    mux.agent_host_gate(None).map_err(fail)?;
+    mux.agent_host_gate(client, None).map_err(fail)?;
     if !own_agent_tab(mux, params.surface) {
         return Err(fail(Refusal::UnknownTab));
     }

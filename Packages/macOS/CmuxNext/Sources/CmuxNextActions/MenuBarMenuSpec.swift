@@ -56,7 +56,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
         }
         if state.agentsNeedingInput > 0 {
-            agents.append(.action("jumpToUnread", title: Self.needsInput(state.agentsNeedingInput), symbol: "exclamationmark.bubble"))
+            agents.append(.action("agent.jumpToNextNeedingInput", title: Self.needsInput(state.agentsNeedingInput), symbol: "exclamationmark.bubble"))
         }
         let open: [Item] = [
             .action("showMainWindow", title: Self.text("menu.menuBar.openCmux", "Open cmux"), symbol: "macwindow"),

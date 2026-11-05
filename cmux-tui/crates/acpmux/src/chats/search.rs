@@ -38,7 +38,7 @@ impl Needle {
 
     /// The character index in `text` where the first of the words starts, when `text` holds
     /// them all; None otherwise.
-    fn find(&self, text: &str) -> Option<usize> {
+    pub(crate) fn find(&self, text: &str) -> Option<usize> {
         let folded = Folded::new(text);
         let mut first: Option<usize> = None;
         for word in &self.words {
@@ -126,13 +126,13 @@ pub fn find(needle: &Needle, turns: &[Turn]) -> Option<Hit> {
 }
 
 /// `text` with every run of whitespace one space.
-fn flatten(text: &str) -> String {
+pub(crate) fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// At most [`SNIPPET`] characters of `text` around character `at`, with an ellipsis on a side
 /// where text was left out.
-fn snippet(text: &str, at: usize) -> String {
+pub(crate) fn snippet(text: &str, at: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
     let mut start = at.saturating_sub(BEFORE);

@@ -35,6 +35,7 @@ extension SidebarListViewComponents {
 
     /// The app lost focus: the gesture ends and no row stays hovered (the pointer's next move hovers again).
     func pointerFocusLost() {
+        onPointerFocusLost?()
         endPointerGesture()
         setHovered(nil)
     }
@@ -43,7 +44,11 @@ extension SidebarListViewComponents {
     /// still come to this window (a child page window took the keys after the press switched workspaces). With the
     /// button up, the release went to another window: the gesture ends as for the app losing focus.
     func pointerWindowLostKey() {
-        if holdsPointerGesture, leftButtonIsDown() { return }
+        // A Priority gesture is owned by its panel rather than this list, so holdsPointerGesture
+        // can be false while the button is down. A child page window may become key during that
+        // gesture; preserve it until its release arrives. App deactivation has its own callback
+        // and still cancels immediately.
+        if leftButtonIsDown() { return }
         pointerFocusLost()
     }
 
@@ -90,12 +95,22 @@ extension SidebarListViewComponents {
     /// a gesture is held (`escapeSeen`: it cancels the gesture, wherever the keys go); the caller removes it.
     func observePointerEnds() -> Any? {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
-            if event.type == .keyDown { return event.keyCode == 53 && self?.escapeSeen() == true ? nil : event }
-            // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
-            _ = self?.pointerEventSeen(event.type, in: event.window,
-                                       at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
-            return event
+            guard let self else { return event }
+            return self.pointerMonitorSaw(event)
         }
+    }
+
+    /// One event `observePointerEnds`'s monitor sees; nil when the list used it (Escape ending its held gesture).
+    func pointerMonitorSaw(_ event: NSEvent) -> NSEvent? {
+        if event.type == .keyDown {
+            onPointerKeyDown?(event)
+            return event.keyCode == 53 && escapeSeen() ? nil : event
+        }
+        onPointerEvent?(event)
+        // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
+        _ = pointerEventSeen(event.type, in: event.window,
+                             at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
+        return event
     }
 
     /// Whether `row` is a group's one row (`SidebarLayout+SoleMember`) and a drop goes into its group: the row draws

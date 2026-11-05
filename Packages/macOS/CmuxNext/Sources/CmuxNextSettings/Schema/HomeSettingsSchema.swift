@@ -3,8 +3,8 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
-    /// Rows an agent may set (looks only): the Chief chat's bubble style.
-    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key]
+    /// Rows an agent may set (looks only): the Chief chat's bubble style and whether it shows the Feed.
+    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key, HomeFeedRowsSetting.key]
         + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
 
     static var descriptors: [SettingDescriptor] {
@@ -36,6 +36,14 @@ nonisolated enum HomeSettingsSchema {
                 default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
                 keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
             ),
+            // The Feed's notices among the main Chief's messages, for the person only (Leo 2026-10-20).
+            SettingDescriptor(
+                HomeFeedRowsSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.feedInChief", "Show the Feed in Chief"),
+                help: SettingsText.keyed("settings.home.feedInChief.help",
+                                         "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."),
+                kind: .toggle, default: .bool(true), keywords: ["chief", "feed", "notices", "updates", "pull requests", "timeline", "home"]
+            ),
             // The bubble colours every chat starts with (user 2026-10-28); a chat's Chat Colors… go over them.
             ] + bubbleColorRows + [
             SettingDescriptor(
@@ -65,16 +73,23 @@ nonisolated enum HomeSettingsSchema {
                 HomeChiefPetSetting.mascotPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
                 title: SettingsText.keyed("settings.home.chiefPetMascot", "Character"),
                 kind: .choice([
-                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
-                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
-                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
+                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
                     SettingChoice("machine", SettingsText.keyed("settings.choice.chiefPetMascot.machine", "Machine")),
                     SettingChoice("machine-cyan", SettingsText.keyed("settings.choice.chiefPetMascot.machine-cyan", "Cyan Machine")),
                     SettingChoice("machine-blue", SettingsText.keyed("settings.choice.chiefPetMascot.machine-blue", "Blue Machine")),
                     SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
                     SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
-                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
                     SettingChoice("mochi", SettingsText.keyed("settings.choice.chiefPetMascot.mochi", "Mochi")),
+                    SettingChoice("captain", SettingsText.keyed("settings.choice.chiefPetMascot.captain", "Captain")),
+                    SettingChoice("sprout", SettingsText.keyed("settings.choice.chiefPetMascot.sprout", "Sprout")),
+                    SettingChoice("bolt", SettingsText.keyed("settings.choice.chiefPetMascot.bolt", "Bolt")),
+                    SettingChoice("fox-arctic", SettingsText.keyed("settings.choice.chiefPetMascot.fox-arctic", "Arctic Fox")),
+                    SettingChoice("machine-violet", SettingsText.keyed("settings.choice.chiefPetMascot.machine-violet", "Violet Machine")),
+                    SettingChoice("machine-gold", SettingsText.keyed("settings.choice.chiefPetMascot.machine-gold", "Gold Machine")),
+                    SettingChoice("moon-rose", SettingsText.keyed("settings.choice.chiefPetMascot.moon-rose", "Rose Moon")),
+                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
+                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
+                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
             ),

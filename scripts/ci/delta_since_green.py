@@ -34,6 +34,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,12 @@ MAX_CHAIN = 8
 # Commits fetched behind the head and main to find the merge base and check
 # that each merge brought in main. About two weeks of main (#14631).
 HISTORY_DEPTH = 3000
+# Seconds the selector may spend on git and GitHub before it routes the usual
+# diff. ci.yml's step timeout is 3 minutes, and a step that times out cancels
+# the whole CI run (every later step of `changes` is skipped), so the selector
+# must give up first: a slow fetch on a bot's main merge left pull requests with
+# no CI at their head (cmux#34136, cmux#34043, 2026-11-03).
+BUDGET_SECONDS = 120
 CI_STATUS = "ci-status"
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 # CI policy: the router, its guards and the workflows. ci.yml classifies these
@@ -53,6 +60,8 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
 CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
 CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
+# The test registry's area fragments (scripts/ci/test_execution_registry.py).
+CI_POLICY_FILE_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -85,22 +94,31 @@ def short(oid: str) -> str:
 class Git:
     """The checkout, which may be shallow. Fetches use `remote`."""
 
-    def __init__(self, cwd: Path, remote: str = "origin") -> None:
+    def __init__(self, cwd: Path, remote: str = "origin", deadline: Optional[float] = None) -> None:
         self.cwd = cwd
         self.remote = remote
+        # time.monotonic() past which every git call skips (None: no bound).
+        self.deadline = deadline
         # Fetches that needed a fallback, for the step summary.
         self.notes: list[str] = []
 
+    def _git(self, args: list[str], check: bool) -> subprocess.CompletedProcess:
+        left = None if self.deadline is None else self.deadline - time.monotonic()
+        if left is not None and left <= 0:
+            raise Skip(f"git {args[0]} would start past the {BUDGET_SECONDS} s budget")
+        try:
+            return subprocess.run(
+                ["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args],
+                cwd=self.cwd, check=check, capture_output=True, text=True, timeout=left,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise Skip(f"git {args[0]} ran past the {BUDGET_SECONDS} s budget") from error
+
     def run(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args],
-            cwd=self.cwd, check=True, capture_output=True, text=True,
-        ).stdout
+        return self._git(list(args), check=True).stdout
 
     def succeeds(self, *args: str) -> bool:
-        return subprocess.run(
-            ["git", *args], cwd=self.cwd, capture_output=True, text=True,
-        ).returncode == 0
+        return self._git(list(args), check=False).returncode == 0
 
     def fetch(self, object_filter: str, *args: str) -> None:
         """Fetch with a partial-clone filter, or without one if that fails.
@@ -147,9 +165,7 @@ class Git:
         return self.succeeds("merge-base", "--is-ancestor", ancestor, descendant)
 
     def merge_base(self, left: str, right: str) -> Optional[str]:
-        result = subprocess.run(
-            ["git", "merge-base", left, right], cwd=self.cwd, capture_output=True, text=True,
-        )
+        result = self._git(["merge-base", left, right], check=False)
         base = result.stdout.strip()
         return base if result.returncode == 0 and SHA.fullmatch(base) else None
 
@@ -200,7 +216,7 @@ def ci_policy_paths(paths: Iterable[str]) -> list[str]:
     return sorted(
         path for path in paths
         if path.startswith(CI_POLICY_PREFIXES) or path.startswith(CI_POLICY_TEST_PREFIXES)
-        or path in CI_POLICY_FILES
+        or path in CI_POLICY_FILES or CI_POLICY_FILE_RE.fullmatch(path) is not None
     )
 
 
@@ -311,7 +327,8 @@ def verdict(conclusions: dict[int, str], bound: set[int]) -> Optional[str]:
     return red[0] if red else "success"
 
 
-def github_verdicts(repository: str, token: str, api_url: str, number: int, base_ref: str) -> Verdicts:
+def github_verdicts(repository: str, token: str, api_url: str, number: int, base_ref: str,
+                    deadline: Optional[float] = None) -> Verdicts:
     rest_url = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
 
     def call(url: str, body: Optional[dict] = None) -> dict:
@@ -321,7 +338,10 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
             headers={"Authorization": f"bearer {token}", "Content-Type": "application/json",
                      "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        left = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
+        if left <= 0:
+            raise Skip(f"reading CI verdicts would start past the {BUDGET_SECONDS} s budget")
+        with urllib.request.urlopen(request, timeout=left) as response:
             return json.load(response)
 
     def lookup(oids: list[str]) -> dict[str, Optional[str]]:
@@ -391,9 +411,11 @@ def main(argv: list[str]) -> int:
     try:
         if not token or "/" not in args.repository:
             raise Skip("no token or repository to read CI verdicts with")
-        git = Git(Path.cwd())
+        deadline = time.monotonic() + BUDGET_SECONDS
+        git = Git(Path.cwd(), deadline=deadline)
         decision = decide(git, args.merge_sha, args.head_sha,
-                          github_verdicts(args.repository, token, api_url, args.pull_request, args.base_ref))
+                          github_verdicts(args.repository, token, api_url, args.pull_request, args.base_ref,
+                                          deadline))
     except Skip as skip:
         decision = Decision(None, f"pull request diff: {skip}")
     except Exception as error:  # noqa: BLE001 - any failure routes the usual diff

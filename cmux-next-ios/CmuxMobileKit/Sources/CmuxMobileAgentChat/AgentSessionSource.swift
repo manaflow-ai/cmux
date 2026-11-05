@@ -17,13 +17,17 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     public var status: Status
     /// The tab's Mac (tab ids repeat across Macs); empty when not known.
     public var macID: String
+    /// The signed-in account that owns the Mac's artifact read. Empty for an
+    /// unbound/standalone source, which then disables shared thumbnail caching.
+    public var accountID: String
 
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
-        macName: String, branch: String? = nil, status: Status = .idle, macID: String = ""
+        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
     ) {
         self.id = id
         self.macID = macID
+        self.accountID = accountID
         self.name = name
         self.harness = harness
         self.agentName = agentName
@@ -50,6 +54,16 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
+    /// The record seq of a turn's `turn_result`: the turn a fork through it keeps
+    /// (`acp.session.fork {throughSeq}`, the Mac's Edit and Resend of an earlier prompt).
+    case turnSeq(turnId: String, seq: Int)
+    /// The record seq of a turn's prompt (`user_message`): what a bookmark on it marks.
+    case promptSeq(turnId: String, seq: Int)
+    /// The chat's bookmarks and pins changed (acpmux's `bookmarks` record): every marked seq.
+    case bookmarks([Int])
+    /// acpmux held the waiting prompts (`queue_paused`: a failed turn, or a person's Stop of
+    /// agent messages) or let them go (`queue_resumed`). `reason`: the record's (`stop`), if any.
+    case queuePaused(Bool, reason: String?)
     /// The agent's request to its model failed and it is trying again (Claude Code's
     /// `system/api_retry`): the running turn says so instead of a bare "Working".
     case retrying(attempt: Int, maxAttempts: Int, status: Int?)
@@ -64,6 +78,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// The history a chat opened on leaves out older records (the attach's cap): its first
     /// turn is not where the session started.
     case earlierHistory(Bool)
+    /// Older history read as the reader scrolled up (``AgentSessionSource/loadEarlierHistory()``):
+    /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
+    /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
+    case earlierPage([AgentSessionEvent], hasEarlier: Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -110,6 +128,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case sendQueuedNow(promptId: String)
     /// Move up / Move down: `_acpmux/queue_edit {op: move, index}` (0 is next).
     case moveQueued(promptId: String, index: Int)
+    /// Resume a paused queue (the Mac's Resume over its queue): `_acpmux/queue_edit {op: resume}`.
+    case resumeQueue
 }
 
 public struct AgentAttachment: Hashable, Sendable, Identifiable {
@@ -123,16 +143,28 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var fileURL: URL?
     /// The file's size when its bytes are not held (`fileURL`).
     public var byteCount: Int?
+    /// A video file's length, size and the frames the agent sees with its link (the Mac's
+    /// video chips, webviews composer/videoPrompt.ts); nil for any other file, or a video whose
+    /// frames could not be read (it goes as its link alone, as on the Mac).
+    public var video: AgentVideo?
 
     public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
-                fileURL: URL? = nil, byteCount: Int? = nil) {
+                fileURL: URL? = nil, byteCount: Int? = nil, video: AgentVideo? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
         self.fileURL = fileURL
         self.byteCount = byteCount
+        self.video = video
     }
+
+    /// A PDF, by its name: the Mac sends one up to `maxDocumentBytes` as a `document` block
+    /// the model reads, a larger one as a link to its copy (webviews attachments.ts).
+    public var isPDF: Bool { kind == .file && (name as NSString).pathExtension.lowercased() == "pdf" }
+    /// The most PDF bytes that go inline as a `document` block (webviews attachments.ts
+    /// `MAX_DOCUMENT_BYTES`): its base64 stays under acpmux's one-message bound.
+    public static let maxDocumentBytes = 10 << 20
 
     /// The image MIME type from the data's signature (nil: not an image an
     /// agent accepts; the composer re-encodes others as JPEG).
@@ -186,6 +218,9 @@ public protocol AgentSessionSource: AnyObject {
     func checkpoints() async throws -> [AgentCheckpoint]
     /// Restores the working tree to `checkpoint`; returns a one-line summary.
     func restore(_ checkpoint: AgentCheckpoint) async throws -> String
+    /// The chat's session status (`/status`, the Mac's Session status card): acpmux's own
+    /// detail of the session, as labeled fields.
+    func sessionStatus() async throws -> AgentSessionStatus
     /// Harnesses this session can continue in.
     func handoffTargets() async throws -> [AgentHandoffTarget]
     /// Prepares (or returns the existing) continuation to `target`.
@@ -198,10 +233,37 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The chat reached the oldest turn it shows: read the page before it, delivered as
+    /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
+    func loadEarlierHistory()
+
+    // Chat polish parity (the Mac's copy rows, Session Info, bookmarks, permissions, Event
+    // Inspector and Replay Conversation). Sources without one throw `AgentFeatureUnavailable`.
+
+    /// The chat's identity and status as the Mac's acpmux reports it (`_acpmux/info`).
+    func sessionDetails() async throws -> AgentSessionDetails
+    /// The record seqs the chat's bookmarks and pins mark (`_acpmux/bookmark_get`).
+    func bookmarks() async throws -> [Int]
+    /// Marks or unmarks one prompt (`user_message`) or answer (`turn_result`) record
+    /// (`_acpmux/bookmark_set`); returns every mark after the change.
+    func setBookmark(seq: Int, bookmarked: Bool) async throws -> [Int]
+    /// Whether the chat holds a lasting Allow for This Chat (`_acpmux/permission_groups`).
+    func chatPermissions() async throws -> AgentChatPermissions
+    /// Revoke Chat Permission (`_acpmux/permission_chat_revoke`).
+    func revokeChatPermission() async throws
+    /// Refresh Permissions: reads the open asks again from the Mac.
+    func refreshPermissions()
+    /// The raw records this phone received for the chat (the Event Inspector), when kept.
+    var eventJournal: AgentEventJournal? { get }
+    /// The chat's recorded transcript, for Replay Conversation.
+    func replayRecording() async throws -> AgentReplayRecording
+    /// A chat that only shows (a replay): no marks, no retries.
+    var isReadOnly: Bool { get }
 }
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func loadEarlierHistory() {}
 }
 
 extension AgentSessionSource {
@@ -215,6 +277,10 @@ extension AgentSessionSource {
 
     public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
         throw AgentFeatureUnavailable("This session can't restore checkpoints.")
+    }
+
+    public func sessionStatus() async throws -> AgentSessionStatus {
+        throw AgentFeatureUnavailable("Status is unavailable for this chat.")
     }
 
     public func handoffTargets() async throws -> [AgentHandoffTarget] {

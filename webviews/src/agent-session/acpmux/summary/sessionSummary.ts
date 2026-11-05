@@ -18,9 +18,31 @@ export type { PullRequestState, SummaryPullRequest } from "./transcriptPullReque
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
-export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp";
-export type SummarySource = { url?: string; label: string; kind?: SummarySourceKind };
+export type SummaryWakeup = {
+  id: string;
+  text: string;
+  /// Claude's ScheduleWakeup (`wakeup`) or CronCreate (`cron`).
+  kind: "wakeup" | "cron";
+  cron?: string;
+  /// When the call was made (epoch ms, the session's clock), when known.
+  startedAt?: number;
+  /// A wakeup's time: its call's start plus its `delaySeconds`.
+  dueAt?: number;
+  /// A cron job's `recurring` (Claude's default is true); false runs it once.
+  recurring?: boolean;
+  /// A later CronDelete named this job: when it ran.
+  cancelledAt?: number;
+  /// The call failed, so nothing was scheduled.
+  failed?: true;
+};
+export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp" | "image";
+/// `image`: a pasted image's id in its prompt, and its bytes when the prompt carried them.
+export type SummarySource = {
+  url?: string;
+  label: string;
+  kind?: SummarySourceKind;
+  image?: { id: string; src?: string };
+};
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -78,24 +100,58 @@ function input(tool: Tool): Record<string, unknown> {
 
 const field = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
+/// Claude Code clamps a wakeup's delay to one minute ... one hour.
+const WAKEUP_DELAY_SECONDS = { min: 60, max: 3600 };
+
+const SCHEDULING = /^(ScheduleWakeup|CronCreate)\b/;
+
 /// Wakeups and cron jobs the agent scheduled for itself (Claude's ScheduleWakeup and CronCreate),
-/// named by their reason or prompt, with a cron job's schedule.
+/// named by their reason or prompt, with a cron job's schedule, when each was made and, for a
+/// wakeup, when it is due; a cron job a later CronDelete named carries when it was removed. A
+/// failed call is kept, marked, so it reads as failed rather than ahead (session-info/scheduled.ts).
 function scheduled(all: readonly Tool[]): SummaryWakeup[] {
+  // CronDelete names the job by the id its CronCreate's result printed.
+  const deletes = all.flatMap((tool) => {
+    if (!/^CronDelete\b/.test(tool.title) || tool.status === "failed") return [];
+    const id = field(input(tool).id);
+    return id ? [{ id, at: tool.startedAt }] : [];
+  });
   return all
-    .filter((tool) => /^(ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed")
-    .map((tool) => {
+    .filter((tool) => SCHEDULING.test(tool.title))
+    .map((tool): SummaryWakeup => {
       const fields = input(tool);
+      const kind = tool.title.startsWith("ScheduleWakeup") ? "wakeup" : "cron";
+      const delay = typeof fields.delaySeconds === "number" ? fields.delaySeconds : undefined;
+      const startedAt = tool.startedAt;
+      const dueAt =
+        kind === "wakeup" && startedAt !== undefined && delay !== undefined && Number.isFinite(delay)
+          ? startedAt + Math.min(WAKEUP_DELAY_SECONDS.max, Math.max(WAKEUP_DELAY_SECONDS.min, delay)) * 1000
+          : undefined;
+      const output = tool.output ?? "";
+      const deleted =
+        kind === "cron" && output
+          ? deletes.find((entry) => new RegExp(`(^|[^\\w-])${escapeRegExp(entry.id)}($|[^\\w-])`).test(output))
+          : undefined;
       return {
         id: tool.id,
         text: field(fields.reason) ?? field(fields.prompt) ?? tool.title,
-        cron: field(fields.cron),
+        kind,
+        ...(field(fields.cron) ? { cron: field(fields.cron) } : {}),
+        ...(startedAt !== undefined ? { startedAt } : {}),
+        ...(dueAt !== undefined ? { dueAt } : {}),
+        ...(typeof fields.recurring === "boolean" ? { recurring: fields.recurring } : {}),
+        ...(deleted ? { cancelledAt: deleted.at ?? startedAt ?? 0 } : {}),
+        ...(tool.status === "failed" ? { failed: true as const } : {}),
       };
     });
 }
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => {
   const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  if (source.image) return `image:${source.image.id}`;
   return github
     ? `github:${github[1]!.toLowerCase()}/${github[2]!.toLowerCase()}#${github[3]}`
     : `${source.kind ?? "url"}:${source.url ?? source.label}`;
@@ -134,8 +190,8 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
-/// Read-only PR/issue references, tool sources and settled reply URLs in transcript encounter
-/// order; each appears once.
+/// Read-only PR/issue references, tool sources, settled reply URLs and the images the person
+/// pasted into their prompts, in transcript encounter order; each appears once.
 function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullRequest[]): SummarySource[] {
   const seen = new Map<string, { source: SummarySource; order: number; sequence: number }>();
   let sequence = 0;
@@ -179,6 +235,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     }
   };
   for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind === "user") {
+      // The person's own sent images only: another agent's or the Chief's prompt is not what they
+      // pasted, and a prompt that failed to send gave the agent nothing.
+      if (!row.untyped && !row.from && !row.failed)
+        for (const image of row.images ?? [])
+          add({ label: image.name ?? "", kind: "image", image: { id: image.id, src: image.src } }, rowIndex);
+      continue;
+    }
     if (row.kind === "assistant") {
       if (!row.streaming) addUrls(row.text ?? "", rowIndex);
       continue;
@@ -289,7 +353,8 @@ export function transcriptBackground(rows: readonly AcpmuxRow[]): {
   scheduled: number;
 } {
   const all = tools(rows);
-  return { tasks: backgroundTasks(rows, all), scheduled: scheduled(all).length };
+  // The failed calls scheduled nothing; the ended ones still list, under "N finished".
+  return { tasks: backgroundTasks(rows, all), scheduled: scheduled(all).filter((item) => !item.failed).length };
 }
 
 /// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).

@@ -22,6 +22,7 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     if let Some(obj) = detail.as_object_mut() {
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
+        obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never
@@ -30,6 +31,9 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         && let Some(obj) = detail.as_object_mut()
     {
         obj.insert("sessionEnv".into(), json!(crate::session_env::shown(&s.meta().session_env)));
+        // The cmux workspace the chat was recorded for (`workspace_purge.rs`), so the
+        // daemon's phone relay can keep an incognito workspace's chats off a phone.
+        obj.insert("workspaceId".into(), json!(s.meta().workspace_id));
     }
     // One message carries it whole, its largest fields trimmed if need be: a detail refused
     // as too large is refused again on every read (`hub/reply_fit.rs`).

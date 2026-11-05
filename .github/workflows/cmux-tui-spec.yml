@@ -14,6 +14,8 @@ on:
       - ".github/scripts/test_cmux_tui_fmt_changed.py"
       - ".github/scripts/cmux-tui-clippy-changed.py"
       - ".github/scripts/test_cmux_tui_clippy_changed.py"
+      - ".github/scripts/cmux-tui-spec-changed.py"
+      - ".github/scripts/test_cmux_tui_spec_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
       - "scripts/cmux-next/rust_panic_ratchet.py"
       - "scripts/cmux-next/rust-panic-baseline.json"
@@ -26,34 +28,21 @@ on:
       - "docs/remote-agents-and-cloud.md"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
+      - "schemas/link-token/native.json"
+      - "schemas/link-token/vectors.json"
+      - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/**"
+      - "skills/cmux/SKILL.md"
+  # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
+  # packages)`, and a required check must report. The `changes` job below says whether
+  # the change touches a `push` path above; when it touches none, every job is skipped,
+  # which GitHub counts as passing. The `push` list is the only list.
   pull_request:
-    paths:
-      - "cmux-tui/**"
-      - ".github/workflows/cmux-tui-spec.yml"
-      - ".github/scripts/cmux-tui-fmt-changed.py"
-      - ".github/scripts/test_cmux_tui_fmt_changed.py"
-      - ".github/scripts/cmux-tui-clippy-changed.py"
-      - ".github/scripts/test_cmux_tui_clippy_changed.py"
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - "scripts/cmux-next/rust_panic_ratchet.py"
-      - "scripts/cmux-next/rust-panic-baseline.json"
-      - "plans/cmux-next/rust-panic-free.md"
-      - "scripts/ci/cargo_test_verdict.py"
-      - "scripts/ci/test_reds.py"
-      - "tests/test_cargo_test_verdict.py"
-      # Files outside cmux-tui that acpmux or its path dependencies include_str!
-      # (tests/test_cargo_test_verdict.py keeps this list whole).
-      - "docs/remote-agents-and-cloud.md"
-      - "schemas/deeplinks/agent-link.json"
-      - "schemas/link-token/keyset-vectors.json"
-      - "schemas/settings/source/subsessions.json"
-      - "schemas/settings/source/trust.json"
-      - "skills/cmux-browser/**"
-      - "skills/cmux-cua/SKILL.md"
   workflow_dispatch:
     inputs:
       commit:
@@ -76,9 +65,44 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
+  # The router (cmux-tui-spec-changed.py): on a pull request, whether its change touches
+  # one of this workflow's `push` paths. A push or a dispatch always runs every job.
+  changes:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+    steps:
+      # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Test the router
+        run: python3 .github/scripts/test_cmux_tui_spec_changed.py
+
+      - name: Does the change touch this workflow's paths?
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 .github/scripts/cmux-tui-spec-changed.py --workflow .github/workflows/cmux-tui-spec.yml --base "$base" --head HEAD
+
   inventory:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -124,7 +148,10 @@ jobs:
   # A daemon protocol change that can break an older or newer peer must ship
   # a compat rule (cmux-tui/crates/cmux-api-compat; spec/api-compat.json).
   api-compat:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -148,7 +175,10 @@ jobs:
   # none of acpmux's integration test binaries.
   acpmux-protocol-ir:
     name: acpmux protocol IR is current
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -221,7 +251,10 @@ jobs:
   # feat-cmux-next push runs the suites plainly, so a base red shows red there.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -323,11 +356,84 @@ jobs:
           echo "acpmux tests: red head run judged after $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
           python3 "$verdict" judge --head "$head_log" --retry "$retry_log" --base "$base_log" --job "$JOB"
 
+  # The deterministic simulation of the daemon (tests/sim.rs, HQ#6740): the real hub under a
+  # simulated runtime, network, disk and clock, with crashes and partitions at any step. Each
+  # seed checks that no prompt or steer is lost or applied twice, that seq has no gaps and that
+  # a resumed chat ends as an uninterrupted one. A failing seed prints the command that replays
+  # it. acpmux-sim-sweep.yml runs thousands of seeds a day; this runs a few hundred per change.
+  acpmux-sim:
+    name: acpmux simulation (seeds)
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Does the change touch an input of acpmux's tests
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          run=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
+            && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            if ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/acpmux <<<"$changed"; then
+              run=false
+              echo "No input of acpmux's tests changed since ${BASE_SHA:0:12}; nothing to simulate." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pinned Rust
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-acpmux-sim
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: cargo test -p acpmux --features sim --test sim
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        env:
+          # The same seeds on every change, so a red names the change and not the window; the
+          # daily sweep explores new seeds and files what it finds.
+          SIM_SEEDS: "256"
+          SIM_SEED_BASE: "0"
+        run: |
+          set -o pipefail
+          cargo test --locked -p acpmux --features sim --test sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
+          grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
+      # The clippy job builds without `--features sim`, so the simulation's code and the
+      # daemon's sim-only seams were never linted.
+      - name: cargo clippy -p acpmux --features sim --test sim
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.
   rustfmt:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -383,7 +489,10 @@ jobs:
   # a past head with this run's script, to prove the check catches what it missed.
   clippy:
     name: clippy (changed cmux-tui packages)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
     # cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
@@ -491,11 +600,12 @@ jobs:
       # their production targets with the ratchet's lints, judged against the baseline
       # at HEAD. Only cmux-tui.yml's dispatch run checked it before, so #27935 landed two
       # acpmux indexing_slicing hits and turned base lint red.
+      # PRs compare base hits; pushes keep enforcing the strict baseline.
       - name: Rust panic ratchet on changed cmux-tui packages
         if: ${{ !cancelled() }}
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --panic-ratchet "$RUNNER_TEMP/panic-clippy.jsonl"
+        run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --panic-ratchet "$RUNNER_TEMP/panic-clippy.jsonl" ${{ github.event_name == 'pull_request' && '--compare-base' || '' }}
 
       - name: Upload panic ratchet clippy JSON
         if: ${{ !cancelled() }}

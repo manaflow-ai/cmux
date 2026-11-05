@@ -169,6 +169,11 @@ extension NSTextField {
     /// The field's setter ends and restarts an active edit, which runs the end-editing and focus
     /// paths mid-typing; the cell's only redraws.
     public func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString?) {
+        // This cell draws its own placeholder, on the editor's line; AppKit's would sit above it.
+        if let aligned = cell as? EditorAlignedTextFieldCell {
+            aligned.drawnPlaceholder = placeholder
+            return
+        }
         guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
             placeholderAttributedString = placeholder
             return

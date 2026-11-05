@@ -47,6 +47,11 @@ pub(crate) use display::{ChildTags, drop_display_lines};
 
 mod pending;
 
+#[cfg(test)]
+mod delivery_tests;
+#[cfg(test)]
+mod repo_sync_tests;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -123,6 +128,7 @@ impl Hub {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .contains(&agent);
+                        self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update(&session, params.as_ref(), replayed);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -259,6 +265,8 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
+                    // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
+                    self.end_loop_goal(&session);
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -311,6 +319,7 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -324,7 +333,7 @@ impl Hub {
                     .filter(|_| !replayed)
                     // A turn the person did not start leaves the preview as it was
                     // (`background_turn.rs`).
-                    .filter(|_| !self.background_message(session, update))
+                    .filter(|_| !background)
                 {
                     // In place: the preview was copied whole on every streamed chunk.
                     let preview = m.preview.get_or_insert_with(String::new);
@@ -344,6 +353,29 @@ impl Hub {
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
+            "plan"
+                if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
+            {
+                // A TodoWrite plan is supporting detail for an armed /loop. It
+                // must not replace or clear that loop's persistent goal.
+                let loop_goal = m.goal.as_ref().is_some_and(|goal| {
+                    goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
+                });
+                // A TodoWrite plan is checklist detail for the armed /loop. Keep the
+                // loop's objective and lifecycle, but replace its visible steps as Claude
+                // advances or clears the plan.
+                if loop_goal
+                    && update.get("entries").and_then(Value::as_array).is_some()
+                    && let Some(goal) = m.goal.as_mut()
+                {
+                    goal.steps = crate::goal::GoalState::from_plan_update(update)
+                        .and_then(|plan| plan.steps);
+                    goal_write = true;
+                }
+                // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
+                // goal: the current web client would render it with Codex's Pause/Clear
+                // controls, which cannot drive Claude's checklist (review on #34457).
+            }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
                 // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
@@ -360,7 +392,7 @@ impl Hub {
             }
             "session_info_update" => {
                 if let Some(goal) = update.pointer("/_meta/goal") {
-                    m.goal = goal.as_object().map(|_| goal.clone());
+                    m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
                 }
                 // A harness title made from the first input stops before a client context
@@ -384,6 +416,17 @@ impl Hub {
                         crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
                     breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
+                }
+                // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
+                // every window it knows, so it replaces the last, and one that reports nothing
+                // clears it (`codex_app_server`). Another limit's snapshot changes nothing.
+                if let Some(snapshot) = update
+                    .pointer("/_meta/codexAppServer/rateLimits")
+                    .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
+                {
+                    let limits = crate::codex_app_server::usage_limits(snapshot);
+                    breakdown_changed |= m.usage_limits != limits;
+                    m.usage_limits = limits;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -615,6 +658,12 @@ impl Hub {
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
         }
+        // Keep the read lease through the write; a new seed cannot begin in
+        // between readiness and mutation. A Stop during the wait cancels it.
+        let _repo_ready = super::repo_sync::wait(session, path.clone(), || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+        })
+        .await?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
@@ -770,6 +819,21 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Native tools can mutate the repository even when their request has
+        // no location or kind. Only known read-only kinds skip the barrier;
+        // moves and unclassified/MCP tools wait before automatic approval too.
+        if !matches!(
+            request.pointer("/toolCall/kind").and_then(Value::as_str),
+            Some("read" | "search" | "think" | "fetch" | "switch")
+        ) && super::repo_sync::wait(session, session.meta().cwd, || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+                || stale_turn(session, &turn_id)
+        })
+        .await
+        .is_err()
+        {
+            return json!({"outcome":{"outcome":"cancelled"}});
+        }
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
@@ -797,7 +861,9 @@ impl Hub {
                 Some(own) => {
                     let meta = session.meta();
                     let family = self.config.read().await.family(&meta.harness);
-                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    let mut env = probe_env(&own, remote_base, |own| {
+                        crate::login_env::effective_for(family.as_deref(), own)
+                    });
                     // The agent's PATH, unless its own env names one (`apply_tokio_for`).
                     if let Some(path) = crate::login_env::agent_path()
                         && !own.contains_key("PATH")
@@ -987,6 +1053,7 @@ impl Hub {
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            self.background_attention(session);
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -1289,12 +1356,18 @@ impl Hub {
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
-        // The asking task is gone: nothing writes the answer, so its fence is cut.
-        if pending.reply.send(outcome).is_err()
-            && let Some(fence) = answerer.fence
-        {
-            self.answer_fences.lock().unwrap().remove(permission_id);
-            fence.cut();
+        // The asking task is gone: nothing writes the answer. Cut its fence and
+        // tell the caller instead of acknowledging an answer that was never delivered.
+        if pending.reply.send(outcome).is_err() {
+            if let Some(fence) = answerer.fence {
+                self.answer_fences.lock().unwrap().remove(permission_id);
+                fence.cut();
+            }
+            return Err(RpcError::not_found(
+                "agent_gone: the agent is no longer waiting for this answer",
+            )
+            .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
+                                  "permissionId": permission_id})));
         }
         Ok(())
     }
@@ -1380,6 +1453,8 @@ impl Hub {
         }
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
+        // So does an MCP connect card (`mcp_connect.rs`).
+        self.cancel_pending_mcp_connects(session);
     }
 }
 
@@ -1701,5 +1776,78 @@ mod stderr_tests {
         let mut lines = vec!["\x1b[31mERROR failed to refresh models\x1b[0m".to_owned()];
         lines.extend(std::iter::repeat_n("\x1b[0m".to_owned(), 8));
         assert_eq!(feed(&lines), vec!["failed to refresh models"]);
+    }
+}
+
+/// The fixed base a remote-origin harness starts from
+/// (`agent::host_environment`: HOME, SHELL, locale, ...).
+fn remote_base() -> std::collections::BTreeMap<String, String> {
+    crate::agent::host_environment()
+        .into_iter()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect()
+}
+
+/// The environment a read-only shell probe runs in: what the harness got.
+/// A remote-origin launch gets the fixed remote base and its own env, and no
+/// local overlay (the vault, `machine.env`, login values); a local one gets
+/// `local(own)`.
+fn probe_env(
+    own: &std::collections::BTreeMap<String, String>,
+    base: impl FnOnce() -> std::collections::BTreeMap<String, String>,
+    local: impl FnOnce(
+        &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    if own.get(crate::agent::REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1") {
+        let mut env = base();
+        env.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
+        env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        return env;
+    }
+    local(own)
+}
+
+#[cfg(test)]
+mod probe_env_tests {
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_remote_launch_probe_gets_no_local_overlay() {
+        let overlay = |own: &BTreeMap<String, String>| {
+            let mut env = own.clone();
+            env.insert("VAULT_SECRET".into(), "local".into());
+            env
+        };
+        let remote = BTreeMap::from([
+            (crate::agent::REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned()),
+            ("OWN".to_owned(), "x".to_owned()),
+        ]);
+        let base = || {
+            BTreeMap::from([
+                ("HOME".to_owned(), "/home/u".to_owned()),
+                ("SHELL".to_owned(), "/bin/zsh".to_owned()),
+                ("OWN".to_owned(), "base".to_owned()),
+            ])
+        };
+        let env = super::probe_env(&remote, base, overlay);
+        assert_eq!(
+            env,
+            BTreeMap::from([
+                ("HOME".to_owned(), "/home/u".to_owned()),
+                ("OWN".to_owned(), "x".to_owned()),
+                ("SHELL".to_owned(), "/bin/zsh".to_owned()),
+            ]),
+            "the fixed remote base (so ~/.gitconfig is seen), the launch's own env over it"
+        );
+        let local = BTreeMap::from([("OWN".to_owned(), "x".to_owned())]);
+        let env = super::probe_env(&local, base, overlay);
+        assert!(env.contains_key("VAULT_SECRET"));
+        assert!(!env.contains_key("SHELL"), "a local launch takes its env from `local`");
+
+        // The real remote base carries HOME when the daemon has one.
+        if std::env::var_os("HOME").is_some() {
+            assert!(super::remote_base().contains_key("HOME"));
+        }
     }
 }

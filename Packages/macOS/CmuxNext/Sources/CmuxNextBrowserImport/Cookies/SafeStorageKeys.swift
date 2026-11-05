@@ -6,6 +6,15 @@ public protocol SafeStorageKeyProviding: Sendable {
     /// Blocks while macOS shows its Keychain prompt; call off the main thread.
     /// The password is `SecretBytes`: zeroed when the last holder lets it go.
     func password(service: String) throws(CookieImportError) -> SecretBytes
+    /// The item of `service` with `account` (nil: any account of the service).
+    func password(service: String, account: String?) throws(CookieImportError) -> SecretBytes
+}
+
+extension SafeStorageKeyProviding {
+    /// Providers keyed by service alone ignore the account.
+    public func password(service: String, account: String?) throws(CookieImportError) -> SecretBytes {
+        try password(service: service)
+    }
 }
 
 /// The login Keychain. Reading another app's item makes macOS ask the user
@@ -16,18 +25,24 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
     public init() {}
 
     public func password(service: String) throws(CookieImportError) -> SecretBytes {
+        try password(service: service, account: nil)
+    }
+
+    public func password(service: String, account: String?) throws(CookieImportError) -> SecretBytes {
         #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_SAFE_STORAGE_READ
         // The cx-f58x notary test builds read no other browser's Keychain item
         // (nightly.yml inputs notary_test_without_browser_data_import and
         // notary_test_import_part=safe-storage).
         throw .keychainDenied(service: service)
         #else
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
+        // One service can hold two items (an Electron app's "<App>" and "<App> Key").
+        if let account { query[kSecAttrAccount as String] = account }
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         switch status {

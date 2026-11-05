@@ -21,6 +21,21 @@ export function agentNames(agents: readonly Subagent[]): ReadonlyMap<string, str
   return names;
 }
 
+/// The chat's subagents its sent-message rows can open, by the agentId a SendMessage names: the
+/// subagent's view id (`Subagent.id`) and what shows it (App.tsx `showSubagent`), so "Sent to
+/// <subagent>" goes to that subagent as its row in the summary card does (Leo, 2026-10-31: "i NEED
+/// TO BE ABEL TO CLICK THAT LABEL TO GO TO THE CHAT").
+export const AgentOpenContext = createContext<
+  { views: ReadonlyMap<string, string>; open(viewId: string): void } | undefined
+>(undefined);
+
+/// Each subagent's agentId to its view id, for AgentOpenContext.
+export function agentViews(agents: readonly Subagent[]): ReadonlyMap<string, string> {
+  const views = new Map<string, string>();
+  for (const agent of agents) if (agent.agentId) views.set(agent.agentId, agent.id);
+  return views;
+}
+
 /// An opaque id rather than a name: Claude Code's agentIds (`a39e817af38ddf5e7`), hex digests, UUIDs.
 export function looksLikeId(value: string): boolean {
   const text = value.trim();

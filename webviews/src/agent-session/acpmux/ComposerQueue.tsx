@@ -26,9 +26,13 @@
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
-// (Leo, 2026-10-21).
+// (Leo, 2026-10-21). A video is one tile, and one row of tiles at most, the rest a "+N".
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
+//
+// Prompts the pane holds for the folder's trust answer (trustHeld.ts) come last, after one note,
+// "Waiting for folder trust", drawn as the paused note is: they can be edited and deleted, and go
+// in order after Trust. acpmux does not have them yet, so they cannot steer, move or open a side chat.
 //
 // A long queue folds (Leo, 2026-10-14): past three of the person's queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
@@ -37,9 +41,11 @@
 // (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages } from "./QueuedImages";
+import { QueuedImages, type QueuedVideo } from "./QueuedImages";
+import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
@@ -49,6 +55,15 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
+import {
+  pickedSkillsOf,
+  withSkillDollars,
+  withoutSkillDollars,
+  type SkillCatalog,
+  type SlashCommand,
+} from "./slashCommands";
+import { useSkillWords } from "./conversation/skillWords";
+import { withSkillWords } from "./conversation/SkillWord";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -125,11 +140,31 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx): a file
+/// part's `video`, or after a reload, when the parts keep no `video`, the frames note that came after
+/// it (composer/videoPrompt.ts `framesNote`).
+function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
+  const videos: QueuedVideo[] = [];
+  // The last video a file part described, whose own note comes next and adds nothing.
+  let described: string | undefined;
+  for (const part of entry.inlineParts ?? []) {
+    if (part.kind === "text") {
+      const noted = framesNoteVideo(part.text);
+      if (noted && noted.name !== described) videos.push(noted);
+      if (noted) described = undefined;
+    } else if (part.kind !== "image" && part.video) {
+      videos.push({ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length });
+      described = part.name;
+    }
+  }
+  return videos.length ? videos : undefined;
+}
+
 /// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
 /// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
-export function shownText(entry: QueuedEntry, t: Translate): string {
+export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
   const retry = entry.retry;
-  if (!retry) return entry.prompt;
+  if (!retry) return withoutSkillDollars(entry.prompt, skills);
   return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
     .filter(Boolean)
     .join("\n");
@@ -192,7 +227,12 @@ export function ComposerQueue({
   onLeave,
   readImage,
   onSideChat,
+  commands,
+  wakeNoteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
+  /// How long a prompt held for a waking Cloud machine waits before its note says so (afterDelay.ts);
+  /// the gallery's settled variants pass 0.
+  wakeNoteDelayMs?: number;
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
@@ -217,7 +257,11 @@ export function ComposerQueue({
   /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
   /// when it already started. Absent where the chat opens no side chat.
   onSideChat?(id: string, prompt: string): Promise<boolean>;
+  /// The chat's command list: a queued prompt reads its Codex skills `/name` and an edit saves them
+  /// as `/$name` (slashCommands.ts), a skill added in the edit too.
+  commands?: readonly SlashCommand[];
 }) {
+  const skills = useSkillWords(commands);
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const leavingNow = useRef(leaving);
@@ -596,6 +640,13 @@ export function ComposerQueue({
     drawnOwners.current = owners(shown);
     drawnRows.current = shown;
   });
+  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
+  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
+  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
+  const wakeNoteShown = useAfterDelay(
+    shown.some((entry) => entry.waking),
+    wakeNoteDelayMs,
+  );
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -660,7 +711,7 @@ export function ComposerQueue({
   const sideChat =
     onSideChat &&
     ((entry: QueuedEntry) =>
-      entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
+      entry.images?.length || entry.held ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
   // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
   // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
@@ -676,7 +727,7 @@ export function ComposerQueue({
         })
         .catch(() => undefined);
     });
-  const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
+  const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !entry.held && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws. Past the first or last row shown, an
   // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
@@ -689,9 +740,10 @@ export function ComposerQueue({
     const target = shown[index];
     const from = queueIndex(entry);
     const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
-    if (from < 0 || to < 0 || to >= queue.length || to === from) return undefined;
+    // A held prompt (trustHeld.ts) is the pane's, not in acpmux's queue: nothing moves to or past it.
+    if (from < 0 || to < 0 || to >= queue.length || to === from || entry.held) return undefined;
     const passed = to < from ? queue.slice(to, from) : queue.slice(from + 1, to + 1);
-    return passed.some((q) => q.author !== undefined) ? undefined : to;
+    return passed.some((q) => q.author !== undefined || q.held) ? undefined : to;
   };
   const move =
     onChange &&
@@ -728,7 +780,9 @@ export function ComposerQueue({
     recovered.current.delete(entry.id);
     reopenRecovered();
     focusRow(shown.indexOf(entry));
-    const next = text.trim();
+    // The editor shows a Codex skill `/name` (withoutSkillDollars): each goes back as `/$name`, a
+    // skill the prompt named keeping that name where a command shares it.
+    const next = withSkillDollars(text.trim(), skills, pickedSkillsOf(entry.prompt, skills));
     // Text alone keeps every image; an image removed sends the ones left.
     const removed = kept.length < images.length;
     if (!next || (next === entry.prompt && !removed) || !onChange) return;
@@ -938,12 +992,16 @@ export function ComposerQueue({
   // queued one keeps "Queued" for assistive tech only.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
-      {!entry.next && <span className="acpmux-hidden-label">{t("composer.queued")}</span>}
+      {!entry.next && (
+        <span className="acpmux-hidden-label">
+          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+        </span>
+      )}
       {editing === entry.id ? (
         <QueuedEdit
           entry={entry}
           label={t("composer.queueEdit")}
-          initial={draft.current?.id === entry.id ? draft.current.text : undefined}
+          initial={draft.current?.id === entry.id ? draft.current.text : withoutSkillDollars(entry.prompt, skills)}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
@@ -953,7 +1011,7 @@ export function ComposerQueue({
           className="acpmux-queued-text"
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
-          onPointerEnter={(event) => titleWhenTruncated(event, shownText(entry, t))}
+          onPointerEnter={(event) => titleWhenTruncated(event, shownText(entry, t, skills))}
           onPointerDown={(event) => (pressedBy.current = event.pointerType)}
           onClick={(event) => {
             // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
@@ -981,7 +1039,8 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              entry.prompt
+              // A skill's `/name` draws as in the prompt's bubble (SkillWord.tsx).
+              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words)
             )}
           </span>
         </button>
@@ -989,9 +1048,9 @@ export function ComposerQueue({
       {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
-        images={
-          editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
-        }
+        videos={promptVideos(entry)}
+        images={entry.images ?? []}
+        dropped={editing === entry.id ? dropped : undefined}
         t={t}
         read={readImage}
         onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}
@@ -1057,7 +1116,12 @@ export function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                onClick={() => void onChange(queue[0].id, { op: "resume" }).catch(() => undefined)}
+                // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
+                onClick={() =>
+                  void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(
+                    () => undefined,
+                  )
+                }
               >
                 {t("composer.queueResume")}
               </button>
@@ -1065,7 +1129,23 @@ export function ComposerQueue({
           </li>
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
-        {visible.map((entry, index) => (
+        {visible.flatMap((entry, index) => [
+          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
+          // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
+          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+            <li
+              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              className="acpmux-queue-paused acpmux-queue-held"
+              data-held-for={entry.waking ? "wake" : "trust"}
+              aria-hidden="true"
+            >
+              {entry.waking ? (
+                wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
+              ) : (
+                <span>{t("composer.heldForTrust")}</span>
+              )}
+            </li>
+          ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
           <li
             className="acpmux-queued"
@@ -1081,8 +1161,8 @@ export function ComposerQueue({
                 {cells(entry, index)}
               </ContextMenu>
             )}
-          </li>
-        ))}
+          </li>,
+        ])}
       </ol>
       {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (

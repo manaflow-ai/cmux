@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::state::Watch;
@@ -26,6 +26,66 @@ pub const TAIL_LINES: usize = 5;
 
 /// The longest output line the note shows, in characters.
 const LINE_MAX: usize = 300;
+
+/// A watch command that polls GitHub for a PR's merge, said as one wait on
+/// glaeda's daemon (the host's only GitHub poller), or None to keep it as is.
+/// `gh pr view N -R OWNER/REPO ...` (or a PR URL) with `until` naming MERGED
+/// becomes `glaeda-gh wait pr OWNER/REPO#N --until merged` that prints
+/// MERGED, so the watch matches the same line (Leo, 2026-11-02: one PR-merge
+/// watch re-ran `gh pr view` every 15 s for 13 h on the shared quota).
+pub fn quota_safe(command: &str, until: Option<&str>, timeout_seconds: u64) -> Option<String> {
+    // Only a plain wait for the word MERGED, from one `gh pr view` with no
+    // other condition: anything else keeps its own semantics.
+    if !until.is_some_and(|u| matches!(u.trim(), "MERGED" | "^MERGED$" | "^MERGED")) {
+        return None;
+    }
+    if ["&&", "||", ";", "|", "`", "$("]
+        .iter()
+        .any(|op| command.contains(op))
+        || command.matches("pr view").count() != 1
+    {
+        return None;
+    }
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let at = words
+        .windows(3)
+        .position(|w| (w[0] == "gh" || w[0].ends_with("/gh")) && w[1] == "pr" && w[2] == "view")?;
+    let rest = &words[at + 3..];
+    let target = rest.iter().find(|w| !w.starts_with('-'))?;
+    let (repo, number) = if let Some(path) = target.strip_prefix("https://github.com/") {
+        let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+        match parts.as_slice() {
+            [owner, name, "pull", n, ..] => (format!("{owner}/{name}"), n.to_string()),
+            _ => return None,
+        }
+    } else {
+        let repo = rest
+            .windows(2)
+            .find(|w| w[0] == "-R" || w[0] == "--repo")
+            .map(|w| w[1].to_owned())
+            .or_else(|| {
+                rest.iter()
+                    .find_map(|w| w.strip_prefix("--repo=").map(str::to_owned))
+            })?;
+        (repo, target.to_string())
+    };
+    let ok_repo = repo.split('/').count() == 2
+        && repo
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'));
+    if !ok_repo || number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!(
+        "glaeda-gh wait pr {repo}#{number} --until merged --timeout {timeout_seconds} >/dev/null && echo MERGED"
+    ))
+}
+
+/// Whether `glaeda-gh` is on this host's PATH.
+pub fn glaeda_available() -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("glaeda-gh").is_file()))
+}
 
 /// How a watch ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +120,19 @@ pub struct Running {
     events: Sender<Event>,
     /// The running command's process group, 0 when none runs.
     group: Arc<AtomicI32>,
+    /// Its last output lines so far (the `watch` list shows them).
+    latest: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl Running {
+    /// The watch's last output lines so far, oldest first (at most
+    /// [`TAIL_LINES`]): what it printed most recently, across its reruns.
+    pub fn latest(&self) -> Vec<String> {
+        self.latest
+            .lock()
+            .map(|l| l.iter().cloned().collect())
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for Running {
@@ -90,13 +163,15 @@ pub fn start(
 ) -> Running {
     let (events, rx) = channel::<Event>();
     let group = Arc::new(AtomicI32::new(0));
+    let latest = Arc::new(Mutex::new(VecDeque::new()));
     let handle = Running {
         events: events.clone(),
         group: group.clone(),
+        latest: latest.clone(),
     };
     let watch = watch.clone();
     std::thread::spawn(move || {
-        if let Some(ending) = run(&watch, now_ms, &events, &rx, &group) {
+        if let Some(ending) = run(&watch, now_ms, &events, &rx, &group, &latest) {
             fired(ending);
         }
     });
@@ -110,6 +185,7 @@ fn run(
     events: &Sender<Event>,
     rx: &Receiver<Event>,
     group: &AtomicI32,
+    latest: &Mutex<VecDeque<String>>,
 ) -> Option<Fired> {
     let until = watch
         .until
@@ -167,6 +243,14 @@ fn run(
                         tail.pop_front();
                     }
                     tail.push_back(shown.clone());
+                    // The list's copy is kept across reruns: a polled command
+                    // shows what its last run printed.
+                    if let Ok(mut l) = latest.lock() {
+                        if l.len() == TAIL_LINES {
+                            l.pop_front();
+                        }
+                        l.push_back(shown.clone());
+                    }
                     if until.as_ref().is_some_and(|re| re.is_match(&line)) {
                         break Some(Ending::Matched(shown));
                     }

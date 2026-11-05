@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::LinkPeer;
-use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier};
+use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier, VerifiedToken};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::*;
@@ -14,11 +14,27 @@ use super::*;
 struct GoodToken;
 
 impl TokenVerifier for GoodToken {
-    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<LinkPeer, TokenRefused> {
+    fn begin_handshake(
+        &self,
+        _host: &str,
+        _epoch: u64,
+        _peer_key: &[u8; 32],
+    ) -> Result<StreamLease, TokenRefused> {
+        Ok(StreamLease::fixed_until(std::time::Instant::now() + std::time::Duration::from_secs(30)))
+    }
+
+    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
         if token != "good" || expected.host != "host_vm1" || expected.epoch != 4 {
             return Err(TokenRefused::Invalid);
         }
-        Ok(LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() })
+        Ok(VerifiedToken {
+            vm_kind: Some(cmux_link::token::VmKind::Team),
+            peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
+            issued_at_ms: 1_700_000_000_000,
+            lease: Some(StreamLease::fixed_until(
+                std::time::Instant::now() + std::time::Duration::from_secs(30),
+            )),
+        })
     }
 }
 
@@ -138,7 +154,7 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
 }
 
 #[tokio::test]
-async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_install() {
+async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_install() {
     let host = host().await;
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&host.session);
     std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
@@ -162,11 +178,184 @@ async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_inst
         lines.read_line(&mut stamp).await.unwrap();
         assert_eq!(
             stamp,
-            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\"}\n",
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"native_link_token\",\"check_issued_at_ms\":1700000000000,\"native_vm_kind\":\"team\"}\n",
             "the accepted token is stamped as the stream's control-plane check"
         );
         drop(peer);
     };
     let (result, ()) = tokio::join!(task, check);
     assert_eq!(result, Ok(()));
+}
+
+async fn serve_traced(
+    host: &Host,
+    hello: &str,
+    verifier: &dyn TokenVerifier,
+) -> (Result<(), HostRefused>, StreamTrace, String) {
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    peer.write_all(hello.as_bytes()).await.unwrap();
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+    };
+    let mut trace = StreamTrace::default();
+    let source = from("inst_mac");
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        serve_host_inbound_traced(link_side, [5; 32], source, verifier, &me, &mut trace),
+    )
+    .await
+    .expect("a refused stream ends at once");
+    let line = super::super::native_receiver::stream_ended_line(
+        7,
+        &source,
+        std::time::Duration::from_millis(12),
+        &trace,
+        Some(&result),
+    );
+    (result, trace, line)
+}
+
+/// RED before the receiver's journal line: a refused stream closed with no word on either side
+/// (the Mac saw its daemon stream end with no byte), so nobody could tell which check dropped it.
+#[tokio::test]
+async fn a_refused_stream_says_which_check_refused_it() {
+    let host = host().await;
+    let (result, trace, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n",
+        &GoodToken,
+    )
+    .await;
+    assert_eq!(result, Err(HostRefused::Token));
+    assert_eq!(trace.token, Some(TokenRefused::Invalid));
+    assert!(line.contains("receiver stream 7 (daemon)"), "{line}");
+    assert!(line.ends_with("ended after 12 ms: refused: token Invalid"), "{line}");
+    assert!(!line.contains("bad"), "the line never carries the token: {line}");
+
+    let (_, trace, line) = serve_traced(&host, "{\"service\":\"daemon\"}\n", &GoodToken).await;
+    assert_eq!(trace.token, Some(TokenRefused::Missing));
+    assert!(line.ends_with("refused: token Missing"), "{line}");
+
+    let (_, _, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":3}\n",
+        &GoodToken,
+    )
+    .await;
+    assert!(line.ends_with("refused: StaleEpoch"), "{line}");
+
+    // The token passed but no session daemon listens at the entry.
+    let (result, trace, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":4}\n",
+        &GoodToken,
+    )
+    .await;
+    assert_eq!(result, Err(HostRefused::Inbound(InboundRefused::EntryUnavailable)));
+    assert_eq!(trace.spliced, None);
+    assert!(line.ends_with("refused: Inbound(EntryUnavailable)"), "{line}");
+}
+
+/// A served stream's line has the bytes each way, so a stream the far side closed with nothing
+/// written reads as `0 bytes back`.
+#[tokio::test]
+async fn a_spliced_stream_reports_its_bytes_each_way() {
+    let host = host().await;
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    peer.write_all(b"{\"service\":\"ssh\",\"link_token\":\"good\",\"epoch\":4}\nabc")
+        .await
+        .unwrap();
+    peer.shutdown().await.unwrap();
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+    };
+    let mut trace = StreamTrace::default();
+    let sshd = async {
+        let (mut conn, _) = host.sshd.accept().await.unwrap();
+        let mut got = Vec::new();
+        conn.read_to_end(&mut got).await.unwrap();
+        conn.write_all(b"xy").await.unwrap();
+        got
+    };
+    let (result, got) = tokio::join!(
+        serve_host_inbound_traced(
+            link_side,
+            [5; 32],
+            from("inst_mac"),
+            &GoodToken,
+            &me,
+            &mut trace
+        ),
+        sshd
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(got, b"abc");
+    let line = super::super::native_receiver::stream_ended_line(
+        8,
+        &from("inst_mac"),
+        std::time::Duration::from_millis(3),
+        &trace,
+        Some(&result),
+    );
+    assert!(line.contains("receiver stream 8 (ssh)"), "{line}");
+    assert!(line.ends_with("spliced: 3 bytes in, 2 bytes back"), "{line}");
+}
+
+/// A stream the receiver itself closed (its peer left the policy) says so, with the service
+/// its hello had named.
+#[test]
+fn a_stream_the_receiver_closed_says_so() {
+    let trace = StreamTrace { service: Some(Service::Daemon), ..StreamTrace::default() };
+    let line = super::super::native_receiver::stream_ended_line(
+        9,
+        &from("inst_mac"),
+        std::time::Duration::from_millis(4100),
+        &trace,
+        None,
+    );
+    assert!(line.contains("receiver stream 9 (daemon)"), "{line}");
+    assert!(line.contains("ended after 4100 ms: closed by the receiver"), "{line}");
+    let line = super::super::native_receiver::stream_ended_line(
+        10,
+        &from("inst_mac"),
+        std::time::Duration::ZERO,
+        &StreamTrace::default(),
+        None,
+    );
+    assert!(line.contains("(no hello)"), "{line}");
+}
+
+/// A Cloud Mac mints the hello's token only after the stream opens, with up
+/// to 5 s for that mint: a hello 6 s in (past the old 5 s limit) is still
+/// read, and the limit itself sits well past the mint's.
+#[tokio::test]
+async fn a_hello_after_the_macs_token_mint_is_still_read() {
+    assert!(HELLO_TIMEOUT >= super::super::dial::DIAL_TIMEOUT * 3);
+    let host = host().await;
+    let me = HostIdentity {
+        host: "host_vm1",
+        epoch: 4,
+        session_socket: &host.session,
+        sshd: host.sshd.local_addr().unwrap(),
+    };
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    let late = async {
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        peer.write_all(b"{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n")
+            .await
+            .unwrap();
+        peer
+    };
+    let (result, _peer) = tokio::join!(
+        serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me),
+        late
+    );
+    // The hello was read (its token then refused), not dropped as no hello.
+    assert_eq!(result, Err(HostRefused::Token));
 }

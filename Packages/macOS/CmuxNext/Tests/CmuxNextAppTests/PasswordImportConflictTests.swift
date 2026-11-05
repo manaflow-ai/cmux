@@ -50,8 +50,8 @@ struct PasswordImportConflictTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("conflict-\(UUID().uuidString).csv")
-        try Data(Self.csv.utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
+        try Data(Self.csv.utf8).write(to: file)
         let hold = PasswordConflictHold { _, _ in ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0) }
         hold.keep([Self.login()], profile: .default)
         var report = PasswordImportReport()
@@ -77,8 +77,8 @@ struct PasswordImportConflictTests {
         defer { window.close() }
         let first = FileManager.default.temporaryDirectory.appendingPathComponent("conflict-\(UUID().uuidString).csv")
         let second = FileManager.default.temporaryDirectory.appendingPathComponent("rejected-\(UUID().uuidString).csv")
-        for file in [first, second] { try Data(Self.csv.utf8).write(to: file) }
         defer { for file in [first, second] { try? FileManager.default.removeItem(at: file) } }
+        for file in [first, second] { try Data(Self.csv.utf8).write(to: file) }
         let hold = PasswordConflictHold { _, _ in ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0) }
         hold.keep([Self.login()], profile: .default)
         var conflicted = PasswordImportReport()

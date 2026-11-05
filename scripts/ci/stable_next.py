@@ -24,9 +24,6 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
       pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
-  test-shards --package Packages/macOS/CmuxNext/Package.swift --shards N
-      matrix=<JSON>: the package's test targets, by name (package-test-lane.sh suite takes a target
-      name as a filter), dealt round robin into N shards ({"include": [{"shard": 1, "filters": "A,B"}]}).
   merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
@@ -34,6 +31,9 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
   rollback --live LIVE.xml --out OUT.xml (--bad-build B | --to-build B) [--allow-empty]
       The live feed without B and every newer item (or every item above B). Refuses to empty it
       unless --allow-empty (pulling the only stable build). Prints the pulled builds as JSON.
+  soak --build B [--pulled PULLED.json] [--verdicts DIR|URL]
+      Refuses (exit 1) a build pulled from the cmux NEXT feed or with a fail verdict. Being off the
+      feed is fine: the feed keeps 2 builds, so a nightly published an hour later drops the picked one.
   record-pulled --pulled PULLED.json --builds B[,B...] --reason R --out OUT.json
       The stable pulled.json with these builds added; pick never takes a build listed there again.
   write-feed --feed OUT --expect-sha256 HEX|absent
@@ -83,7 +83,6 @@ CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
 PUBDATE = re.compile(r"<pubDate>\s*([^<]*?)\s*</pubDate>")
 ENCLOSURE = re.compile(r"<enclosure\b[^>]*>")
 ATTR = re.compile(r'([\w:]+)="([^"]*)"')
-TARGET = re.compile(r'\.testTarget\(\s*name:\s*"([A-Za-z0-9_]+)"')
 
 
 class Refused(Exception):
@@ -210,6 +209,13 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
     return result
 
 
+def soak(build: int, pulled: set[int], verdict_of) -> None:
+    if build in pulled:
+        raise Refused(f"build {build} was pulled from the cmux NEXT feed")
+    if verdict_of(build) == "fail":
+        raise Refused(f"build {build} has a fail verdict from the cmux NEXT canary")
+
+
 def published_tonight(stable: str | None, start: dt.datetime) -> bool:
     if not stable:
         return False
@@ -221,20 +227,6 @@ def published_tonight(stable: str | None, start: dt.datetime) -> bool:
     if date is None:
         return False
     return email.utils.parsedate_to_datetime(date.group(1)) >= start
-
-
-# test shards --------------------------------------------------------------------------------------
-
-def test_shards(package: str, shards: int) -> dict:
-    targets = sorted(set(TARGET.findall(package)))
-    if not targets:
-        raise Refused("the package declares no test target")
-    if shards < 1:
-        raise Refused("--shards must be at least 1")
-    groups: list[list[str]] = [[] for _ in range(min(shards, len(targets)))]
-    for index, target in enumerate(targets):
-        groups[index % len(groups)].append(target)
-    return {"include": [{"shard": n + 1, "filters": ",".join(group)} for n, group in enumerate(groups)]}
 
 
 # feeds --------------------------------------------------------------------------------------------
@@ -409,9 +401,6 @@ def main(argv: list[str]) -> int:
     t = sub.add_parser("published-tonight")
     t.add_argument("--stable", required=True)
     t.add_argument("--night-start", required=True)
-    s = sub.add_parser("test-shards")
-    s.add_argument("--package", required=True)
-    s.add_argument("--shards", type=int, default=4)
     m = sub.add_parser("merge-feed")
     m.add_argument("--new", required=True)
     m.add_argument("--live")
@@ -424,6 +413,10 @@ def main(argv: list[str]) -> int:
     group.add_argument("--bad-build", type=int)
     group.add_argument("--to-build", type=int)
     r.add_argument("--allow-empty", action="store_true")
+    sk = sub.add_parser("soak")
+    sk.add_argument("--build", type=int, required=True)
+    sk.add_argument("--pulled")
+    sk.add_argument("--verdicts")
     rp = sub.add_parser("record-pulled")
     rp.add_argument("--pulled")
     rp.add_argument("--builds", required=True)
@@ -454,9 +447,6 @@ def main(argv: list[str]) -> int:
             start = dt.datetime.fromisoformat(args.night_start.replace("Z", "+00:00"))
             out({"published": "true" if published_tonight(read_optional(args.stable), start) else "false"},
                 github_output)
-        elif args.command == "test-shards":
-            matrix = test_shards(Path(args.package).read_text(encoding="utf-8"), args.shards)
-            out({"matrix": json.dumps(matrix, separators=(",", ":"))}, github_output)
         elif args.command == "merge-feed":
             merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep)
             Path(args.out).write_text(merged, encoding="utf-8")
@@ -467,6 +457,9 @@ def main(argv: list[str]) -> int:
             Path(args.out).write_text(text, encoding="utf-8")
             left = [b for _, b in items(text)]
             print(json.dumps({"pulled": dropped, "serves": max(left) if left else None}))
+        elif args.command == "soak":
+            soak(args.build, pulled_builds(args.pulled), lambda b: read_verdict(args.verdicts, b))
+            print(f"build {args.build}: not pulled, no fail verdict")
         elif args.command == "record-pulled":
             when = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             builds = [int(b) for b in args.builds.split(",") if b.strip()]

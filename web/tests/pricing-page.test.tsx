@@ -235,7 +235,7 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows the Founder's Edition recovery link once, after every card and before comparison", async () => {
+  test("shows the past-purchase recovery link once, after every card and before comparison", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = (await renderSettled(element));
     const recoveryIndex = html.indexOf('href="/billing/recover"');
@@ -249,7 +249,7 @@ describe("localized pricing page", () => {
     const comparisonIndex = html.indexOf("<table");
     expect(comparisonIndex).toBeGreaterThan(-1);
     expect(recoveryIndex).toBeLessThan(comparisonIndex);
-    expect(html).toContain("Already paid? Connect Founder&#x27;s Edition");
+    expect(html).toContain("Already paid? Recover a past purchase.");
   });
 
   beforeEach(() => {

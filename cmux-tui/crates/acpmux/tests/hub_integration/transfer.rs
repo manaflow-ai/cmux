@@ -34,6 +34,7 @@ pub(super) async fn copy_bundle(
     receive_id: &str,
 ) {
     let transfer_id = begin["transferId"].as_str().unwrap();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
         let mut offset = 0u64;
@@ -41,14 +42,14 @@ pub(super) async fn copy_bundle(
             let part = src
                 .request(
                     "_acpmux/transfer_read",
-                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096}),
+                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch}),
                 )
                 .await
                 .unwrap();
             let data = part["data"].as_str().unwrap();
             dst.request(
                 "_acpmux/transfer_write",
-                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data}),
+                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data, "epoch": epoch}),
             )
             .await
             .unwrap();
@@ -89,6 +90,9 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
     let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let id = busy_chat(&mut src, &[("p-a", "a"), ("p-b", "b")]).await;
+    let running = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let begin_turn = running["turn"]["turnId"].clone();
+    assert!(begin_turn.is_string(), "{running}");
 
     // The running turn stops; nothing queued starts here once the move began.
     let begin = src
@@ -101,13 +105,18 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
-    let moved =
-        dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    let moved = dst
+        .request(
+            "_acpmux/transfer_finish",
+            json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+        )
+        .await
+        .unwrap();
     assert_eq!(moved["sessionId"], id.as_str(), "{moved}");
     let committed = src
         .request(
             "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
         )
         .await
         .unwrap();
@@ -121,7 +130,21 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     let ran_there = texts(&mut dst, &id, "user_message").await;
-    assert_eq!(ran_there, ["hi", "until-cancel", "a", "b"], "history, then the queue once");
+    // The turn the move stopped goes on there first (`restart_resume.rs`, reason `moved`).
+    assert_eq!(
+        ran_there.len(),
+        5,
+        "history, the cut turn's continuation, the queue: {ran_there:?}"
+    );
+    assert_eq!(ran_there[..2], ["hi", "until-cancel"], "history: {ran_there:?}");
+    assert_moved_continuation(&ran_there[2]);
+    assert_eq!(ran_there[3..], ["a", "b"], "then the queue once: {ran_there:?}");
+    let scheduled = records(&mut dst, &id, "auto_resume_scheduled").await;
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    assert_eq!(scheduled[0]["reason"], "moved", "{scheduled:?}");
+    assert_eq!(scheduled[0]["turnId"], begin_turn, "{scheduled:?}");
+    assert_eq!(scheduled[0]["promptId"], "p-turn", "{scheduled:?}");
+    assert_eq!(begin["continues"], "p-turn~resume-1", "{begin}");
     let ran_here = texts(&mut src, &id, "user_message").await;
     assert_eq!(ran_here, ["hi", "until-cancel"], "the source ran nothing after the move began");
 
@@ -164,16 +187,42 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
 
     src.request(
         "_acpmux/transfer_abort",
-        json!({"sessionId": id, "transferId": begin["transferId"]}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
     )
     .await
     .unwrap();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["transferBlocked"], false, "explicit abort restores authority: {info}");
-    // Given back: its queue runs, and it takes prompts again.
+    // Given back: the stopped turn goes on here, then its queue runs, and it takes prompts again.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
-    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
+    let ran = texts(&mut src, &id, "user_message").await;
+    assert_eq!(ran.len(), 5, "{ran:?}");
+    assert_eq!(ran[..2], ["hi", "until-cancel"], "{ran:?}");
+    // The move did not happen: the continuation says the chat stayed, never that it moved, so
+    // the agent does not report its turn finished on a machine it never reached.
+    assert_stayed_continuation(&ran[2]);
+    assert_eq!(ran[3..], ["a", "again"], "{ran:?}");
+    // The new words are an edit that keeps the continuation's provenance, as a restart restores.
+    let edits = records(&mut src, &id, "queue_updated").await;
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0]["promptId"], "p-turn~resume-1", "{edits:?}");
+    assert_stayed_continuation(edits[0]["text"].as_str().unwrap());
+    assert_eq!(edits[0]["_meta"]["provenance"]["reason"], "moved", "{edits:?}");
+}
+
+/// The continuation of a move that did not happen: it says the chat stayed and quotes the cut
+/// prompt.
+fn assert_stayed_continuation(text: &str) {
+    assert!(text.starts_with("This chat did not move"), "{text}");
+    assert!(!text.contains("moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
+}
+
+/// The prompt a move's continuation sends: it says the chat moved and quotes the cut prompt.
+fn assert_moved_continuation(text: &str) {
+    assert!(text.starts_with("This chat moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
 }
 
 /// Records of `kind` in a session's log, their `msg`.
@@ -220,7 +269,7 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
         .unwrap();
     // One small page, then the client is gone.
     let path = begin["files"][0]["path"].clone();
-    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1});
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_read", read).await.unwrap();
     // The client is gone from here on: a short lease ends the move soon. Set
     // only now, so a slow request of the client before this point (2 s and
@@ -255,7 +304,12 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
     // The client is gone before its commit: the source asks the target, which has the chat.
     // The short lease only from here on, as in the test above (cx-nx5mb).
     a.set_transfer_lease(Duration::from_secs(2));
@@ -295,7 +349,12 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
 
     // The target drops the receive and the chat comes back here, its queue running.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
-    let late = dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let late = dst
+        .request(
+            "_acpmux/transfer_finish",
+            json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+        )
+        .await;
     assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
     // A client that kept the bundle cannot start the move over there either.
     let again = dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await;
@@ -371,10 +430,15 @@ async fn move_whole(src: &mut TestClient, dst: &mut TestClient, id: &str, to: Va
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(src, dst, &begin, &receive_id).await;
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": begin["transferId"], "to": to}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
     )
     .await
     .unwrap()
@@ -490,7 +554,7 @@ async fn a_stopped_chat_whose_move_only_began_is_not_replaced_by_a_receive() {
     assert!(received.as_ref().is_err_and(|e| e.contains("transfer.exists")), "{received:?}");
     src.request(
         "_acpmux/transfer_abort",
-        json!({"sessionId": id, "transferId": begin["transferId"]}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
     )
     .await
     .unwrap();

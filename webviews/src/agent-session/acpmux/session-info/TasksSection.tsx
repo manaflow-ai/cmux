@@ -1,6 +1,8 @@
 // Session Info's Background tasks (Claude Code desktop's; Codex has none): the chat's running
 // background commands, newest first, each with how long it has run, then the wakeups and cron jobs
-// it scheduled, then "N finished", folded, which opens into the ended commands with how each ended.
+// it scheduled (each kind its own icon, session-info/taskIcons.ts, a cron job's schedule in words),
+// then "N finished", folded, which opens into the ended commands and the wakeups and cron jobs whose
+// time has passed (session-info/scheduled.ts), latest first, with how each ended.
 // The commands are the registry's and the ones only the transcript knows (processes.ts
 // `backgroundCommands`: Claude's background Bash, Ctrl-B's included). A row opens the command's
 // terminal beside the chat (processTerminal.ts); a peer's (SSH) or Cloud chat has none, so there
@@ -11,15 +13,18 @@
 // the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
-import { useT, type StringKey } from "../i18n";
+import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
+import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEntry } from "./scheduled";
 import { SessionInfoFold } from "./SessionInfoSection";
+import { TASK_ICONS } from "./taskIcons";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -55,9 +60,14 @@ export function TasksSection({
   onShowCall?: (toolCallId: string) => boolean;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const [showFinished, setShowFinished] = useState(false);
+  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
+  // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
+  const scheduledNow = useScheduledClock(scheduled);
+  const { active, finished: ended } = splitScheduled(scheduled, Math.max(now, scheduledNow));
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
@@ -92,20 +102,46 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name="terminal.prompt" size={ROW_ICON} row className="acpmux-row-glyph" />
+          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} />
+          <StopButton id={command.processId} name={command.command} stop={onStop} solid />
         )}
       </li>
     );
   };
+  const scheduledRow = (entry: ScheduledEntry) => {
+    const trailing = scheduledTrailing(t, language, entry);
+    const ended = entry.status.state !== "scheduled";
+    return (
+      <li
+        key={`scheduled:${entry.item.id}`}
+        className="acpmux-session-info-task"
+        data-kind={entry.item.kind}
+        data-state={entry.status.state}
+        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+      >
+        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row className="acpmux-row-glyph" />
+        <span className="acpmux-session-info-task__command">{entry.item.text}</span>
+        {trailing !== undefined && (
+          <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>
+            {trailing}
+          </span>
+        )}
+      </li>
+    );
+  };
+  // The ended commands and scheduled items as one list, latest first.
+  const finishedRows = [
+    ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
+    ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
+  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
   return (
-    <div className="acpmux-session-info-scroll" data-section="tasks">
-      {(running.length > 0 || scheduled.length > 0) && (
+    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
+      {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
             row(
@@ -118,31 +154,27 @@ export function TasksSection({
               arrived.has(arrivalKey(command)),
             ),
           )}
-          {scheduled.map((wakeup) => (
-            <li key={wakeup.id} className="acpmux-session-info-task">
-              <Icon name="task.status.started" size={ROW_ICON} row className="acpmux-row-glyph" />
-              <span className="acpmux-session-info-task__command">{wakeup.text}</span>
-              {wakeup.cron && <span className="acpmux-session-info-task__time">{wakeup.cron}</span>}
-            </li>
-          ))}
+          {active.map(scheduledRow)}
         </ul>
       )}
-      {finished.length > 0 && (
+      {finishedRows.length > 0 && (
         <>
           <SessionInfoFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
-            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
-            {t("rail.finished", { count: finished.length })}
+            <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            {t("rail.finished", { count: finishedRows.length })}
           </SessionInfoFold>
           {showFinished && (
             <ul className="acpmux-session-info-list" data-finished="">
-              {finished.map((command) =>
-                row(
-                  command,
-                  command.endedAt !== undefined && command.startedAt !== undefined
-                    ? formatDuration(Math.max(0, command.endedAt - command.startedAt))
-                    : undefined,
-                  t(COMMAND_STATE[command.state]),
-                ),
+              {finishedRows.map((entry) =>
+                "command" in entry
+                  ? row(
+                      entry.command,
+                      entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                        ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                        : undefined,
+                      t(COMMAND_STATE[entry.command.state]),
+                    )
+                  : scheduledRow(entry.entry),
               )}
             </ul>
           )}
@@ -159,12 +191,15 @@ export function StopButton({
   name,
   label: idleLabel,
   stop,
+  solid = false,
 }: {
   id: string;
   name: string;
   /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
   label?: string;
   stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (Background tasks and the tray).
+  solid?: boolean;
 }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
@@ -185,7 +220,7 @@ export function StopButton({
         stop(id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }

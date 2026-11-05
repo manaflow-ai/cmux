@@ -6,7 +6,7 @@ import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
-import { journalNotes } from "./whatsNewFixtures";
+import { dayOfNightlies, denseDay, journalNotes, longAreaDay } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
 const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
@@ -68,8 +68,30 @@ export default changelogPageEntry({
       notes: realNightlies,
     },
     sheet: {
-      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations): a centered title, the days newest first, each change an accent glyph, a bold title and one muted line.",
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), layout A Inline: up to 920px wide, each day's changes under their app area (glyph, name, count), one line each: the title and what its description adds.",
       notes: journalNotes,
+    },
+    "sheet-stack": {
+      note: "Sheet layout B Stack (sheet=stack): the same width, the muted line one step smaller and tight under its title.",
+      notes: journalNotes,
+      route: "#/?sheet=stack",
+    },
+    "sheet-grid": {
+      note: "Sheet layout C Grid (sheet=grid): stacked rows in two columns once each column can be 360px wide.",
+      notes: journalNotes,
+      route: "#/?sheet=grid",
+    },
+    "sheet-day-of-nightlies": {
+      note: "A day of nightlies whose digests all name their entries summary-0, summary-1, …: each change once (Leo 2026-11-01 saw rows twice).",
+      notes: dayOfNightlies,
+    },
+    "sheet-dense-grouped": {
+      note: "The day Leo called zero information density (2026-11-02), as the sheet shows it now: changes under their app area with its glyph and count, one clean line each; no codes, filler, repeated lines or infrastructure. Light and dark from the gallery's appearance.",
+      notes: denseDay,
+    },
+    "sheet-long-area": {
+      note: "A day with twelve Sidebar changes: the area shows its first six and Show more (6); the other areas stay open.",
+      notes: longAreaDay,
     },
     "sheet-real-nightlies": {
       note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",

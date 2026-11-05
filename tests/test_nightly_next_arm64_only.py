@@ -149,6 +149,15 @@ def compile_commands(outputs):
         (root / "scripts/ci/background_build.py").write_text((ROOT / "scripts/ci/background_build.py").read_text())
         (root / "scripts/lib").mkdir(parents=True)
         (root / "scripts/lib/rust-targets.sh").write_text((ROOT / "scripts/lib/rust-targets.sh").read_text())
+        # The Release step sources the shared cache-failure classifier (#30107).
+        (root / "scripts/cmux-next/lib").mkdir(parents=True)
+        (root / "scripts/cmux-next/lib/compilation-cache.sh").write_text(
+            (ROOT / "scripts/cmux-next/lib/compilation-cache.sh").read_text())
+        # It also sources the per-Mac build root (#32514). With no BUILD_TRACK here the script keeps
+        # the slot's own tree, so xcodebuild still runs in this recorder root.
+        (root / "scripts/ci/nightly-steps").mkdir(parents=True)
+        (root / "scripts/ci/nightly-steps/app-host-build-root.sh").write_text(
+            (ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (

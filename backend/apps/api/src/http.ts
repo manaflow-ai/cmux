@@ -34,10 +34,12 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
+import { pairInvite } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
+import { CLOUD_UNBOUND, platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
@@ -91,7 +93,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
     case "cloud:TeamVmDO":
       return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team_vm:${p.team}` }
     case "cloud:CloudDO":
-      return { stub: env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
+      return { stub: platformCloud(env.CLOUD_DO, p.team!) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:
@@ -106,7 +108,13 @@ const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
 const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
 const cloudNotLive = (owner: string, op: string) =>
-  owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
+  owner !== "cloud:CloudDO"
+    ? undefined
+    : !CLOUD_LIVE_OPS.has(op)
+      ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true })
+      : !env.CLOUD_DO
+        ? new OwnerUnreachable({ code: "owner.unreachable", message: CLOUD_UNBOUND, retryable: true })
+        : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -219,8 +227,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
           const p = yield* principalFor(def.owner, principal)
           const request = crypto.randomUUID()
-          type Reply = Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }>
-          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Reply; vmOp(e: string, q: Principal, op: string, params: unknown): Reply }
+          const stub = platformCloud(env.CLOUD_DO, p.team!)
           // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
           const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
           const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
@@ -272,6 +279,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const found = yield* Effect.tryPromise({ try: () => withAnySsoSession(env, { ...bare, stack_session: stackSession }), catch: gateUnreachable })
           submitter = found.sso_team ? { ...bare, sso_team: found.sso_team } : bare
         }
+        // Invite-code pairing: a person's invite for a new machine to type (pair-invite-routes.ts).
+        if (payload.op === "server.pair.invite") return yield* Effect.tryPromise({ try: () => pairInvite(env, principal, frame), catch: unreachable })
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
           // Authorization already verified this exact request's Stack session. It is never an op param,
@@ -453,6 +462,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
+          if (r.code === "automation.moved") return yield* new BadRequest({ code: "selector.not_found", message: r.message })
           if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound" || r.code === "unknown_message") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }

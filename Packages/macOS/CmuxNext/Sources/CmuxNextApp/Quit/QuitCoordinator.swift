@@ -39,8 +39,17 @@ final class QuitCoordinator {
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
-    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave).
-    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait) }
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
+    /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
+    /// so a decided quit looks done instead of a frozen window; the deadline ends the process after.
+    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: QuitCoordinator.hideWindowsForEngineStop)
+    }
+
+    /// Orders out every visible window: the quit is decided and its saves ran (`stopBrowserEngines`).
+    static func hideWindowsForEngineStop() {
+        for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) }
+    }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -196,16 +205,23 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: { [steps] in
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates()) },
-                    agentImages: { await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages()) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
-                    windows: { await services.windows.prepareForTermination() },
+                    windows: {
+                        // Incognito windows' chats are purged before their spaces go (IncognitoChats), and
+                        // the step waits for them: every quit, Keep included, waits for a step past its limit.
+                        services.incognitoChats.closingForQuit(services)
+                        await services.windows.prepareForTermination()
+                        await services.incognitoChats.drain()
+                    },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
                     homeCache: { await services.home.flushCacheForQuit() },
@@ -215,6 +231,8 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
+                // The incognito chats' purges reach acpmux before its agents end.
+                await services.incognitoChats.drain()
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()

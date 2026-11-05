@@ -353,9 +353,9 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `focusUp` | Focus Pane Above | ⌥⌘ | b. standard | its section, catalog order |
 | Panes | `increaseWorkspaceTerminalFontSize` | Increase Workspace Font Size | ⌘= | c. niche | last in its section, −120 while typing |
 | Panes | `layout.undo` | Undo Layout Change |  | b. standard | its section, catalog order |
-| Panes | `newColumn` | New Column | ⌃⌘D | b. standard | its section, catalog order |
+| Panes | `newColumn` | New Column | ⌃⌘X | b. standard | its section, catalog order |
 | Panes | `newPaneAutoLayout` | New Pane (Auto Layout) | ⌃⌘N | b. standard | its section, catalog order |
-| Panes | `newRow` | New Row | ⌃⇧⌘D | b. standard | its section, catalog order |
+| Panes | `newRow` | New Row | ⌃⇧⌘X | b. standard | its section, catalog order |
 | Panes | `palette.newSimulatorPane` | New Simulator Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openCloudPane` | Open Cloud as Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openFilesPane` | Open Files as Pane |  | b. standard | its section, catalog order |
@@ -812,8 +812,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `saveFilePreview` | Save File | ⌘S | b. standard | its section, catalog order |
 | Browser and Viewers | `screenshots.open` | Screenshots |  | b. standard | its section, catalog order |
 | Browser and Viewers | `showBrowserJavaScriptConsole` | Show JavaScript Console | ⌥⌘J | b. standard | its section, catalog order |
-| Browser and Viewers | `splitBrowserDown` | Split Browser Down | ⌥⇧⌘D | b. standard | its section, catalog order |
-| Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘D | b. standard | its section, catalog order |
+| Browser and Viewers | `splitBrowserDown` | Split Browser Down | ⌥⇧⌘X | b. standard | its section, catalog order |
+| Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘X | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDesignMode` | Toggle Browser Design Mode | ⌃⌥⌘D | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDeveloperTools` | Toggle Developer Tools | ⌥⌘I | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserFocusMode` | Toggle Browser Focus Mode | ⌥⌘
@@ -944,9 +944,9 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentPane.searchFiles` | Search Files… |  | b. standard | its section, catalog order |
 | Agents | `agentPane.switchModel` | Switch Model… | ⌃⌘M | b. standard | its section, catalog order |
 | Agents | `agentPane.toggleInspector` | Show ACP Inspector |  | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | — | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | — | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | — | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | ⌘= | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | ⌘- | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | ⌘0 | b. standard | its section, catalog order |
 | Agents | `chief.moveTo` | Move Chief To… |  | b. standard | its section, catalog order |
 | Agents | `chief.openMemoryInspector` | Chief: Open Memory Inspector |  | b. standard | its section, catalog order |
 | Agents | `chief.openUsage` | Chief Usage |  | b. standard | its section, catalog order |

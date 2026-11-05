@@ -4,12 +4,16 @@
 // subagent's view (a `revealTurn` of `subagent:<id>`). A host that opens none (the gallery, the
 // floating chat, an older app) shows the subagent in this pane instead.
 //
-// Subagents open in panes only once the user turned that on (the summary card's switch, kept in
-// localStorage). It is off by default: agent work starts many subagents, and a split for each
-// crowded the workspace. While it is off, a click on a subagent (a group line, a card row, the
-// agents pill) shows it in the chat's own pane. While it is on, a click opens its pane, and a chat
-// pane opens one by itself for each subagent its chat starts while the pane shows it. The
-// subagents a chat already had when the pane first showed it open none: they are history.
+// A subagent the person opens (a group line, a card or Session Info row, the agents pill, a "Sent
+// to" chip) opens in its pane right of the chat, whatever the switch says (Leo, 2026-11-02: "WHEN I
+// OPEN A SUBAGENT IT SHOULD GO TO THE RIGHT SPLIT AREA"); the chat's pane and its Session Info stay
+// on the chat. Only a host that opens no pane shows it in the chat's own pane.
+//
+// The summary card's switch (kept in localStorage, off by default) governs the opens nobody asked
+// for: while it is on, a chat pane opens a pane by itself for each subagent its chat starts while
+// the pane shows it. It is off by default: agent work starts many subagents, and a split for each
+// crowded the workspace. The subagents a chat already had when the pane first showed it open none:
+// they are history.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
@@ -71,19 +75,30 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefine
 /// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
 /// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
 /// tab-named the exact same as the parent").
-export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
+export async function openSubagentPane(
+  call: Call,
+  id: string,
+  focus: boolean,
+  title?: string,
+  tone?: number,
+): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
+    const reply = await call("chat.subagentPane", {
+      subagent: id,
+      focus,
+      ...(title ? { title } : {}),
+      ...(tone !== undefined ? { tone } : {}),
+    });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;
   }
 }
 
-/// Shows subagent `id`: in a pane of its own (focused with `focus`) only while `panes` (the switch)
-/// is on and this is the chat's pane (`inSubagentPane` false), else in this pane (`here`) when the
-/// person asked (`focus`; a subagent's pane always shows it). A host that opens no pane shows it
-/// here too when the person asked. Settles once it has shown it.
+/// Shows subagent `id` from the chat's pane in a pane of its own right of the chat: always when the
+/// person asked (`focus`), and by itself (unfocused) only while `panes` (the switch) is on. A
+/// subagent's pane (`inSubagentPane`) shows it in place, never in more panes. A host that opens no
+/// pane shows it here (`here`) when the person asked. Settles once it has shown it.
 export async function showSubagent(
   call: Call,
   id: string,
@@ -94,14 +109,13 @@ export async function showSubagent(
     here: (id: string) => void;
     beforeOpen?: () => void;
     title?: string;
+    tone?: number;
   },
 ): Promise<void> {
-  if (options.inSubagentPane || !options.panes) {
-    if (focus || options.inSubagentPane) options.here(id);
-    return;
-  }
+  if (options.inSubagentPane) return options.here(id);
+  if (!focus && !options.panes) return;
   options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title);
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone);
   if (!opened && focus) options.here(id);
 }
 

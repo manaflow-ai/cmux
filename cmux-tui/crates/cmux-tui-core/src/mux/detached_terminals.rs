@@ -68,7 +68,7 @@ impl Mux {
     ) -> anyhow::Result<TerminalPlacementResult> {
         let DetachedTerminalSpawn { argv, cwd, name, size, env } = spawn;
         let _creation_handoff =
-            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+            self.resource_creation_handoff.write().unwrap_or_else(PoisonError::into_inner);
         let _creation_execution =
             self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(terminal_id) = requested_terminal_id {

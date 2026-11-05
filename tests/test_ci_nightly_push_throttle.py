@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -116,7 +118,7 @@ run(github, context, core, process, exec).then(() => {
 
 
 def decide_script() -> str:
-    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    lines = nightly_expand(WORKFLOW.read_text(encoding="utf-8")).splitlines()
     start = lines.index("      - name: Decide whether a nightly build is needed")
     script_at = next(
         i for i in range(start, len(lines)) if lines[i].strip() == "script: |"
@@ -130,7 +132,7 @@ def decide_script() -> str:
 
 
 def env_value(name: str) -> str:
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = nightly_expand(WORKFLOW.read_text(encoding="utf-8"))
     marker = f"          {name}: "
     return next(l for l in text.splitlines() if l.startswith(marker))[len(marker) :]
 
@@ -354,7 +356,7 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
 
     consumer = "scripts/build_remote_daemon_release_assets.sh"
     assert nightly.NIGHTLY_SHIPPED_SOURCES == ("daemon/remote/",)
-    assert consumer in WORKFLOW.read_text(encoding="utf-8"), (
+    assert consumer in nightly_expand(WORKFLOW.read_text(encoding="utf-8")), (
         f"the Nightly no longer runs {consumer}; drop daemon/remote/"
     )
     assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
@@ -365,7 +367,7 @@ def test_decide_checks_out_before_it_classifies() -> None:
     """Without the checkout the gate silently never fires."""
     import yaml
 
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
     names = [step.get("id") or step.get("uses", "") for step in steps]
     checkout = next(i for i, n in enumerate(names) if n.startswith("actions/checkout@"))
     assert checkout < names.index("decide"), "decide must classify a checked-out tree"
@@ -375,7 +377,7 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
     """NEXT needs only its controls; other branches still classify the full tree."""
     import yaml
 
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
     checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
     assert len(checkouts) == 2
     sparse = next(step for step in checkouts if "sparse-checkout" in step["with"])
@@ -392,7 +394,9 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
     # Execute from precisely the declared files, without the full checkout on
     # sys.path. Import-time dependencies must work even when no job is placed.
     paths = sparse["with"]["sparse-checkout"].split()
-    assert all(path.startswith("/scripts/ci/") and path.endswith(".py") for path in paths)
+    # The pickers read the declared runner set (.github/runners.json, #30173) as data.
+    assert all(path.startswith("/scripts/ci/") and path.endswith(".py")
+               or path == "/.github/runners.json" for path in paths)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:
@@ -493,7 +497,7 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next", "NIGHTLY_NEXT_WRITER": "mac"}
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next", "NIGHTLY_NEXT_WRITER": "mac"}
 
 
 def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
@@ -519,8 +523,9 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
 
 def test_nightly_next_publishes_its_own_track() -> None:
     # A push to nightly-next (moved only by the promote workflow) builds and
-    # publishes the cmux-next track: its own app (cmux NEXT, cx-x7hwx),
-    # release, feed and environment, and no main push throttle.
+    # publishes the cmux-next track: signed once as cmux NIGHTLY, the app the
+    # team runs, with its Developer ID profile (hq#7156), on its own release,
+    # feed and environment, and no main push throttle.
     result = run_decide(event="push", ref="refs/heads/nightly-next",
                         tag_age_hours=0.1, extra_env=NEXT_ENV)
     outputs = result["outputs"]
@@ -529,13 +534,15 @@ def test_nightly_next_publishes_its_own_track() -> None:
     assert outputs["track"] == "nightly-next"
     assert outputs["channel"] == "nightly"
     assert outputs["environment"] == "release-next"
-    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly.cmux-next"
-    assert outputs["app_name"] == "cmux NEXT"
-    assert outputs["sign_channel"] == "next"
-    assert outputs["profile_channel"] == ""
+    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly"
+    assert outputs["app_name"] == "cmux NIGHTLY"
+    assert outputs["url_scheme"] == "cmux-nightly"
+    assert outputs["entitlements"] == "cmux.nightly.entitlements"
+    assert outputs["sign_channel"] == "nightly"
+    assert outputs["profile_channel"] == "NIGHTLY"
     assert outputs["release_tag"] == "nightly-next"
     assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
-    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next/next"
+    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next"
     # The same commit is not rebuilt.
     assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))

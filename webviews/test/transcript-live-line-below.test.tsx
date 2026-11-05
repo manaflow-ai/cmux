@@ -7,13 +7,22 @@
 // input; and a turn that had only streamed text drew no line at all. Before the first output it
 // read a bare "Thinking" with no time.
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { configureLiveLineBelow, useLiveLineBelow } from "../src/agent-session/acpmux/liveLineBelow";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { insertByTime } from "../src/agent-session/acpmux/shell/shellRuns";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -117,11 +126,10 @@ test("with the toggle off, the line sits over the work and holds while text stre
   expect(lineOf(rows)!.durationMs).toBe(answer.at - prompt.at);
 });
 
-test("the first Thinking line ticks from the prompt; the start status has no time", () => {
+test("the first Thinking line ticks from the prompt, also while its agent starts", () => {
   expect(text(renderToStaticMarkup(<Thinking since={1_000} now={() => 13_000} />))).toBe("Thinking 12s");
-  expect(text(renderToStaticMarkup(<Thinking status="Starting Claude Code…" since={1_000} now={() => 13_000} />))).toBe(
-    "Starting Claude Code…",
-  );
+  // No "Starting Claude Code…" (Leo, 2026-11-01): the default start look is the same line.
+  expect(text(renderToStaticMarkup(<Thinking starting since={1_000} now={() => 13_000} />))).toBe("Thinking 12s");
 });
 
 test("the toggle is on unless the host turns it off", () => {

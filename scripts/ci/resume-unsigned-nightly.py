@@ -34,6 +34,11 @@ ARTIFACTS = {
 
 
 HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
+# A fresh nightly uploads the daemon from its own job (#25935); a resumed one
+# re-uploads it from build-nightly-app, the owner ARTIFACTS names.
+DAEMON_BUILDER = "build-nightly-remote-daemon"
+OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
+                      "cmux-nightly-remote-daemon": DAEMON_BUILDER}
 
 
 def require(condition, message):
@@ -59,13 +64,13 @@ def validate(run, jobs, artifacts, repo, run_id, attempt):
     # A helper reused from an earlier nightly (nightly_ghostty_helper_reuse.py)
     # is uploaded by the resolver job of the same attempt, not the build job.
     for job in jobs:
-        if (job.get("name") == HELPER_RESOLVER and job.get("conclusion") == "success" and
+        if (job.get("name") in OPTIONAL_PRODUCERS.values() and job.get("conclusion") == "success" and
                 job.get("run_attempt") == int(attempt)):
-            producers[HELPER_RESOLVER] = job
+            producers[job["name"]] = job
     selected = {}
     for name, (owner, _) in ARTIFACTS.items():
-        owners = [owner] + ([HELPER_RESOLVER] if name == "cmux-nightly-ghostty-cli-helper" and
-                            HELPER_RESOLVER in producers else [])
+        extra = OPTIONAL_PRODUCERS.get(name)
+        owners = [owner] + ([extra] if extra in producers else [])
         matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
                    any(producers[o]["started_at"] <= a.get("created_at", "") <= producers[o]["completed_at"]
                        for o in owners)]
@@ -139,21 +144,26 @@ def restore(receipt, root):
 
 def bundled_client_commit(root):
     # The uploaded app artifact contains the precompressed unsigned tarball.
-    # Open it only after the authenticated ZIP extraction and reject traversal
-    # or links before deriving the client provenance used by the marker gate.
+    # Open it only after the authenticated ZIP extraction and read the one
+    # cmux-tui.version member, a regular file at a safe path, for the client
+    # provenance the marker gate uses. Nothing is extracted: the app keeps its
+    # framework symlinks (Versions/Current), and the folder is re-uploaded as
+    # the artifact the signers untar, so it must hold only the original archive.
     app_root = root / "app"
     archives = list(app_root.glob("*.tar.gz"))
     require(len(archives) == 1, "resumed unsigned app has no unique app archive")
+    texts = []
     with tarfile.open(archives[0], "r:gz") as archive:
-        for entry in archive.getmembers():
+        for entry in archive:
             path = PurePosixPath(entry.name)
-            require(not path.is_absolute() and ".." not in path.parts and "\\" not in entry.name and
-                    not entry.issym() and not entry.islnk(), "unsafe unsigned app tar member")
-        archive.extractall(app_root)
-    versions = list(app_root.glob("**/Contents/Resources/bin/cmux-tui.version"))
-    require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
+            if path.parts[-4:] != ("Contents", "Resources", "bin", "cmux-tui.version"):
+                continue
+            require(entry.isfile() and not path.is_absolute() and ".." not in path.parts and
+                    "\\" not in entry.name, "unsafe unsigned app tar member")
+            texts.append(archive.extractfile(entry).read().decode())
+    require(len(texts) == 1, "resumed unsigned app has no unique cmux-tui.version")
     fields = {}
-    for line in versions[0].read_text().splitlines():
+    for line in texts[0].splitlines():
         if "=" in line:
             key, value = line.split("=", 1)
             fields[key] = value

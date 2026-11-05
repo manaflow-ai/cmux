@@ -458,7 +458,8 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries =
+            self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).roster.entries.clone();
         let agent_session_ids = self
             .agent_records
             .lock()

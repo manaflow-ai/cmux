@@ -31,6 +31,51 @@ pub struct AgentSender {
     pub class: String,
     /// Its thread, when it named one.
     pub thread: Option<String>,
+    /// Who the chat shows it is from, as `APP` or `APP › PERSONA` ("Grok bot ›
+    /// Ada", "Claude Code › 3fa9c1d2@mini-7"; u20190): the label's words, never
+    /// read back from the id. None shows [`AgentSender::name`].
+    pub display: Option<String>,
+}
+
+/// The separator between a sender's app and its persona in a label.
+pub const PERSONA_SEPARATOR: &str = " › ";
+/// The longest app or persona kept in a label.
+pub const MAX_DISPLAY_PART: usize = 48;
+
+/// One display part: one line, no brackets, at most [`MAX_DISPLAY_PART`] characters.
+fn display_part(text: &str) -> Option<String> {
+    let part: String = text
+        .trim()
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '[' | ']' | '›') { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_DISPLAY_PART)
+        .collect();
+    (!part.is_empty()).then_some(part)
+}
+
+/// `APP › PERSONA` from `text`: its parts split at `›` or `>` (`Grok bot > Ada`);
+/// None when nothing is left.
+pub fn display_of(text: &str) -> Option<(String, Option<String>)> {
+    let (app, persona) = match text.split_once(['›', '>']) {
+        Some((app, persona)) => (app, Some(persona)),
+        None => (text, None),
+    };
+    let app = display_part(app)?;
+    Some((app, persona.and_then(display_part)))
+}
+
+/// The label words for `app` and its optional `persona`.
+pub fn display_label(app: &str, persona: Option<&str>) -> Option<String> {
+    let app = display_part(app)?;
+    Some(match persona.and_then(display_part) {
+        Some(persona) => format!("{app}{PERSONA_SEPARATOR}{persona}"),
+        None => app,
+    })
 }
 
 /// A name or thread character kept as is; every other one becomes `-`.
@@ -54,7 +99,7 @@ impl AgentSender {
             class.map(str::trim).filter(|c| CLASSES.contains(c)).unwrap_or("result").to_owned();
         let thread =
             thread.map(|t| clean(t, MAX_THREAD)).filter(|t| !t.trim_matches('-').is_empty());
-        Some(AgentSender { name, class, thread })
+        Some(AgentSender { name, class, thread, display: None })
     }
 
     /// The `client_msg_id` for one message of this sender; `nonce` makes it
@@ -70,14 +115,25 @@ impl AgentSender {
         )
     }
 
-    /// The text the conversation shows: `[from <name>] <text>`.
-    pub fn labelled(&self, text: &str) -> String {
-        format!("[from {}] {text}", self.name)
+    /// This sender shown as `app` (and `persona`): `[from APP › PERSONA]`.
+    pub fn with_display(mut self, app: &str, persona: Option<&str>) -> AgentSender {
+        self.display = display_label(app, persona);
+        self
     }
 
-    /// `text` without the `[from <name>] ` label this sender put on it.
+    /// The words the label names: [`AgentSender::display`], else the name.
+    pub fn shown(&self) -> &str {
+        self.display.as_deref().unwrap_or(&self.name)
+    }
+
+    /// The text the conversation shows: `[from <shown>] <text>`.
+    pub fn labelled(&self, text: &str) -> String {
+        format!("[from {}] {text}", self.shown())
+    }
+
+    /// `text` without the `[from <shown>] ` label this sender put on it.
     pub fn unlabelled<'a>(&self, text: &'a str) -> &'a str {
-        text.strip_prefix(&format!("[from {}] ", self.name)).unwrap_or(text)
+        text.strip_prefix(&format!("[from {}] ", self.shown())).unwrap_or(text)
     }
 }
 
@@ -95,6 +151,20 @@ pub fn of_client_msg_id(id: &str) -> Option<AgentSender> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sender_shows_its_app_and_persona_and_keeps_its_routing_name() {
+        let sender = AgentSender::new("grok-bot.ada", Some("question"), None)
+            .unwrap()
+            .with_display("Grok bot", Some("Ada"));
+        assert_eq!(sender.labelled("hi"), "[from Grok bot › Ada] hi");
+        assert_eq!(sender.unlabelled("[from Grok bot › Ada] hi"), "hi");
+        assert!(sender.client_msg_id("n1").starts_with("agent~grok-bot.ada~question~"));
+        assert_eq!(display_of("Grok bot > Ada"), Some(("Grok bot".into(), Some("Ada".into()))));
+        assert_eq!(display_of(" Muse "), Some(("Muse".into(), None)));
+        assert_eq!(display_label("Dot]\n[x", None).as_deref(), Some("Dot x"));
+        assert_eq!(display_of("  "), None);
+    }
 
     #[test]
     fn a_marked_id_names_its_sender_class_and_thread() {

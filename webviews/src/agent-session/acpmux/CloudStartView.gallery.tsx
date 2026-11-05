@@ -17,9 +17,10 @@ const begun: CloudStartProgress = {
   folder: "paint",
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
+const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
 
 const showStart: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
 };
 
 export default componentEntry<ComponentProps<typeof CloudStartView>>({
@@ -33,11 +34,15 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]),
   load: () => import("./CloudStartView").then((module) => module.CloudStartView),
   widths: { narrow: 400, normal: 620, wide: 760 },
-  height: 300,
+  height: 380,
   variants: {
     sent: {
-      note: "Just sent, before the host says anything: the message, a spinner, and the folder it copies.",
+      note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },
+    },
+    preparing: {
+      note: "The shell remains stable while the machine is being prepared; startup details stay behind the disclosure.",
+      props: { start: { ...begun, step: "machine", machine: known.machine, size: known.size } },
     },
     machine: {
       note: "The host is getting a machine: the step and the machine with its size.",
@@ -60,6 +65,151 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           ...known,
           state: "failed",
           message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
+        },
+      },
+    },
+    "failed-open": {
+      note: "A failed step opens the startup disclosure so the failed row and host details are immediately visible.",
+      props: {
+        start: {
+          ...begun,
+          step: "folder",
+          ...known,
+          state: "failed",
+          message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
+        },
+      },
+    },
+    "checklist-machine": {
+      note: "Cloud machine is being created; the machine step spins while later steps remain quiet.",
+      props: { start: { ...begun, machineStartedAt: 10_000, machine: known.machine } },
+    },
+    "checklist-clone": {
+      note: "A repository is being cloned into the chat folder.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          machine: known.machine,
+          machineFinishedAt: 12_400,
+          clone: { state: "running", ...timing },
+        },
+      },
+    },
+    "checklist-setup-cached": {
+      note: "The environment snapshot is ready, so setup completes from cache.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", status: "ready", ...timing },
+        },
+      },
+    },
+    "checklist-setup-ran": {
+      note: "The setup script ran for this environment, with its install timing shown on the row.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", startedAt: 10_000, finishedAt: 12_400 },
+        },
+      },
+    },
+    "checklist-setup-running": {
+      note: "The derived environment is still building its setup snapshot.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "running", status: "building", startedAt: 10_000 },
+        },
+      },
+    },
+    "checklist-setup-failed": {
+      note: "Setup failed and the card keeps the short log tail inline.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "failed", status: "failed", logTail: "npm ERR! missing script: build", ...timing },
+        },
+      },
+    },
+    "checklist-setup-skipped": {
+      note: "No setup script is configured; the link opens Edit cloud environment at Script.",
+      props: {
+        start: {
+          ...begun,
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "skipped", hasScript: false },
+        },
+      },
+    },
+    "checklist-harness": {
+      note: "Last step: the machine, repository and setup are done (checks) and the harness row spins, reading Starting Claude Code until it has (no start time in the fixture: a running row times against the page clock).",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          machineStartedAt: 10_000,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+        },
+      },
+    },
+    "checklist-harness-failed": {
+      note: "The harness failed to start: earlier steps keep their checks, the harness row shows the error mark.",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          state: "failed",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+          message: "Claude Code exited before the session opened.",
+        },
+      },
+    },
+    initialized: {
+      note: "Once the harness starts, the checklist folds to one quiet line.",
+      props: {
+        start: {
+          ...begun,
+          initialized: true,
+          agent: "Claude Code",
+          harnessStartedAt: 12_400,
+          harnessFinishedAt: 12_900,
+        },
+      },
+    },
+    ready: {
+      note: "The remote harness is ready: the same shell shows a ready line before the live transcript takes over.",
+      props: {
+        start: {
+          ...begun,
+          initialized: true,
+          agent: "Claude Code",
+          harnessStartedAt: 12_400,
+          harnessFinishedAt: 12_900,
         },
       },
     },

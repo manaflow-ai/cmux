@@ -87,7 +87,7 @@ extension TerminalSession {
         let sample = TerminalSizeSample(fit: fits ? TerminalGridSize(columns: Int(columns), rows: Int(rows)) : nil,
                                         surface: TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows)),
                                         grid: surfaceView.currentGrid, link: link)
-        let settled = !surfaceView.isInPaneMotion && !surfaceView.isHeldGridPending && surfaceView.window?.inLiveResize != true
+        let settled = !surfaceView.isInPaneMotion && !surfaceView.isFollowingResizeGesture && !surfaceView.isHeldGridPending && surfaceView.window?.inLiveResize != true
         return (sample, settled)
     }
 }

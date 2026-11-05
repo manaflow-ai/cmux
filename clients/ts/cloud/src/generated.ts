@@ -29,6 +29,27 @@ export type Automation = {
   readonly created_at: number
   readonly updated_at: number
   readonly next_run_at: number | null
+  readonly sharing?: Sharing
+  readonly editors?: ReadonlyArray<UserId>
+  readonly catch_up?: CatchUp
+  readonly home?: "cloud"
+  readonly epoch?: number
+  readonly last_slot?: number | null
+  readonly handoff?: Handoff
+  readonly origin?: {
+    readonly handoff: string
+    readonly from: string
+    readonly source_id: string
+  }
+}
+
+export type AutomationAuditEntry = {
+  readonly n: number
+  readonly at: number
+  readonly actor: string
+  readonly op: string
+  readonly automation: AutomationId
+  readonly summary: string
 }
 
 /** An automation definition, owned by its team's SchedulerDO. */
@@ -36,6 +57,12 @@ export type AutomationId = string
 
 export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
+}
+
+export type AutomationTeleportBegun = {
+  readonly automation: Automation
+  readonly epoch: number
+  readonly last_slot: number | null
 }
 
 /** A stored avatar: its SHA-256, its media type (from the bytes) and its size. */
@@ -64,6 +91,11 @@ export type Body = {
   readonly chief: string
   readonly conversation: ConversationId
   readonly prompt: string
+  readonly destination?: {
+    readonly type: "slack"
+    readonly slackTeamId: string
+    readonly channelId: string
+  }
 } | {
   readonly type: "code"
   readonly ref: CodeRef
@@ -76,6 +108,8 @@ export type Budget = {
   readonly model_spend_usd?: number | "Infinity" | "-Infinity" | "NaN"
   readonly tool_calls?: number
 }
+
+export type CatchUp = "latest" | "all" | "none"
 
 export type ChiefBrainPlace = {
   readonly host: HostId
@@ -92,6 +126,7 @@ export type CloudConnectInfo = {
   readonly host: HostId
   readonly epoch: number
   readonly state: CloudMachineStatus
+  readonly network?: CloudVmNetwork
   readonly peer: {
     readonly wg_public_key: string
     readonly overlay_address: string
@@ -242,6 +277,49 @@ export type CloudSnapshot = {
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
   readonly revision: Revision
+}
+
+export type CloudVmNetwork = {
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly ipv4_cidr: string
+  readonly ipv4: string | null
+}
+
+export type CloudVmNetworkPolicyView = {
+  readonly schema_version: 2
+  readonly machine: MachineId
+  readonly host: HostId
+  readonly epoch: number
+  readonly receiver_generation: string | null
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly vm: string
+  readonly ipv4: string | null
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly admit_until?: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<CloudVmReceiverPeer>
+}
+
+export type CloudVmReceiverPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly services: ReadonlyArray<"daemon" | "ssh">
 }
 
 export type CodeRef = {
@@ -481,6 +559,13 @@ export type GroupPlacement = {
 }
 
 export type GroupWorkspaceId = string
+
+export type Handoff = {
+  readonly id: string
+  readonly to: string
+  readonly epoch: number
+  readonly at: number
+}
 
 /** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
 export type HomeAttachmentPoster = {
@@ -760,6 +845,48 @@ export type HostId = string
 
 export type HostKind = "device" | "server"
 
+export type HostNetworkPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly inbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+  readonly outbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+}
+
+export type HostNetworkPolicyView = {
+  readonly schema_version: 1
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<HostNetworkPeer>
+}
+
 export type Install = {
   readonly id: InstallId
   readonly device: DeviceId
@@ -802,6 +929,15 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
+export type MovedAutomation = {
+  readonly id: AutomationId
+  readonly name: string
+  readonly moved_to: string
+  readonly moved_id: string
+  readonly epoch: number
+  readonly moved_at: number
+}
+
 export type NativeDeviceId = string
 
 export type NativeMeshId = string
@@ -821,6 +957,16 @@ export type PairingInfo = {
   readonly cmux_version: string
   readonly capabilities?: ReadonlyArray<ServerCapability>
 }
+
+export type PairingInvite = {
+  readonly invite: PairingInviteCode
+  readonly display: string
+  readonly expires_at: number
+  readonly watch_secret: string
+}
+
+/** A normalized invite code: 10 Crockford base32 symbols, no hyphen. */
+export type PairingInviteCode = string
 
 export type PairingPreview = {
   readonly code: PairingCode
@@ -946,6 +1092,7 @@ export type ServerNetworkBinding = {
   readonly mesh: NativeMeshId
   readonly device: NativeDeviceId
   readonly confirmed_at: number
+  readonly install_grant?: GrantId
 }
 
 export type ServerNetworkProof = {
@@ -962,6 +1109,8 @@ export type ServerNetworkReservation = {
 }
 
 export type ServerNetworkState = ServerNetworkReservation | ServerNetworkBinding
+
+export type Sharing = "team" | "private"
 
 /** A Cloud machine snapshot. */
 export type SnapshotId = string
@@ -1387,6 +1536,17 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
+  readonly "automation.audit.list": {
+    readonly params: {
+      readonly automation?: AutomationId
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<AutomationAuditEntry>
+      readonly revision: string
+    }
+  }
   /** Create an automation (triggers, body, target policy) in the caller's team. */
   readonly "automation.create": {
     readonly params: {
@@ -1398,6 +1558,9 @@ export interface CloudOps {
       readonly target?: TargetPolicy
       readonly concurrency?: Concurrency
       readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
     }
     readonly result: Automation
   }
@@ -1426,6 +1589,30 @@ export interface CloudOps {
     }
     readonly result: Automation
   }
+  /** Accept step of a teleport (docs/automations-teleport-teams.md): make the Cloud copy of an automation another store fenced. Use the idempotency key teleport:<handoff id>; one copy per handoff id. Its next fire follows last_slot and the catch_up policy, so no slot runs twice. */
+  readonly "automation.import": {
+    readonly params: {
+      readonly name: string
+      readonly description?: string
+      readonly enabled?: boolean
+      readonly triggers: ReadonlyArray<TriggerInput>
+      readonly body: Body
+      readonly target?: TargetPolicy
+      readonly concurrency?: Concurrency
+      readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
+      readonly handoff: {
+        readonly id: string
+        readonly from: string
+        readonly source_id: string
+        readonly epoch: number
+        readonly last_slot: number | null
+      }
+    }
+    readonly result: Automation
+  }
   /** List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
   readonly "automation.list": {
     readonly params: {
@@ -1437,6 +1624,7 @@ export interface CloudOps {
       readonly automations: ReadonlyArray<Automation>
       readonly automation_count?: number | "Infinity" | "-Infinity" | "NaN"
       readonly next_cursor?: string | null
+      readonly moved?: ReadonlyArray<MovedAutomation>
       readonly revision: string
     }
   }
@@ -1468,6 +1656,34 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: AutomationSettings
   }
+  /** Abort a teleport the destination refused: lift the fence; the automation fires here again. */
+  readonly "automation.teleport.abort": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: string
+    }
+    readonly result: Automation
+  }
+  /** Fence step of a teleport away from Cloud: from now on the automation neither fires nor runs here, and the answer carries its full spec, epoch and last fired slot. to is home, ssh:<host>[:<dir>] or cloud. Then automation.teleport.complete or automation.teleport.abort with the same handoff id. */
+  readonly "automation.teleport.begin": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: {
+        readonly id: string
+        readonly to: string
+      }
+    }
+    readonly result: AutomationTeleportBegun
+  }
+  /** Release step of a teleport: the fenced Cloud automation becomes a tombstone naming its new home and id (automation.list moved). */
+  readonly "automation.teleport.complete": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: string
+      readonly moved_id: string
+    }
+    readonly result: MovedAutomation
+  }
   /** Change an automation; the version increments and later runs use the new version. */
   readonly "automation.update": {
     readonly params: {
@@ -1481,6 +1697,9 @@ export interface CloudOps {
       readonly target?: TargetPolicy
       readonly concurrency?: Concurrency
       readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
     }
     readonly result: Automation
   }
@@ -1713,6 +1932,7 @@ export interface CloudOps {
     readonly params: {
       readonly host: HostId
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
       readonly token: string
@@ -1852,6 +2072,23 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
+  /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.attention.emit": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly event_id: string
+      readonly kind: "question" | "permission" | "done"
+      readonly session: string
+      readonly title: string
+      readonly body?: string
+      readonly occurred_at: number
+    }
+    readonly result: {
+      readonly delivered: boolean
+      readonly replayed: boolean
+      readonly correlation_id?: string
+    }
+  }
   /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.event.emit": {
     readonly params: {
@@ -1862,6 +2099,27 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.network_policy": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: CloudVmNetworkPolicyView
+  }
+  /** Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring. */
+  readonly "cloud.vm.receiver.lifecycle": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly phase: "read" | "begin" | "ready" | "end"
+      readonly expected?: string
+      readonly attempt?: string
+    }
+    readonly result: {
+      readonly machine: MachineId
+      readonly generation: string
+      readonly phase: "idle" | "starting" | "ready" | "stopped"
     }
   }
   /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -2555,6 +2813,28 @@ export interface CloudOps {
       readonly network: ServerNetworkBinding
     }
   }
+  /** Read the calling host's current directed Native peer policy with a fresh install-key proof. Peers are joined to live backend hosts, owners, installs and original grants; unmatched peers grant no access. This bounded identity snapshot is not a dial credential or a serving-role activation. Receivers still need current authority and service authentication. */
+  readonly "host.network.policy": {
+    readonly params: {
+      readonly host: HostId
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: HostNetworkPolicyView
+  }
+  /** Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential. */
+  readonly "host.network.target": {
+    readonly params: {
+      readonly mesh?: NativeMeshId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly tenant: NativeTenantId
+      readonly project: string
+      readonly origin: string
+      readonly mesh: NativeMeshId
+      readonly ipv4_cidr: string
+    }
+  }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
     readonly params: {
@@ -3123,6 +3403,13 @@ export interface CloudOps {
       readonly install: InstallId
       readonly network?: ServerNetworkReservation
     }
+  }
+  /** Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only. */
+  readonly "server.pair.invite": {
+    readonly params: {
+      readonly team: TeamId
+    }
+    readonly result: PairingInvite
   }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
   readonly "server.pair.preview": {
@@ -3763,220 +4050,231 @@ export interface CloudOps {
 
 export type CloudOpName = keyof CloudOps
 
-/** Routing metadata: mutations go to /v1/ops with an idempotency key, reads to /v1/read. */
+/** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
-  "automation.create": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
-  "automation.delete": { class: "mutation", owner: "cloud:SchedulerDO", risk: "destructive" },
-  "automation.deploy": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
-  "automation.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.run": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
-  "automation.runs.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.settings.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
-  "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
-  "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "calendar.calendars.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "calendar.event.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
-  "calendar.event.respond": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
-  "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
-  "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "chief.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
-  "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.environment.boot": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.environment.build": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.environment.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
-  "cloud.environment.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.environment.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.connect_info": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.machine.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.machine.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
-  "cloud.machine.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.machine.idle_policy.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.link_token": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "cloud.machine.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.machine.pause": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.rename": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.resize": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.machine.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.upgrade": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "cloud.migration.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
-  "cloud.migration.status": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.plan.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.shell.open": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "cloud.snapshot.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
-  "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
-  "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "conversation.members": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
-  "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
-  "conversation.thread": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
-  "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "domain.claim": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "domain.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "domain.verify": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.adopt.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.counts": { class: "read", owner: "cloud:FeedDO", risk: "read" },
-  "feed.get": { class: "read", owner: "cloud:FeedDO", risk: "read" },
-  "feed.kinds": { class: "read", owner: "cloud:FeedDO", risk: "read" },
-  "feed.list": { class: "read", owner: "cloud:FeedDO", risk: "read" },
-  "feed.post": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.prefs.set": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.read": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
-  "firewall.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "firewall.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
-  "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
-  "grant.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "grant.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "group.add_workspace": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "group.archive": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "group.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "group.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "group.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "group.rename": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
-  "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
-  "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "inbox.mark_unread": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "inbox.mute": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "inbox.pin": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "install.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "install.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
-  "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "integration.approval.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
-  "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
-  "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "integration.policy.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "integration.policy.set": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
-  "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
-  "invite.accept": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "invite.accept_verified": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "invite.approve_join": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "invite.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "send-external" },
-  "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
-  "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "mail.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "mail.modify": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-own" },
-  "mail.search": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "mail.send": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
-  "mail.thread.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "mail.threads.peek": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
-  "message.edit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "message.retract": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "message.send": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
-  "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
-  "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "ownership.transfer": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
-  "participant.avatar.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "participant.avatar.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
-  "participants.set_role": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "participants.unban": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "request.dismiss": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
-  "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
-  "server.network.confirm": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
-  "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
-  "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
-  "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
-  "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
-  "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
-  "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
-  "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
-  "team_vm.rebuild": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team_vm.retired.delete": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team_vm.retired.export": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
-  "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
-  "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
-  "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team.ai_limit.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.ai_limit.member.set": { class: "mutation", owner: "cloud:TeamDO", risk: "money" },
-  "team.ai_limit.set": { class: "mutation", owner: "cloud:TeamDO", risk: "money" },
-  "team.audit.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.device.release": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "team.device.report_status": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
-  "team.directory": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.members.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
-  "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
-  "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
-  "thread.update": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "title.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
-  "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "usage.cap.set": { class: "mutation", owner: "cloud:UsageMeterDO", risk: "money" },
-  "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
-  "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "user.presence_key.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "user.teams.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
-  "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-  "user.text_confirm.lower.challenge": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
-} as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
+  "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.deploy": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
+  "automation.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.import": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.run": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
+  "automation.runs.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.settings.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.abort": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.begin": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.complete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.update": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.webhook.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "calendar.calendars.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "calendar.event.create": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.event.respond": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.events.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "chief.archive": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
+  "chief.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
+  "chief.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "chief.update": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "cloud.billing.checkout": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.boot": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.build": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.environment.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.environment.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.connect_info": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.machine.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.idle_policy.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.link_token": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.machine.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.pause": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.rename": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.resize": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.start": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.upgrade": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.migration.start": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.migration.status": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.plan.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.shell.open": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.snapshot.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.receiver.lifecycle": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.self.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.status.report": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "conversation.create": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.history": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.import": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.import.commit": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.members": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.snapshot": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.thread": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
+  "dm.open": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "domain.claim": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "domain.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "domain.release": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "domain.verify": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "feed.adopt": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.adopt.cancel": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.answer": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.archive": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.cancel": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.counts": { class: "read", idempotency: "forbidden", owner: "cloud:FeedDO", risk: "read" },
+  "feed.get": { class: "read", idempotency: "forbidden", owner: "cloud:FeedDO", risk: "read" },
+  "feed.kinds": { class: "read", idempotency: "forbidden", owner: "cloud:FeedDO", risk: "read" },
+  "feed.list": { class: "read", idempotency: "forbidden", owner: "cloud:FeedDO", risk: "read" },
+  "feed.post": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.prefs.set": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.read": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.seen": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.snooze": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.unarchive": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "firewall.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "firewall.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
+  "firewall.get": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "firewall.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "github.issue.comment": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "grant.create": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "grant.revoke": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "group.add_workspace": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.archive": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.rename": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "home.requests.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
+  "home.search": { class: "read", idempotency: "forbidden", owner: "cloud:planetscale", risk: "read" },
+  "home.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "host.enroll": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "host.network.bind": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "host.network.policy": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "host.network.target": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "host.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "host.replica.purge": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "inbox.archive": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.dm_peer": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "inbox.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "inbox.mark_unread": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.mute": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.pin": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "install.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "install.register": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "install.rename": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "install.revoke": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
+  "install.sign_out": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "integration.complete": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
+  "integration.connect": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
+  "integration.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "integration.policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "integration.policy.set": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
+  "integration.revoke": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "destructive" },
+  "invite.accept": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.accept_verified": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.approve_join": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "invite.create": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "send-external" },
+  "invite.revoke": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "linear.issue.create": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
+  "linear.teams.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.modify": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-own" },
+  "mail.search": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.send": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "mail.thread.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.threads.peek": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "message.edit": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "message.retract": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "message.send": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "mux.ack": { class: "mutation", idempotency: "required", owner: "cloud:MuxDO", risk: "mutate-own" },
+  "mux.configure": { class: "mutation", idempotency: "required", owner: "cloud:MuxDO", risk: "mutate-own" },
+  "network.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "ownership.transfer": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "destructive" },
+  "participant.avatar.get": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "participant.avatar.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "participants.add": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "participants.remove": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "destructive" },
+  "participants.set_role": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "participants.unban": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "push.target.register": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "push.target.remove": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "reaction.add": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "reaction.remove": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "read_cursor.set": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "request.dismiss": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "run.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "run.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "server.network.confirm": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "server.pair.approve": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.invite": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.preview": { class: "read", idempotency: "forbidden", owner: "cloud:PairingDO", risk: "read" },
+  "server.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "slack.post_as_bot": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "sso.connection.activate": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.disable": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "sso.connection.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "sso.connection.set_secret": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.ensure_awake": { class: "mutation", idempotency: "required", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
+  "team_vm.journal.append": { class: "mutation", idempotency: "required", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.journal.high_water": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.journal.read": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.lease.release": { class: "mutation", idempotency: "required", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.rebuild": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.delete": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.export": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.ssh_ca": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.ssh_ca.rotate": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.ssh_cert": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.challenge": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.taint.accept": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.ai_limit.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.ai_limit.member.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
+  "team.ai_limit.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
+  "team.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.compliance": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.enroll": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.policy": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.release": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.report_status": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.directory": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.enrollment_token.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.hosts.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.integration.release_lock": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.members.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.members.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.history": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.rollback": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.policy.update": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "thread.update": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "title.set": { class: "mutation", idempotency: "required", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "tunnel.attach": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.detach": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.rotate-key": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "usage.cap.set": { class: "mutation", idempotency: "required", owner: "cloud:UsageMeterDO", risk: "money" },
+  "usage.summary": { class: "read", idempotency: "forbidden", owner: "cloud:UsageMeterDO", risk: "read" },
+  "user.ensure": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.presence_key.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "user.presence_key.revoke": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.teams.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "user.text_confirm.get": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "user.text_confirm.level.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower.challenge": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+} as const satisfies Record<CloudOpName, { class: "read" | "mutation"; idempotency: "required" | "none" | "forbidden"; owner: string; risk: string }>
 
 export type CloudMutationName = { [K in CloudOpName]: (typeof cloudOpMeta)[K]["class"] extends "mutation" ? K : never }[CloudOpName]
 export type CloudReadName = Exclude<CloudOpName, CloudMutationName>

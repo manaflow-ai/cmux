@@ -182,7 +182,7 @@ final class PhoneAdmission {
     }
 
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: IPhoneHostStrings.phoneAccessTitle(phone.name),
+        CmuxDialogSpec(title: IPhoneHostStrings.phoneAccessTitle(phone.name, key: phone.shortFingerprint),
                        lines: [IPhoneHostStrings.signedInAs(user), IPhoneHostStrings.irohAdmissionBody, IPhoneHostStrings.pairKey(phone.identityKey)],
                        buttons: [.cancel(), CmuxDialogButton(id: "deny", title: IPhoneHostStrings.pairDeny),
                                  CmuxDialogButton(id: "allow", title: IPhoneHostStrings.pairAllow)],

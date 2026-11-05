@@ -91,7 +91,9 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     cwd: "/home/dev/cmux",
     title: "Long chat",
     harness: "claude",
-    family: "claude",
+    // A finished turn here folds under Worked for, whose label this test reads: the Codex family's
+    // fold (turns.ts; a Claude chat draws its runs on their own lines instead).
+    family: "codex",
     status: "ready",
     turnCount: TURNS,
     updatedAt: START,
@@ -439,7 +441,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       cwd: "/home/dev/cmux",
       title: "Very long chat",
       harness: "claude",
-      family: "claude",
+      // The Codex family's fold, which folds a finished turn's compaction under Worked for (below).
+      family: "codex",
       status: "running",
       turnCount: LONG_TURNS,
       updatedAt: START,

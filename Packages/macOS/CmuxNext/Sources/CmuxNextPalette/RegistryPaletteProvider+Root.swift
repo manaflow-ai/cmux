@@ -43,11 +43,10 @@ extension RegistryPaletteProvider {
         (.settings, [.settings, .notifications], "gearshape"),
     ]
 
-    /// Changes empty-query visibility without rebuilding action rows, aliases, targets or effects.
-    func curatedRootItems(_ items: [PaletteItem]) -> [PaletteItem] {
-        let eligible = Set(registry.entries.filter {
-            !$0.descriptor.isDebugOnly && ($0.isBound || effectOverrides[$0.id] != nil)
-        }.map(\.id))
+    /// Changes empty-query visibility without rebuilding action rows, aliases, targets or effects. `eligible`: the
+    /// listed actions the root may show (bound or served by the palette, not debug-only). A family's page lists its
+    /// members when it opens, not on every open.
+    func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>) -> [PaletteItem] {
         var root = items.map { item in
             var item = item
             item.hidesWhenQueryEmpty = item.actionID.map {
@@ -59,21 +58,26 @@ extension RegistryPaletteProvider {
         for family in Self.rootFamilies {
             let sections = Set(family.members.map(\.paletteSectionID))
             // Retain the existing detailed families and their folded members in the drilldown.
-            let members = items.filter { sections.contains($0.section.id) }
-            guard members.contains(where: { $0.actionID.map { eligible.contains($0) } ?? false }) else { continue }
+            var listsEligible = false, anyEnabled = false
+            for item in items where sections.contains(item.section.id) {
+                if !listsEligible, let id = item.actionID, eligible.contains(id) { listsEligible = true }
+                if item.isEnabled { anyEnabled = true }
+                if listsEligible && anyEnabled { break }
+            }
+            guard listsEligible else { continue }
             let id = "rootFamily:\(family.category.rawValue)"
             var row = PaletteItem(
                 id: id,
                 title: family.category.title,
                 symbol: family.symbol,
                 section: section,
-                isEnabled: members.contains(where: \.isEnabled),
+                isEnabled: anyEnabled,
                 primary: PaletteCommand(id: "open", title: PaletteStrings.open, symbol: "arrow.right",
                                         effect: .deferred {
                                             .push(PalettePageSpec(
                                                 id: id, title: family.category.title, placeholder: PaletteStrings.searchPlaceholder,
                                                 symbol: family.symbol,
-                                                providers: [StaticPaletteProvider(id: id, items: members)]
+                                                providers: [StaticPaletteProvider(id: id, items: items.filter { sections.contains($0.section.id) })]
                                             ))
                                         })
             )

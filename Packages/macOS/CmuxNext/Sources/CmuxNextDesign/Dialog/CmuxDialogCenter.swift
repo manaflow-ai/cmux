@@ -83,10 +83,26 @@ public final class CmuxDialogCenter {
         return id
     }
 
-    /// Shows `spec` in `scope` and waits for the answer.
+    /// Shows `spec` in `scope` and waits for the answer. Cancelling the waiting task dismisses the
+    /// dialog, which answers its cancel (nobody waits on it any more).
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope) async -> CmuxDialogAnswer {
-        await withCheckedContinuation { continuation in
-            present(spec, in: scope) { continuation.resume(returning: $0) }
+        let shown = Shown()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                shown.id = present(spec, in: scope) { continuation.resume(returning: $0) }
+                if Task.isCancelled { shown.dismiss(from: self) }
+            }
+        } onCancel: {
+            // task-owner: one hop to the main actor to dismiss the dialog this cancelled wait showed
+            Task { @MainActor in shown.dismiss(from: self) }
+        }
+    }
+
+    /// The dialog an awaited ``present(_:in:)`` showed, for its cancellation.
+    @MainActor private final class Shown {
+        var id: Int?
+        func dismiss(from center: CmuxDialogCenter) {
+            if let id { center.dismiss(id) }
         }
     }
 
@@ -112,6 +128,23 @@ public final class CmuxDialogCenter {
     @discardableResult
     public func key(_ key: CmuxDialogKeys.Key, modifiers: CmuxDialogKeys.Modifiers = [], in id: Int) -> Bool {
         entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
+    }
+
+    /// Some dialog is open: a scan of the open dialogs (0 or 1 as a rule), so every key-down can skip the lookup.
+    public var showsDialog: Bool { entries.values.contains { $0.view != nil } }
+
+    /// A key-down that missed the dialog blocking keys in `host` (its overlay did not have the
+    /// keyboard): the dialog keyboard answers it (`CmuxDialogKeys`: Return presses the default
+    /// button, Tab moves focus), and the view under the dialog never gets it (QA chrome-parity-v2-1:
+    /// a Return and a typed line under the paste confirm reached the terminal it blocks). Command and
+    /// Control chords keep their routes, Escape has the caller's missed-modal route, and a key while
+    /// `keyWindow`'s keyboard is in the dialog itself is AppKit's to deliver. True when it took the key.
+    public func answersMissedKey(_ event: NSEvent, in host: NSWindow, focusedArea: NSView?, keyWindow: NSWindow) -> Bool {
+        guard event.modifierFlags.isDisjoint(with: [.command, .control]), event.keyCode != 53,
+              let id = dialogBlockingKeys(in: host, focusedArea: focusedArea), let view = entries[id]?.view else { return false }
+        if let responder = keyWindow.firstResponder as? NSView, responder === view || responder.isDescendant(of: view) { return false }
+        if let key = CmuxDialogView.key(event) { view.handle(key, modifiers: CmuxDialogView.modifiers(event)) }
+        return true
     }
 
     /// Ends dialog `id` as its cancel answer (tab closed, app quitting,
@@ -165,7 +198,8 @@ public final class CmuxDialogCenter {
             switch scope {
             case .window(let scoped): return scoped === window
             case .tab(let view):
-                guard view.window === window else { return false }
+                // A parked (hidden) tab's dialog shows nothing: the shown tab's keys stay its own (review of #31849).
+                guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
                 return holds(responder, view) || focusedArea.map { view === $0 || view.isDescendant(of: $0) } == true
             case .app: return false
             }

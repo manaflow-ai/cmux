@@ -24,8 +24,6 @@ public final class AgentPaneDroppedPaths {
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
     public nonisolated static let lifetime: TimeInterval = 5
-    /// The most files one ask names.
-    public nonisolated static let maximumNames = 100
 
     struct Item {
         var url: URL
@@ -73,7 +71,7 @@ public final class AgentPaneDroppedPaths {
     public func stash(_ urls: [URL], kind: Kind) {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
+        guard !paths.isEmpty else { return }
         // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
@@ -90,9 +88,11 @@ public final class AgentPaneDroppedPaths {
     /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
     /// where its contents came from, as only the person's own drop or paste can say
     /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
-    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
+    /// `madeAt` (seconds since 1970): when the gesture happened, for one recorded after its page took
+    /// it (a Chromium drop, reported by the page's drop message: the drag's entry); now otherwise.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind, madeAt: TimeInterval? = nil) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), wall())
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), madeAt ?? wall())
     }
 
     /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:

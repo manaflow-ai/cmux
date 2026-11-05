@@ -139,6 +139,7 @@ extension LiveCoordinator {
     // MARK: Link
 
     func linkChanged(_ session: MacSession, _ link: (any MacLink)?) {
+        for relay in session.cloudChats.values { relay.disconnect() }
         #if DEBUG
         if let link { runNetworkProbeIfAsked(link) }
         #endif
@@ -146,6 +147,10 @@ extension LiveCoordinator {
         session.currentLink = link
         session.servedLink = nil
         session.pairingGate = nil
+        // A new link pairs from the start: the old link's retry ends, the backoff starts over.
+        session.pairingRetry?.cancel()
+        session.pairingRetry = nil
+        session.pairingRetries = 0
         session.acpmux.approver = nil
         session.chatsError = nil
         session.daemonError = nil
@@ -159,6 +164,7 @@ extension LiveCoordinator {
                 await session.acpmux.bind(nil)
             }
             if chiefMacID == macID { chiefOffline() }
+            ChiefComputer.shared.macChanged()
             return
         }
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
@@ -233,6 +239,8 @@ extension LiveCoordinator {
             }
             return
         }
+        guard session.currentLink === link, sessions[macID] === session else { return }
+        for relay in session.cloudChats.values { relay.bind(link) }
         #if DEBUG
         UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
         #endif
@@ -253,6 +261,9 @@ extension LiveCoordinator {
         }
         // Streamed browser tabs that dropped open again on the focused Mac's link.
         StreamedBrowserDirectory.shared.linkChanged(macID: session.macID)
+        // The Mac app's own Feed requests, for as long as this link lives (#33818).
+        let needsYou = session.needsYou
+        Task { await needsYou.read(on: link, macID: macID) }
         do {
             let channel = try await link.openChannel(service: "acpmux", args: [:])
             // The link closed while the channel opened: nothing more on it.
@@ -405,6 +416,8 @@ extension LiveCoordinator {
         let protocolVersion = object?["link"] as? Int ?? 1
         let capabilities = Set(object?["capabilities"] as? [String] ?? [])
         if store.macCapabilities[macID] != capabilities { store.macCapabilities[macID] = capabilities }
+        // The Mac is up and said what it serves: Chief info's Computer card reads its Cloud directory again.
+        ChiefComputer.shared.macChanged()
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
         let outdated = protocolVersion < 2
         guard outdated != session.outdated else { return }
@@ -449,20 +462,41 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                session.pairingRetries = 0
                 // Allowed already: a code for this Mac has nothing left to approve.
                 pairing.invites.drop(mac: macID)
-                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                    try await keys.authorizeApproval(reason: reason)
+                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
+                    try keys.approvalSigner()
                 }
                 return true
             case .legacy:
                 self.setPairing(.idle, for: session)
+                session.pairingRetries = 0
                 return true
             case .refused(let error):
                 log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
                 self.setPairing(error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error)), for: session)
+                self.schedulePairingRetry(session, link, after: error.code)
                 return false
             }
+        }
+    }
+
+    /// Asks the Mac again on `link` by itself after a refusal, so a Mac that becomes ready (or
+    /// a prompt answered late) lets the phone in without the person tapping Retry or relaunching
+    /// the Mac app. Runs while `link` stays this Mac's current, unserved link.
+    func schedulePairingRetry(_ session: MacSession, _ link: any MacLink, after code: String) {
+        session.pairingRetry?.cancel()
+        guard let delay = LinkPairing.retryDelay(after: code, attempt: session.pairingRetries) else { return }
+        session.pairingRetries += 1
+        let macID = session.macID
+        // task-owner: stored in `session.pairingRetry`; a newer refusal or retry cancels it
+        session.pairingRetry = Task { [weak self, weak session, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                  session.servedLink == nil else { return }
+            log.info("pairing: asking the Mac again (attempt \(session.pairingRetries, privacy: .public))")
+            self.retry(macID: macID)
         }
     }
 
@@ -552,6 +586,15 @@ extension LiveCoordinator {
         }
     }
 
+    /// Opens the Mac's link if it was idle and waits for its agents (acpmux) to answer, up to
+    /// `timeout`: New Agent Chat from Shortcuts may run before anything linked that Mac.
+    public func agentsReady(on macID: String, timeout: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        touch(macID)
+        guard let session = sessions[macID] else { return false }
+        return await session.acpmux.waitUntilReady(timeout: timeout, clock: clock)
+    }
+
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
@@ -584,7 +627,13 @@ extension LiveCoordinator {
     /// the `file` service, relative paths resolved against the tab's directory.
     public func terminalArtifactSource(tabID: String, macID: String? = nil) -> any ArtifactSource {
         let owner = session(tabID: tabID, macID: macID)
-        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: owner?.tree?.directories[tabID]) { [weak owner] in
+        let directory = owner?.tree?.directories[tabID]
+        let scope = owner.flatMap {
+            ArtifactThumbnailOwner.remote(accountID: userID, macID: $0.macID,
+                                          resource: "terminal:\(tabID):\(directory ?? "")")
+        }
+        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: directory,
+                                      thumbnailCacheScope: scope) { [weak owner] in
             await owner?.servedLink
         }
     }
@@ -680,7 +729,9 @@ extension LiveCoordinator {
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
         // A file a Chief message links to previews from this Mac (absolute paths only).
-        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+        let fileScope = ArtifactThumbnailOwner.remote(accountID: userID, macID: owner.macID, resource: "chief")
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil,
+                                                    thumbnailCacheScope: fileScope) { [weak owner] in
             await owner?.servedLink
         }
         // Chief's settings show this Mac's last known model until it answers.
@@ -733,7 +784,7 @@ extension LiveCoordinator {
                 return
             }
             session.status = nil
-            // Answers to Chief's questions sign with this phone's key after Face ID.
+            // Answers to Chief's questions sign with this phone's approval key.
             session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true

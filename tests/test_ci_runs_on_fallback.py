@@ -66,7 +66,10 @@ SINGLE_HOST_VAR = re.compile(r"\bvars\.([A-Z0-9_]*TRUSTED_RUNNER)\b")
 # What may follow a single-host variable as its fallback: `||` then a non-empty label literal, or a variable
 # that is not another single-host one. A configured variable naming a dead host still never falls through;
 # the controller's fall-through and the queue rescue cover that at run time.
-POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+)")
+POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)")
+# Declared pool members are unconditional fallbacks just like their former
+# literal labels.
+POOL_REFERENCE = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+")
 # A reserved slot's placement output: the DEV compile slot (side_lane_placement.fresh_route(), one side instance
 # per opted-in mini, glaeda#1628, for the compiles a feed's freshness waits on). It names a label only while that slot is idle, and
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
@@ -87,6 +90,12 @@ OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]
 # A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
 ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
 RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
+# A session label (glaeda-session-<class>-xcode-<v>, pr_runner_pool.session_label()) and a variable naming one
+# (vars.CI_SESSION_LANE_RUNNER; a switch like vars.CI_SESSION_LABEL names no label). A runs-on takes one only
+# from a placement output that role_room() judged.
+SESSION_LITERAL = re.compile(r"'(glaeda-(?:[a-z]+-)*?session-[a-z0-9.-]+)'")
+SESSION_VARIABLE = re.compile(r"\bvars\.([A-Z0-9_]*SESSION[A-Z0-9_]*RUNNER[A-Z0-9_]*)\b")
+SESSION_LANE_GUARD = re.compile(r"needs\.[\w-]+\.outputs\.session_lane_runner\s*!=\s*''")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -118,7 +127,8 @@ def unconditional(alternative: str) -> bool:
     alternatives = split_top(alternative, "||")
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
-    return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+    return (re.fullmatch(r"'[^'\s]+'", alternative) is not None
+            or POOL_REFERENCE.fullmatch(alternative) is not None)
 
 
 def terminal_reserved(expression: str, variable: str) -> bool:
@@ -332,6 +342,11 @@ def lands_on_large_mac(job: dict) -> bool:
     if isinstance(runs_on, dict):
         runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
                                                  else runs_on.get("labels") or [])]
+    # A pool read is a stall-aware pick: scripts/ci/runner_pools.py leaves the pool's first member only once it
+    # starts nothing (macos_26 then takes LARGE_MAC). So a pool read lands where its first member is.
+    if isinstance(runs_on, str):
+        runs_on = POOL_REFERENCE.sub(lambda read: "'%s'" % runs_on_labels.pool_members(read.group(0).rsplit(".", 1)[1])[0],
+                                     runs_on)
     try:
         labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
     except ValueError:
@@ -510,9 +525,53 @@ def overflow_preempted(text: str) -> list[str]:
         for alternative in flat_alternatives(expression):
             if "outputs.gui_overflow" in alternative:
                 break
-            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+            if ((BLACKSMITH_MAC_LITERAL.search(alternative) or POOL_REFERENCE.search(alternative))
+                    and FORK_CLAUSE not in alternative
                     and not separate_pr_cascade(alternative)):
                 found.append(alternative)
+    return found
+
+
+def leaves(expression: str) -> list[str]:
+    """`expression`'s `||` alternatives, with each parenthesized alternation opened up in place."""
+    found = []
+    for alternative in split_top(unwrap(expression), "||"):
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += leaves(inner)
+            continue
+        terms = conjuncts(inner)
+        last = unwrap(terms[-1]) if terms else inner
+        if len(split_top(last, "||")) > 1:
+            # `a && (b || c)`: each of b and c is taken under a's conjuncts.
+            found += [" && ".join([*terms[:-1], leaf]) for leaf in leaves(last)]
+        else:
+            found.append(inner)
+    return found
+
+
+def session_label_problems(text: str) -> list[str]:
+    """Why a runs-on can send a job to a session label without a placement having judged that label's queue.
+
+    The session label's runners are often online and busy on gui jobs while it starts nothing: on 2026-10-29
+    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-26.6, twice, with five session
+    runners online (36 offline) and the gui label beside it starting jobs within a minute, and the janitor
+    opened "Runner label starved" issues for it twice that day. The gui-or-session rule above passed those
+    jobs, because it counts ci-owned-pool-rescue.yml's watch as the way off; but the rescue watches a cmux-next
+    run "refusals-only" while Blacksmith has no free slot, as it had none that day, so it never moved them,
+    and GitHub never moves a queued job. So a session label reaches a job only from a placement output
+    (side_lane_placement.py's session_runner, session_lane_runner, free_session_runner), whose role_room()
+    declines a label the janitor found unserved:
+    - no runs-on names a session label literally;
+    - an alternative that reads a session variable (vars.CI_SESSION_LANE_RUNNER) also requires the
+      placement's session_lane_runner to be set, so the variable is taken only while role_room() held for it.
+    """
+    found = [f"names {label} literally" for label in dict.fromkeys(SESSION_LITERAL.findall(text))]
+    for expression in EXPRESSION.findall(text) or [text]:
+        for leaf in leaves(expression):
+            variables = SESSION_VARIABLE.findall(leaf)
+            if variables and not any(SESSION_LANE_GUARD.fullmatch(unwrap(term)) for term in conjuncts(leaf)):
+                found.append(f"reads vars.{variables[0]} without the placement's session_lane_runner")
     return found
 
 
@@ -537,12 +596,15 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
         if key not in str(env.get(variable) or "").split():
             failures.append(f"{name} {placer}: {variable} does not list {key}")
     side = runs_on.find("CI_SIDE_LANE_RUNNER")
-    for output, label in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26"), ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26")):
+    for output, label, pool in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26", "fromJSON(vars.RUNNER_POOLS).macos_26_large"),
+                                ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26", "fromJSON(vars.RUNNER_POOLS).macos_26")):
         if f"${{{{ steps.{place.get('id')}.outputs.{output} }}}}" != str((jobs[placer].get("outputs") or {}).get(output)):
             failures.append(f"{name} {placer}: output {output} is not the placement's")
-        read = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
-                f"contains(needs.{placer}.outputs.{output}, ' {key} ') && '{label}'")
-        at = runs_on.find(read)
+        read_prefix = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
+                       f"contains(needs.{placer}.outputs.{output}, ' {key} ') && ")
+        at = runs_on.find(read_prefix + pool)
+        if at < 0:
+            at = runs_on.find(read_prefix + "'" + label + "'")
         if at < 0 or (side >= 0 and at > side):
             failures.append(f"{name} {job_id}: runs-on does not take `{label}` for {key} ahead of the side label")
     # A re-run of the job alone keeps the placing job's outputs from the attempt before: a slot read then.
@@ -550,7 +612,7 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
         failures.append(f"{name} {placer}: no placed_attempt output for the attempt that placed")
     expressions = EXPRESSION.findall(runs_on)
     if not expressions or not unconditional(split_top(unwrap(expressions[0]), "||")[-1]):
-        failures.append(f"{name} {job_id}: runs-on does not end in a label literal")
+        failures.append(f"{name} {job_id}: runs-on does not end in a label or pool reference")
     return failures
 
 
@@ -645,6 +707,15 @@ class RunsOnFallbackTests(unittest.TestCase):
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
 
+    def test_the_nightly_only_builder_is_reached_only_through_its_idle_pick(self) -> None:
+        # One runner per dedicated Mac carries it, so a queue on it could wait a whole build. Only
+        # nightly_build_runner.nightly_only_builder_route() names it, and only while one is idle now;
+        # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
+        failures = [f"{path.name} {job_id}" for path in workflows()
+                    for job_id, job in (load(path).get("jobs") or {}).items()
+                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+        self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
+
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
         for path in workflows():
@@ -655,29 +726,20 @@ class RunsOnFallbackTests(unittest.TestCase):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
-    def test_a_picked_signing_label_has_a_rerun_alternative(self) -> None:
-        # A Blacksmith macOS label picked once can stall after the pick, and GitHub never
-        # re-routes a queued job: only a re-run leaves it. nightly.yml's signing jobs read the
-        # picker's other macOS 26 size on attempt 2 on, so a re-run never queues on the label
-        # that stalled (run 40489472569, 2026-10-27, waited on blacksmith-6vcpu-macos-26).
+    def test_no_nightly_job_reads_a_picked_blacksmith_label(self) -> None:
+        # Until 2026-11-03 nightly.yml's signing jobs read the picker's Blacksmith macOS label, with the
+        # other size as a re-run alternative (run 40489472569, 2026-10-27, waited on
+        # blacksmith-6vcpu-macos-26). Nightlies never use Blacksmith (Lawrence, 2026-10-30): no job reads
+        # those picks any more (tests/test_nightly_never_blacksmith.py); the owned pick rule below holds.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
-        picked = re.compile(r"\|\| (needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
-                            r"\.outputs\.)(runner|sign_runner) \|\|")
-        failures, seen = [], set()
-        for job_id, job in jobs.items():
-            text = runs_on_text(job)
-            for match in picked.finditer(text):
-                seen.add(job_id)
-                alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
-                if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
-                    failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertIn("build-sign-notarize-nightly", seen)
-        self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+        picked = re.compile(r"needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
+                            r"\.outputs\.(?:runner|sign_runner|alternate|sign_alternate)\b")
+        seen = sorted(job_id for job_id, job in jobs.items() if picked.search(runs_on_text(job)))
+        self.assertEqual(seen, [], "a nightly job reads a picked Blacksmith label")
 
     def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
         # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
-        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
-        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # so the signing jobs read the picker's owned Mac, not a Blacksmith label with an alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
         # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
         owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
@@ -692,7 +754,7 @@ class RunsOnFallbackTests(unittest.TestCase):
                     guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
                     if not guards & {term.strip() for term in conjuncts(alternative)}:
                         failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
-        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertTrue({"build-sign-notarize-nightly", "generate-nightly-deltas"} <= seen, seen)
         self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
@@ -734,6 +796,37 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
+
+    def test_a_placement_never_hands_a_runs_on_the_busy_reserved_slot_while_blacksmith_moves(self) -> None:
+        """The reserved-slot rule above trusts each placement to name the slot only while it can take the job.
+        dev-daily-place reads the slot's label too (FRESH_LABEL) and its output goes straight into
+        cmux-scheme-compile's runs-on, so a busy slot there is the only route: on 2026-11-02 from 10:12Z 15 DEV
+        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6 (one runner busy, the other offline) while
+        Blacksmith overflow was never tried. With every owned runner busy and a Blacksmith macOS label moving, no
+        such placement may answer the slot (or any owned label): the routing order's last resort comes first."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import datetime as dt
+        import dev_landing_place
+
+        readers = [job_id for path in workflows() for job_id, job in (load(path).get("jobs") or {}).items()
+                   if any("FRESH_LABEL" in (step.get("env") or {}) and "dev_landing_place.py" in str(step.get("run"))
+                          for step in job.get("steps") or [])]
+        self.assertEqual(readers, ["dev-daily-place"], "the placements that hand a runs-on the reserved slot label")
+        now = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
+        moving = {"generated_at": "2026-11-02T10:10:00Z",
+                  "label_started": {"blacksmith-6vcpu-macos-26": "2026-11-02T10:10:00Z"},
+                  "pools": {"blacksmith-6vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 2},
+                            "blacksmith-12vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 1}}}
+        slot, side = "glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6"
+        busy = [{"name": "m1-glaeda-2", "status": "online", "busy": True, "labels": [{"name": slot}]},
+                {"name": "m2-glaeda-2", "status": "offline", "busy": False, "labels": [{"name": slot}]},
+                {"name": "m3-glaeda-1", "status": "online", "busy": True, "labels": [{"name": side}]}]
+        result = dev_landing_place.place(
+            {"SIDE_LABEL": side, "FRESH_LABEL": slot, "SHA": "a" * 40}, lambda: busy, lambda host: [],
+            overflow=lambda: dev_landing_place.blacksmith_overflow("", moving, now))
+        self.assertNotIn(slot, result["runs_on"], result["reason"])
+        self.assertNotIn(side, result["runs_on"], result["reason"])
+        self.assertEqual(json.loads(result["runs_on"]), "blacksmith-6vcpu-macos-26")
 
     def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
         rescued, failures, seen = rescued_paths(), [], 0
@@ -833,6 +926,40 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
         # No gui_overflow read: another rule's business.
         self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_a_session_label_comes_only_from_a_placement_that_judged_it(self) -> None:
+        failures, placed = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                placed += "outputs.session_runner" in text
+                failures += [f"{path.name} {job_id}: {why}" for why in session_label_problems(text)]
+        self.assertEqual(failures, [], "a session label starts nothing for hours while its runners look online")
+        self.assertGreaterEqual(placed, 1, "cmux-next's daemon tests read the placement's session_runner")
+
+    def test_the_session_label_rule_catches_what_it_is_for(self) -> None:
+        session = "'glaeda-session-std-xcode-26.6'"
+        gui = "'glaeda-gui-std-xcode-26.6'"
+        # cmux#24295's route: the literal session label behind a variable switch, gated and with a Blacksmith end.
+        self.assertTrue(session_label_problems(
+            f"${{{{ github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && {session} || {gui}) "
+            "|| 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(f"${{{{ {session} }}}}"))
+        self.assertTrue(session_label_problems("glaeda-session-light-xcode-26.6".join("''")))
+        # A session variable taken without the placement's verdict, or behind another `||` branch.
+        self.assertTrue(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(
+            "${{ a && (needs.p.outputs.session_lane_runner != '' || b) && vars.CI_SESSION_LANE_RUNNER || 'x' }}"))
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.session_lane_runner != '' && (b || vars.CI_SESSION_LANE_RUNNER) || 'x' }}"), [])
+        # The placement's outputs, and the variable under the placement's verdict, pass.
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.free_session_runner || needs.p.outputs.session_runner || needs.p.outputs.gui_runner "
+            f"|| github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"), [])
+        self.assertEqual(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && needs.p.outputs.session_lane_runner != '' && "
+            "(github.run_attempt == 1 || x) && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"), [])
 
     def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
         jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]

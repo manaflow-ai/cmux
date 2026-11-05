@@ -78,6 +78,9 @@ public struct PaletteItem: Identifiable {
     /// one of them, or its digits (`612`), puts the row first, above every text match. Not keywords,
     /// so a handle's letters never match other rows' words.
     public var handles: [String] = []
+    /// Whether an on/off command is on now, read when the palette opened; nil for any other row.
+    /// The row shows it as ``PaletteTunables/toggleStyle`` says.
+    public var toggleState: Bool?
 
     public init(
         id: String,

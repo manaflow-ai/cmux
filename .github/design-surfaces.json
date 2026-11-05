@@ -2,10 +2,117 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "theming": {
+      "spec": "leo-workspace design/theming.md",
+      "aliases": ["theming", "theme preview", "ricing", "wallpaper palette", "appearance propagation"],
+      "paths": [
+        "Packages/Shared/CmuxTheme/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ThemeBridge.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/TerminalThemeSetting.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Accent.swift",
+        "webviews/src/theme/",
+        "webviews/src/gallery/theme/",
+        "webviews/src/agent-session/shared/theme.ts",
+        "webviews/src/pages/settings/components/ThemeStudio.tsx",
+        "webviews/src/pages/settings/components/ThemePicker.tsx",
+        "webviews/src/pages/settings/components/ThemePreview.tsx"
+      ]
+    },
+    "tooltips": {
+      "spec": "leo-workspace design/overlay-surfaces.md",
+      "aliases": ["tooltip", "hover preview", "tooltip hierarchy"],
+      "paths": [
+        "webviews/src/ui/Tooltip.tsx",
+        "webviews/src/ui/titleTooltips.ts",
+        "webviews/src/ui/tooltipTokens.ts"
+      ]
+    },
+    "onboarding": {
+      "spec": "leo-workspace design/onboarding.md",
+      "aliases": [
+        "onboarding",
+        "bring your history",
+        "memory import"
+      ],
+      "paths": [
+        "webviews/src/pages/import-history/ImportHistory.tsx",
+        "webviews/src/pages/import-history/styles.css",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
+      ]
+    },
+    "whats-new": {
+      "spec": "leo-workspace design/whats-new.md",
+      "aliases": ["what's new", "changelog", "release notes"],
+      "paths": [
+        "webviews/src/pages/changelog/"
+      ]
+    },
+    "chief-work": {
+      "spec": "leo-workspace design/chief-work.md",
+      "aliases": [
+        "Chief background tasks",
+        "Chief subagents",
+        "Chief work"
+      ],
+      "paths": [
+        "webviews/src/pages/home-channels/ChiefWorkPanel.tsx",
+        "webviews/src/pages/home-channels/chiefWork.css",
+        "webviews/src/pages/home-channels/ChiefWorkPane.tsx",
+        "webviews/src/pages/home-channels/ChiefWorkStore.ts"
+      ]
+    },
+    "chief-pages": {
+      "spec": "leo-workspace design/chief-pages.md",
+      "aliases": [
+        "Chief pages",
+        "Chief inspector",
+        "Chief usage",
+        "Chief views"
+      ],
+      "paths": [
+        "webviews/src/pages/chief-inspector/",
+        "webviews/src/pages/chief-usage/",
+        "webviews/src/pages/chief-views/"
+      ]
+    },
+    "chief-web": {
+      "spec": "leo-workspace design/chief-web.md",
+      "aliases": [
+        "Chief mobile web",
+        "Chief web address"
+      ],
+      "paths": [
+        "webviews/src/chief-web/"
+      ]
+    },
+    "cloud-environment": {
+      "spec": "leo-workspace design/cloud.md",
+      "aliases": [
+        "cloud environment",
+        "setup script",
+        "network secrets"
+      ],
+      "paths": [
+        "webviews/src/pages/cloud/EnvironmentSheet.tsx",
+        "webviews/src/pages/cloud/EnvironmentFields.tsx",
+        "webviews/src/pages/cloud/environment.css",
+        "webviews/src/pages/cloud/environmentModel.ts",
+        "webviews/src/pages/cloud/environmentStore.ts"
+      ]
+    },
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
       "checklist": "design/model-picker.md#checklist",
-      "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
+      "aliases": [
+        "model menu",
+        "model picker",
+        "harness rail",
+        "harness tabs",
+        "effort picker",
+        "effort"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
         "webviews/src/agent-session/acpmux/ModelPicker.tsx",
@@ -17,16 +124,28 @@
     },
     "environment-picker": {
       "spec": "leo-workspace design/environment-picker.md",
-      "aliases": ["environment picker", "machine picker", "computer menu", "where a chat runs", "This Mac"],
+      "aliases": [
+        "environment picker",
+        "machine picker",
+        "computer menu",
+        "where a chat runs",
+        "This Mac"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
         "webviews/src/agent-session/acpmux/environments.ts",
-        "webviews/src/agent-session/acpmux/ComposerContext.tsx"
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx",
+        "webviews/src/agent-session/acpmux/ComposerContext.gallery.tsx",
+        "webviews/test/environment-picker.test.tsx"
       ]
     },
     "composer": {
       "spec": "leo-workspace design/composer.md",
-      "aliases": ["composer", "prompt box"],
+      "aliases": [
+        "composer",
+        "prompt box",
+        "bottom stack"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/Composer.tsx",
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
@@ -41,17 +160,64 @@
         "webviews/src/agent-session/acpmux/composerStates.css",
         "webviews/src/agent-session/acpmux/HostError.tsx",
         "webviews/src/agent-session/acpmux/hostLine.ts",
-        "webviews/src/agent-session/acpmux/hostRetry.ts"
+        "webviews/src/agent-session/acpmux/hostRetry.ts",
+        "webviews/src/agent-session/acpmux/bottomStack.css"
+      ]
+    },
+    "background-tasks": {
+      "spec": "leo-workspace design/background-tasks.md",
+      "aliases": ["background tasks", "background commands", "subagent transcript"],
+      "paths": ["webviews/src/agent-session/acpmux/backgroundTasks/"]
+    },
+    "running-tray": {
+      "spec": "leo-workspace design/running-tray.md",
+      "aliases": [
+        "running tray",
+        "subagent tray",
+        "running in background"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/subagents/SubagentTray.tsx",
+        "webviews/src/agent-session/acpmux/subagents/subagents.css"
       ]
     },
     "session-rail": {
       "spec": "leo-workspace design/session-rail.md",
-      "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
-      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+      "aliases": [
+        "session rail",
+        "prompt rail",
+        "thread minimap",
+        "rail ticks"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/threadMinimap/",
+        "webviews/src/agent-session/acpmux/chatMinimap/"
+      ]
+    },
+    "notifications": {
+      "spec": "leo-workspace design/notifications.md",
+      "aliases": ["toast", "notice", "warning", "banner", "ask card", "error card", "snackbar"],
+      "paths": [
+        "webviews/src/ui/Notice.tsx",
+        "webviews/src/ui/NoticeStack.tsx",
+        "webviews/src/ui/notice.css",
+        "webviews/src/agent-session/acpmux/NoticeSlot.tsx",
+        "webviews/src/agent-session/acpmux/toolCards/",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/pages/cloud/Notices.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneToolCard.swift"
+      ]
     },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
-      "aliases": ["feature tip", "tips", "coach mark", "callout", "new badge"],
+      "aliases": [
+        "feature tip",
+        "tips",
+        "coach mark",
+        "callout",
+        "new badge"
+      ],
       "paths": [
         "webviews/src/ui/FeatureTip.tsx",
         "webviews/src/ui/featureTip.css",
@@ -64,7 +230,9 @@
     },
     "new-tab": {
       "spec": "leo-workspace design/new-tab.md",
-      "aliases": ["new tab"],
+      "aliases": [
+        "new tab"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/NewTabPage.tsx",
         "webviews/src/agent-session/acpmux/newtab/"
@@ -72,14 +240,24 @@
     },
     "sidebar": {
       "spec": "leo-workspace design/sidebar.md",
-      "aliases": ["sidebar"],
+      "aliases": [
+        "sidebar"
+      ],
       "paths": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/",
+        "webviews/src/sidebar/"
       ]
     },
     "chat-transcript": {
       "spec": "leo-workspace design/chat-transcript.md",
-      "aliases": ["transcript", "tool row", "tool rows", "mcp row", "cmux exec", "cmux_exec"],
+      "aliases": [
+        "transcript",
+        "tool row",
+        "tool rows",
+        "mcp row",
+        "cmux exec",
+        "cmux_exec"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
@@ -88,12 +266,27 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+        "webviews/src/agent-session/acpmux/conversation/TurnRows.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
       ]
     },
     "settings": {
       "spec": "leo-workspace design/settings.md",
-      "aliases": ["settings", "settings page", "settings menu", "settings select", "update channel", "check every"],
+      "aliases": [
+        "settings",
+        "settings page",
+        "settings menu",
+        "settings select",
+        "update channel",
+        "check every"
+      ],
       "paths": [
         "webviews/src/pages/settings/components/",
         "webviews/src/pages/settings/editors/",
@@ -104,9 +297,38 @@
         "webviews/src/ui/Select.tsx"
       ]
     },
+    "menus": {
+      "spec": "leo-workspace design/menus.md",
+      "aliases": [
+        "menu",
+        "menus",
+        "context menu",
+        "right-click menu",
+        "dropdown",
+        "checkmark",
+        "menu glass",
+        "composer menus",
+        "context menus"
+      ],
+      "paths": [
+        "webviews/src/ui/Menu.tsx",
+        "webviews/src/ui/ContextMenu.tsx",
+        "webviews/src/ui/popupSurface.css",
+        "webviews/src/ui/ui.css",
+        "webviews/src/pages/shared/PageMenu.tsx",
+        "webviews/src/pages/shared/pageBase.css",
+        "webviews/scripts/check-menu-gutters.ts",
+        "schemas/menu-metrics/menu-metrics.json"
+      ]
+    },
     "chat-header": {
       "spec": "leo-workspace design/chat-header.md",
-      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "aliases": [
+        "chat header",
+        "chat title",
+        "title menu",
+        "header tools"
+      ],
       "paths": [
         "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
         "webviews/src/agent-session/acpmux/header/header.css",
@@ -121,7 +343,95 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/session-info"
+        "webviews/src/agent-session/acpmux/session-info",
+        "webviews/src/agent-session/acpmux/summary"
+      ]
+    },
+    "home": {
+      "spec": "leo-workspace design/home-inbox.md",
+      "aliases": [
+        "Home",
+        "home channels",
+        "home inbox"
+      ],
+      "paths": [
+        "webviews/src/pages/home-channels/"
+      ]
+    },
+    "diff-viewer": {
+      "spec": "leo-workspace design/diff-viewer.md",
+      "aliases": [
+        "diff viewer",
+        "changes viewer",
+        "file diff"
+      ],
+      "paths": [
+        "webviews/src/diff-viewer/",
+        "webviews/src/pages/diff/"
+      ]
+    },
+    "ui": {
+      "spec": "leo-workspace design/system.md",
+      "aliases": [
+        "ui components",
+        "design system",
+        "controls",
+        "token sheet"
+      ],
+      "paths": [
+        "webviews/src/ui/"
+      ]
+    },
+    "artifacts": {
+      "spec": "leo-workspace design/artifacts.md",
+      "aliases": [
+        "artifact",
+        "artifacts",
+        "inline preview",
+        "html preview",
+        "svg preview",
+        "render card"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/InlinePreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/previewDocument.ts",
+        "webviews/src/agent-session/acpmux/conversation/ArtifactPanel.tsx",
+        "webviews/src/agent-session/acpmux/conversation/OpenPreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/artifactPreview.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactSandbox.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactVersions.ts",
+        "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
+      ]
+    },
+    "chat-multiplayer": {
+      "spec": "leo-workspace design/chat-multiplayer.md",
+      "aliases": [
+        "share sheet",
+        "invite people",
+        "share with guest",
+        "guest link",
+        "chat invites"
+      ],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteSheet.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
+        "webviews/src/agent-session/guest/"
+      ]
+    },
+    "icons": {
+      "spec": "leo-workspace design/icons.md",
+      "aliases": [
+        "icon set",
+        "icon system",
+        "icon stroke"
+      ],
+      "paths": [
+        "design/icons/source/",
+        "webviews/src/agent-session/acpmux/icons/",
+        "webviews/src/agent-session/acpmux/conversation/icons.tsx"
       ]
     }
   }

@@ -47,6 +47,7 @@ mod journal_extensions;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
+pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -56,6 +57,7 @@ mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
+mod host_identity;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -121,9 +123,10 @@ pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdat
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
-    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
-    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
+    TAB_GROUP_NO_COLOR, TabGroupRecord, TabGroupState, WorkspaceGroupRecord,
+    WorkspacePresentationUpdate, new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id,
+    validate_presentation_color, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -151,6 +154,7 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
+pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -792,7 +796,11 @@ pub struct FrontendProjection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionCommit {
     pub projection: FrontendProjection,
+    /// No change: a retry of a recorded mutation, or the stored body again.
     pub replayed: bool,
+    /// The commit added a `projection_mutations` ledger row (a new mutation,
+    /// changed or not), which journal maintenance bounds.
+    pub recorded: bool,
 }
 
 /// The sole durable writer for one session. The owning `Mux` serializes all
@@ -819,6 +827,8 @@ pub struct WorkspaceRegistry {
     resource_patch_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
+    /// This open swapped in a registry without stored output.
+    output_cleanup_swapped: bool,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2462,14 +2472,21 @@ impl WorkspaceRegistry {
             session_name.to_string(),
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
-            None,
-            None,
+            &mut None,
+            &mut None,
             None,
             crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_inner(root, session_name, false)
+    }
+
+    /// `roll_back_first`: an owner build on a registry swapped in by output
+    /// cleanup failed before any full start on it; the previous registry is
+    /// put back under this open's locks before the open.
+    fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
         let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -2501,22 +2518,143 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        open_guard::refuse_orphaned_journal(&db_path)?;
-        let connection = open_registry_database(&db_path)
-            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
-        platform::restrict_file(&db_path)?;
-        timings.lap("registry.lock_and_connect");
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            machine_id,
-            resource_effect_pepper,
-            Some(session_guard),
-            Some(lease),
-            Some(db_path),
-            timings,
-        )
+        // A rollback an earlier start could not finish goes first.
+        output_cleanup::finish_pending_rollback(&db_path)?;
+        if roll_back_first && output_cleanup::rollback_possible(&db_path) {
+            output_cleanup::roll_back_swap(
+                &db_path,
+                &anyhow::anyhow!("the owner did not start on the new registry"),
+            )?;
+        }
+        // Before the orphan check: an interrupted swap is put back first.
+        // The swap opens the new file through `initialize` and reads its
+        // layout before the rename, so a file that cannot serve never
+        // replaces the registry.
+        let swapped = output_cleanup::swap_at_open(&db_path, &|staged: &Path| {
+            let connection = open_registry_database(staged)?;
+            let registry = Self::initialize(
+                connection,
+                session_name.to_string(),
+                load_or_create_machine_id(&root)?,
+                load_or_create_resource_effect_pepper(&root)?,
+                &mut None,
+                &mut None,
+                None,
+                crate::startup_timings::StartupTimings::start(),
+            )?;
+            registry.snapshot()?;
+            Ok(())
+        });
+        // A swap that failed after it moved the registry aside left only
+        // the backup: put it back before anything opens db_path. If that
+        // fails, refuse: an open now would create an empty registry beside
+        // the only copy of the session.
+        output_cleanup::restore_interrupted_swap(&db_path);
+        output_cleanup::refuse_open_beside_backup(&db_path)?;
+        // The locks stay held across a failed open and its rollback: no
+        // other owner can open either file in between.
+        let mut session_guard = Some(session_guard);
+        let mut lease = Some(lease);
+        let mut machine_id = Some(machine_id);
+        let mut resource_effect_pepper = Some(resource_effect_pepper);
+        let mut open_once = |session_guard: &mut Option<SessionLease>,
+                             lease: &mut Option<SessionLease>|
+         -> anyhow::Result<Self> {
+            open_guard::refuse_orphaned_journal(&db_path)?;
+            let connection = open_registry_database(&db_path)
+                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+            let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
+            platform::restrict_file(&db_path)?;
+            // A second try (after a rollback) records its own laps.
+            let mut timings = std::mem::take(&mut timings);
+            timings.lap("registry.lock_and_connect");
+            Self::initialize(
+                connection,
+                session_name.to_string(),
+                match machine_id.take() {
+                    Some(id) => id,
+                    None => load_or_create_machine_id(&root)?,
+                },
+                match resource_effect_pepper.take() {
+                    Some(pepper) => pepper,
+                    None => load_or_create_resource_effect_pepper(&root)?,
+                },
+                session_guard,
+                lease,
+                Some(db_path.clone()),
+                timings,
+            )
+        };
+        #[cfg(debug_assertions)]
+        let first =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN").is_some() {
+                Err(anyhow::anyhow!("test: the swapped registry did not open"))
+            } else {
+                open_once(&mut session_guard, &mut lease)
+            };
+        #[cfg(not(debug_assertions))]
+        let first = open_once(&mut session_guard, &mut lease);
+        match first {
+            Ok(mut registry) => {
+                // Also true on a later start when the swap start never got
+                // through a full start (killed during restore).
+                registry.output_cleanup_swapped =
+                    swapped || output_cleanup::rollback_possible(&db_path);
+                if !registry.output_cleanup_swapped {
+                    output_cleanup::remove_previous_registry_when_started(&db_path);
+                }
+                Ok(registry)
+            }
+            Err(error) if swapped => {
+                // A rollback that cannot put the file back refuses this start.
+                output_cleanup::roll_back_swap(&db_path, &error)?;
+                open_once(&mut session_guard, &mut lease)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Opens the registry and builds the owner from it with `load`. When this
+    /// start swapped in a cleaned registry (output cleanup) and `load` fails,
+    /// the previous registry is put back under the session locks and `load`
+    /// runs once more on it. A full start after a swap is recorded, so the
+    /// next start removes the previous file.
+    pub(crate) fn open_with<T>(
+        root: &Path,
+        session_name: &str,
+        mut load: impl FnMut(Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let registry = Self::open(root, session_name)?;
+        let swapped = registry.output_cleanup_swapped;
+        let db_path = registry.database_path.clone();
+        #[cfg(debug_assertions)]
+        let loaded =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD").is_some() {
+                drop(registry);
+                Err(anyhow::anyhow!("test: the owner build failed after the swap"))
+            } else {
+                load(registry)
+            };
+        #[cfg(not(debug_assertions))]
+        let loaded = load(registry);
+        match loaded {
+            Ok(loaded) => {
+                if let Some(db_path) = db_path.as_deref() {
+                    output_cleanup::note_full_start(db_path)?;
+                }
+                Ok(loaded)
+            }
+            Err(error) if swapped && db_path.is_some() => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the owner did not start on the new registry: {error:#}"
+                );
+                // The failed build released its locks with the registry. One
+                // open takes them again and holds them through the rollback
+                // and the open of the restored registry.
+                load(Self::open_inner(root, session_name, true)?)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2525,8 +2663,8 @@ impl WorkspaceRegistry {
         session_name: String,
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
-        session_guard: Option<SessionLease>,
-        lease: Option<SessionLease>,
+        session_guard: &mut Option<SessionLease>,
+        lease: &mut Option<SessionLease>,
         database_path: Option<PathBuf>,
         mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
@@ -2884,6 +3022,8 @@ impl WorkspaceRegistry {
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
+        // A registry copied from another machine gets its own ids first.
+        host_identity::rehome_registry(&connection)?;
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
@@ -2907,12 +3047,13 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.resource_invariants");
+        let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
             open_timings: timings,
             registry_id,
-            generation: try_new_uuid_v4()?,
+            generation,
             session_name,
             machine_id,
             session_id,
@@ -2921,8 +3062,9 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            session_guard,
-            lease,
+            session_guard: session_guard.take(),
+            lease: lease.take(),
+            output_cleanup_swapped: false,
         })
     }
 
@@ -2945,63 +3087,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let next_numeric_id = u64::try_from(max_numeric_id)
-            .context("stored workspace id is negative")?
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
-                    w.name_source, w.name_revision
-             FROM workspaces w
-             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
-             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
-             ORDER BY w.position ASC",
-        )?;
-        let workspaces = statement
-            .query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
-            })?
-            .map(|row| {
-                let (id, key, name, group_key, public_id, (source, revision)): (
-                    i64,
-                    String,
-                    String,
-                    String,
-                    String,
-                    (String, i64),
-                ) = row?;
-                let (name_source, name_revision) =
-                    workspace_name_store::stored_name_provenance(&source, revision)?;
-                Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
-                    id: u64::try_from(id).context("stored workspace id is negative")?,
-                    public_id: WorkspacePublicId::parse(public_id)?,
-                    key,
-                    name,
-                    name_source,
-                    name_revision,
-                    group_key,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(RegistrySnapshot {
-            registry_id: self.registry_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            resource_revision,
-            session_id: self.session_id.clone(),
-            next_numeric_id,
-            workspaces,
-        })
+        registry_snapshot_in(
+            &self.connection.get(),
+            &self.registry_id,
+            &self.generation,
+            &self.session_id,
+        )
     }
 
     /// Read the resource cursor without materializing the workspace graph.
@@ -3536,18 +3627,20 @@ impl WorkspaceRegistry {
             }
             let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
             stored.projection = projection.clone();
-            return Ok(ProjectionCommit { projection: stored, replayed: true });
+            return Ok(ProjectionCommit { projection: stored, replayed: true, recorded: false });
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload),
+                        schema_version = ?4 AND payload = ?5
+                 FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
-                params![frontend, scope, subject_key],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                params![frontend, scope, subject_key, i64::from(schema_version), &payload],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?)),
             )
             .optional()?;
         let current = stored_now
-            .map(|(revision, _)| u64::try_from(revision))
+            .map(|(revision, _, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3556,29 +3649,43 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
-        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
-        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
-        let projection_revision = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
-        tx.execute(
-            "INSERT INTO frontend_projections(
+        // The same body (canonical, so key order does not count) and schema
+        // as stored is no change: the row and its revision stay, and the
+        // commit is `replayed`, so the caller emits no change event. The app
+        // saves its documents again on many events with nothing changed, and
+        // each save woke every subscriber and the launch snapshot of an idle
+        // owner. The ledger still records the mutation, so a retry of it
+        // after another mutation's change replays this answer instead of
+        // writing the old body again.
+        let unchanged = stored_now.is_some_and(|(_, _, same)| same);
+        let projection_revision = if unchanged {
+            current
+        } else {
+            let previous_bytes = stored_now.and_then(|(_, bytes, _)| usize::try_from(bytes).ok());
+            note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
+            let projection_revision = current
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
+            tx.execute(
+                "INSERT INTO frontend_projections(
                frontend, scope, subject_key, schema_version, projection_revision, payload
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(frontend, scope, subject_key) DO UPDATE SET
                schema_version=excluded.schema_version,
                projection_revision=excluded.projection_revision,
                payload=excluded.payload",
-            params![
-                frontend,
-                scope,
-                subject_key,
-                i64::from(schema_version),
-                i64::try_from(projection_revision)
-                    .context("projection revision exceeds SQLite range")?,
-                payload
-            ],
-        )?;
+                params![
+                    frontend,
+                    scope,
+                    subject_key,
+                    i64::from(schema_version),
+                    i64::try_from(projection_revision)
+                        .context("projection revision exceeds SQLite range")?,
+                    payload
+                ],
+            )?;
+            projection_revision
+        };
         let stored = FrontendProjection {
             frontend: frontend.to_string(),
             scope: scope.to_string(),
@@ -3602,7 +3709,7 @@ impl WorkspaceRegistry {
             ],
         )?;
         tx.commit()?;
-        Ok(ProjectionCommit { projection: stored, replayed: false })
+        Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
     }
 }
 
@@ -4954,6 +5061,72 @@ pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Resul
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
 }
 
+/// [`WorkspaceRegistry::snapshot`] on `connection`: the registry's own
+/// connection under its lock, or its read-only connection for a read that
+/// must not wait for a writer (`resource_api::read_committed_registry`).
+pub(crate) fn registry_snapshot_in(
+    connection: &Connection,
+    registry_id: &str,
+    generation: &str,
+    session_id: &SessionPublicId,
+) -> anyhow::Result<RegistrySnapshot> {
+    let revision = current_revision(connection)?;
+    let resource_revision = current_resource_revision(connection)?;
+    let max_numeric_id =
+        connection.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let next_numeric_id = u64::try_from(max_numeric_id)
+        .context("stored workspace id is negative")?
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+    let mut statement = connection.prepare(
+        "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                w.name_source, w.name_revision
+         FROM workspaces w
+         JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+         WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+         ORDER BY w.position ASC",
+    )?;
+    let workspaces = statement
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+            Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
+        })?
+        .map(|row| {
+            let (id, key, name, group_key, public_id, (source, revision)): (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                (String, i64),
+            ) = row?;
+            let (name_source, name_revision) =
+                workspace_name_store::stored_name_provenance(&source, revision)?;
+            Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
+                id: u64::try_from(id).context("stored workspace id is negative")?,
+                public_id: WorkspacePublicId::parse(public_id)?,
+                key,
+                name,
+                name_source,
+                name_revision,
+                group_key,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RegistrySnapshot {
+        registry_id: registry_id.to_string(),
+        generation: generation.to_string(),
+        revision,
+        resource_revision,
+        session_id: session_id.clone(),
+        next_numeric_id,
+        workspaces,
+    })
+}
+
 fn current_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "revision")?.parse().context("workspace registry revision is invalid")
 }
@@ -5354,13 +5527,16 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
         // handed out (returned only after its fsync), so a new id replaces it.
         Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
             root_identity::create_machine_id(&root, &path, true)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             root_identity::create_machine_id(&root, &path, false)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))

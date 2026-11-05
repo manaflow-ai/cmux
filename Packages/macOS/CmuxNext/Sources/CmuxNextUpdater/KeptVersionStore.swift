@@ -14,10 +14,11 @@ nonisolated public struct KeptVersionStore: Sendable {
         self.teamID = teamID
     }
 
-    /// Keeps `bundle` as `build`, then prunes to the newest `limit`.
-    public func keep(bundle: URL, build: String, limit: Int) throws {
+    /// Keeps `bundle` as `build`, then prunes to the newest `limit` (nil: no prune, for a build
+    /// downloaded to switch to, which may be older than every kept one).
+    public func keep(bundle: URL, build: String, limit: Int?) throws {
         let files = FileManager.default
-        guard limit > 0 else { return prune(limit: 0) }
+        if let limit, limit <= 0 { return prune(limit: 0) }
         let folder = root.appending(path: build, directoryHint: .isDirectory)
         if files.fileExists(atPath: folder.path) { try files.removeItem(at: folder) }
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -32,7 +33,7 @@ nonisolated public struct KeptVersionStore: Sendable {
             try files.copyItem(at: bundle, to: partial)
         }
         try files.moveItem(at: partial, to: target)
-        prune(limit: limit)
+        if let limit { prune(limit: limit) }
     }
 
     /// Kept versions, newest build first.

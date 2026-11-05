@@ -101,7 +101,8 @@ mod segment_tests {
             }))
             .unwrap();
             let session = hub.make_session(meta);
-            hub.sessions.lock().unwrap().insert(id.clone(), session);
+            hub.sessions.lock().unwrap().insert(id.clone(), session.clone());
+            hub.update_live_session_index(&session);
         }
         hub
     }

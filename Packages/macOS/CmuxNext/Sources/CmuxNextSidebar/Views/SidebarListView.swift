@@ -79,6 +79,13 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// Keeps spare workspace row views (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
+    var keepsSpareRow = false
+    var spareRowScheduled = false
+    /// Whether `window` shows its lists now (spares are made only then): on screen and not fully covered. Tests inject an answer.
+    var windowShowsRows: @MainActor (NSWindow) -> Bool = { $0.isVisible && $0.occlusionState.contains(.visible) }
+    /// Runs work once the current pass committed its frame (`AfterFrameCommit`).
+    var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
@@ -112,12 +119,16 @@ final class SidebarListView: NSView {
     var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
     var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
+    var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
     var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
+    var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
@@ -132,6 +143,8 @@ final class SidebarListView: NSView {
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.
+    var hasViewport = false
     /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
     /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
     /// made every row view of its space, so a switch cost grew with the space's workspaces).
@@ -142,6 +155,13 @@ final class SidebarListView: NSView {
     /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
     var removesOnDragOut: ((String) -> Bool)?
     var onDragOutRemove: ((String) -> Void)?
+    /// The tab the row under the pointer stands for (its workspace's focused tab), nil off every
+    /// workspace row: the app forwards it so that chat is read before the click
+    /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
+    var onHoverTab: ((TabID?) -> Void)?
+    /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
+    /// tab in place reports it again (`refreshHoverTab`).
+    var hoverTabSent: TabID?
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -231,6 +251,10 @@ final class SidebarListView: NSView {
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
     private var pointerMonitor: Any?
+    var onPointerKeyDown: ((NSEvent) -> Void)?
+    /// Each left press and release the monitor sees, and each focus loss: the Priority view ends its own gesture.
+    var onPointerEvent: ((NSEvent) -> Void)?
+    var onPointerFocusLost: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -267,9 +291,15 @@ final class SidebarListView: NSView {
         // The rows read the window when they moved in; the list's own reading starts them all from
         // the same state, not each from whatever its window said a moment earlier.
         if window != nil { windowOcclusionChanged() }
+        scheduleSpareRow()
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+        scheduleSpareRow() // spares wait for a shown window
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        scheduleSpareRow() // the sidebar folded open again
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
@@ -303,9 +333,10 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
-        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        // Onto the row's hover card: rows hold still until the pointer leaves the card too.
+        releaseHeldModelChangeIfPointerLeft()
     }
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
     /// scrolled under a possibly still pointer (no point: the coordinator's
@@ -328,7 +359,7 @@ final class SidebarListView: NSView {
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
         displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
-                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+                           cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;
@@ -341,6 +372,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        forwardHover(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

@@ -314,7 +314,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
 
   test("a short window sends the classic New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "template-classic", { width: 600, height: 300 });
-    await checkSuggestions(page, ".acpmux-newtab-field", ".acpmux-omni", "a");
+    await checkSuggestions(page, ".acpmux-newtab-field .acpmux-md", ".acpmux-omni", "a");
     await page.close();
   });
 });

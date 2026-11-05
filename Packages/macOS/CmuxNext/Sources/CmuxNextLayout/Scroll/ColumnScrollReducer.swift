@@ -14,7 +14,9 @@ nonisolated extension ColumnScrollState {
         switch event {
         case let .sync(strip, focused, source, animated, reveals, anchor):
             let before = spring.target
-            let shift = sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor)
+            let kept = keptColumn
+            keptColumn = nil
+            let shift = sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor ?? kept, keepsView: kept != nil)
             // A sync that leaves the target where the camera shift put it never snaps: a fling or
             // wheel spring in flight keeps moving while pane layout motion is off (motion.md rule 9).
             let moved = abs(strip.clamp(spring.target) - (before + shift)) > 0.25
@@ -90,7 +92,8 @@ nonisolated extension ColumnScrollState {
 
     /// Returns the camera shift it applied to the value and the target (step 1).
     @discardableResult
-    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?) -> CGFloat {
+    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?,
+                               keepsView: Bool = false) -> CGFloat {
         let old = strip
         let oldPane = focusedPane
         let oldColumn = focusedColumn
@@ -153,9 +156,15 @@ nonisolated extension ColumnScrollState {
 
         // A removed column cannot leave the camera past the new strip. The view carries the
         // panes horizontally from where they showed; row cameras keep their vertical spring.
+        // Only a velocity out of the strip from where the camera now rests stops: one back into it
+        // (a center or fling that was already coming back) goes on, so the close takes the camera at
+        // the speed it shows. A strip that now fits has no inside to go back to: it stops at 0.
         if new.axis == .horizontal, !removed.isEmpty {
             let clamped = new.clamp(spring.value)
-            if clamped != spring.value { spring.velocity = 0 }
+            if clamped != spring.value,
+               (clamped >= new.maxOffset && spring.velocity > 0) || (clamped <= 0 && spring.velocity < 0) {
+                spring.velocity = 0
+            }
             spring.value = clamped
             spring.target = new.clamp(spring.target)
             if var live = gesture {
@@ -165,8 +174,8 @@ nonisolated extension ColumnScrollState {
         }
 
         // 3. Reveal. A live gesture owns the target; its end keeps the
-        //    focused column visible.
-        guard gesture == nil else { return delta }
+        //    focused column visible. A key press's trade (`keptColumn`) moves only its divider, inside the window.
+        guard gesture == nil, !keepsView else { return delta }
         guard reveals else {
             revealDeferred = true
             return delta

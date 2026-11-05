@@ -635,13 +635,15 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     /// View placements keyed by daemon-local placement identity.
-    pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    pub surfaces: crate::route_table::RouteTable<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
-    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    pub(crate) terminal_catalog: crate::route_table::RouteTable<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
-    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
-    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
-    pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
+    pub(crate) terminal_catalog_by_runtime:
+        crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
+    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs). Copy-on-write and published with the
+    /// routes, so the live-terminal lookup reads it with no lock (R-DAEMON-STATE stage S1).
+    pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -917,6 +919,10 @@ impl State {
 
     pub(crate) fn workspace_by_key(&self, key: &str) -> Option<&Workspace> {
         self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
+    }
+
+    pub(crate) fn workspace_index_by_key(&self, key: &str) -> Option<usize> {
+        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_index(*id))
     }
 
     /// Workspace and screen indices of the screen containing a pane.

@@ -5,6 +5,43 @@
 use super::*;
 
 wire_op! {
+    /// The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret.
+    AutomationAuditListOp {
+        name: "automation.audit.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: AutomationAuditListParams,
+        result: AutomationAuditListResult,
+        error: AutomationAuditListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationAuditListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation: Option<AutomationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationAuditListResult {
+    pub entries: Vec<AutomationAuditEntry>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes automation.audit.list declares.
+    AutomationAuditListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// Create an automation (triggers, body, target policy) in the caller's team.
     AutomationCreateOp {
         name: "automation.create",
@@ -34,6 +71,12 @@ pub struct AutomationCreateParams {
     pub concurrency: Option<Concurrency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<Sharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editors: Option<Vec<UserId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catch_up: Option<CatchUp>,
 }
 
 wire_errors! {
@@ -159,6 +202,70 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Accept step of a teleport (docs/automations-teleport-teams.md): make the Cloud copy of an automation another store fenced. Use the idempotency key teleport:<handoff id>; one copy per handoff id. Its next fire follows last_slot and the catch_up policy, so no slot runs twice.
+    AutomationImportOp {
+        name: "automation.import",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: AutomationImportParams,
+        result: Automation,
+        error: AutomationImportError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationImportParamsHandoff {
+    pub id: String,
+    pub from: String,
+    pub source_id: String,
+    pub epoch: i64,
+    pub last_slot: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationImportParams {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    pub triggers: Vec<TriggerInput>,
+    pub body: Body,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<Concurrency>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<Sharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editors: Option<Vec<UserId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catch_up: Option<CatchUp>,
+    pub handoff: AutomationImportParamsHandoff,
+}
+
+wire_errors! {
+    /// The error codes automation.import declares.
+    AutomationImportError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationLimit = "automation.limit",
+        CodeNotFound = "code.not_found",
+        CodeUnavailable = "code.unavailable",
+        DeployLimit = "deploy.limit",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        TriggerInvalid = "trigger.invalid",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).
     AutomationListOp {
         name: "automation.list",
@@ -189,6 +296,8 @@ pub struct AutomationListResult {
     pub automation_count: Option<WireNumber>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub next_cursor: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Vec<MovedAutomation>>,
     pub revision: String,
 }
 
@@ -326,6 +435,115 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Abort a teleport the destination refused: lift the fence; the automation fires here again.
+    AutomationTeleportAbortOp {
+        name: "automation.teleport.abort",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: AutomationTeleportAbortParams,
+        result: Automation,
+        error: AutomationTeleportAbortError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationTeleportAbortParams {
+    pub automation: AutomationId,
+    pub handoff: String,
+}
+
+wire_errors! {
+    /// The error codes automation.teleport.abort declares.
+    AutomationTeleportAbortError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationHandoffMismatch = "automation.handoff_mismatch",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Fence step of a teleport away from Cloud: from now on the automation neither fires nor runs here, and the answer carries its full spec, epoch and last fired slot. to is home, ssh:<host>[:<dir>] or cloud. Then automation.teleport.complete or automation.teleport.abort with the same handoff id.
+    AutomationTeleportBeginOp {
+        name: "automation.teleport.begin",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: AutomationTeleportBeginParams,
+        result: AutomationTeleportBegun,
+        error: AutomationTeleportBeginError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationTeleportBeginParamsHandoff {
+    pub id: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationTeleportBeginParams {
+    pub automation: AutomationId,
+    pub handoff: AutomationTeleportBeginParamsHandoff,
+}
+
+wire_errors! {
+    /// The error codes automation.teleport.begin declares.
+    AutomationTeleportBeginError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationHandoffPending = "automation.handoff_pending",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Release step of a teleport: the fenced Cloud automation becomes a tombstone naming its new home and id (automation.list moved).
+    AutomationTeleportCompleteOp {
+        name: "automation.teleport.complete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: AutomationTeleportCompleteParams,
+        result: MovedAutomation,
+        error: AutomationTeleportCompleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationTeleportCompleteParams {
+    pub automation: AutomationId,
+    pub handoff: String,
+    pub moved_id: String,
+}
+
+wire_errors! {
+    /// The error codes automation.teleport.complete declares.
+    AutomationTeleportCompleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationHandoffMismatch = "automation.handoff_mismatch",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Change an automation; the version increments and later runs use the new version.
     AutomationUpdateOp {
         name: "automation.update",
@@ -361,6 +579,12 @@ pub struct AutomationUpdateParams {
     pub concurrency: Option<Concurrency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<Sharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editors: Option<Vec<UserId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catch_up: Option<CatchUp>,
 }
 
 wire_errors! {
@@ -675,229 +899,6 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.
-    ChiefDeleteOp {
-        name: "chief.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ChiefDeleteParams,
-        result: HomeChief,
-        error: ChiefDeleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefDeleteParams {
-    pub chief: ChiefId,
-    pub expected_rev: WireNumber,
-}
-
-wire_errors! {
-    /// The error codes chief.delete declares.
-    ChiefDeleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ChiefIsDefault = "chief_is_default",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The user's chiefs (active first, the default marked), archived ones on request, and tombstones.
-    ChiefListOp {
-        name: "chief.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ChiefListParams,
-        result: ChiefListResult,
-        error: ChiefListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub include_archived: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefListResultTombstonesItem {
-    pub id: ChiefId,
-    pub owner_user: String,
-    pub archived_at: Timestamp,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefListResult {
-    pub chiefs: Vec<HomeChief>,
-    pub tombstones: Vec<ChiefListResultTombstonesItem>,
-}
-
-wire_errors! {
-    /// The error codes chief.list declares.
-    ChiefListError {
-        AuthForbidden = "auth.forbidden",
-    }
-}
-
-wire_op! {
-    /// Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false).
-    ChiefUpdateOp {
-        name: "chief.update",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ChiefUpdateParams,
-        result: HomeChief,
-        error: ChiefUpdateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefUpdateParams {
-    pub chief: ChiefId,
-    pub expected_rev: WireNumber,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<BoolLit<true>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub harness: Option<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archived: Option<BoolLit<false>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub brain_place: Option<Option<ChiefBrainPlace>>,
-}
-
-wire_errors! {
-    /// The error codes chief.update declares.
-    ChiefUpdateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ChiefArchived = "chief_archived",
-        ChiefExpired = "chief_expired",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.
-    CloudBillingCheckoutOp {
-        name: "cloud.billing.checkout",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "money",
-        principals: [Session, Install],
-        params: CloudBillingCheckoutParams,
-        result: CloudBillingCheckoutResult,
-        error: CloudBillingCheckoutError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudBillingCheckoutParams {
-    pub plan: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudBillingCheckoutResult {
-    pub url: String,
-}
-
-wire_errors! {
-    /// The error codes cloud.billing.checkout declares.
-    CloudBillingCheckoutError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudEnvironmentBootOp {
-        name: "cloud.environment.boot",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "money",
-        principals: [Session, Install],
-        params: CloudEnvironmentBootParams,
-        result: CloudEnvironmentBootResult,
-        error: CloudEnvironmentBootError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudEnvironmentBootParams {
-    pub environment: EnvironmentId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub size: CloudMachineSize,
-}
-
-wire_enum! {
-    CloudEnvironmentBootResultBoot {
-        Snapshot = "snapshot",
-        Cold = "cold",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudEnvironmentBootResult {
-    pub machine: CloudMachine,
-    pub boot: CloudEnvironmentBootResultBoot,
-}
-
-wire_errors! {
-    /// The error codes cloud.environment.boot declares.
-    CloudEnvironmentBootError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudEnvironmentNotFound = "cloud.environment.not_found",
-        CloudEnvironmentSecretsUnavailable = "cloud.environment.secrets_unavailable",
-        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSizeLocked = "cloud.size.locked",
-        CloudSnapshotNotFound = "cloud.snapshot.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }

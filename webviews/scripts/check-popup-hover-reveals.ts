@@ -49,6 +49,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
     "own-menu rule",
   ],
+  // A grant's Revoke is a plain button that revokes on click (EnvironmentSection.tsx); it opens no menu.
+  [
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-row--grant:is(:hover, :focus-within) > .acpmux-session-info-link",
+    "revoke affordance",
+  ],
   // A running subagent's Stop (SubagentGroup.tsx StopButton) stops it on the click; it opens no menu.
   [
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop",
@@ -120,9 +125,23 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["styles.css|.comment-card:hover .comment-card-actions", "comment affordance"],
   ["optchat-inspector/styles.css|.term:hover .tip", "inspector tooltip"],
   ["agent-session/acpmux/styles.css|.acpmux-omni-row:hover .acpmux-omni-action", "new-tab affordance"],
+  // A section's six-dot handle (left of its title) is a drag grip and its fold chevron a disclosure mark:
+  // neither opens a menu.
   [
-    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:hover > .acpmux-session-info-section__handle",
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover) > .acpmux-session-info-section__handle",
     "drag handle",
+  ],
+  [
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:has(> .acpmux-session-info-section__head:hover) > .acpmux-session-info-section__handle",
+    "drag handle",
+  ],
+  [
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section[data-bare]:has(> :not(.acpmux-session-info-section__handle) > :first-child:hover) > .acpmux-session-info-section__handle",
+    "drag handle",
+  ],
+  [
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section .ui-disclosure-trigger:hover > .acpmux-session-info-section__fold",
+    "disclosure chevron",
   ],
   [
     "agent-session/acpmux/subagents/DisclosureRow.css|.cv-disclosure__line:hover .cv-disclosure__open",

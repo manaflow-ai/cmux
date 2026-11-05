@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
@@ -33,21 +34,14 @@ enum TopPages {
         return controller.topPages.key(for: route)
     }
 
-    /// Actions on an existing tab (Close Tab, Cmd-W) refuse while the active
-    /// window shows a top page and the run names no tab: pages have no tabs
-    /// and do not close (TOP-SECTION-ITEMS-ARE-PAGES Q1). The refusal makes
-    /// `perform` report the run as not ran, so debug.key and menus agree.
-    static func installTabTargetReasons(_ services: AppServices) {
-        let registry = services.registry
-        for descriptor in registry.descriptors where descriptor.targets == [.tab] {
-            let previous = registry.action(for: descriptor.id)?.targetUnavailableReason
-            ActionTargetReasons.set(descriptor.id, in: registry) { [weak services] invocation in
-                if let reason = previous?(invocation) { return reason }
-                guard invocation.target == nil, invocation["tab"] == nil,
-                      services?.windows.active?.shownTopPage != nil else { return nil }
-                return RefusalStrings.topPageHasNoTabs
-            }
-        }
+    /// The registry's top-page rules (`ActionTopPageRules`): a run on an existing tab that names
+    /// none refuses while the active window shows a page (TOP-SECTION-ITEMS-ARE-PAGES Q1); a
+    /// person's New Tab, New Terminal Tab or split leaves the page and runs in the workspace.
+    static func installActionRules(_ services: AppServices) {
+        services.registry.install(ActionTopPageRules(isShowing: { [weak services] in services?.windows.active?.shownTopPage != nil },
+                                                     canLeave: { [weak services] in services?.windows.active?.leavingShowsWorkspace == true },
+                                                     leave: { [weak services] in _ = services?.windows.active?.leaveTopPage() },
+                                                     noTabs: { RefusalStrings.topPageHasNoTabs }, noPanes: { RefusalStrings.topPageHasNoPanes }))
     }
 
     /// Leaves the active window's top page for its workspace at once (a
@@ -63,13 +57,18 @@ enum TopPages {
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
         // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
-        let automations = AutomationsPageHost(local: { [cli = LocalServerSource.bundledCLI()] in
-            guard let cli else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
+        let automations = AutomationsPageHost(local: { [bundled = services.bundledCLI] in
+            guard let cli = await bundled.resolve() else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
             let listed = try await ProcessRunner.run(executable: cli, arguments: ["--json", "automation", "list"], environment: nil, timeout: .seconds(10), clock: ContinuousClock())
             guard listed.status == 0 else { throw AutomationsPageHost.SourceError(code: "cli_failed", message: String(decoding: listed.stderr, as: UTF8.self)) }
             return listed.stdout
         }, cloud: { [relay = CloudAutomationRelay.signedIn(services.cloud.auth)] in
             try AutomationsPageHost.cloudValue(await relay.forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })
+        // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790).
+        automations.signIn = { [weak services] in
+            guard let services else { return }
+            CmuxSignInOffer(registry: services.registry, isSignedIn: { services.cloud.isSignedIn }).signIn()
+        }
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
         _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })

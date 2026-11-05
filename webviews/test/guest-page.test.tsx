@@ -48,9 +48,11 @@ const { createRoot } = await import("react-dom/client");
 const { GuestPage, endedBy } = await import("../src/agent-session/guest/GuestPage");
 const { attemptId } = await import("../src/agent-session/guest/redeem");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { askingRecords, fakeRoom, joinFrames } = await import("../src/agent-session/guest/fixtures/liveChat");
+const { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } =
+  await import("../src/agent-session/guest/fixtures/liveChat");
 type Props = Parameters<typeof GuestPage>[0];
 type RedeemRequest = Parameters<Props["redeem"]>[1];
+type AcceptRequest = Parameters<NonNullable<Props["accept"]>>[1];
 
 afterAll(() => {
   dom.window.close();
@@ -76,6 +78,7 @@ async function mount(props: Partial<Props>) {
         redeem={() => new Promise(() => undefined)}
         attempt={() => "a".repeat(32)}
         socketUrl="wss://room.test/guest"
+        storage={memoryStorage()}
         {...props}
       />,
     ),
@@ -178,7 +181,10 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   );
   const labels = [...page.host.querySelectorAll("button")].map((button) => button.textContent ?? "");
   expect(labels.some((label) => /^(Allow|Reject)$/.test(label))).toBe(false);
-  expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
+  // The only field is the guest's own composer, never the owner's.
+  expect(
+    page.host.querySelector(".guest-live__transcript textarea, .guest-live__transcript [contenteditable='true']"),
+  ).toBeNull();
   await page.unmount();
 });
 
@@ -194,9 +200,94 @@ test("the room ends the share: the ended page replaces the chat", async () => {
 test("only a share that is over ends the page; offline and network failures may be retried", () => {
   expect(endedBy("share.expired")).toBe("expired");
   expect(endedBy("share.revoked")).toBe("revoked");
+  expect(endedBy("share.closed")).toBe("closed");
   expect(endedBy("share.kicked")).toBe("kicked");
   expect(endedBy("share.used")).toBe("used");
   expect(endedBy("share.left")).toBe("used");
   expect(endedBy("share.host_offline")).toBeUndefined();
   expect(endedBy("failed")).toBeUndefined();
+});
+
+test("an invite joins as the signed-in account: no name field, and Join accepts this tab's attempt", async () => {
+  const asked: AcceptRequest[] = [];
+  const joined: unknown[] = [];
+  const page = await mount({
+    secret: undefined,
+    invite: true,
+    accept: async (_, request) => {
+      asked.push(request);
+      return { ok: true, guestId: "g1", role: "talk" };
+    },
+    onJoined: (...args) => void joined.push(args),
+    openSocket: fakeRoom(joinFrames(askingRecords())),
+  });
+  expect(page.host.textContent).toContain(translate("guest.join.title"));
+  expect(page.host.textContent).toContain(translate("guest.invite.detail"));
+  expect(page.host.querySelector("input")).toBeNull();
+  expect(joinButton(page.host).disabled).toBe(false);
+  await submit(page.host);
+  expect(asked).toEqual([{ attempt_id: "a".repeat(32) }]);
+  expect(joined).toEqual([["g1", undefined, "talk", "invite"]]);
+  await roomFrames();
+  expect(page.host.textContent).toContain("Fix the flaky upload retry test");
+  expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
+  await page.unmount();
+});
+
+for (const [error, shown] of [
+  ["share.not_invited", "guest.invite.notInvited"],
+  ["share.unverified", "guest.invite.unverified"],
+  ["share.unauthorized", "guest.invite.signIn"],
+  ["share.host_offline", "guest.join.hostOffline"],
+] as const)
+  test(`an invite accept answered ${error} says so, and Join stays to try again`, async () => {
+    const page = await mount({ secret: undefined, invite: true, accept: async () => ({ ok: false, error }) });
+    await submit(page.host);
+    expect(page.host.querySelector("[role=alert]")?.textContent).toContain(translate(shown));
+    expect(joinButton(page.host).disabled).toBe(false);
+    if (error === "share.unauthorized")
+      expect(page.host.querySelector("[role=alert] a")?.getAttribute("href")).toBe(`/i/${SHARE}`);
+    await page.unmount();
+  });
+
+test("a view invitee watches: no composer, and the page says it can only watch", async () => {
+  const page = await mount({ guestId: "g1", role: "view", openSocket: fakeRoom(joinFrames(workingRecords())) });
+  await roomFrames();
+  expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
+  expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
+  await page.unmount();
+});
+
+// The role is known only after accept, so the invite's join text never promises a view invitee
+// that the owner approves its messages (#33925).
+test("the invite join text hedges message approval in every app locale", () => {
+  expect(translate("guest.invite.detail", {}, "en")).toContain("If you can send messages");
+  for (const lang of ["en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"] as const)
+    expect(translate("guest.invite.detail", {}, lang)).not.toContain(translate("guest.join.detail", {}, lang));
+});
+
+// The owner's thread rail is pane chrome: on the guest page it drew a lone tick at the left edge (#33925).
+for (const role of ["view", "talk"] as const)
+  test(`the guest page draws no thread rail (${role})`, async () => {
+    const page = await mount({ guestId: "g1", role, openSocket: fakeRoom(joinFrames(workingRecords())) });
+    await roomFrames();
+    expect(page.host.textContent).toContain("Fix the flaky upload retry test");
+    expect(page.host.querySelector(".acpmux-minimap, .acpmux-minimap__tick")).toBeNull();
+    await page.unmount();
+  });
+
+test("an invitee the owner removes (uninvite) ends on You were removed", async () => {
+  const frames = [...joinFrames(askingRecords()), { v: 1, t: "kicked" }];
+  const page = await mount({ guestId: "g1", role: "talk", openSocket: fakeRoom(frames) });
+  await roomFrames();
+  expect(page.host.textContent).toBe(translate("guest.ended.kicked"));
+  const removed = await mount({
+    secret: undefined,
+    invite: true,
+    accept: async () => ({ ok: false, error: "share.kicked" }),
+  });
+  await submit(removed.host);
+  expect(removed.host.textContent).toBe(translate("guest.ended.kicked"));
+  await removed.unmount();
+  await page.unmount();
 });

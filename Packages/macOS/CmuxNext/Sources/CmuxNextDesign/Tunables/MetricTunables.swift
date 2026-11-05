@@ -14,25 +14,27 @@ public nonisolated struct MetricTunable: Sendable {
     /// The compact value under Compact tabs (`Metrics.compactTabs`), when it differs.
     public let tight: CGFloat?
     public let key: MetricKey?
+    /// An icon box: every density resolves it on the icon scale (`DensityTokens.resolveGlyph`).
+    public var glyph = false
     public let tunable: DerivedTunable<CGFloat>
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: name))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: name, glyph: glyph))) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
                      compact: CGFloat, comfortable: CGFloat, tight: CGFloat? = nil, key: MetricKey? = nil,
-                     range: ClosedRange<Double>? = nil) -> MetricTunable {
+                     range: ClosedRange<Double>? = nil, glyph: Bool = false) -> MetricTunable {
         let upper = max((Double(comfortable) * 2.5).rounded(.up), 24)
         let step = comfortable < 10 ? 0.5 : 1
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: name) }
-        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: name, glyph: glyph) }
+        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, glyph: glyph, tunable: tunable)
     }
 }
 
@@ -78,10 +80,12 @@ public nonisolated enum MetricTunables {
     /// The favicon and the close button side by side, whole (Lawrence 2026-10-20, replacing Chrome's 32, where
     /// the x never fits): `TabStripMetrics.faviconCloseWidth` at each density's tokens. Pill insets 2 x 1,
     /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
-    /// target), trailing inset 4. A test keeps these equal to the sum.
+    /// target), trailing inset 4. Plus `TabStripMetrics.crowdedTitleRoom` (24) so a crowded tab keeps the start
+    /// of its title, faded (Lawrence msg 19596, 26 tabs: "all here is … which is not very helpful"); past
+    /// that the strip scrolls. A test keeps these equal to the sum.
     public static let tabMinInactiveWidth = MetricTunable.make(
-        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon and the close button.",
-        compact: 48, comfortable: 50, tight: 46, key: .tabMinInactiveWidth, range: 16...320)
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon, a few title characters and the close button.",
+        compact: 72, comfortable: 74, tight: 70, key: .tabMinInactiveWidth, range: 16...320)
     public static let tabPinnedWidth = MetricTunable.make(
         "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
         compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
@@ -111,18 +115,14 @@ public nonisolated enum MetricTunables {
         "dividerHitWidth", .panes, "Divider drag width", help: "Draggable width centered on a split divider.",
         compact: 7, comfortable: 7, key: .dividerHitWidth, range: 1...24)
     public static let densityPaneCornerRadius = MetricTunable.make(
-        "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",
-        compact: 6, comfortable: 8)
+        "densityPaneCornerRadius", .panes, "Corner radius", help: "The one outer radius of panes, the main pane and tabs (tabs: less the corner padding) when layout.paneCornerRadius is unset.",
+        compact: 10, comfortable: 11)
 
     // MARK: Shape, icons, focus
 
-    public static let panelCornerRadius = MetricTunable.make("panelCornerRadius", .shape, "Panel corner radius", help: "Floating glass panels and the floating drop highlight.",
-                                                             compact: 10, comfortable: 12, key: .panelCornerRadius)
-    public static let itemCornerRadius = MetricTunable.make("itemCornerRadius", .shape, "Item corner radius", help: "Tabs, rows and buttons.",
-                                                            compact: 6, comfortable: 7)
-    public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16)
+    public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16, glyph: true)
     public static let smallIconSize = MetricTunable.make("smallIconSize", .shape, "Small icon size", help: "Secondary glyphs and trailing buttons.",
-                                                         compact: 12, comfortable: 14)
+                                                         compact: 12, comfortable: 14, glyph: true)
     public static let scrollEdgeFade = MetricTunable.make("scrollEdgeFade", .focus, "Scroll edge fade", help: "Height of the fade where a list hides content.",
                                                           compact: 18, comfortable: 22)
 
@@ -130,6 +130,6 @@ public nonisolated enum MetricTunables {
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

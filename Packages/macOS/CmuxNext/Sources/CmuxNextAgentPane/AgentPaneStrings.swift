@@ -172,15 +172,56 @@ extension AgentPaneView {
         String(localized: "agentPane.peerApprovals.enroll", defaultValue: "Enroll this Mac", bundle: .module)
     }
 
+    /// The person's answer for a peer's prompt waits while this Mac enrolls there.
+    static func peerApprovalsEnrollingTitle(_ peer: String) -> String {
+        String(format: String(localized: "agentPane.peerApprovals.enrolling.title", defaultValue: "Enrolling this Mac on %@…",
+                              bundle: .module), peer)
+    }
+
+    static var peerApprovalsEnrollingDetail: String {
+        String(localized: "agentPane.peerApprovals.enrolling.detail",
+               defaultValue: "Your answer goes as soon as it's done.", bundle: .module)
+    }
+
     static func peerApprovalsEnrollFailed(_ peer: String, _ reason: String) -> String {
         String(format: String(localized: "agentPane.peerApprovals.enrollFailed", defaultValue: "Could not enroll this Mac on %@: %@",
                               bundle: .module), peer, reason)
     }
 
-    /// An always-allow (or an answer with notes) for a peer's prompt: only a one-time allow counts.
+    /// An Always allow for a peer's prompt: only a one-time allow counts from this Mac.
     static var peerApprovalsOnceOnly: String {
-        String(localized: "agentPane.peerApprovals.onceOnly.title", defaultValue: "Only a one-time Allow works from this Mac",
+        String(localized: "agentPane.peerApprovals.alwaysOff.title",
+               defaultValue: "Always allow isn't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An answer with notes for a peer's prompt: this Mac signs none.
+    static var peerApprovalsNotes: String {
+        String(localized: "agentPane.peerApprovals.notes.title",
+               defaultValue: "Answers with notes aren't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An Allow once for a peer's prompt that did not come from a click (a key).
+    static var peerApprovalsNotClicked: String {
+        String(localized: "agentPane.peerApprovals.notClicked.title",
+               defaultValue: "Click Allow once to answer this from this Mac.", bundle: .module)
+    }
+
+    /// This Mac's approver key could not sign a peer's Allow once.
+    static var peerApprovalsNoKeyTitle: String {
+        String(localized: "agentPane.peerApprovals.noKey.title", defaultValue: "This Mac couldn't sign that Allow once",
                bundle: .module)
+    }
+
+    static var peerApprovalsNoKeyDetail: String {
+        String(localized: "agentPane.peerApprovals.noKey.detail",
+               defaultValue: "Its approval key isn't available. Enroll this Mac on the other machine, then choose Allow once again.",
+               bundle: .module)
+    }
+
+    /// A peer's prompt this Mac had no record of when the person answered: the ask is still open.
+    static var peerApprovalsNotRecorded: String {
+        String(localized: "agentPane.peerApprovals.notRecorded.title",
+               defaultValue: "This Mac hadn't received that request yet. Choose Allow once again.", bundle: .module)
     }
 
     static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {
@@ -233,30 +274,29 @@ extension AgentPaneHostError {
         if let refusal = error as? any AgentPaneHostRefusal { return refusal.userMessage }
         return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            String(
-                format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
-                AcpmuxEnvironment.installDirectories.joined(separator: ", ")
-            )
-        case .daemonFailed(let logPath, let cause):
+            // The folders it looked in go to the app log (AgentPaneHost `endpoint`), not this line.
+            String(localized: "agentPane.error.notInstalled", defaultValue: "cmux couldn't find its agent service. Reinstall cmux to fix this.", bundle: .module)
+        // The daemon's log path is for a bug report, not the chat's line: it stays in the failure log.
+        case .daemonFailed(_, let cause):
             if let because = cause.userText {
-                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux cannot reach acpmux: %1$@. Its log is at %2$@.", bundle: .module), because, logPath)
+                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux couldn't start its agent service: %@.", bundle: .module), because)
             } else {
-                String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
+                String(localized: "agentPane.error.daemonFailed", defaultValue: "cmux couldn't start its agent service.", bundle: .module)
             }
         case .daemonRestarting:
-            String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
+            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .module)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux stopped.", bundle: .module)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
         case .daemonRefused(let holder?, _, _, _, _):
-            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux belongs to %@, and this build may not use it. Quit that app, then try again.", bundle: .module), holder)
+            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .module), holder)
         case .daemonRefused(_, _, _, _, _):
-            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another acpmux service is using this socket. It will reconnect when that service is ready.", bundle: .module)
+            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .module)
         case .timedOut, nil:
-            String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
+            String(localized: "agentPane.error.timedOut", defaultValue: "The agent service didn't answer in time.", bundle: .module)
         }
     }
 }

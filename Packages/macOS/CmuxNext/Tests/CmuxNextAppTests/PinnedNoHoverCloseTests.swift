@@ -81,7 +81,9 @@ import Testing
         harness.list.model.workspacePin = (isPinned: { $0 == pinned }, toggle: { _ in })
         harness.list.contextMenuProvider = { _ in NSMenu() }
         harness.settle()
-        for (id, isPinned) in [(pinned, true), (unpinned, false)] {
+        // The x's place: where the unpinned row draws its hover close (the trailing column, #30232).
+        var xPlace: CGRect?
+        for (id, isPinned) in [(unpinned, false), (pinned, true)] {
             harness.list.setHovered(.workspace(id))
             let row = try #require(harness.list.rowViews[.workspace(id)] as? WorkspaceRowView)
             row.wire(id, in: harness.list) // the menu provider came after the row's first wiring
@@ -91,7 +93,10 @@ import Testing
             #expect(closeShown != isPinned, "\(id.rawValue) pinned \(isPinned): close shown \(closeShown)")
             #expect(!row.moreButton.isHidden && row.moreButton.alphaValue > 0, "\(id.rawValue): no more button on hover")
             if isPinned {
-                #expect(row.moreButton.frame == row.closeButton.frame, "the more button did not take the x's place")
+                let place = try #require(xPlace)
+                #expect(row.moreButton.frame == place, "the more button \(row.moreButton.frame) did not take the x's place \(place)")
+            } else {
+                xPlace = row.closeButton.frame
             }
         }
     }

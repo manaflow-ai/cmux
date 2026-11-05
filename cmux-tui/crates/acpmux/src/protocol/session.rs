@@ -8,6 +8,26 @@ use serde_json::Value;
 
 use super::require_all;
 
+/// `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+/// Before-prompt requests require requestId and omit both throughSeq and live.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkParams {
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub through_seq: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_prompt_id: Option<String>,
+    /// Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
 /// One session as every list shows it (`Hub::session_summary`). A peer's
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
@@ -55,6 +75,14 @@ pub struct SessionSummary {
     pub created_at: u64,
     pub updated_at: u64,
     pub last_seq: u64,
+    /// The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+    /// `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+    /// git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+    /// again only when this passes the value it read at. An upper bound after a hard stop.
+    /// Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub transcript_seq: u64,
     pub event_count: u64,
     pub turn_count: u64,
     pub parent_id: Option<String>,
@@ -248,6 +276,16 @@ pub struct UsageStats {
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
     pub cost_usd24h: Option<f64>,
+    /// Model calls of the last 24 hours, subagents' included.
+    #[serde(rename = "calls24h")]
+    pub calls24h: Option<u64>,
+    /// Of those calls' prompt tokens (input, cache read and cache write), the share the prompt
+    /// cache served (0 to 1); null with no calls or when the day is not read whole.
+    #[serde(rename = "cacheReadShare24h")]
+    pub cache_read_share24h: Option<f64>,
+    /// `costUsd24h` over the priced calls: what one call costs at list prices, USD.
+    #[serde(rename = "costPerCallUsd24h")]
+    pub cost_per_call_usd24h: Option<f64>,
     /// Unix ms of the read these come from.
     pub updated_at: u64,
 }
@@ -438,6 +476,14 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
+    /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+    #[serde(default)]
+    pub awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
+    #[serde(default)]
+    pub revision: u64,
     /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
     /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
     /// on an older acpmux.
@@ -720,6 +766,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude these statuses before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_status: Option<Vec<String>>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
+    /// or question, local and peer, summarized alone and answered without the list's pace.
+    /// Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -120,19 +121,19 @@ extension TabContentCache {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
         if let tab = tabModel(key), installedBefore || services.machines.daemon(forTab: tab).store.restoredTabIDs.contains(key) {
-            entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
+            entry.state.markRestored(tab.url.flatMap(URL.init(string:)))
         }
-        entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
+        entry.state.loadOverride = { [weak self, weak state = entry.state] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
             // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
             guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
-                chrome?.addressBar.showPageURL()
+                state?.chrome?.addressBar.showPageURL()
                 return true
             }
             // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
             // gone, so it is refused with a word; it never loads or searches (it carried a secret).
             if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
-                chrome?.addressBar.showPageURL()
+                state?.chrome?.addressBar.showPageURL()
                 services.registry.refuse(refusal)
                 return true
             }
@@ -144,6 +145,19 @@ extension TabContentCache {
             showAppPage(url, in: tab)
             return true
         }
+    }
+
+    /// A person's own Open Desktop made the remote view tab `key` for `url`: that tab, and only
+    /// that one, is theirs (#29208). A page already made for it (asking for Connect) is made
+    /// again, connected; one the tab left for another address is not touched.
+    func personOpenedRemoteView(_ key: String, url: URL, scope: ActionRunScope?) {
+        guard let services = pageRequests.services else { return }
+        let tab = tabModel(key)
+        // A tab that already left the record keeps no approval it could use if the record came back.
+        if let tab, tab.url != url.absoluteString { return }
+        services.remoteViewPages.confirm(key, url: url, scope: scope)
+        guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab else { return }
+        showAppPage(url, in: tab)
     }
 
     /// Replaces a page with the history page.
@@ -257,6 +271,6 @@ extension TabContentCache {
     /// machine's localhost, which WebKit would load from this Mac).
     private func unproxiedWebKitPage(_ config: BrowserTabConfiguration) -> WebKitTab {
         webKit.makeWebKitTab(id: config.id, profile: config.profile,
-                             initialURL: pageRequests.proxiedTabs.isProxied(config.id.rawValue) ? nil : config.initialURL)
+                             initialURL: pageRequests.staysOffThisMacLocalhost(config.id.rawValue) ? nil : config.initialURL)
     }
 }

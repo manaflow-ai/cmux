@@ -274,6 +274,30 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
 }
 
 #[tokio::test]
+async fn compact_result_after_replayed_prompt_ends_the_turn() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        4,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&prompt).await else { panic!() };
+    // Claude Code 2.1.305 replays the command after the boundary and summary.
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": null, "compact_result": "success"})).await;
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual", "pre_tokens": 716807, "post_tokens": 17414}})).await;
+    t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "This session is being continued from a previous conversation. Summary: PLUM-42"}})).await;
+    t.inbound(&json!({"type": "user", "isReplay": true, "uuid": lines[0]["uuid"], "message": lines[0]["message"]})).await;
+    let msgs = t.inbound(&json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""})).await;
+    assert!(
+        msgs.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if *id == 4 && r["stopReason"] == "end_turn")),
+        "/compact left its prompt open after its replay: {msgs:?}"
+    );
+    assert!(!t.in_turn.load(Ordering::SeqCst));
+    assert_eq!(t.context_used.load(Ordering::SeqCst), 17414);
+}
+
+#[tokio::test]
 async fn a_subagent_result_does_not_clear_main_compaction() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&json!({
@@ -607,4 +631,31 @@ async fn versioned_family_names_reach_claude_code_as_full_ids() {
     );
     let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
     assert_eq!(lines[0]["request"]["model"], "claude-sonnet-5-5");
+}
+
+/// A Claude chat showed no thinking (Leo: "why is no thinking appearing for
+/// you?"): Claude Code 2.1.310 in `-p` streams its thinking blocks empty
+/// (display omitted) unless asked for summaries, so no `agent_thought_chunk`
+/// ever went out. The chat asks for them; a profile that pins its own display
+/// keeps it.
+#[test]
+fn claude_chats_ask_for_thinking_summaries() {
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", None);
+    let at = plan.args.iter().position(|a| a == "--thinking-display").expect("--thinking-display");
+    assert_eq!(plan.args[at + 1], "summarized");
+
+    let pinned: crate::config::HarnessProfile = serde_json::from_value(
+        json!({"kind": "claude-stdio", "argv": ["claude", "--thinking-display", "omitted"]}),
+    )
+    .unwrap();
+    let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == "--thinking-display").count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+    assert!(plan.args.iter().any(|a| a == "omitted"));
 }

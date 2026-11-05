@@ -79,7 +79,10 @@ def main():
         result = verify(make_app(tmp, executable=False))
         _check(result.returncode != 0, f"a helper without its executable fails ({result.stderr.strip()})")
 
-    workflow = yaml.safe_load(open(NIGHTLY, encoding="utf-8"))
+    # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from nightly_workflow_text import nightly_text
+    workflow = yaml.safe_load(nightly_text())
     build = "\n".join(str(s.get("run", "")) for s in workflow["jobs"]["build-nightly-app"]["steps"])
     _check("build-cmux-cua.sh" in build and "--helper-app" in build,
            "the nightly app build assembles the helper (build-cmux-cua.sh --helper-app)")

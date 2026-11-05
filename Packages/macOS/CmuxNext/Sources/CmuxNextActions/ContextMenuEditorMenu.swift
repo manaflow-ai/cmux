@@ -70,7 +70,7 @@ extension ActionMenuContext {
     public static let editorOrder: [ActionMenuContext] = [
         .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
         .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine,
-        .tab, .tabGroup, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar,
+        .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar,
         .terminalSelection,
         .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager,
         .agentChat, .fileExplorerRow, .notification,
@@ -80,7 +80,7 @@ extension ActionMenuContext {
         switch self {
         case .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
              .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine: .workspace
-        case .tab, .tabGroup, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar: .tabs
+        case .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar: .tabs
         case .terminalSelection: .terminal
         case .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager: .browser
         case .agentChat, .fileExplorerRow, .notification: .other
@@ -92,6 +92,7 @@ extension ActionMenuContext {
         switch self {
         case .tab: String(localized: "menu.name.tab", defaultValue: "Tab", bundle: .module)
         case .tabGroup: String(localized: "menu.name.tabGroup", defaultValue: "Tab Group", bundle: .module)
+        case .tabStrip: String(localized: "menu.name.tabStrip", defaultValue: "Tab Bar", bundle: .module)
         case .screen: String(localized: "menu.name.screen", defaultValue: "Screen", bundle: .module)
         case .screenGroup: String(localized: "menu.name.screenGroup", defaultValue: "Screen Group", bundle: .module)
         case .pane: String(localized: "menu.name.pane", defaultValue: "Pane", bundle: .module)

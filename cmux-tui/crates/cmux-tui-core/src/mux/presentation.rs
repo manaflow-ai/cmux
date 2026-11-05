@@ -265,6 +265,24 @@ impl Mux {
         }
     }
 
+    /// [`Self::tree_decorations`] for a create that places `placing` in the
+    /// delta it emits (`pane-added`, `tab-added`). The new terminal has no
+    /// pane yet when the decorations are read, and the directory scan keeps
+    /// only placed surfaces, so its first record would have no `cwd`: the
+    /// client's tab title would fall back to its placeholder and change again
+    /// at the next `tab-changed` (RESIZE VIDEOS T1). Its own directory is
+    /// added here, read like every other tab's.
+    #[track_caller]
+    pub(crate) fn tree_decorations_placing(&self, placing: &Surface) -> TreeDecorations {
+        let mut decorations = self.tree_decorations();
+        if let Some(directory) = placing.presented_directory() {
+            decorations
+                .directories
+                .extend(self.resolve_tab_directories(vec![(placing.id, directory)], true));
+        }
+        decorations
+    }
+
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
@@ -644,7 +662,7 @@ impl Mux {
                     }),
                 )?
             };
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             self.reload_presentation(&registry)?;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
@@ -769,7 +787,7 @@ impl Mux {
                     }),
                 )?
             };
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             self.reload_presentation(&registry)?;
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
@@ -853,6 +871,37 @@ impl Mux {
         size: Option<(u16, u16)>,
         placement: FrontendTabPlacement,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_with(record, |browser_id, url| {
+            let fields = frontend_browser_fields(browser_id, placement);
+            self.new_browser_tab_with_fields_as(actor, url, pane, size, fields)
+        })
+    }
+
+    /// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`):
+    /// the tab is created directly in a new pane split from `split.pane`, in
+    /// one `pane.split` commit whose one `pane-added` delta holds the pane
+    /// with the tab; the source pane never lists it.
+    pub(crate) fn new_frontend_browser_tab_split_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        split: TabSplit,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_with(record, |browser_id, url| {
+            let fields = frontend_browser_fields(browser_id, FrontendTabPlacement::default());
+            self.split_tab_pane_with_fields_as(actor, split, url, fields, size)
+        })
+    }
+
+    /// Register `record` under a fresh browser id, then run `create`, which
+    /// must commit a browser tab carrying that id (`frontend_browser_id`) at
+    /// the record's URL. A failed creation removes the record.
+    fn new_frontend_browser_tab_with(
+        self: &Arc<Self>,
+        record: FrontendBrowserRecord,
+        create: impl FnOnce(&BrowserPublicId, String) -> anyhow::Result<Arc<Surface>>,
+    ) -> anyhow::Result<Arc<Surface>> {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
@@ -860,8 +909,7 @@ impl Mux {
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
-        let fields = frontend_browser_fields(&browser_id, placement);
-        match self.new_browser_tab_with_fields_as(actor, record.url.clone(), pane, size, fields) {
+        match create(&browser_id, record.url.clone()) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()
                     && runtime.set_frontend_location(None, record.title)

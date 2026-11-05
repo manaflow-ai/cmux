@@ -19,7 +19,7 @@ final class ScreenshotsPageService {
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
     private let detector: ScreenshotSourceDetector
-    let gate = ScreenshotsGate() // the tabs the person unlocked (Show Screenshots)
+    let gate = ScreenshotsGate(defaults: .standard) // the tabs unlocked by Show Screenshots; the click outlives a relaunch
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
     /// The last folders found, and the settings they were found for.
@@ -37,7 +37,7 @@ final class ScreenshotsPageService {
         let run = ScreenshotsOpen(personsRun: invocation.isPersonsOwnRun)
         guard let window = services?.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
         func said(_ tab: String?) -> ActionEffect {
-            guard let said = run.result(existing: tab != nil, listing: tab.map(gate.isUnlocked) ?? false) else { return .done }
+            guard let said = run.result(existing: tab != nil, listing: gate.remembersAccess || (tab.map(gate.isUnlocked) ?? false)) else { return .done }
             return .applied(result: { .success(["opened": .string(said.opened), "listing": .bool(said.listing)].merging(said.note.map { ["note": .string($0)] } ?? [:]) { $1 }) })
         }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
@@ -54,7 +54,7 @@ final class ScreenshotsPageService {
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
                                       cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
-        page.view.onShowScreenshots = { [weak self] in self?.unlock(key) }
+        gate.wire(page.view, key: key) { [weak self] in self?.unlock(key) } // lists once on screen after an earlier launch's click
         pages[key] = page
         if gate.mayDetect { offer(to: model) }
         return page

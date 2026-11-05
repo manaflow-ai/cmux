@@ -24,6 +24,8 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     public var running: Bool?
     /// The acpmux host of a hand-off's chat, when this app made it (nil: unknown).
     public var host: String?
+    /// Sent from an incognito window's chat: never saved for the next launch, and its banner names nothing.
+    public var incognito: Bool?
 
     public init(id: String, task: String, key: String, user: String, team: String?, started: Date) {
         (self.id, self.task, self.key, self.user, self.team, self.started) = (id, task, key, user, team, started)

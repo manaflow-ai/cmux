@@ -413,7 +413,8 @@ class WorkflowTests(unittest.TestCase):
     def test_probe_restates_probe_label(self) -> None:
         runs_on = re.search(r"name: Blacksmith probe\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED", runs_on)
-        self.assertIn(f"'{switch.DEFAULT_PROBE_LABEL}'", runs_on)
+        self.assertIn("fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED).probe", runs_on)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", runs_on)
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:

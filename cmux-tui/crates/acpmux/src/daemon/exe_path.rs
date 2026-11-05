@@ -15,6 +15,13 @@
 //! build tree (`target/`, `DerivedData`). Every other home (a tagged Debug
 //! app's, an iOS e2e rig's, a test's, which run from build trees on purpose)
 //! starts quietly; `daemon status` still reports `exeUnstable`.
+//!
+//! A DEV app (`cmux DEV.app`, `cmux DEV <tag>.app`, wherever it is installed)
+//! has a home of its own. It neither starts nor stops a daemon of NIGHTLY's
+//! homes (`~/.acpmux` and NIGHTLY's Chief's). The app's environment resolution
+//! keeps it away. These checks are the backstop: a daemon refuses a stop from any
+//! DEV build, even one from before this rule, and a DEV binary with this rule
+//! refuses to start there (cmux#29050).
 
 use std::path::{Component, Path};
 
@@ -112,6 +119,32 @@ fn bundled(exe: &Path) -> bool {
             .any(|w| matches!(w, [app, next] if app.ends_with(".app") && *next == "Contents"))
 }
 
+/// Whether `exe` belongs to a DEV app: an app bundle (or its signing clone) named `cmux DEV`,
+/// tagged (`cmux DEV <tag>`) or not.
+fn dev_app(exe: &Path) -> bool {
+    exe.components().any(|c| match c {
+        Component::Normal(n) => {
+            let name = n.to_string_lossy();
+            let bundle = name.strip_suffix(".app.bundle").or_else(|| name.strip_suffix(".app"));
+            bundle.is_some_and(|b| b == "cmux DEV" || b.starts_with("cmux DEV "))
+        }
+        _ => false,
+    })
+}
+
+/// Whether `home` is one of NIGHTLY's daemon homes on this machine: `~/.acpmux`, or its Chief's
+/// `~/.cmux/chief/default/acpmux`. A home in a temporary folder (a test's `HOME`) is not.
+fn nightly_home(home: &Path, default_home: &Path, temp_dir: &Path) -> bool {
+    if classify(home, temp_dir).is_some() {
+        return false;
+    }
+    home == default_home
+        || default_home.parent().is_some_and(|user| {
+            home == cmux_agent_pane_policy::build_identity::chief_homes_root(user)
+                .join("default/acpmux")
+        })
+}
+
 /// What starting a daemon from `exe` for state folder `home` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
@@ -133,6 +166,15 @@ pub fn verdict(
     allow: bool,
     verified_clone: bool,
 ) -> Verdict {
+    if !allow && dev_app(exe) && nightly_home(home, default_home, temp_dir) {
+        return Verdict::Refuse(format!(
+            "acpmux: refused to start a daemon for {} from the DEV build {}: that home is cmux \
+             NIGHTLY's. A DEV build runs in an ACPMUX_HOME of its own; \
+             {ALLOW_ENV}=1 overrides this",
+            home.display(),
+            exe.display()
+        ));
+    }
     let Some(why) = classify(exe, temp_dir) else { return Verdict::Stable };
     if home != default_home || classify(home, temp_dir).is_some() {
         return Verdict::Stable;
@@ -148,7 +190,7 @@ pub fn verdict(
             if !(allow || bundled(exe) || why == Unstable::Temp && verified_clone) =>
         {
             Verdict::Refuse(format!(
-                "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
+                "{line}. Refused for {}: install acpmux (`acpmux machine setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
              or set {ALLOW_ENV}=1",
                 home.display()
@@ -239,7 +281,9 @@ const TEST_RUNNERS: &[&str] = &["swiftpm-testing-helper", "xctest"];
 /// None. Only the person's own home is guarded, as in [`verdict`]: a test runner never stops it,
 /// and a client from a runner `_work` or a temporary folder does not unless `allow`
 /// ([`ALLOW_ENV`] in the daemon's own environment; a client cannot grant it) or it is an app's
-/// bundled binary. On 2026-10-26 a `cmux-next swift test` job on a CI mini
+/// bundled binary. A tagged DEV app never stops a daemon of NIGHTLY's homes (`~/.acpmux`, its Chief's)
+/// either, unless `allow`: on 2026-11-02 agent-launched DEV apps took `~/.acpmux` from NIGHTLY
+/// mid-turn (cmux#29050). On 2026-10-26 a `cmux-next swift test` job on a CI mini
 /// (`swiftpm-testing-helper`, no `ACPMUX_HOME`) handed the mini's own `~/.acpmux` daemon off and
 /// cycled daemons there until the run ended.
 pub fn shutdown_refusal(
@@ -250,6 +294,15 @@ pub fn shutdown_refusal(
     allow: bool,
     verified_clone: bool,
 ) -> Option<String> {
+    if !allow && dev_app(peer_exe) && nightly_home(home, default_home, temp_dir) {
+        return Some(format!(
+            "acpmux: refused to stop the daemon of {}: the request came from the DEV build {}, and \
+             that home is cmux NIGHTLY's. A DEV build runs in an ACPMUX_HOME of its own; \
+             a daemon started with {ALLOW_ENV}=1 allows this",
+            home.display(),
+            peer_exe.display()
+        ));
+    }
     if home != default_home || classify(home, temp_dir).is_some() {
         return None;
     }
@@ -274,6 +327,33 @@ pub fn shutdown_refusal(
         peer_exe.display(),
         refused
     ))
+}
+
+/// Whether a daemon run from `own_exe` takes `home` back from the daemon run from `holder_exe`
+/// that holds its lock: a DEV build holds a home of NIGHTLY's and this start is no DEV build.
+/// [`verdict`] and [`shutdown_refusal`] keep a DEV build with those rules out, but a DEV build from
+/// before them can still start there while the home is free, and clients then use it as the
+/// home's daemon (cmux#29050: 28 DEV daemons in `~/.acpmux` between 2026-10-31 and 2026-11-03).
+pub fn reclaims_home(
+    holder_exe: &Path,
+    own_exe: &Path,
+    home: &Path,
+    default_home: &Path,
+    temp_dir: &Path,
+) -> bool {
+    dev_app(holder_exe) && !dev_app(own_exe) && nightly_home(home, default_home, temp_dir)
+}
+
+/// [`reclaims_home`] for this process's own executable and home.
+pub fn current_reclaims_home(holder_exe: &Path) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return false };
+    reclaims_home(
+        &resolved(holder_exe),
+        &resolved(&exe),
+        &resolved(&crate::config::home()),
+        &resolved(&crate::config::default_home()),
+        &resolved(&std::env::temp_dir()),
+    )
 }
 
 /// [`shutdown_refusal`] for this daemon's home and a Unix socket peer, whose executable its audit

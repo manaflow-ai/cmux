@@ -384,7 +384,7 @@ Evet, cmux ücretsiz kullanılır. Kaynak kodu [GitHub](https://github.com/manaf
 
 ### cmux'u nasıl destekleyebilirim?
 
-cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)'a göz atın.
+cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır.
 
 ### Bir özellik isteğim var veya bir hata buldum?
 
@@ -423,19 +423,6 @@ Katılım yolları:
   <strong>WeChat:</strong> Topluluğa katılmak için QR kodunu tarayın.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklemek ve sırada ne olduğuna erken erişim almak isterseniz:
-
-**[Founder's Edition'ı Edinin](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Öncelikli özellik istekleri/hata düzeltmeleri**
-- **Erken erişim: Her çalışma alanı, sekme ve panel hakkında bağlam sağlayan cmux AI**
-- **Erken erişim: Masaüstü ve telefon arasında senkronize terminallere sahip iOS uygulaması**
-- **Erken erişim: Bulut VM'ler**
-- **Erken erişim: Sesli mod**
-- **Kişisel iMessage/WhatsApp'ım**
 
 ## Lisans
 

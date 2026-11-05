@@ -225,7 +225,8 @@ impl MuxEventFilter {
             Self::LaunchSnapshot => matches!(
                 event,
                 MuxEvent::TreeChanged
-                    | MuxEvent::TreeSelectionChanged
+                    | MuxEvent::TreeSelectionChanged(_)
+                    | MuxEvent::WorkspacePresentationChanged(_)
                     | MuxEvent::TreeDelta(_)
                     | MuxEvent::LayoutChanged(..)
                     | MuxEvent::PersonalChanged { .. }
@@ -272,7 +273,8 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged => false,
+            | MuxEvent::TreeSelectionChanged(_)
+            | MuxEvent::WorkspacePresentationChanged(_) => false,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
@@ -481,6 +483,16 @@ impl MuxEventReceiver {
     /// consumers use it for state changes that no broadcast event carries.
     pub(crate) fn wake(&self) {
         self.mailbox.push(MuxEvent::TreeChanged);
+    }
+
+    /// A waker that calls ``wake`` while this receiver lives (it holds no strong reference).
+    pub(crate) fn waker(&self) -> impl Fn() + Send + Sync + 'static {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                mailbox.push(MuxEvent::TreeChanged);
+            }
+        }
     }
 
     pub fn overflowed(&self) -> bool {

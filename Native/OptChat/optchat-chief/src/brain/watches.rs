@@ -29,6 +29,10 @@ impl Brain {
         self.state.last_watch += 1;
         let now = now_ms();
         let seconds = call.timeout_seconds.unwrap_or(WATCH_DEFAULT_SECONDS);
+        // A PR-merge poll on gh waits through glaeda instead (watch.rs).
+        let command = crate::watch::quota_safe(&command, call.until.as_deref(), seconds)
+            .filter(|_| crate::watch::glaeda_available())
+            .unwrap_or(command);
         let watch = Watch {
             id: format!("w{}", self.state.last_watch),
             command,
@@ -94,7 +98,7 @@ impl Brain {
             .iter()
             .map(|w| {
                 format!(
-                    "{}: `{}`{}, {} left{}",
+                    "{}: `{}`{}, {} left{}{}",
                     w.id,
                     w.command,
                     w.until
@@ -106,7 +110,14 @@ impl Brain {
                         String::new()
                     } else {
                         format!(" ({})", w.note)
-                    }
+                    },
+                    self.watch_runs
+                        .get(&w.id)
+                        .map(|r| r.latest())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|line| format!("\n  > {line}"))
+                        .collect::<String>()
                 )
             })
             .collect();

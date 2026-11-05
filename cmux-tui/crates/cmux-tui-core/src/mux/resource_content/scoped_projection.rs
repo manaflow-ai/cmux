@@ -106,6 +106,30 @@ impl Mux {
         }
     }
 
+    /// [`Self::created_view_projection_locked`] for several created views
+    /// committed together (a creation group): the scope is all their
+    /// workspaces, and `result` is the first view's.
+    pub(crate) fn created_views_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        views: &[&Value],
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let mut workspaces = Vec::with_capacity(views.len());
+        for view in views {
+            match created_view_workspace(view) {
+                Some(workspace) if registry.public_fold_seeded() => {
+                    if !workspaces.contains(&workspace) {
+                        workspaces.push(workspace);
+                    }
+                }
+                _ => return self.resource_effect_projection_locked(registry, state, result),
+            }
+        }
+        self.resource_effect_projection_scoped_locked(registry, state, &workspaces, result)
+    }
+
     /// [`Self::resource_effect_projection_locked`] for a change confined to
     /// `workspaces`. Same fence contract: the caller holds registry -> state
     /// and commits the returned patch before releasing either.

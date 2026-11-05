@@ -29,13 +29,58 @@ fn same_device(run: Option<&str>, editor: Option<&str>) -> Option<String> {
     run.filter(|d| editor == Some(*d)).map(str::to_owned)
 }
 
-/// The stricter of two controls: an edit never runs a prompt under looser rules than either
+/// Whether the waiting prompt `prompt_id` is one of the agent's own slash commands: its first
+/// words name a command of the agent's newest `available_commands_update` (`/compact`, a skill),
+/// never a path or a word the agent does not list.
+fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
+    let name = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter().find(|q| q.prompt_id == prompt_id) else { return false };
+        match super::forum::slash_command(&q.run.blocks) {
+            Some(name) => name.to_owned(),
+            None => return false,
+        }
+    };
+    lists_command(session.meta().available_commands.as_ref(), &name)
+}
+
+/// Whether an `available_commands_update` lists the command `name` (case aside).
+fn lists_command(update: Option<&Value>, name: &str) -> bool {
+    update.and_then(|u| u.get("availableCommands")).and_then(Value::as_array).is_some_and(
+        |commands| {
+            commands.iter().any(|c| {
+                c.get("name").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        },
+    )
+}
+
+/// The stricter of two controls:an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
     match (a, b) {
         (Control::Web, _) | (_, Control::Web) => Control::Web,
         (Control::Peer, _) | (_, Control::Peer) => Control::Peer,
         _ => Control::Local,
+    }
+}
+
+impl PromptRun {
+    /// This run under the stricter of its own rules and another's who acts on it (its editor, or
+    /// the owner who approves it, `queue_approve.rs`): the stricter control, the trust gate when
+    /// either asks it, and a Full-access machine only when both are that machine.
+    pub(super) fn restricted(
+        &self,
+        control: Control,
+        trust_gate: bool,
+        device: Option<&str>,
+    ) -> PromptRun {
+        PromptRun {
+            control: stricter(self.control, control),
+            trust_gate: self.trust_gate || trust_gate,
+            full_access_device: same_device(self.full_access_device.as_deref(), device),
+            ..self.clone()
+        }
     }
 }
 
@@ -220,11 +265,18 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
-                let sent =
+                // One of the agent's own commands (`/compact`) runs only as a turn of its own:
+                // steered in, Claude Code reads it as words and thinks about them instead (Leo,
+                // 2026-11-03: "this should have just started compacting"). Send now on one stops
+                // the running turn and runs it next, as `interrupt` does.
+                let sent = if session.turn().is_some() && queued_agent_command(session, prompt_id) {
+                    self.interrupt_for_queued(session, prompt_id, editor).await?
+                } else {
                     match self.send_queued_now(session, prompt_id, control, device, editor)? {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
-                    };
+                    }
+                };
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
@@ -233,7 +285,12 @@ impl Hub {
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
-            "resume" => json!(self.resume_queue(session)),
+            "resume" => {
+                let resumed = self.resume_queue(session);
+                // The Stop's hold is over: what the inbox held back goes in (`inbox_review`).
+                self.inbox_review(session);
+                json!(resumed)
+            }
             "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
@@ -268,12 +325,20 @@ impl Hub {
         device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let (turn_id, run, text) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Logged under the lock that changed it, as `queue_approved` is: two edits of one prompt
+        // reach the log in the order their revisions were given, so a restart restores the last
+        // words and never pairs an approval with older ones (`restore_queue`).
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (turn_id, run, text, revision) = {
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // Approved, it runs the words the owner approved (`queue_approve.rs`).
+            let again = crate::author::awaits_owner(q.run.provenance.as_ref());
+            if again && !q.awaiting_owner {
+                return Err(super::queue::approved_error());
+            }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
@@ -291,6 +356,7 @@ impl Hub {
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
+                cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message, unless the sender
                 // is that person.
@@ -305,9 +371,18 @@ impl Hub {
                 message_sender: None,
             });
             q.preview = short_text(&text, 200);
-            (q.turn_id.clone(), q.run.clone(), text)
+            // Its author's edit of a prompt that waits for the owner is a new revision: an
+            // approval names the words the owner saw (`queue_approve.rs`).
+            if again {
+                q.revision = q.revision.saturating_add(1);
+            }
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        if let Some(revision) = revision {
+            msg.set("awaitingOwner", json!(true));
+            msg.set("revision", json!(revision));
+        }
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
@@ -327,6 +402,7 @@ impl Hub {
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
+        drop(queue);
         Ok(true)
     }
 
@@ -346,6 +422,9 @@ impl Hub {
             };
             let Some(item) = queue.get(from) else { return Ok(false) };
             crate::author::may_change(editor, item.sender())?;
+            // A prompt that waits for the owner runs only in its place, once approved: checked
+            // under the lock that changes it (`queue_approve.rs`).
+            super::queue::released(item)?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
@@ -386,11 +465,14 @@ impl Hub {
                     return Ok(None);
                 };
                 crate::author::may_change(editor, q.sender())?;
+                // Under the lock that makes it a steer (`queue_approve.rs`).
+                super::queue::released(q)?;
                 let run = PromptRun {
                     size: q.run.size.clone(),
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,
+                    cloud_mobile: q.run.cloud_mobile,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),

@@ -64,6 +64,7 @@ nonisolated extension AcpmuxEnvironment {
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { AcpmuxEnvironment.inheritsAnotherBuildsHome($0, ownHome: ownHome, root: root) ? nil : $0 }
         if let customHome {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {

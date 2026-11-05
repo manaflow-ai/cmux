@@ -16,7 +16,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from nightly_workflow_text import nightly_text  # noqa: E402
+from nightly_workflow_text import nightly_text, write_out_step_aliases  # noqa: E402
 
 SCRIPT = ROOT / "scripts/ci/nightly_next_live_feed_check.py"
 spec = importlib.util.spec_from_file_location("nightly_next_live_feed_check", SCRIPT)
@@ -234,7 +234,7 @@ class WorkflowTests(unittest.TestCase):
     """Both nightly-next feed writers read their feed back right after the write."""
 
     def job(self, name: str, until: str) -> str:
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         return text[text.index(f"\n  {name}:"):text.index(f"\n  {until}:")]
 
     def test_publish_nightly_reads_the_next_feed_back(self):
@@ -242,9 +242,14 @@ class WorkflowTests(unittest.TestCase):
         upload = job.index("- name: Upload nightly-next appcasts to R2")
         readback = job.index("- name: Read the live nightly-next feed back")
         self.assertLess(upload, readback)
-        # Last in the job, never failing it, and reported by report-nightly-failure.
-        self.assertNotIn("\n      - ", job[readback + 1:])
-        step = job[readback:]
+        # Last in the job but for the lease release and the owned-Mac wipe (always last,
+        # tests/test_nightly_owned_minis_only.py), never failing it, and reported by report-nightly-failure.
+        release = job.index("- name: Release the nightly-next publish lease")
+        wipe = job.index("- name: Wipe this job's credentials and files from the owned Mac")
+        self.assertNotIn("\n      - ", job[readback + 1:release - 1])
+        self.assertNotIn("\n      - ", job[release + 1:wipe - 1])
+        self.assertNotIn("\n      - ", job[wipe + 1:])
+        step = job[readback:release]
         self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'", step)
         self.assertIn("continue-on-error: true", step)
         self.assertIn("nightly_next_live_feed_check.py", step)  # the step runs publish-next-feed-readback.sh
@@ -253,18 +258,6 @@ class WorkflowTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/nightly-steps/publish-next-feed-readback.sh").read_text()
         self.assertIn("nightly_next_live_feed_check.py", script)
         self.assertIn('--build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" --before', script)
-
-    def test_the_old_feed_is_read_back_after_its_publish(self):
-        job = self.job("publish-nightly-identity-legacy", "nightly-identity-legacy-published")
-        publish = job.index("- name: Publish the cmux NIGHTLY DMG, release notes and the old feed")
-        readback = job.index("- name: Read the old feed back")
-        self.assertLess(publish, readback)
-        # After the attempt accounting, which reads steps.publish only.
-        self.assertLess(job.index("- name: Fail a failed attempt"), readback)
-        self.assertIn("if: always() && steps.publish.outcome == 'success'", job[readback:])
-        script = (ROOT / "scripts/ci/nightly-steps/legacy-identity-readback.sh").read_text()
-        self.assertIn('${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}', script)
-        self.assertIn("--before", script)
 
 
 if __name__ == "__main__":

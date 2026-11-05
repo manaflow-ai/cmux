@@ -10,7 +10,6 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
-import { translate } from "../src/agent-session/acpmux/i18n";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -273,7 +272,7 @@ test("a compaction that ends after a forced Stop ended its turn stays one row", 
   expect(compactions(reloaded.rows())).toEqual([[3, "completed"]]);
 });
 
-test("a compacting forced Stop is one notice and exposes Continue after the matching result", async () => {
+test("a compacting forced Stop is one forced summary and exposes Continue after the matching result", async () => {
   const forced = {
     status: "cancelled",
     stopReason: "cancelled",
@@ -295,7 +294,7 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
   // A compacting Stop settles only when acpmux publishes its terminal result; the GUI must not
   // manufacture a forced-end notice or Continue while that result is still in flight.
-  expect(rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"))).toHaveLength(0);
+  expect(rows().filter((row) => row.kind === "turnSummary" && row.stopForced === true)).toHaveLength(0);
   expect(turnView(rows(), new Set(), { now: START + 30_000 }).some((row) => row.resumable)).toBe(false);
   daemon.push(
     record(
@@ -307,7 +306,7 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
       4,
     ),
   );
-  const notices = () => rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"));
+  const notices = () => rows().filter((row) => row.kind === "turnSummary" && row.stopForced === true);
   expect(notices()).toHaveLength(1);
   const summaries = turnView(rows(), new Set(), { now: START + 30_000 }).filter((row) => row.kind === "turnSummary");
   expect(summaries).toHaveLength(1);
@@ -669,7 +668,7 @@ for (const mode of ["loadOlder", "lag"])
       const { client, rows, working } = await connect(daemon, (connection) => {
         if (connection === "resynced") resynced?.();
       });
-      const notices = () => rows().filter((row) => row.id === "notice-stop-turn-current");
+      const notices = () => rows().filter((row) => row.id === "summary-turn-current" && row.stopForced === true);
       jest.useFakeTimers();
       try {
         await client.cancel();
@@ -750,7 +749,7 @@ for (const oldTurnId of ["turn-old", undefined])
     });
 
 for (const turnId of ["turn-grace", undefined])
-  test(`only the authoritative Stop result draws one notice (${turnId ?? "unknown identity"})`, async () => {
+  test(`only the authoritative Stop result marks one summary forced (${turnId ?? "unknown identity"})`, async () => {
     const daemon = fakeDaemon(
       record([
         ["mux", "user_message", { text: "work", turnId }],
@@ -758,7 +757,7 @@ for (const turnId of ["turn-grace", undefined])
       ]),
     );
     const { client, rows } = await connect(daemon);
-    const notices = () => rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"));
+    const notices = () => rows().filter((row) => row.kind === "turnSummary" && row.stopForced === true);
     jest.useFakeTimers();
     try {
       await client.cancel();
@@ -768,7 +767,9 @@ for (const turnId of ["turn-grace", undefined])
       daemon.push(record([["mux", "turn_result", result]], 3));
       daemon.push(record([["mux", "turn_result", result]], 4));
       expect(notices()).toHaveLength(1);
-      expect(notices()[0]?.id).toBe("notice-stop-turn-grace");
+      expect(notices()[0]?.id).toBe("summary-turn-grace");
+      // No transcript line says how the Stop ended (Leo, 2026-11-03): no notice row at all.
+      expect(rows().some((row) => row.kind === "notice")).toBe(false);
     } finally {
       client.close();
       jest.useRealTimers();
@@ -1704,4 +1705,126 @@ test("a compaction running across three pages stays one row, and its live end en
   daemon.push(end);
   expect(compactions(rows())).toEqual([[4, "completed"]]);
   expect(spinners(rows())).toBe(0);
+});
+
+// Leo, 2026-10-21: "what the hell is this compaction fail? But it literally succeeded". A compaction
+// whose turn ended before its end was heard is noted as failed so it stops spinning, but Claude Code
+// never said it failed: the row says it ended, and only a failure Claude Code reports reads as one.
+test("a compaction whose end was never heard says it ended, not that it failed", () => {
+  const render = (compaction: AcpmuxRow["compaction"]) =>
+    renderToStaticMarkup(createElement(CompactionNote, { compaction: compaction! }));
+  const unheard = render({ state: "failed", inferred: true, reason: "account_switch" });
+  expect(unheard).toContain("Compaction ended");
+  expect(unheard).not.toContain("failed");
+  expect(unheard).toContain('data-state="ended"');
+  const reported = render({ state: "failed", error: "Prompt is too long" });
+  expect(reported).toContain("Compaction failed: Prompt is too long");
+  expect(reported).toContain('data-state="failed"');
+  expect(render({ state: "failed" })).toContain("Compaction failed");
+});
+
+// Leo, 2026-11-03, on a coordinator's message drawn above "Continue" and "The agent didn't answer
+// Stop, so cmux ended its turn.": "this is an "interesting" recovery flow... idk if it should be
+// showing things like that". A message steered in after acpmux took the Stop never reached the
+// agent: it draws below the stop, in the order it came, and acpmux's run of it as the next prompt
+// (same promptId) takes its place. The forced end says nothing in the transcript.
+const lateSteerHistory = (): Step[] => [
+  ["mux", "user_message", { text: "migrate the parser", promptId: "p-1", turnId: "turn-1" }],
+  ["mux", "turn_started", { turnId: "turn-1", promptId: "p-1" }],
+  ["mux", "stopping", { turnId: "turn-1" }],
+  [
+    "mux",
+    "user_message",
+    { text: "status check from the coordinator", promptId: "p-late", turnId: "turn-1", steer: true },
+  ],
+  ["mux", "turn_end", { stopReason: "cancelled", turnId: "turn-1" }],
+  ["mux", "turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true }],
+];
+const drawnKinds = (rows: AcpmuxRow[]) =>
+  rows
+    .filter((row) => row.kind === "user" || row.kind === "turnSummary" || row.kind === "notice")
+    .map((row) => (row.kind === "user" ? row.text : row.kind));
+
+for (const live of [true, false])
+  test(`a steer logged after the Stop draws below the stopped turn (${live ? "live" : "reload"})`, async () => {
+    const steps = lateSteerHistory();
+    const daemon = fakeDaemon(record(live ? steps.slice(0, 2) : steps));
+    const { client, rows } = await connect(daemon);
+    try {
+      if (live) daemon.push(record(steps.slice(2), 3));
+      expect(drawnKinds(rows())).toEqual(["migrate the parser", "turnSummary", "status check from the coordinator"]);
+      const late = rows().find((row) => row.promptId === "p-late")!;
+      expect(late.steer).toBeUndefined();
+      expect(late.afterStop).toBe(true);
+      expect(rows().find((row) => row.kind === "turnSummary")?.stopForced).toBe(true);
+      // acpmux runs it as the next prompt: one row, still below the stop.
+      daemon.push(
+        record(
+          [
+            [
+              "mux",
+              "user_message",
+              { text: "status check from the coordinator", promptId: "p-late", turnId: "turn-2" },
+            ],
+            ["mux", "turn_started", { turnId: "turn-2", promptId: "p-late" }],
+          ],
+          7,
+        ),
+      );
+      expect(drawnKinds(rows())).toEqual(["migrate the parser", "turnSummary", "status check from the coordinator"]);
+      expect(rows().filter((row) => row.promptId === "p-late")).toHaveLength(1);
+    } finally {
+      client.close();
+    }
+  });
+
+test("a late steer acpmux queues again gives way to its queued card", async () => {
+  const daemon = fakeDaemon(record(lateSteerHistory()));
+  const { client, rows } = await connect(daemon);
+  try {
+    daemon.push(record([["mux", "queued", { text: "status check from the coordinator", promptId: "p-late" }]], 7));
+    expect(rows().some((row) => row.kind === "user" && row.promptId === "p-late")).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a re-queue drops only the late steer with its promptId, not another with the same words", async () => {
+  const steps = lateSteerHistory();
+  steps.splice(4, 0, [
+    "mux",
+    "user_message",
+    { text: "status check from the coordinator", promptId: "p-late-2", turnId: "turn-1", steer: true },
+  ]);
+  const daemon = fakeDaemon(record(steps));
+  const { client, rows } = await connect(daemon);
+  try {
+    daemon.push(record([["mux", "queued", { text: "status check from the coordinator", promptId: "p-late" }]], 8));
+    expect(
+      rows()
+        .filter((row) => row.kind === "user" && row.afterStop)
+        .map((row) => row.promptId),
+    ).toEqual(["p-late-2"]);
+  } finally {
+    client.close();
+  }
+});
+
+test("a steer before the Stop stays in its turn, and an answered Stop marks nothing forced", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "migrate the parser", promptId: "p-1", turnId: "turn-1" }],
+      ["mux", "turn_started", { turnId: "turn-1", promptId: "p-1" }],
+      ["mux", "user_message", { text: "also the lexer", promptId: "p-early", turnId: "turn-1", steer: true }],
+      ["mux", "stopping", { turnId: "turn-1" }],
+      ["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(drawnKinds(rows())).toEqual(["migrate the parser", "also the lexer", "turnSummary"]);
+    expect(rows().find((row) => row.kind === "turnSummary")?.stopForced).toBeUndefined();
+  } finally {
+    client.close();
+  }
 });

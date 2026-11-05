@@ -144,12 +144,12 @@ extension BrowserHibernation {
     /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
     /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return nil }
+        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailVersions[key] == tab.state.pictureVersion ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its current leave picture
         if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
         // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
-        let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
+        let fitted = await PreviewImageCache.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)
     }
 }

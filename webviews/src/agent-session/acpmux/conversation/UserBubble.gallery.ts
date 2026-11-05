@@ -183,9 +183,21 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
       snapshot: yesterday(),
-      play: hoverTime("time.cv-turn-time"),
+      play: async (ctx) => {
+        const selector = "time.cv-turn-time";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(() => {
+          const time = ctx.document.querySelector<HTMLElement>(selector);
+          return (
+            time !== null &&
+            /\d:\d\d/.test(time.textContent ?? "") &&
+            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
+          );
+        });
+      },
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",
@@ -276,6 +288,15 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-user__paste" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+      },
+    },
+    editing: {
+      note: "Play: Edit opens the prompt in place on the bubble's own glass, 12 radius and 16 sides, at the bubble's widest, so its right edge stays put; Cancel and Send under the text.",
+      snapshot: turns(claude),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
+        await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
       },
     },
     "edit-tooltip": {

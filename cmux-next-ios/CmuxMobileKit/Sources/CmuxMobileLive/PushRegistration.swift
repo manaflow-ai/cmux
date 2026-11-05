@@ -32,7 +32,10 @@ public final class PushRegistration {
     private var token: String?
     private var api: LiveAPI?
     private var deviceID: String?
-    private var preferences = Preferences(kinds: ["question", "permission", "completed", "chief"])
+    /// Nil until the signed-in shell has loaded the person's actual Settings.
+    /// A cold background reply has no shell, and must never overwrite the
+    /// Worker's saved muted-Mac or previews-off choices with defaults.
+    private var preferences: Preferences?
     /// What the service last accepted, so a repeat sends nothing.
     private var sent: String?
     private var serverStateUncertain = false
@@ -110,6 +113,7 @@ public final class PushRegistration {
         pending = nil
         api = nil
         deviceID = nil
+        preferences = nil
         sent = nil
         acceptedKinds = nil
         serverStateUncertain = false
@@ -152,7 +156,10 @@ public final class PushRegistration {
     }
 
     private func sync() {
-        guard let api, let deviceID, let token, let topic else { return }
+        // The token and API can arrive during a notification's headless
+        // background launch. Its server row already has the user's saved
+        // preferences; wait for the foreground Settings owner before PUT.
+        guard let api, let deviceID, let token, let topic, let preferences else { return }
         let registration = Registration(api: api, deviceID: deviceID, token: token, environment: Self.environment,
                                         topic: topic, preferences: preferences)
         // A write in flight may replace `sent` on the server. Keep the latest

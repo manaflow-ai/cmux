@@ -558,6 +558,34 @@ fn chief_pipe_waits_past_a_turn_that_answers_other_messages() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "for mine\n");
 }
 
+/// claude-sr2-coord, 2026-11-03: an agent's `cmux chief -p` to a Chief in a
+/// long turn sat at "is its brain running?" for 30+ minutes. With
+/// `--no-wait` it returns once the message is in the conversation, like
+/// `acpmux send --no-wait`; the busy Chief reads it at its next turn.
+#[test]
+fn chief_pipe_no_wait_returns_at_delivery_while_the_chief_is_in_a_turn() {
+    let (server, _home, conversation, token) = chief_daemon("chief-no-wait");
+    let mut brain = bound_brain(&server.socket, &token);
+    typing(&mut brain, &conversation, true);
+    let output =
+        chief_cli(&server, &["-p", "status of 32615?", "--from", "lane-x", "--no-wait"], "");
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("delivered to the Chief (message "), "{stdout}");
+    assert!(stdout.contains("it reads it at its next turn"), "{stdout}");
+    // Delivered unread: the brain sees it, with its sender, and has not moved its cursor.
+    let message = brain.person_message();
+    assert!(text_of(&message).contains("status of 32615?"), "{message}");
+    assert!(text_of(&message).contains("lane-x"), "{message}");
+
+    let output =
+        chief_cli(&server, &["--json", "-p", "again", "--from", "lane-x", "--no-wait"], "");
+    assert_success(&output);
+    let line: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(line["delivered"], true, "{line}");
+    assert!(line["seq"].as_u64().is_some_and(|seq| seq > message["seq"].as_u64().unwrap()));
+}
+
 /// Wait-agents: pipe mode waits while a reply says the subagents its message
 /// started still work, through the turns their reports cause, and ends with
 /// the turn that closes that work even when it posts only a done marker.

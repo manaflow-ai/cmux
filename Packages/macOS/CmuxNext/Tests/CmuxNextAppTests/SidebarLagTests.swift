@@ -87,7 +87,8 @@ struct SidebarLagTests {
     /// minutes, until the stall watchdog (300 s with no test finished) killed the run. Alone it takes
     /// 13 to 19 s with the same frame numbers. The child writes what it measured for this test to
     /// check against the same budgets as before.
-    @Test func everyDayInteractionsStayInsideTheFrameBudget() async throws {
+    @Test(.disabled("Quarantined: the CPU-only calibration misses CI runners' slow commits, so the 8 ms p95 fails unscaled, https://github.com/manaflow-ai/cmux/issues/30972"))
+    func everyDayInteractionsStayInsideTheFrameBudget() async throws {
         let url = Self.reportURL("frames", parent: getpid())
         // Only this run's child writes the report: an older one never stands in for it.
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }

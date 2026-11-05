@@ -123,6 +123,7 @@ extension NewTabSubmit {
                 return true
             }
         case .browser(let url):
+            if invocation.origin == .user, ChatColumnPlacement.isBelowChat(pane) { _ = pane.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url)); return }
             guard let open = browserInvocation(url, from: invocation) else { return }
             TabLifecycle.newBrowser(ctx, open)
         case .chat(let prompt, let harness):

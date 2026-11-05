@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::{Request, machine_is_older, parse};
+use serde_json::json;
+
+use super::{AfterLostStart, Request, ended, lost_start_began, machine_is_older, parse};
 
 fn args(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -52,4 +54,45 @@ fn a_machine_is_older_only_by_an_earlier_build_time() {
     // This client does not know its own time: no order.
     assert!(!machine_is_older(None, 0));
     assert!(!machine_is_older(Some(1), 0));
+}
+
+const OLD_PID: u64 = 4242;
+
+fn seen(daemon_pid: Option<Option<u64>>, apply_seen: bool, staged_present: bool) -> bool {
+    lost_start_began(&AfterLostStart { daemon_pid, apply_seen, staged_present }, OLD_PID)
+}
+
+#[test]
+fn a_lost_start_whose_daemon_came_back_on_another_pid_began() {
+    // The apply step replaced the daemon, which closed the start's connection
+    // before it answered: the update goes on to its outcome, never a failure.
+    assert!(seen(Some(Some(OLD_PID + 1)), false, false));
+    assert!(seen(Some(Some(OLD_PID + 1)), false, true));
+    // Mid-restart, no daemon answers.
+    assert!(seen(None, false, true));
+    // The staged build was renamed over the binary, or the step wrote its
+    // outcome file (`running` while it still checks the staged build).
+    assert!(seen(Some(Some(OLD_PID)), false, false));
+    assert!(seen(Some(Some(OLD_PID)), true, true));
+}
+
+#[test]
+fn a_lost_start_on_the_same_daemon_with_nothing_changed_is_started_again() {
+    assert!(!seen(Some(Some(OLD_PID)), false, true));
+}
+
+fn code(state: &str) -> Result<String, &'static str> {
+    ended(&json!({"state": state, "detail": "why"}), "own").map_err(|failed| failed.code)
+}
+
+#[test]
+fn a_daemon_on_someone_elses_build_is_its_own_quiet_code_not_a_failure() {
+    // Leo, 2026-11-02, on "Couldn't update leo-cloud: the daemon does not run
+    // the installed binary": "WHY WOULD THIS STILL HAPPEN".
+    assert_eq!(code("foreign"), Err("machine_update_foreign_daemon"));
+    assert_eq!(code("busy"), Err("machine_update_busy"));
+    assert_eq!(code("pending"), Err("machine_update_pending"));
+    assert_eq!(code("rolled_back"), Err("machine_update_rolled_back"));
+    assert_eq!(code("updated"), Ok("own".to_owned()));
+    assert_eq!(code("failed"), Err("machine_update_failed"));
 }

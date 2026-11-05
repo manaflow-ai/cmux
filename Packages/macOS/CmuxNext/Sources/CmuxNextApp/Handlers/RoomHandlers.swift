@@ -126,7 +126,6 @@ enum RoomHandlers {
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
-            guard !room.isDefault else { throw ActionFailure.invalidTarget(RoomStrings.defaultCannotBeDeleted) }
             let moveTo = try context.optionalRoom(invocation["moveTo"])?.id
             let id = room.id, name = room.name, services = context.services
             // Delete Space closes the workspaces only this space shows, in
@@ -139,10 +138,13 @@ enum RoomHandlers {
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
+                if let moveTo { await MainActor.run { services.sidebarDoc.store?.moveSpace(id.rawValue, into: moveTo.rawValue) } }
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
+        // The only space (the Default space, which the daemon keeps) is refused with its reason before any question.
+        context.setTargetReason("space.delete") { (try? context.room($0)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.services.machines.local.store) } }
         bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
         bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
         bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
@@ -191,6 +193,8 @@ enum RoomHandlers {
         let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
+        // Marked before the daemon mirrors it, so no normal window's space bar lists it for a frame.
+        if incognito { services.windows.incognitoSpaceMarks.mark(id) }
         services.registry.track(Task {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {

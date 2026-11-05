@@ -28,6 +28,7 @@ final class BrowserProfileService {
     @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
     @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
     @ObservationIgnored var migratingRecords = false
+    @ObservationIgnored var cleanupClaims = BrowserProfileCleanupClaims()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
@@ -124,6 +125,9 @@ final class BrowserProfileService {
         }
         return book.engineProfile(for: services.cache.tabModel(key)?.browserProfileID)
     }
+
+    /// `engineProfile(forTab:)` when the caller knows whether `tab` is incognito (no lookup of its workspace).
+    func engineProfile(for tab: TabModel, incognito: Bool) -> BrowserProfileID { incognito ? services.windows.incognitoProfile() : book.engineProfile(for: tab.browserProfileID) }
 
     /// The wire id of a tab's profile (nil record = `default`).
     func profileID(ofTab tab: TabModel) -> String {

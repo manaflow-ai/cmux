@@ -13,9 +13,13 @@
 //!   (link/cloud_fs.rs, agent_start_host.rs), which stands in for the
 //!   root-owned `/etc/cmux`.
 //!
-//! The journey runs the real CLI: `cmux link sync push` copies the folder with
-//! its git state through the VM daemon's `fs-v1`, then `cmux link agent move`
-//! pumps the chat between the two daemons' `agent-transfer-v1` verbs. Both
+//! The journey runs the real CLI: `cmux link seed push` seeds the folder with
+//! its git state through the VM daemon's `git-seed-v1` (the VM clones the
+//! folder's GitHub remote, a folder of bare repositories named by the
+//! debug-only `CMUX_TEST_GIT_SEED_GITHUB` seam, and applies one bundle of the
+//! local diff it got through `fs-v1`), then `cmux link agent move` pumps the
+//! chat between the two daemons' `agent-transfer-v1` verbs, sending what the
+//! running turn wrote since as a delta bundle (`--sync seed`). Both
 //! commands are given the VM daemon's own Unix socket, as the trusted local
 //! client the Cloud link's `remote connect` bridge makes the app on the VM.
 //!
@@ -37,14 +41,23 @@ const QUEUED: &str = "queued for the cloud";
 const QUEUED_ID: &str = "p-journey-queued";
 const DRAFT: &str = "an unsent thought";
 
-/// A working copy with a commit, an uncommitted change and an untracked file.
-fn dirty_repo(at: &Path) -> PathBuf {
+/// A working copy with a commit pushed to its GitHub remote (`acme/app`
+/// under `github`), an uncommitted change and an untracked file.
+fn dirty_repo(at: &Path, github: &Path) -> PathBuf {
     let repo = at.join("app");
     fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     fs::write(repo.join("src/lib.txt"), "committed\n").unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "first"]);
+    let bare = github.join("acme/app.git");
+    fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "--bare"]);
+    git(&bare, &["config", "uploadpack.allowFilter", "true"]);
+    git(&repo, &["remote", "add", "origin", "https://github.com/acme/app.git"]);
+    let local = format!("url.file://{}/.insteadOf", github.display());
+    git(&repo, &["config", &local, "https://github.com/"]);
+    git(&repo, &["-c", "protocol.file.allow=always", "push", "-q", "-u", "origin", "main"]);
     fs::write(repo.join("src/lib.txt"), "committed\nuncommitted change\n").unwrap();
     fs::write(repo.join("notes.txt"), "untracked\n").unwrap();
     repo
@@ -100,29 +113,34 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     let root = fs::canonicalize(&root).unwrap();
     let _cleanup = Cleanup(root.clone());
 
+    let github = root.join("github");
     let mac = Machine::start(&root, "mac", Vec::new());
     let vm = Machine::start(
         &root,
         "vm",
         vec![
             ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
+            ("CMUX_TEST_GIT_SEED_GITHUB", github.to_string_lossy().into_owned()),
             ("CMUX_VM_ID", "vm-cloud-move-journey".to_owned()),
             ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
         ],
     );
 
-    // 1. The dirty folder goes to the VM's ~/work with its git state.
-    let repo = dirty_repo(&mac.home());
+    // 1. The dirty folder goes to the VM's ~/work with its git state: a
+    // clone of its GitHub remote and a bundle of the local diff.
+    let repo = dirty_repo(&mac.home(), &github);
     let synced = vm.home().join("work/app");
     let (ok, summary) = run_json(
         Command::new(bin())
             .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
-            .args(["link", "sync", "push", "--socket"])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(["link", "seed", "push", "--socket"])
             .arg(&vm.socket)
             .arg(&repo)
             .arg(&synced),
     );
-    assert!(ok && summary["ok"] == json!(true), "sync push: {summary}");
+    assert!(ok && summary["ok"] == json!(true), "seed push: {summary}");
+    assert_eq!(summary["mode"], json!("seed"), "the folder was not seeded: {summary}");
     assert!(synced.join(".git").is_dir(), "no repository on the VM");
     assert_eq!(
         fs::read_to_string(synced.join("src/lib.txt")).unwrap(),
@@ -133,12 +151,18 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     assert_eq!(git(&synced, &status), git(&repo, &status), "git status differs on the VM");
     assert_eq!(git(&synced, &["rev-parse", "HEAD"]), git(&repo, &["rev-parse", "HEAD"]));
 
-    // 2. The chat moves, its running turn stopped for the move.
+    // 2. The chat moves mid-turn: its running turn stops for the move, and
+    // what the turn wrote after the seed above goes with it (`--sync seed`, a
+    // delta bundle sent once the chat is frozen).
     let mut mac_acpmux = mac.acpmux();
     let session = chat_with_history_draft_and_queue(&mut mac_acpmux, &repo);
     let surface = bound_agent_tab(&mac, &session);
+    fs::write(repo.join("src/turn.txt"), "written by the running turn\n").unwrap();
     let (ok, moved) = run_json(
         Command::new(bin())
+            // This Mac's state, where the seed above kept its record.
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&mac.socket)
             .args(["--surface", &surface.to_string(), "--to-socket"])
@@ -147,11 +171,22 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
             .arg(&synced)
             .arg("--interrupt")
             .args(["--vm-kind", "owner"])
+            .args(["--sync", "seed", "--sync-socket"])
+            .arg(&vm.socket)
+            .arg("--sync-local")
+            .arg(&repo)
+            .arg("--sync-remote")
+            .arg(&synced)
             .arg("--state-dir")
             .arg(root.join("pump")),
     );
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
     assert_eq!(moved["session_id"], json!(session), "{moved}");
+    assert_eq!(
+        fs::read_to_string(synced.join("src/turn.txt")).unwrap(),
+        "written by the running turn\n",
+        "the turn's last change stayed on the Mac"
+    );
 
     // 3. On the VM: the chat with its history and draft, in the synced
     // folder, and its queued prompt ran there exactly once.
@@ -164,6 +199,23 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     });
     assert_eq!(count(&landed, "user_message", USER_TEXT, HISTORY), 1, "history: {landed:?}");
     assert_eq!(count(&landed, "agent_message_chunk", AGENT_TEXT, &format!("echo: {HISTORY}")), 1);
+    // The turn the move stopped went on on the VM, before the queued prompt.
+    let continued = landed
+        .iter()
+        .position(|e| {
+            e["kind"] == "user_message"
+                && e["msg"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("This chat moved to another machine"))
+        })
+        .unwrap_or_else(|| panic!("the cut turn never went on on the VM: {landed:?}"));
+    let queued_at = landed
+        .iter()
+        .position(|e| {
+            e["kind"] == "user_message" && e["msg"].pointer(USER_TEXT) == Some(&json!(QUEUED))
+        })
+        .unwrap();
+    assert!(continued < queued_at, "the continuation ran after the queue: {landed:?}");
     // A second look later: nothing ran it again.
     std::thread::sleep(Duration::from_secs(2));
     let events = vm_acpmux.events(&session);
@@ -249,7 +301,7 @@ fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
         "the daemon must not write a per-home model-plane.env (it would shadow the image's)"
     );
 
-    let repo = dirty_repo(&mac.home());
+    let repo = dirty_repo(&mac.home(), &root.join("github"));
     let synced = vm.home().join("work/app");
     let (ok, summary) = run_json(
         Command::new(bin())

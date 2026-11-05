@@ -55,7 +55,8 @@ public struct PaneSplitCommand: Sendable {
         options.splitID = provisional.splitID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time, as New Column and New Row do: a split pressed on a split still in flight names that
         // split's stand-in, which the daemon does not know ("unknown pane"); by the time this goes out (the workspace's
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over
@@ -65,13 +66,9 @@ public struct PaneSplitCommand: Sendable {
             try await connection.split(try await target(), direction: direction, options: sent)
         }
         return {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            // The stand-in's own create failed or was closed: that reason, not a daemon refusal the daemon never sent.
-            if case .failure(let notCreated as PendingPaneNotCreated) = answer { throw notCreated }
-            guard case .success(let created) = answer else { throw PaneSplitFailure() }
+            // A failure is the real one (``NewTerminalTabCommand``, FC-1): the daemon's answer, a lost connection,
+            // ``PaneNotReady`` or ``PendingPaneNotCreated``, never a fixed text that hides it.
+            let created = try await send().get()
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             // The store holds the daemon's pane before the next create of this workspace resolves its target.
@@ -96,9 +93,4 @@ public struct PaneSplitCommand: Sendable {
 /// An optimistic split whose pane the person closed before the daemon made it (CancelledCreation).
 public struct PaneSplitCancelled: Error, CustomStringConvertible {
     public var description: String { "the pane closed before the daemon made it" }
-}
-
-/// An optimistic split the daemon refused (the intent log logged the cause and removed the pane).
-public struct PaneSplitFailure: Error, CustomStringConvertible {
-    public var description: String { "the daemon refused the split" }
 }

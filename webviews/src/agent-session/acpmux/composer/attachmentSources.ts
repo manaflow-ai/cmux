@@ -14,7 +14,8 @@ export const SOURCES_DEADLINE_MS = 1500;
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-const callHost: Call = (method, params) => {
+/// The host's answer to `method`: the page's direct action when it has one (the gallery, a test), else the bridge.
+export const callHost: Call = (method, params) => {
   const direct = window.cmuxAcpmuxActions?.[method];
   return direct ? Promise.resolve(direct(params)) : postNative(method, params);
 };

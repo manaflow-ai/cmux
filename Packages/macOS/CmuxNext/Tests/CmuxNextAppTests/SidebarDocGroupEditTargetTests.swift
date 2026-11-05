@@ -42,7 +42,7 @@ struct SidebarDocGroupEditTargetTests {
 struct SidebarDocSubgroupPersonalParentTests {
     @Test func aPersonalParentIDPlansUnderItsDocumentItem() throws {
         let records = try SidebarDocGroupEditTargetTests.records()
-        let plan = SidebarDocSubgroupPlan(parent: GroupID("grp_1"), id: GroupID("grp_new"), name: "sub", color: .green, records: records)
+        let plan = SidebarDocSubgroupPlan(parent: GroupID("grp_1"), id: GroupID("grp_new"), name: "sub", color: .palette(.green), records: records)
         #expect(plan.refusal == nil)
         let to = plan.ops?.first?["to"] as? [String: Any]
         #expect(to?["parent"] as? String == "itm_g_grp_1")

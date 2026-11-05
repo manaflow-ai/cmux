@@ -147,6 +147,16 @@ export default componentEntry<Props>({
       props: { initial: single },
       height: 130,
     },
+    "options-menu-hover": {
+      note: "Options stays open with Start in a new worktree checked and Dismiss hovered in neutral ink.",
+      props: { initial: single.map((offer) => ({ ...offer, worktree: true })) },
+      height: 260,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Options" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemcheckbox"]'));
+        await ctx.hover({ role: "menuitem", name: "Dismiss" });
+      },
+    },
     "single-started": {
       note: "Play: Start turns the lone task into one quiet row with what its chat does now.",
       props: { initial: single },

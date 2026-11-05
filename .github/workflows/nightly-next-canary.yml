@@ -38,14 +38,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
+  # The verdicts stay in the retired feed's folder, where nightly-next-verdict.yml writes them and
+  # the app reads them (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE).
+  NIGHTLY_NEXT_VERDICTS_BASE: https://files-next.cmux.com/nightly-next/next
   # Bumping it verifies every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -110,7 +115,7 @@ jobs:
           build, url, length, signature = max(items)
           # The release copy, or the feed's own R2 base (publish-nightly-next-r2.py).
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                                 "https://files-next.cmux.com/nightly-next/next/")):
+                                 "https://files-next.cmux.com/nightly-next/")):
               sys.exit(f"{url} is not a nightly-next download")
           print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
           PY
@@ -137,7 +142,7 @@ jobs:
           BUILD: ${{ steps.feed.outputs.build }}
         run: |
           set -uo pipefail
-          url="${NIGHTLY_NEXT_FEED%/*}/verdicts/${BUILD}.json"
+          url="${NIGHTLY_NEXT_VERDICTS_BASE}/verdicts/${BUILD}.json"
           if curl -fsSL --retry 3 -A "cmux-nightly-next-canary/1" -H "Cache-Control: no-cache" -o verdict.json "$url?canary=$GITHUB_RUN_ID" \
             && python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(d.get("build") != sys.argv[2] or d.get("verdict") not in ("pass", "fail"))' verdict.json "$BUILD"; then
             echo "written=true" >> "$GITHUB_OUTPUT"
@@ -170,7 +175,7 @@ jobs:
     # side label on attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS
     # on main re-runs a refused job), Blacksmith macOS 26 from attempt 2 on. Never
     # a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -294,7 +299,7 @@ jobs:
     name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-verdict.yml

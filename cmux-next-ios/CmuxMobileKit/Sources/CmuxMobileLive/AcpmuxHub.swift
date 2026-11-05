@@ -29,7 +29,7 @@ public final class AcpmuxHub {
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
     @ObservationIgnored public var onWatchEvent: (@MainActor (AcpmuxHub.WatchEvent) -> Void)?
-    /// Signs an Allow or an answer with the phone's approval key after Face ID
+    /// Signs an Allow or an answer with the phone's approval key
     /// (verify/phone-approvals.md); nil while this phone is not paired.
     @ObservationIgnored public var approver: Approver?
     /// The daemon run that approvals bind (`initialize` `_meta.acpmux.personInstance`).
@@ -47,9 +47,9 @@ public final class AcpmuxHub {
         public var phoneID: String
         /// The Mac's mobile device id.
         public var macDevice: String
-        /// Asks for Face ID (`reason` is what the system sheet says) and returns
-        /// the signer it unlocked. The payload, and so its expiry, is made only
-        /// after Face ID returns, so a slow answer never expires on the way.
+        /// Returns the approval signer (`reason` says what is approved). The
+        /// payload, and so its expiry, is made only after it returns, so a slow
+        /// signer never lets an answer expire on the way.
         public var authorize: @Sendable (_ reason: String) async throws -> Signer
         public var now: @Sendable () -> Date
 
@@ -68,11 +68,6 @@ public final class AcpmuxHub {
     /// The Mac's acpmux predates phone approvals (its prompts carry no
     /// `decisionNonce`): a paired phone's Allow cannot count there.
     public struct ApproverUnsupported: Error, Equatable {
-        public init() {}
-    }
-
-    /// The user closed Face ID and the passcode: nothing was sent.
-    public struct ApprovalCancelled: Error, Equatable {
         public init() {}
     }
 
@@ -266,8 +261,7 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
-    /// `_meta` for an Allow or an answer signed with the approval key after
-    /// Face ID; nil for a reject option (never signed), an unpaired phone or a
+    /// `_meta` for an Allow or an answer signed with the approval key; nil for a reject option (never signed), an unpaired phone or a
     /// prompt that is no longer pending (acpmux then refuses or not-founds it).
     func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?,
                     reason answerReason: String? = nil) async throws -> JSONValue? {
@@ -284,15 +278,10 @@ public final class AcpmuxHub {
         guard let nonce = pending["decisionNonce"]?.stringValue,
               let instance = pending["personInstance"]?.stringValue ?? personInstance else { throw ApproverUnsupported() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
-        // The Face ID sheet names what is sent: the chosen answers, or the Mac's own title (review M1, L3).
+        // What is approved: the chosen answers, or the Mac's own title (review M1, L3).
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
-        let sign: Approver.Signer
-        do {
-            sign = try await approver.authorize(reason)
-        } catch PhoneKeys.Failure.cancelled {
-            throw ApprovalCancelled()
-        }
-        // The expiry starts once Face ID returned.
+        let sign = try await approver.authorize(reason)
+        // The expiry starts once the signer returned.
         let payload = ApprovalPayload(
             instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
@@ -300,7 +289,7 @@ public final class AcpmuxHub {
         return payload.meta(signature: try sign(payload.message))
     }
 
-    /// The Face ID reason of an answer: the labels (and free text) chosen, so
+    /// The approval reason of an answer: the labels (and free text) chosen, so
     /// the person approves what is sent, not what a notification said.
     nonisolated static func answerReason(_ question: AgentQuestion, _ answer: AgentQuestionAnswer) -> String {
         var parts: [String] = []
@@ -313,7 +302,7 @@ public final class AcpmuxHub {
         return "Answer “\(cut(parts.joined(separator: ", "), 80))”"
     }
 
-    /// The Face ID reason of an Allow: the Mac's own title, marked when cut.
+    /// The approval reason of an Allow: the Mac's own title, marked when cut.
     nonisolated static func allowReason(title: String) -> String {
         title.isEmpty ? "Allow the agent's request" : "Allow “\(cut(title, 80))”"
     }
@@ -388,15 +377,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
     private var questions: [String: AgentQuestion] = [:]
-    /// The history page size and the most records to keep on attach.
+    /// The raw records applied to this chat, newest 500 (the Event Inspector).
+    let journal = AgentEventJournal()
+    /// The most records one history read returns.
     static let pageSize = 400
-    static let maxHistory = 2000
+    /// The open's byte cap, as the Mac's agent pane opens: a long chat draws its newest records
+    /// after one small read. It used to read 2000 records in five round trips first (1.3-4.3 MB
+    /// on the Mac's long chats), and a page that timed out threw the whole read away.
+    static let openBytes = 128 * 1024
+    /// Each older page's byte cap (``loadEarlierHistory()``, as the reader scrolls up).
+    static let olderBytes = 256 * 1024
+    /// The most reads one scroll up makes looking for a prompt to start its page at.
+    static let maxEarlierReads = 8
     /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
     /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
     /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
-    /// retries (a harness record, never `transcript`), so a retrying turn says so.
+    /// retries (a harness record, never `transcript`), so a retrying turn says so; and its
+    /// `bookmarks` record, so a bookmark or pin made on the Mac shows here.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -409,6 +408,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // What this source already has is history to a new reader: one change, drawn in place.
+        flushOpenChunk()
         if !replay.isEmpty { continuation.yield(.batch(replay)) }
         continuations.append(continuation)
         return stream
@@ -483,6 +483,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("_acpmux/queue_edit", .object([
                         "sessionId": session, "promptId": .string(promptID), "op": .string("move"), "index": .number(Double(index)),
                     ]))
+                case .resumeQueue:
+                    // `resume` names no prompt: it lets the whole held queue go (hub/queue_edit.rs).
+                    _ = try await hub.request("_acpmux/queue_edit", .object(["sessionId": session, "op": .string("resume")]))
                 }
             } catch {
                 if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
@@ -509,7 +512,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// A failed upload throws, so nothing is sent without its attachments.
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
-        for attachment in attachments where attachment.imageMIMEType == nil {
+        // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
+        // past the prompt's inline budget the rest go as links to their uploaded copies.
+        let attachments = await Self.inlinePDFs(attachments)
+        let inline = Self.inlineDocuments(attachments)
+        for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
             let payload: LinkUpload.Payload
             if let data = attachment.data {
                 payload = .data(data)
@@ -521,7 +528,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
             uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
         }
-        return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
+        // Base64 of PDFs and video frames (megabytes) is made off the main actor.
+        return await Task.detached(priority: .userInitiated) {
+            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
+        }.value
+    }
+
+    /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
+    /// one-message bound (31 MiB) with room for the text and images.
+    nonisolated static let inlineDocumentBudget = 16 << 20
+
+    /// The PDFs that go as `document` blocks: each one up to its cap, in order, while the
+    /// prompt's total stays within `inlineDocumentBudget`.
+    nonisolated static func inlineDocuments(_ attachments: [AgentAttachment]) -> Set<String> {
+        var total = 0
+        var ids: Set<String> = []
+        for attachment in attachments {
+            guard let data = documentData(attachment), total + data.count <= inlineDocumentBudget else { continue }
+            total += data.count
+            ids.insert(attachment.id)
+        }
+        return ids
     }
 
     /// Uploads into the session's folder; a folder the Mac won't write to
@@ -536,13 +563,43 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
-    /// The blocks for `text` and `attachments`, with each file's path on the Mac.
-    static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:]) -> [JSONValue] {
+    /// Each PDF up to `AgentAttachment.maxDocumentBytes` that the composer kept by its URL, with
+    /// its bytes read (off the main actor, inside its security scope); the rest as they were.
+    nonisolated static func inlinePDFs(_ attachments: [AgentAttachment]) async -> [AgentAttachment] {
+        guard attachments.contains(where: { $0.isPDF && $0.data == nil && $0.fileURL != nil }) else { return attachments }
+        return await Task.detached(priority: .userInitiated) {
+            attachments.map { attachment in
+                guard attachment.isPDF, attachment.data == nil, let url = attachment.fileURL,
+                      (attachment.byteCount ?? .max) <= AgentAttachment.maxDocumentBytes,
+                      let data = ScopedFile(url).withAccess({ try? Data(contentsOf: $0, options: .mappedIfSafe) }),
+                      data.count <= AgentAttachment.maxDocumentBytes else { return attachment }
+                var read = attachment
+                read.data = data
+                return read
+            }
+        }.value
+    }
+
+    /// A PDF's bytes when it goes as a `document` block: its own, up to the cap.
+    nonisolated static func documentData(_ attachment: AgentAttachment) -> Data? {
+        guard attachment.isPDF, let data = attachment.data, data.count <= AgentAttachment.maxDocumentBytes,
+              data.starts(with: Array("%PDF".utf8)) else { return nil }
+        return data
+    }
+
+    /// The blocks for `text` and `attachments`, with each file's path on the Mac. A video's
+    /// link is followed by its frames note and each frame (label, then image), as the Mac sends it.
+    nonisolated static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:],
+                                         inlineDocuments: Set<String>? = nil) -> [JSONValue] {
+        let inline = inlineDocuments ?? Self.inlineDocuments(attachments)
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
             if let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
+            } else if inline.contains(attachment.id), let data = documentData(attachment) {
+                blocks.append(.object(["type": .string("document"), "mimeType": .string("application/pdf"),
+                                       "data": .string(data.base64EncodedString()), "name": .string(attachment.name)]))
             } else if let path = uploaded[attachment.id] {
                 let uri = URL(fileURLWithPath: path).absoluteString
                 let mime = Self.mimeType(name: attachment.name)
@@ -556,6 +613,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                      "name": .string(attachment.name), "mimeType": .string(mime)]
                     if let size = attachment.data?.count ?? attachment.byteCount { link["size"] = .number(Double(size)) }
                     blocks.append(.object(link))
+                    if let video = attachment.video, !video.frames.isEmpty {
+                        blocks.append(.object(["type": .string("text"), "text": .string(video.framesNote(name: attachment.name))]))
+                        for frame in video.frames {
+                            let name = AgentVideo.frameName(attachment.name, atMs: frame.atMs)
+                            blocks.append(.object(["type": .string("text"), "text": .string(name)]))
+                            blocks.append(.object(["type": .string("image"), "mimeType": .string("image/jpeg"),
+                                                   "data": .string(frame.jpeg.base64EncodedString()), "name": .string(name)]))
+                        }
+                    }
                 }
             }
         }
@@ -563,7 +629,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return blocks
     }
 
-    static func mimeType(name: String) -> String {
+    nonisolated static func mimeType(name: String) -> String {
         let ext = (name as NSString).pathExtension
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
     }
@@ -578,10 +644,197 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         throw AgentFeatureUnavailable("Restore checkpoints from the cmux app on \(summary.macName).")
     }
 
+    /// `/status`: acpmux's detail of the session (`_acpmux/info`, which this phone already
+    /// reads for approvals), as the Mac's Session status card labels it.
+    public func sessionStatus() async throws -> AgentSessionStatus {
+        guard let hub else { throw AgentFeatureUnavailable("Status is unavailable for this chat.") }
+        do {
+            let info = try await hub.request("_acpmux/info", .object(["sessionId": .string(sessionID)]))
+            return Self.sessionStatus(info, macName: summary.macName, fallbackHarness: summary.agentName)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        }
+    }
+
+    /// The card's fields from an `_acpmux/info` reply (webviews acpmux/HarnessStatusCard.tsx): only
+    /// labels and the agent's own auth-source label are read, never another value of `agentInfo`
+    /// (arbitrary keys there may hold a credential).
+    nonisolated static func sessionStatus(_ info: JSONValue, macName: String, fallbackHarness: String) -> AgentSessionStatus {
+        let agent = info["agentInfo"] ?? .null
+        func text(_ value: JSONValue?) -> String? {
+            guard let value = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        let notReported = String(localized: "Not reported")
+        let version = text(agent["version"]) ?? notReported
+        let model = text(info["model"]) ?? text(info["models"]?["currentModelId"]) ?? notReported
+        let effortOption = info["configOptions"]?.arrayValue?.first { option in
+            ["effort", "reasoning_effort", "thought_level"].contains(option["id"]?.stringValue ?? "")
+        }
+        let effort = text(info["effort"]) ?? text(effortOption?["currentValue"]) ?? notReported
+        let auth = text(agent["authSource"]) ?? text(info["authSource"]) ?? notReported
+        var routing = text(agent["routeName"]) ?? text(agent["route"]) ?? text(info["route"])
+        if routing == nil, let base = text(agent["baseUrl"]) ?? text(agent["baseURL"]) ?? text(info["baseUrl"]) {
+            if let url = URL(string: base), let scheme = url.scheme, let host = url.host {
+                routing = "\(scheme)://\(host)" + (url.port.map { ":\($0)" } ?? "")
+            } else {
+                routing = String(localized: "Reported endpoint")
+            }
+        }
+        let settings = (agent["settingsSources"] ?? info["settingsSources"])?.arrayValue?.compactMap { text($0) } ?? []
+        var context = notReported
+        if let used = info["usage"]?["used"]?.numberValue, let size = info["usage"]?["size"]?.numberValue, size > 0, used >= 0 {
+            let percent = Int((min(1, max(0, used / size)) * 100).rounded())
+            context = String(localized: "\(percent)% (\(Int(used).formatted()) / \(Int(size).formatted()) tokens)")
+        }
+        let limits = ((agent["usageLimits"] ?? info["usageLimits"])?["windows"]?.arrayValue ?? []).compactMap { window -> String? in
+            guard let id = text(window["id"]), let used = window["usedPercent"]?.numberValue else { return nil }
+            let name = switch id {
+            case "session": String(localized: "Session")
+            case "weekly": String(localized: "Weekly")
+            case "weekly_opus": String(localized: "Weekly (Opus)")
+            case "weekly_sonnet": String(localized: "Weekly (Sonnet)")
+            default: id
+            }
+            return "\(name) \(Int(min(100, max(0, used)).rounded()))%"
+        }
+        let fields: [AgentSessionStatus.Field] = [
+            .init(label: String(localized: "Version"), value: version),
+            .init(label: String(localized: "Session"), value: text(info["sessionId"]) ?? notReported),
+            .init(label: String(localized: "CWD"), value: text(info["cwd"]) ?? notReported),
+            .init(label: String(localized: "Host"), value: text(info["host"]) ?? text(info["peer"]) ?? macName),
+            .init(label: String(localized: "Model"), value: model),
+            .init(label: String(localized: "Effort"), value: effort),
+            .init(label: String(localized: "Auth source"), value: auth),
+            .init(label: String(localized: "Routing"), value: routing ?? notReported),
+            .init(label: String(localized: "Settings"), value: settings.isEmpty ? notReported : settings.joined(separator: ", ")),
+            .init(label: String(localized: "Context"), value: context),
+            .init(label: String(localized: "Usage limits"), value: limits.isEmpty ? notReported : limits.joined(separator: ", ")),
+        ]
+        return AgentSessionStatus(harness: text(info["harness"]) ?? fallbackHarness, fields: fields)
+    }
+
+    // MARK: Chat polish parity
+
+    /// Copy rows and Session Info: `_acpmux/info`, the same read `/status` makes.
+    public func sessionDetails() async throws -> AgentSessionDetails {
+        let info = try await call("_acpmux/info", ["sessionId": .string(sessionID)])
+        return Self.sessionDetails(info, sessionID: sessionID, macName: summary.macName, fallbackHarness: summary.agentName)
+    }
+
+    nonisolated static func sessionDetails(_ info: JSONValue, sessionID: String, macName: String, fallbackHarness: String) -> AgentSessionDetails {
+        func text(_ value: JSONValue?) -> String? {
+            guard let value = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        return AgentSessionDetails(
+            name: text(info["name"]),
+            sessionID: text(info["sessionId"]) ?? sessionID,
+            harnessSessionID: text(info["agentSessionId"]) ?? text(info["agent_session_id"]),
+            cwd: text(info["cwd"]),
+            // A chat on an acpmux peer runs there; otherwise on this Mac (`machine`, its name).
+            host: text(info["peer"]) ?? text(info["machine"]) ?? text(info["host"]) ?? macName,
+            status: sessionStatus(info, macName: macName, fallbackHarness: fallbackHarness))
+    }
+
+    public func bookmarks() async throws -> [Int] {
+        Self.marks(try await call("_acpmux/bookmark_get", ["sessionId": .string(sessionID)]))
+    }
+
+    public func setBookmark(seq: Int, bookmarked: Bool) async throws -> [Int] {
+        Self.marks(try await call("_acpmux/bookmark_set", [
+            "sessionId": .string(sessionID), "seq": .number(Double(seq)), "bookmarked": .bool(bookmarked),
+        ]))
+    }
+
+    nonisolated static func marks(_ reply: JSONValue) -> [Int] {
+        (reply["bookmarks"]?.arrayValue ?? []).compactMap { $0.numberValue.map { Int($0) } }
+    }
+
+    public func chatPermissions() async throws -> AgentChatPermissions {
+        Self.permissions(try await call("_acpmux/permission_groups", ["sessionId": .string(sessionID)]))
+    }
+
+    /// `_acpmux/permission_groups`: `chatAllowance.active` and the groups still waiting.
+    nonisolated static func permissions(_ reply: JSONValue) -> AgentChatPermissions {
+        let open = (reply["groups"]?.arrayValue ?? []).filter { group in
+            !["resolved", "cancelled"].contains(group["state"]?.stringValue ?? "")
+        }
+        return AgentChatPermissions(allowedForChat: reply["chatAllowance"]?["active"] == .bool(true), openGroups: open.count)
+    }
+
+    public func revokeChatPermission() async throws {
+        let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
+        // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
+        guard reply["active"] == .bool(false) else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        }
+    }
+
+    /// Reads the open asks again: a reattach from the last record applied, whose reply lists
+    /// every permission still waiting (`applyState`).
+    public func refreshPermissions() { refill() }
+
+    public var eventJournal: AgentEventJournal? { journal }
+
+    /// The most records Replay reads (pages of `pageSize`).
+    static let replayLimit = 20_000
+
+    /// Replay Conversation: the chat's `transcript` records from its start, as the Mac's replay
+    /// reads them (`_acpmux/events {kinds: ["transcript"]}`), mapped to chat events.
+    public func replayRecording() async throws -> AgentReplayRecording {
+        var records: [JSONValue] = []
+        var after = 0
+        var more = true
+        while more, records.count < Self.replayLimit {
+            let page = try await call("_acpmux/events", [
+                "sessionId": .string(sessionID), "afterSeq": .number(Double(after)),
+                "limit": .number(Double(Self.pageSize)), "kinds": .array([.string("transcript")]),
+            ])
+            let events = page["events"]?.arrayValue ?? []
+            records += events
+            guard let newest = events.last?["seq"]?.numberValue else { break }
+            after = Int(newest)
+            more = page["hasMore"] == .bool(true)
+        }
+        let mapper = AcpmuxRecords(sessionID: sessionID)
+        let steps = records.map { record in
+            let events = mapper.map(record)
+            let at = record["at"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+            let isTool = events.contains { event in
+                if case .update(.toolCall(_)) = event { return true }
+                return false
+            }
+            return (at: at, events: events, isToolCall: isTool)
+        }
+        return AgentReplayRecording.build(steps, truncated: more)
+    }
+
+    /// One request to this chat's acpmux, its refusal as the Mac's own words.
+    private func call(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
+        guard let hub, hub.isReady else {
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+        }
+        do {
+            return try await hub.request(method, .object(params))
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        } catch {
+            throw AgentFeatureUnavailable(Self.message(error))
+        }
+    }
+
     public func handoffTargets() async throws -> [AgentHandoffTarget] {
         guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
-        let reply = try await hub.request("_acpmux/harnesses", .object(["cwd": .string(summary.cwd)]))
-        return Self.handoffTargets(reply, excluding: summary.harness)
+        // A workspace tab's folder is the Mac's as the sidebar spells it (`~/code/app`); acpmux
+        // takes only an absolute one, and lists every harness without it.
+        let params: JSONValue = summary.cwd.hasPrefix("/") ? .object(["cwd": .string(summary.cwd)]) : .object([:])
+        do {
+            let reply = try await hub.request("_acpmux/harnesses", params)
+            return Self.handoffTargets(reply, excluding: summary.harness)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        }
     }
 
     /// `_acpmux/harnesses` → targets: every harness but the session's own; unavailable ones keep their reason.
@@ -694,14 +947,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
+        let directory = baseDirectory
+        let scope = ArtifactThumbnailOwner.remote(
+            accountID: summary.accountID, macID: summary.macID,
+            resource: "agent:\(sessionID):\(directory)")
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: directory,
+                                      thumbnailCacheScope: scope) {
             await MainActor.run { hub?.macLink }
         }
     }
 
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
-        if error is AcpmuxHub.ApprovalCancelled { return "Not approved: Face ID was cancelled." }
         if error is AcpmuxHub.ApproverUnsupported {
             return "Not approved: update cmux on the Mac to approve from this iPhone, or approve on the Mac."
         }
@@ -833,8 +1090,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return CatchUpRead(sessionID: sessionID, after: lastSeq)
     }
 
-    /// Reads from `read.after` to the log's end (a first attach: the newest page, then older
-    /// ones back to the start or the cap). Each request is bounded, and none is sent once the
+    /// A prompt record: where a turn starts.
+    /// A message steered into a running turn (`msg.steer`) is a `user_message` too, and starts none.
+    static func isPrompt(_ record: JSONValue) -> Bool {
+        record["kind"]?.stringValue == "user_message" && record["msg"]?["steer"] != .bool(true)
+    }
+
+    /// Reads from `read.after` to the log's end (a first attach: the newest page only, from its
+    /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
     /// attach is no longer `current` (the link dropped, another attach started, the chat went
     /// away): the hub's next connection is not its own.
     private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, current: @escaping () -> Bool) async -> CatchUpPages {
@@ -850,7 +1113,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 "kinds": chatKinds,
                 "eventStream": .bool(true),
             ]
-            if !read.firstAttach { params["afterSeq"] = .number(Double(read.after)) }
+            if read.firstAttach {
+                params["maxBytes"] = .number(Double(openBytes))
+            } else {
+                params["afterSeq"] = .number(Double(read.after))
+            }
             out.result = try await request("_acpmux/attach", params)
             out.page = out.result["events"]?.arrayValue ?? []
             // A reattach (the link came back, or the Mac said this connection lagged) asks for
@@ -870,18 +1137,26 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     more = !events.isEmpty && next["hasMore"] == .bool(true)
                 }
             }
-            // First attach: page older records back until the history starts or the cap.
+            // First attach: the newest page only; older pages come as the reader scrolls up.
             out.earlier = read.firstAttach && out.result["hasMore"] == .bool(true)
             if out.earlier {
-                while out.page.count < maxHistory, let oldest = out.page.first?["seq"]?.numberValue {
-                    let older = try await request("_acpmux/events", [
+                if let first = out.page.firstIndex(where: isPrompt) {
+                    // What is before the first prompt belongs to an older turn: it comes with
+                    // that turn's page, never twice.
+                    out.page.removeFirst(first)
+                } else if let oldest = out.page.first?["seq"]?.numberValue {
+                    // The page is inside one turn longer than itself (a long run): its prompt
+                    // alone is read, so the page has a turn to go in. Without it the chat
+                    // opened empty.
+                    // A few, since messages steered into the turn are `user_message`s too.
+                    let opener = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                        "limit": .number(16), "kinds": .array([.string("user_message")]),
                     ])
-                    let events = older["events"]?.arrayValue ?? []
-                    out.page = events + out.page
-                    out.earlier = !events.isEmpty && older["hasMore"] == .bool(true)
-                    if !out.earlier { break }
+                    let records = opener["events"]?.arrayValue ?? []
+                    let start = records.lastIndex(where: isPrompt)
+                    out.page = start.map { [records[$0]] + out.page } ?? out.page
+                    out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
                 }
             }
         } catch {
@@ -943,7 +1218,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // transcript instead of animating every past record in (or, on a reattach, the
         // records missed while the link was down). Records after the reply are live.
         beginHistory()
-        if read.firstAttach { emit(.earlierHistory(pages.earlier)) }
+        if read.firstAttach {
+            emit(.earlierHistory(pages.earlier))
+            // Older pages are read before the oldest prompt shown.
+            earlierBefore = pages.earlier ? page.first(where: Self.isPrompt)?["seq"]?.numberValue.map { Int($0) } : nil
+            earlierCarry = []
+        }
         // The reply's session state is as of its `lastSeq` (read with it, before its page),
         // and a catch-up may read records written after it: a turn that ended in a later page
         // must not show as running again. The state goes in at that seq, among the records.
@@ -1029,7 +1309,120 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if !modes.isEmpty { events.append(.modesAvailable(modes, current: detail["modes"]?["currentModeId"]?.stringValue)) }
         if !options.isEmpty { events.append(.update(.configOptions(options))) }
+        // Whether a failed turn holds the queue now (its `queue_paused` record may be older
+        // than the history the chat opened on).
+        if case .bool(let paused)? = detail["queuePaused"] { events.append(.queuePaused(paused, reason: nil)) }
         return events
+    }
+
+    // MARK: Older history (scrolling up)
+
+    /// Older records are read before this seq, the oldest prompt shown; nil when the chat
+    /// shows its start (or has not opened).
+    private var earlierBefore: Int?
+    /// Records read before `earlierBefore` with no prompt among them yet (a turn longer than
+    /// the reads): they go in with the page that reaches their prompt.
+    private var earlierCarry: [JSONValue] = []
+    private var loadingEarlier = false
+
+    public func loadEarlierHistory() {
+        guard !loadingEarlier else { return }
+        guard let before = earlierBefore, let hub, hub.isReady else {
+            // Nothing to read now (the start is shown, or the link is down): the chat's
+            // loading state ends, so the next scroll up asks again.
+            yieldEarlier([], hasEarlier: earlierBefore != nil)
+            return
+        }
+        loadingEarlier = true
+        let sessionID = sessionID
+        Task { [weak self] in
+            let read = await Self.readEarlier(hub, sessionID: sessionID, before: before)
+            self?.applyEarlier(read, before: before)
+        }
+    }
+
+    /// What one scroll up read: records oldest first, whether older ones remain, and whether
+    /// a read failed (nothing is applied; the next scroll up tries again).
+    struct EarlierRead {
+        var records: [JSONValue] = []
+        var more = false
+        var failed = false
+    }
+
+    /// Reads byte-capped pages before `before` until one holds a prompt, the log starts, or
+    /// `maxEarlierReads` pages were read.
+    private static func readEarlier(_ hub: AcpmuxHub, sessionID: String, before: Int) async -> EarlierRead {
+        var out = EarlierRead()
+        var cursor = before
+        do {
+            for _ in 0..<maxEarlierReads {
+                let page = try await hub.request("_acpmux/events", .object([
+                    "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": chatKinds,
+                ]), timeout: pageTimeout)
+                let events = page["events"]?.arrayValue ?? []
+                let hasMore = page["hasMore"] == .bool(true)
+                // hasMore means the server promises older records. An empty or
+                // non-advancing page is a failed read, never the start of history:
+                // dropping earlierBefore here permanently hides older turns.
+                if hasMore {
+                    guard let oldest = events.first?["seq"]?.numberValue,
+                          oldest.isFinite, oldest >= 0, oldest < Double(cursor) else {
+                        out.failed = true
+                        break
+                    }
+                }
+                out.records = events + out.records
+                out.more = !events.isEmpty && hasMore
+                guard out.more, let oldest = events.first?["seq"]?.numberValue,
+                      !events.contains(where: isPrompt) else { break }
+                cursor = Int(oldest)
+            }
+        } catch {
+            out.failed = true
+        }
+        return out
+    }
+
+    /// Puts what a scroll up read in front of the chat as whole turns: from the oldest prompt
+    /// read (what is before it belongs to an older prompt, and is read with the next page).
+    private func applyEarlier(_ read: EarlierRead, before: Int) {
+        loadingEarlier = false
+        guard earlierBefore == before else { return }
+        let all = read.records + earlierCarry
+        var page: [JSONValue] = []
+        if read.failed {
+            // Nothing applied: the next scroll up reads the same page again.
+        } else if !read.more {
+            page = all
+            earlierCarry = []
+            earlierBefore = nil
+        } else if let first = all.firstIndex(where: Self.isPrompt), let seq = all[first]["seq"]?.numberValue {
+            page = Array(all[first...])
+            earlierCarry = []
+            earlierBefore = Int(seq)
+        } else if let oldest = all.first?["seq"]?.numberValue {
+            // Still inside one turn longer than the reads: read on at once (the chat stays
+            // loading), since nothing on screen changes to ask again.
+            earlierCarry = all
+            earlierBefore = Int(oldest)
+            log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): no prompt yet, \(all.count, privacy: .public) records carried")
+            loadEarlierHistory()
+            return
+        }
+        let events = page.flatMap { records.map($0) }
+        let hasEarlier = earlierBefore != nil
+        log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): \(page.count, privacy: .public) records, failed \(read.failed, privacy: .public), more \(hasEarlier, privacy: .public)")
+        // A new reader of this source gets the older turns first, then the rest, in order.
+        flushOpenChunk()
+        if !events.isEmpty { replay.insert(contentsOf: events, at: 0) }
+        yieldEarlier(events, hasEarlier: hasEarlier)
+    }
+
+    private func yieldEarlier(_ events: [AgentSessionEvent], hasEarlier: Bool) {
+        flushOpenChunk()
+        replay.append(.earlierHistory(hasEarlier))
+        for continuation in continuations { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
     }
 
     func receive(record: JSONValue) {
@@ -1047,6 +1440,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let seq = Int(record["seq"]?.numberValue ?? 0)
         guard seq == 0 || seq > lastSeq else { return }
         if seq > 0 { lastSeq = seq }
+        journal.record(record)
         for event in records.map(record) {
             switch event {
             case .permissionRequest, .question:
@@ -1091,7 +1485,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let events = history else { return }
         history = nil
         guard !events.isEmpty else { return }
-        replay.append(contentsOf: events)
+        for event in events { record(replay: event) }
         for continuation in continuations { continuation.yield(.batch(events)) }
     }
 
@@ -1104,8 +1498,53 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 history?.append(event)
                 return
             }
-            replay.append(event)
+            record(replay: event)
         }
         for continuation in continuations { continuation.yield(event) }
     }
+
+    /// Keeps `event` for a later reader. A streamed reply arrives as one chunk per few
+    /// tokens, and the buffer kept each one for as long as the chat stayed open (tens of
+    /// thousands of events for one long turn). Consecutive chunks of one message, or of
+    /// one thought, are kept as a single chunk with their text joined: `AgentChatStore`
+    /// appends a chunk of the same message to it, so a reader draws the same transcript
+    /// and the buffer grows with messages, not tokens.
+    private func record(replay event: AgentSessionEvent) {
+        switch (openChunk, event) {
+        case (.message(let id)?, .update(.agentMessageChunk(let text, let nextID))) where id == nextID:
+            openChunkText += text
+        case (.thought?, .update(.agentThoughtChunk(let text))):
+            openChunkText += text
+        default:
+            flushOpenChunk()
+            switch event {
+            case .update(.agentMessageChunk(let text, let id)):
+                openChunk = .message(id)
+                openChunkText = text
+            case .update(.agentThoughtChunk(let text)):
+                openChunk = .thought
+                openChunkText = text
+            default:
+                replay.append(event)
+            }
+        }
+    }
+
+    /// The chunk being joined, kept out of `replay` so its text grows in place.
+    private enum OpenChunk { case message(String?), thought }
+    private var openChunk: OpenChunk?
+    private var openChunkText = ""
+
+    private func flushOpenChunk() {
+        guard let chunk = openChunk else { return }
+        switch chunk {
+        case .message(let id): replay.append(.update(.agentMessageChunk(text: openChunkText, messageId: id)))
+        case .thought: replay.append(.update(.agentThoughtChunk(text: openChunkText)))
+        }
+        openChunk = nil
+        openChunkText = ""
+    }
+
+    /// How many events the source keeps for a later reader (tests).
+    var replayCount: Int { replay.count + (openChunk == nil ? 0 : 1) }
 }

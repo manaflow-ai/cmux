@@ -31,7 +31,9 @@ CONFIG = ROOT / ".github" / "actionlint.yaml"
 # defect, not an exemption: the reason belongs beside it in actionlint.yaml.
 # nightly.yml: only the constant `if: false` of the two retired release-surface
 # ack jobs, kept in main's shape (see actionlint.yaml).
-SUPPRESSED = {".github/workflows/nightly.yml", ".github/workflows/test-ios.yml"}
+# backend.yml: only `concurrency.queue`, which GitHub accepts and the pinned
+# actionlint's schema predates.
+SUPPRESSED = {".github/workflows/backend.yml", ".github/workflows/nightly.yml", ".github/workflows/test-ios.yml"}
 
 failures: list[str] = []
 

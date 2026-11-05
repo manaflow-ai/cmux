@@ -143,6 +143,10 @@ impl Rpc {
         }
         let result = client.call("initialize", hello).await;
         assert!(result.get("error").is_none(), "{result}");
+        let expected =
+            caller.filter(|(_, valid)| *valid && origin == Origin::Local).map(|(id, _)| id);
+        assert_eq!(result["result"]["_meta"]["acpmux"]["callerSessionId"].as_str(), expected);
+
         client
     }
 
@@ -493,4 +497,23 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
         .await;
     assert_eq!(reply["error"]["data"]["reason"], "team_messaging_disabled", "{reply}");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn cloud_repo_initialize_reports_only_the_verified_local_caller() {
+    let (hub, _) = setup(false);
+    for caller in [None, Some((OWN, true)), Some((OWN, false))] {
+        let _client = Rpc::connect(&hub, Origin::Local, caller).await;
+    }
+    // A later initialize cannot replace the first connection binding.
+    let mut client = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let reply = client
+        .call(
+            "initialize",
+            json!({"_meta":{"acpmux":{"callerSession":{
+                "sessionId":OTHER,"token":crate::hub::person::caller_token(OTHER)
+            }}}}),
+        )
+        .await;
+    assert_eq!(reply["result"]["_meta"]["acpmux"]["callerSessionId"], OWN);
 }

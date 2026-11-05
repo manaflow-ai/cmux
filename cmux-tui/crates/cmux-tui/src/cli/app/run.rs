@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::{ActionName, BUSY_RETRIES, busy_before_running, busy_retry_delay, request};
+use super::{ActionName, BUSY_RETRIES, busy_retry_delay, request, retry_before_running};
 
 /// The params every `action.run` starts from: the action, whether it is
 /// named by its CLI name, `wait: true`, and who asked (`origin`). Only a run
@@ -43,8 +43,12 @@ pub(in crate::cli) fn insert_run_key(
     Ok(key)
 }
 
-/// One request; a `busy` app that says the run never started is asked again
-/// after the delay it names, at most `BUSY_RETRIES` times.
+/// The longest wait before one retry.
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(2);
+
+/// One request; an app that says the run never started and why it may pass
+/// (`retry_before_running`) is asked again after the delay it names, doubled
+/// each time, at most `BUSY_RETRIES` times. The caller sees only the last answer.
 pub(in crate::cli) fn request_with_retry(
     stream: &mut UnixStream,
     method: &str,
@@ -55,9 +59,11 @@ pub(in crate::cli) fn request_with_retry(
     let mut retries = 0;
     loop {
         match request(stream, method, params.clone(), timeout)? {
-            Err(error) if retries < BUSY_RETRIES && busy_before_running(&error) => {
+            Err(error) if retries < BUSY_RETRIES && retry_before_running(&error) => {
+                std::thread::sleep(
+                    (busy_retry_delay(&error) * 2u32.pow(retries)).min(MAX_RETRY_WAIT),
+                );
                 retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
             }
             response => return Ok(response),
         }

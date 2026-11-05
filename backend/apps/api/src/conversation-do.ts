@@ -1,5 +1,5 @@
 import { type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
-import { conversation, invites } from "@cmux/home-core"
+import { address, conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
@@ -13,6 +13,8 @@ import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
+import { withSlack, slackDeliveryKey, slackOutbound, type SlackMessageInput } from "./conversation-slack.ts"
+import { textChiefOn, type TextBridge } from "./text-chief.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -76,7 +78,7 @@ export class ConversationDO extends OwnerDO<Head> {
   protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
-    const domain = conversation.makeConversationDomain({
+    const domain = withSlack(conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
       // Verified uploads the author may use (home-attachment-store.ts); a read inside the reducer, no write.
       attachmentFor: (hash, actor, floor) => store.usableRecord(sql, hash, actor, floor) ?? undefined,
@@ -86,7 +88,7 @@ export class ConversationDO extends OwnerDO<Head> {
         const address = invites.normalizeEmail(p.email)
         return invites.isAddress(address) ? [invites.addressId(env.HOME_ADDRESS_KEY, address)] : []
       }
-    })
+    }))
     super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
       redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES },
@@ -97,6 +99,13 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
   private readonly typing = new Map<string, conversation.TypingMemo>()
+
+  /** The platform bridge's verified Slack event, never a public op or socket principal. */
+  async slackMessage(entity: string, input: SlackMessageInput): Promise<SubmitResult> {
+    this.bind(entity)
+    // The engine receipts an exact delivery; the reducer dedupes the Slack message tuple.
+    return this.submitSystem("slack.message", input, slackDeliveryKey(input), "system:slack")
+  }
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
@@ -198,7 +207,61 @@ export class ConversationDO extends OwnerDO<Head> {
     if (state && MEMBERSHIP_ENDING_OPS.has(op)) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
     // A retract, an edit or a retention batch may release attachment references: older uploads may now be collectable.
     const result = frames.find((f) => f.t === "result")
+    if (result?.t === "result" && op === "message.send" && state) this.textOut(state, _principal, result as { value?: { message_id?: string }; replayed?: boolean })
     if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
+    if (state && op === "message.send" && result?.t === "result") {
+      const id = (result.value as { message_id?: string }).message_id
+      const rows = this.boundEngine!.rows
+      const message = id ? rows.get<conversation.Message>(conversation.TABLE_MSG, id)?.row : undefined
+      const delivery = message && slackOutbound(rows, message, state)
+      if (delivery) {
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${delivery.agent}/${state.id}`))
+        this.ctx.waitUntil(brain.slackOutbound(delivery).catch(() => console.warn(JSON.stringify({ msg: "chief.slack.outbound_failed" }))))
+      }
+    }
+  }
+
+  /**
+   * Texting Chief (text-chief.ts): the sender's AddressDO sets the bridge before it posts a text here,
+   * and this conversation's Chief replies go back as texts while it lasts. A message the person
+   * writes in the app ends it (they are back in cmux).
+   */
+  async textBridge(entity: string, bridge: TextBridge | null): Promise<void> {
+    this.bind(entity)
+    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS text_bridge (k INTEGER PRIMARY KEY CHECK (k = 1), address TEXT NOT NULL, until INTEGER NOT NULL)`)
+    if (bridge) this.sqlStore.exec(`INSERT INTO text_bridge (k, address, until) VALUES (1, ?, ?) ON CONFLICT (k) DO UPDATE SET address = excluded.address, until = excluded.until`, bridge.address, bridge.until)
+    else this.sqlStore.exec(`DELETE FROM text_bridge`)
+  }
+
+  /** The live bridge's AddressDO id, or null. */
+  private bridgeAddress(): string | null {
+    if (!textChiefOn(this.env)) return null
+    const has = this.sqlStore.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'text_bridge'`).length > 0
+    if (!has) return null
+    return this.sqlStore.exec<{ address: string; until: number }>(`SELECT address, until FROM text_bridge WHERE k = 1`).find((r) => r.until > Date.now())?.address ?? null
+  }
+
+  private addressStub(id: string) {
+    return this.env.ADDRESS_DO.get(this.env.ADDRESS_DO.idFromName(id)) as unknown as { chiefReply(entity: string, r: { message: string; agent: string; name: string; text: string }): Promise<string>; chiefTyping(entity: string): Promise<void> }
+  }
+
+  /** After a committed message.send: a Chief's words go out as a text; the person's own app message ends the bridge. */
+  private textOut(state: NonNullable<Head>, principal: Principal, result: { value?: { message_id?: string }; replayed?: boolean }) {
+    const addr = this.bridgeAddress()
+    if (!addr || result.replayed || !result.value?.message_id) return
+    const actor = conversation.actorOf(principal)
+    const member = actor ? this.memberById(state, actor) : undefined
+    if (!member) return
+    if (member.kind !== "agent") {
+      if (!principal.identity.startsWith("text:")) this.sqlStore.exec(`DELETE FROM text_bridge`)
+      return
+    }
+    const message = this.boundEngine?.rows.get<conversation.Message>(conversation.TABLE_MSG, result.value.message_id)?.row
+    if (!message) return
+    const text = address.partsText(message.parts as ReadonlyArray<{ type: string }>)
+    if (!text.trim()) return
+    const name = member.display_name ?? "Chief"
+    this.ctx.waitUntil(this.addressStub(addr).chiefReply(addr, { message: message.id, agent: member.id, name, text }).then((outcome) => console.log(JSON.stringify({ msg: "text chief reply", outcome }))).catch(() => {}))
   }
 
   /** What the attachment storage paths (home-attachment-gc.ts) need from this object. */
@@ -315,7 +378,11 @@ export class ConversationDO extends OwnerDO<Head> {
     if (!state || this.memberById(state, agent)?.kind !== "agent") return
     // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
     // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
-    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    if ("typing" in f) {
+      const addr = f.typing ? this.bridgeAddress() : null
+      if (addr) this.ctx.waitUntil(this.addressStub(addr).chiefTyping(addr).catch(() => {}))
+      return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    }
     const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
     if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
   }

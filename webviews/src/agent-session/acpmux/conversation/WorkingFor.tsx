@@ -33,6 +33,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { StatusVerb } from "./StatusVerb";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -109,7 +110,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       ) : doing || row.thinkingNow ? (
         <>
           <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ?? t("thinking")}
+            {doing ??
+              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
           </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
