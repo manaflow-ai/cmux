@@ -1,4 +1,8 @@
 public import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import AppKit
+import CmuxNextCompat
+#endif
 
 /// Launch work that waits until the first window's first frame is committed,
 /// so it never delays that frame (perf-launch-memory): the updater, SSH and
@@ -17,6 +21,9 @@ public final class FirstFrameGate {
     ///   comes; tests inject a manual clock.
     public init(backstop: DemandTimer = DemandTimer(owner: "FirstFrameGate.backstop")) {
         self.backstop = backstop
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if Self.inApp { CoreAnimationFenceLaunchProbe(phase: "launch").run(layer: nil) }
+        #endif
     }
 
     /// Runs `work` once the gate is open: at once when it already is, else in
@@ -33,7 +40,20 @@ public final class FirstFrameGate {
         let waiting = waiters
         waiters.removeAll()
         for work in waiting { work() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // SPIKE (scratch/frame-owner-s4-fence-spike-nomerge): a real fence on the first window's context, logged as a
+        // FENCE-PROBE line for the Tart OS matrix.
+        if Self.inApp {
+            let window = NSApplication.shared.windows.first { $0.isVisible && $0.contentView?.layer != nil }
+            CoreAnimationFenceLaunchProbe(phase: "first_window").run(layer: window?.contentView?.layer)
+        }
+        #endif
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The FENCE-PROBE spike runs only in the app bundle, never in a test process that makes a gate.
+    private static var inApp: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+    #endif
 
     /// Opens the gate after `delay` unless a frame opened it first.
     public func armBackstop(after delay: Duration) {
