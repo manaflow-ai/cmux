@@ -60,8 +60,9 @@ function Viewer(props: {
   fingerprint: string | undefined;
   refresh: () => void;
   reconcile: () => void;
+  generation?: number;
 }) {
-  const stale = useDiffFreshness(props.read, 0, () => true, props.refresh, undefined, {
+  const stale = useDiffFreshness(props.read, props.generation ?? 0, () => true, props.refresh, undefined, {
     fingerprint: props.fingerprint,
     reconcile: props.reconcile,
   });
@@ -91,6 +92,34 @@ test("a precomputed diff older than the work tree is reconciled on the first che
   await settle();
   expect(reconciled).toBe(1);
   expect(refreshed).toBe(0);
+});
+
+test("the reconcile's own load does not reconcile again while the open is in flight", async () => {
+  // A reconcile bumps the render generation, and the precomputed fingerprint stays until the new
+  // open answers: the check of that generation must start from what it reads, not the old baseline.
+  let reconciled = 0;
+  const render = (generation: number) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="looping"
+          generation={generation}
+          read={async () => "now"}
+          fingerprint="when-the-turn-ended"
+          refresh={() => {}}
+          reconcile={() => (reconciled += 1)}
+        />,
+      ),
+    );
+  await render(0);
+  await settle();
+  expect(reconciled).toBe(1);
+  await render(1);
+  await settle();
+  await render(2);
+  await settle();
+  expect(reconciled).toBe(1);
+  expect(host.querySelector("output")?.textContent).toBe("fresh");
 });
 
 test("a precomputed diff that is still current is kept as it is", async () => {
