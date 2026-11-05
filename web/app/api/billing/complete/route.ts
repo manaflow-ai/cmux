@@ -117,10 +117,15 @@ export function makeBillingCompleteHandler(
   };
 }
 
+/** A Checkout Session stays open for at most 24 hours; the extra hour covers the return trip. */
+const TEAM_SELECTION_WINDOW_SECONDS = 25 * 60 * 60;
+
 /**
  * After a recorded Team purchase, select that team for the buyer. Both ids come
- * from the Stripe session we created. Selection is a convenience: the purchase
- * already stands, so a failure must not turn a paid checkout into an error page.
+ * from the Stripe session we created. This URL stays valid after use, so an old
+ * session selects nothing: reopening it must not undo a later team switch.
+ * Selection is a convenience: the purchase already stands, so a failure must
+ * not turn a paid checkout into an error page.
  */
 async function selectTeamForBuyer(
   session: Stripe.Checkout.Session,
@@ -130,10 +135,11 @@ async function selectTeamForBuyer(
   const teamId = session.metadata.stackTeamId?.trim();
   const userId = session.metadata.stackUserId?.trim();
   if (!teamId || !userId) return;
+  if (Date.now() / 1000 - session.created > TEAM_SELECTION_WINDOW_SECONDS) return;
   try {
     await selectPurchasedTeam({ userId, teamId });
-  } catch {
-    console.error("team purchase selection failed", { teamId });
+  } catch (error) {
+    captureBillingError(error, { route: "/api/billing/complete", step: "select_purchased_team" });
   }
 }
 
