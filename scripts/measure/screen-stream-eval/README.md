@@ -9,9 +9,10 @@ cmux-ci run --class exclusive --measurement --label measure --label gui-session-
   --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3]
 ```
 
-`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip. It
-uploads `results.json` and a `summary.md` that shows each number's change against the last
-scheduled run.
+`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
+uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+run (the last successful one that dispatcher started).
 
 ## Scenarios (fixed)
 
