@@ -87,6 +87,62 @@ struct LiveResizeTrackerAfterLayoutTests {
         }
     }
 
+    /// Two pages in one window (review of ec8aedb298a): each page's tracker hears the step only after its layout, and
+    /// ends it with its page's final occlusion read.
+    @Test func twoPagesInOneWindowEachHearTheStepOnlyAfterItsLayout() throws {
+        try WindowLiveResizeFrameTickTests.withSwitch(true) {
+            let rig = WindowLiveResizeFrameTickTests.Rig()
+            defer { rig.close() }
+            let window = rig.window
+            let pages = try Self.stackedPages(in: rig)
+            let trackers = pages.map { ForkTracker(host: $0.host) }
+            defer { trackers.forEach { $0.stop() } }
+            let press = try rig.pressPoint()
+            window.sendEvent(rig.event(.leftMouseDown, press))
+            Motion.liveResizeOverride = true
+            defer { Motion.liveResizeOverride = nil }
+
+            for step in 1...2 {
+                trackers.forEach { $0.reset() }
+                let before = pages.map { ForkTracker.onScreen($0.host) }
+                window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24 * CGFloat(step), y: press.y)))
+                rig.frameTick()
+                window.layoutIfNeeded()
+                for (index, (page, tracker)) in zip(pages, trackers).enumerated() {
+                    try #require(ForkTracker.onScreen(page.host) != before[index], "step \(step), page \(index): the host did not change")
+                    let early = tracker.updates.filter { !$0.afterDidResize }.map(\.cause)
+                    #expect(early.isEmpty, "step \(step), page \(index): \(early.count) updates before didResize: \(early)")
+                    #expect(tracker.reads.last == [page.host.bounds], "step \(step), page \(index): last read \(tracker.reads.last ?? [])")
+                }
+            }
+            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 48, y: press.y)))
+        }
+    }
+
+    /// A hidden page (review of ec8aedb298a): the fork's update reads nothing of a page that does not show, so a post the
+    /// hold kept for it goes at the end of the hold, once, after the frame notices.
+    @Test func aHiddenPagesHeldPostReachesTheTrackerOnceAtTheEndOfTheHold() throws {
+        let rig = WindowLiveResizeFrameTickTests.Rig()
+        defer { rig.close() }
+        let page = try Self.page(in: rig)
+        page.host.isHidden = true
+        let tracker = ForkTracker(host: page.host)
+        defer { tracker.stop() }
+        let occlusion = page.host.occlusionRects
+
+        tracker.reset()
+        FollowedViews.of(rig.window).holdingFrameNotices {
+            // The container lays the host out at its new size and gives it its occlusion (a post).
+            page.setFrameSize(NSSize(width: page.frame.width - 20, height: page.frame.height))
+        }
+        try #require(page.host.occlusionRects != occlusion, "the hidden page's occlusion did not change; the test proves nothing")
+        let causes = tracker.updates.map(\.cause)
+        let posts = causes.filter { $0 == ForkTracker.postCause }.count
+        #expect(posts == 1, "the tracker heard \(causes)")
+        #expect(causes.last == ForkTracker.postCause, "the held post did not come after the frame notices: \(causes)")
+        #expect(tracker.reads.isEmpty, "the tracker read a hidden page: \(tracker.reads)")
+    }
+
     /// A change of the page's occlusion in a step's hold that no later read of the tracker covers (nothing moved) still
     /// reaches the tracker once, at the end of the hold.
     @Test func anOcclusionChangeInAHoldThatMovesNothingReachesTheTrackerOnce() throws {
@@ -102,7 +158,7 @@ struct LiveResizeTrackerAfterLayoutTests {
             page.host.occlusionRects = [bar]
         }
         #expect(tracker.updates.count == 1, "the tracker updated \(tracker.updates.count) times for one occlusion change")
-        #expect(tracker.reads.last == [bar], "the tracker did not read the new occlusion: \(tracker.reads.last ?? [])")
+        #expect(tracker.reads.last?.contains(bar) == true, "the tracker did not read the new occlusion: \(tracker.reads.last ?? [])")
     }
 
     /// Outside a live-resize step the host's geometry post reaches the tracker at once.
@@ -117,7 +173,7 @@ struct LiveResizeTrackerAfterLayoutTests {
         tracker.reset()
         page.host.occlusionRects = [bar]
         #expect(tracker.updates.map(\.cause) == [ForkTracker.postCause], "the tracker heard \(tracker.updates.map(\.cause))")
-        #expect(tracker.reads.last == [bar], "the tracker did not read the new occlusion: \(tracker.reads.last ?? [])")
+        #expect(tracker.reads.last?.contains(bar) == true, "the tracker did not read the new occlusion: \(tracker.reads.last ?? [])")
     }
 
     /// A page container filling the rig's left pane (it grows with the window), laid out.
@@ -128,6 +184,21 @@ struct LiveResizeTrackerAfterLayoutTests {
         pane.addSubview(page)
         rig.root.layoutSubtreeIfNeeded()
         return page
+    }
+
+    /// Two page containers in the rig's left pane, one over the other; both grow with the window's width.
+    private static func stackedPages(in rig: WindowLiveResizeFrameTickTests.Rig) throws -> [PageContainer] {
+        let pane = try #require(rig.root.contentView(for: "p1"), "the left pane has no content view")
+        let half = (pane.bounds.height / 2).rounded(.down)
+        let pages = [
+            PageContainer(frame: NSRect(x: 0, y: 0, width: pane.bounds.width, height: half)),
+            PageContainer(frame: NSRect(x: 0, y: half, width: pane.bounds.width, height: pane.bounds.height - half)),
+        ]
+        pages[0].autoresizingMask = [.width, .maxYMargin]
+        pages[1].autoresizingMask = [.width, .minYMargin]
+        pages.forEach(pane.addSubview)
+        rig.root.layoutSubtreeIfNeeded()
+        return pages
     }
 }
 
@@ -226,12 +297,14 @@ struct LiveResizeTrackerAfterLayoutTests {
 
     @objc private func windowMoved() { update(Self.didMoveCause) }
 
-    /// The fork's `-update`: one at a time; places the page window over the host, then reads the clip inputs.
+    /// The fork's `-update`: one at a time; a page that does not show reads nothing (the fork hides its window and
+    /// returns); a shown page is placed over the host, then reads the clip inputs.
     private func update(_ cause: String) {
         guard !updating else { return }
         updating = true
         defer { updating = false }
         updates.append((cause, sawDidResize))
+        guard let window = host.window, window.isVisible, !host.isHiddenOrHasHiddenAncestor, !host.bounds.isEmpty else { return }
         reads.append((host.cmuxOcclusionRects() as? [NSValue] ?? []).map(\.rectValue))
         _ = host.cmuxClipPath()
     }
