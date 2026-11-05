@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "build": "4201868763201",
+  "notes": "notes/4201868763201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36479,
+      "title": "screen-stream-eval: pass rd its token through a pipe, run the WebRTC host in place",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36185,
+      "title": "feat(cloud): machines update their cmux-tui from a signed channel, no image bake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36437,
+      "title": "Sidebar: chat history says Loading chats… while the agent service starts, never empty",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36387,
+      "title": "measure: L5 rounds check the front, a settled launch and a live chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36075,
+      "title": "cmux-api: no Cloud code; cloud-env leaves cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36459,
+      "title": "base red: crash-ratchet index_subscript in HomeTablePictures (from a4655362c72)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36311,
+      "title": "perf: resize perf paths on by default (cmux-ad m19, no switches)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36199,
+      "title": "Frame owner S4 (switch on): a key resize draws each terminal at its pane's size with its prompt in view (m14, no low-prompt hold)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36458,
+      "title": "Cloud VM image: smoke creates clones one by one again; layer lookup reads every snapshot page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34653,
+      "title": "Agent pane: remove the recap card from the bottom composer area",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36451,
+      "title": "ci(routing): a Linux-only test registry edit skips the native lanes again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36287,
+      "title": "nightly-next: sign once as cmux NIGHTLY and publish to the one feed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36341,
+      "title": "Cloud: a dropped link says why it dropped, and the cause is logged where a shipped build keeps it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36136,
+      "title": "acpmux: a new remote Claude session needs a checkout or scratch folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36426,
+      "title": "base red: cu-driver-eval keeps its results 3 days, inside the upload-retention guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36381,
+      "title": "Cloud page: rename and idle changes show at once, with no pending label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36436,
+      "title": "cu-driver eval: run the cmux-cua arm inside its helper bundle, with cmux's exact environments",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36417,
+      "title": "perf(tabs): a new tab no longer wakes every browser and chat tab's strip item in the session",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35866,
+      "title": "acpmux: the open after a kill syncs nothing per replayed chat; retention never waits for a checkpoint in flight (R-DURABILITY, follow-up 4 of review 3 of #34901)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36348,
+      "title": "ci: split tests/test-execution.toml into one registry file per area",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36407,
+      "title": "screen-stream-eval: build rd with cmux-tui's pinned toolchain, keep why a host did not start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36270,
+      "title": "cmux NEXT sidebar: the Updated card holds its first frame even when its page reports before the first layout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36431,
+      "title": "Computer Use takeover: a partly read person focus collides",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36421,
+      "title": "measure: CEF embedder waits for the code-sign clone cleanup; cef-helpers takes the host pin with the manifest",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36418,
+      "title": "ci(base-red): no failure is exit 0",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36357,
+      "title": "ci(guards): pull requests judge release-notary against their base, not at the tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36377,
+      "title": "Computer Use: the agent pauses only on a real collision with the person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36343,
+      "title": "Cloud VM image: cached layer chain, parallel bake and smoke, fast mirror fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36344,
+      "title": "try-pr --live-code: builds with no CMUXCommit, cleanup on every exit, and a fleet measurement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36176,
+      "title": "cmux link: Cloud receiver listens before its first policy read, waits 20 s for the hello, reads early on a newer token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34343,
+      "title": "ui/motion: DepthLayer parallax starts when a hidden page shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36400,
+      "title": "cu-driver bench: the model route into the VM (suite=route)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36374,
+      "title": "test(nightly): fixture git starts no background maintenance (reuse tearDown ENOTEMPTY on .git)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36155,
+      "title": "Agent chat: hover cards blur what they cover, not a tint over crisp text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34658,
+      "title": "webviews bench: hover sweep over the compact thread rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36388,
+      "title": "ci(cmux-next): a fork PR's quiet-period sleep takes hosted Ubuntu, not Blacksmith",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36326,
+      "title": "cmux-tui: Import from Conductor reads conductor.db into a dry-run plan and a ledger",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36391,
+      "title": "cmux-vm: approve cloud-native-4171772 (cmux-tui 4171772a) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36384,
+      "title": "Cloud: shipped NEXT Nightly stays signed in after updating past runtime Cloud selection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36361,
+      "title": "cmux NEXT: the dev helper signers take an identity, a keychain and a time stamp",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36346,
+      "title": "ci(app-ffi-release): treeless build checkout; a newer FFI push supersedes the older build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36112,
+      "title": "Agent chat: rich copy out of the transcript, and rich paste into the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27605,
+      "title": "feat(artifacts): reuse shared preview host for Artifacts pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36352,
+      "title": "cu-driver eval: run cmux-cua as cmux does; stamped-sl and stamped-cg arms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27823,
+      "title": "feat(next): Artifacts page: HTML preview, file history and revision diff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34375,
+      "title": "cmux NEXT composer: cmux deeplinks in the draft draw as links, as in the sent prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36340,
+      "title": "Pages: fresh pooled pages while a projection window is open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36353,
+      "title": "ci(cmux-next): a PR run waits 5 minutes after the PR's last push before its checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36293,
+      "title": "ci(base-red): a rate-limited Vercel deploy is no result when the base skipped its build and web/ is untouched",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36367,
+      "title": "base red: send-path cap allowlist names the three bounds that landed and lowers acpmux server/mod.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36347,
+      "title": "arch-ratchet: a --pre-push entry for clones without cmux's hooks",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
