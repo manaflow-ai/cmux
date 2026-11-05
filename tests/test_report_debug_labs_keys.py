@@ -56,7 +56,7 @@ class DebugLabsKeysReportTests(unittest.TestCase):
 
     def test_reads_a_tunable_declaration_default(self):
         keys = {item["key"]: item for item in self.report.debug_keys()}
-        self.assertEqual(keys["agentPane.debug.turnPreviewCards"]["default"], "false")
+        self.assertEqual(keys["agentPane.debug.needsYouPill"]["default"], "false")
         self.assertEqual(keys["agentPane.debug.thoughtHeader"]["default"], ".duration")
 
 

@@ -9,7 +9,6 @@
   "agentPane.debug.streamWords": {"case": "delete", "why": "On by default; deleting the off switch keeps word-at-a-time streaming. Needs Leo's OK."},
   "agentPane.debug.subagentTray": {"case": "delete", "why": "On by default; deleting the off switch keeps the subagent tray. Needs Leo's OK."},
   "agentPane.debug.wheelGlide": {"case": "delete", "why": "On by default (Leo 10-22: 'smoother scrolling in webkit: i mean with a mouse'); deleting the off switch keeps the glide. Needs Leo's OK."},
-  "agentPane.debug.turnPreviewCards": {"case": "delete", "why": "Off by Leo's call (10-20: a mentioned dev server is not worth a card nobody asked for); deleting removes the unused preview card. Needs Leo's OK."},
   "agentPane.debug.needsYouPill": {"case": "keep", "why": "Off because it does not work yet (Leo 10-23: 'default off ... bc it doenstr work rn... we need to fix it'); fix it, then flip."},
   "agentPane.debug.needsYou": {"case": "keep", "why": "Applies only while the Needs you App Store item is installed; it is that item's look, not a gate."},
   "agentPane.debug.thoughtFoldThreshold": {"case": "keep", "why": "A look comparison; the default (every thought, Leo 10-20) is the chosen one."},
