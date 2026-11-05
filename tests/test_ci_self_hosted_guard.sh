@@ -1298,16 +1298,17 @@ source = (root / ".github/workflows/fast-checks.yml").read_text()
 workflow = yaml.safe_load(source)
 jobs = workflow.get("jobs", {})
 admit = jobs.get("admit", {})
-line = "    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+selector = '${{ contains(fromJSON(\'["blacksmith-8vcpu-ubuntu-2404"]\'), inputs.runner) && inputs.runner || \'ubuntu-24.04\' }}'
+line = f"    runs-on: {selector} # github-hosted-required: light read-only runner admission"
 valid = (
     set(declared) == {"fast-checks.yml:admit"}
     and declared["fast-checks.yml:admit"].get("runner") == "ubuntu-24.04"
     and bool(declared["fast-checks.yml:admit"].get("why"))
-    and admit.get("runs-on") == "ubuntu-24.04"
+    and admit.get("runs-on") == selector
     and admit.get("environment") is None
     and admit.get("permissions") == {"contents": "read"}
     and workflow.get("permissions") == {"contents": "read"}
-    and [name for name, job in jobs.items() if job.get("runs-on") == "ubuntu-24.04"] == ["admit"]
+    and [name for name, job in jobs.items() if job.get("runs-on") == selector] == ["admit"]
     and source.splitlines().count(line) == 1
 )
 if not valid:
@@ -1315,7 +1316,7 @@ if not valid:
     raise SystemExit(1)
 PY_LIGHT
   local -a exceptions=(
-    "fast-checks.yml:    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+    'fast-checks.yml:    runs-on: ${{ contains(fromJSON('"'"'["blacksmith-8vcpu-ubuntu-2404"]'"'"'), inputs.runner) && inputs.runner || '"'"'ubuntu-24.04'"'"' }} # github-hosted-required: light read-only runner admission'
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
@@ -1660,7 +1661,13 @@ selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
             "'blacksmith-2vcpu-ubuntu-2404' }}")
-if job.get("runs-on") != selector or "environment" in job:
+# The classic one-mini switch (tests/test_classic_nightly_one_mini.py) may lead the same selector: a main push or
+# schedule then takes vars.CI_CLASSIC_NIGHTLY_MINI, which runner_label_policy.py holds to cmux15's nightly label.
+classic_mini = selector.replace(
+    "'ubuntu-24.04' || ",
+    "'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && "
+    "vars.CI_CLASSIC_NIGHTLY_MINI || ", 1)
+if job.get("runs-on") not in (selector, classic_mini) or "environment" in job:
     sys.exit(0)
 if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
              json.dumps([document.get("env"), job]), re.IGNORECASE):

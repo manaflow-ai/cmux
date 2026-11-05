@@ -172,6 +172,9 @@ cmux browser --surface <surface> screenshot --out /tmp/desktop.png
 cmux browser --surface <surface> viewport reset
 ```
 
+`screenshot --out` takes a file path and replaces a file already there. An empty
+path or a directory is an error, and nothing on disk changes.
+
 Dimensions are limited to 1..4096 CSS pixels. cmux changes
 `window.innerWidth`/`window.innerHeight` and aspect-fits the page inside the
 existing pane; it does not resize the pane, move other surfaces, or change

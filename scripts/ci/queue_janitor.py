@@ -540,10 +540,14 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     main's runs, and `branch_linux_only` (branch_linux_only_paths()) for a branch's, so a feat-cmux-next run of
     a workflow that branch's copy runs only on Linux is not listed. On 2026-10-31 those were 573 of the 1,324
     runs a sweep listed, each one REST request on the cmux-bot installation's budget."""
-    if run.get("path") in linux_only_paths and not follows_another_copy(run):
+    # Portable placement also needs paid Linux demand and start evidence. These
+    # three workflows must be read even when their branch copy has no Mac job.
+    portable = run.get("path") in rescue.PORTABLE_LIGHT_WORKFLOW_PATHS
+    if not portable and run.get("path") in linux_only_paths and not follows_another_copy(run):
         return False
     target = run_target_branch(run)
-    if target and target != "main" and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
+    if not portable and target and target != "main" \
+            and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -650,6 +654,12 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
 
 def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
+
+
+def paid_portable_label(job: Mapping[str, Any]) -> str | None:
+    """A paid Linux label the portable placement rescue can refresh."""
+    return next((str(label) for label in job.get("labels") or ()
+                 if rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(str(label))), None)
 
 
 def lane_label(job: Mapping[str, Any]) -> str | None:
@@ -962,7 +972,7 @@ def pool_load_snapshot(
     markers: Mapping[int, tuple[str, int, int]] | None = None,
     capability_markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
-    """Per-pool macOS demand from the jobs this sweep already listed.
+    """Per-pool macOS and paid portable Linux demand from jobs this sweep already listed.
 
     A pool is a job's single runner label when it asked for one, which is
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
@@ -1032,7 +1042,8 @@ def pool_load_snapshot(
             # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
             lane = lane_label(job)
             macos = is_macos_job(job)
-            if not macos and not lane:
+            paid = paid_portable_label(job)
+            if not macos and not lane and not paid:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
@@ -1040,7 +1051,7 @@ def pool_load_snapshot(
             # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
             # macOS pool as before.
             counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
-            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
+            for pool in dict.fromkeys(((lane,) if lane else ()) + ((paid,) if paid else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:
@@ -1075,16 +1086,16 @@ def pool_load_snapshot(
     }
 
 
-# The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner
+# The snapshot's map of each owned, lane or paid runner label to when a runner
 # last took a job that asked for exactly that label, among the in-flight runs listed (label_started()).
 LABEL_STARTED_KEY = "label_started"
 
 
 def label_started(runs: Sequence[Mapping[str, Any]],
                   jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
-    """When a runner last took a job on each macOS runner label: the newest `started_at` of a listed job a runner
+    """When a runner last took a job on each tracked label: the newest `started_at` of a listed job a runner
     took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
-    each owned, lane or macOS label it asked for exactly (no root or capability rollup, as `pools` has).
+    each owned, lane, macOS or paid Linux label it asked for exactly (no root or capability rollup, as `pools` has).
 
     The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
     job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
@@ -1102,7 +1113,8 @@ def label_started(runs: Sequence[Mapping[str, Any]],
             if started is None:
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
-                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()):
+                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
@@ -1457,17 +1469,27 @@ def _gated(run_jobs: Iterable[Mapping[str, Any]], suspects: Iterable[Mapping[str
     Its wait has not begun, whether the run is stale or current. A sibling
     that is itself a suspect (unassigned and overdue, and in find_lost() also
     skipped by its pool) is no gate, so two lost jobs never mask each other.
-    Nor is a sibling no suspect may need (may_need(): created with or after
-    every suspect), running or not: the run cannot finish without the lost
-    job, a cancel's re-run brings the sibling back with it, and in run
-    41158893861 such siblings were created in waves (02:30Z, 02:43Z, 02:57Z)
-    and kept running beside the lost `GhosttyKit release check` until a
-    runner took it at 02:59Z, 41 minutes in.
+    Nor is a queued sibling no suspect may need (may_need(): created with or
+    after every suspect): the run cannot finish without the lost job, a
+    cancel's re-run brings the sibling back with it, and in run 41158893861
+    such siblings were created in waves (02:30Z, 02:43Z, 02:57Z) beside the
+    lost `GhosttyKit release check` until a runner took it at 02:59Z, 41
+    minutes in.
+
+    A running sibling (in_progress on a runner) always gates, needed or not:
+    the cancel would kill its work, and its re-run starts it from scratch at
+    the back of its pool's queue. Run 42018091049 attempt 2 (PR #36356,
+    2026-11-05): `cmux-next swift test` had run 26 minutes on its runner when
+    the sweep cancelled the run for `cmux-next daemon tests`, created the
+    same second and queued 31 minutes. The lost job is failed over once the
+    running siblings finish, and a re-run of the failed jobs then leaves
+    their results alone.
     """
     suspects = list(suspects)
     exempt = {id(job) for job in suspects}
     return any(job.get("status") != "completed" and id(job) not in exempt
-               and any(may_need(suspect, job) for suspect in suspects) for job in run_jobs)
+               and (job.get("status") in RUNNING_JOB_STATUSES or any(may_need(suspect, job) for suspect in suspects))
+               for job in run_jobs)
 
 
 def _lost_scope(run: Mapping[str, Any]) -> bool:
@@ -3329,6 +3351,10 @@ def open_head_jobs_moved(
         fresh = [job for job in now if job.get("status") != "completed" and _job_key(job) not in lost]
         if fresh:
             return f"job {fresh[0].get('name')!r} is unfinished beside the lost jobs"
+    # A sibling running now, at any head, would be killed by the cancel (_gated(); run 42018091049).
+    running = [job for job in now if job.get("status") in RUNNING_JOB_STATUSES and _job_key(job) not in lost]
+    if running:
+        return f"job {running[0].get('name')!r} is running beside the lost job"
     return None
 
 
