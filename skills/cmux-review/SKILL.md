@@ -39,14 +39,13 @@ a bad default in the next nightly. `main` is nightly: stack fixes, do not revert
 Post the verdict as a PR comment whose first line is the receipt, and put nothing
 before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
 `FIX`). Findings go below that line. A SHIP counts only for the exact head it
-names. A receipt that carries an older head's SHIP to a new head across a base
-merge is not a review. Mark it in the reviewer label:
-`Review (<reviewer>; carried): SHIP at <new head sha>`. The checkers
-(`scripts/ci/review_receipt.py`, next-autoland) treat a first line as carried when
-the label says carried, or when the line says "carried from" or "carried over". A
-carried SHIP counts only while the newest independent verdict on the PR is a
-SHIP. Do not use "carry", "carries", "carried" or "carrying" in a real review's
-label, or "carried from" / "carried over" on its first line.
+names. A base merge makes a new head that needs its own review: a SHIP never
+carries to it, even when the merge was clean. The checkers
+(`scripts/ci/review_receipt.py`, next-autoland) treat a first line as a carry
+claim, and never as a receipt, when the reviewer label says carried, or when the
+line says "carried from" or "carried over". Do not use "carry", "carries",
+"carried" or "carrying" in a real review's label, or "carried from" / "carried
+over" on its first line.
 
 ## Adversarial review
 
