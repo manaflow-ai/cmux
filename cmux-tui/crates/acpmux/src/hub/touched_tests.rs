@@ -28,7 +28,9 @@ async fn fixture() -> Fixture {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]}},
         "defaultHarness": "fake",
-        "agentInbox": false,
+        // The inbox on, as a daemon has it by default: the gated turn is then the person's own,
+        // which takes no other agent's steer but takes acpmux's own notice (`touched.rs`).
+        "agentInbox": true,
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
