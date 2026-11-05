@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
-import CmuxNextCompat
+public import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 
@@ -79,14 +79,22 @@ public final class ChromiumWarmup {
     /// settle (`pagesSettled`), not at a later idle check.
     private var spareWaitsForPages = false
     private var stopped = false
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
+    /// - Parameter memoryPressure: the app's memory pressure events (`AppServices.memoryPressure`): a
+    ///   warning or critical level closes the spare Chromium page and makes none until normal again
+    ///   (`CEFEngine.holdSparePages`). Nil (tests): no such hold.
     public init(
         engine: CEFEngine,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking }
+        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+        memoryPressure: MemoryPressureEvents? = nil
     ) {
+        pressureObservation = memoryPressure?.observe { [weak engine] level in
+            engine?.holdSparePages(level != .normal)
+        }
         self.engine = engine
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)

@@ -61,6 +61,10 @@ final class CEFSpareWindow {
         help: "One Chromium page is made ahead at an idle moment, frozen and hidden, and the next new tab you open takes it instead of waiting for Chromium to make its page. A new page is made at the next idle moment after each take. Off makes each tab's page when the tab opens.",
         default: false, code: "CEFSpareWindow.pageSetting")
     static var makesPages: Bool { pageSetting.value }
+    /// Memory pressure (warning or critical) holds pages: the waiting one closed when it began
+    /// (`holdPages`), and none is made until the level is normal again, as Chrome's Memory Saver
+    /// drops a spare renderer first.
+    private(set) var pagesHeld = false
     /// Non-nil inside the `tab_add` that makes the spare page: the browsers Chromium created during the
     /// call (`CEFRuntime.browserCreated`). The page's is not a Chromium tab to adopt; any other one is,
     /// once the call returned and the page is known.
@@ -126,7 +130,7 @@ final class CEFSpareWindow {
     /// active tab), with an empty URL. Needs `cmux_shim_tab_move_to_window` (fork API 3), which takes it
     /// into a pane's window. True when it was made.
     private func preparePage(in spare: CEFPaneHost, runtime: CEFRuntime) -> Bool {
-        guard Self.makesPages, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
+        guard Self.makesPages, !pagesHeld, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
               let shim = runtime.shim else { return false }
         createdDuringPage = []
         let add = { shim.tabAdd(anchor, "", -1, 0) }
@@ -258,6 +262,19 @@ final class CEFSpareWindow {
         host = taken
         // The pane that showed it is gone: tabs Chromium places must not follow it here.
         if runtime.lastShownHost === taken { runtime.lastShownHost = nil }
+    }
+
+    /// Under memory pressure (`held`) the waiting page closes and none is made; back to normal, the
+    /// spare window asks for its page again at the next idle moment (`onNeeded`).
+    func holdPages(_ held: Bool) {
+        guard held != pagesHeld else { return }
+        pagesHeld = held
+        if held, let page {
+            self.page = nil
+            page.host.runtime.shim?.close(page.browser)
+        } else if !held, host != nil, Self.makesPages {
+            onNeeded?()
+        }
     }
 
     /// Closes the untaken spare: its placeholder goes, and the window with it.

@@ -303,5 +303,28 @@ extension CEFSparePageSuites {
             #expect(link.browserID == page, "the page is still taken")
             #expect(SpareSpy.added.isEmpty && SpareSpy.closed.isEmpty)
         }
+
+        /// Memory pressure (Chrome's Memory Saver drops spare renderers first): a warning closes the waiting
+        /// spare page and no idle moment makes another until the level is normal again; then the spare window
+        /// asks for its page, and the next idle moment makes it.
+        @Test func memoryPressureClosesTheWaitingSparePageAndMakesNoneUntilNormal() throws {
+            let (runtime, root) = try Self.runtime()
+            defer { Self.tearDown(runtime, root) }
+            let page = try Self.spareWithPage(runtime)
+            let needed = Count()
+            runtime.spareWindow.onNeeded = { needed.value += 1 }
+            SpareSpy.clearRecords()
+
+            runtime.spareWindow.holdPages(true)
+            #expect(SpareSpy.closed == [page], "the waiting spare page closes under pressure")
+            #expect(runtime.spareWindow.pageState == "none")
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.isEmpty, "no spare page is made under pressure")
+
+            runtime.spareWindow.holdPages(false)
+            #expect(needed.value == 1, "back to normal: the spare window asks for its page")
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.count == 1 && runtime.spareWindow.pageState == "waiting", "the next idle moment makes it")
+        }
     }
 }
