@@ -145,6 +145,13 @@ for name in "${names[@]}"; do
   chmod 700 "$EVAL_STATE"
   : >"$dir/errors.txt"
   err() { echo "$*" >>"$dir/errors.txt"; echo "SCREEN-STREAM-EVAL-ERROR $name $*"; }
+  # host_start: the target's host-start, its own words kept (only results.json leaves the worker),
+  # without the WebRTC host's pairing (its link and the QR code of it: the room secret).
+  host_start() {
+    bash "$script" host-start 2>"$EVAL_STATE/host-start.err" && return 0
+    LC_ALL=en_US.UTF-8 grep -v -E 'cmux-vnc://|[█▀▄]' "$EVAL_STATE/host-start.err" | tail -8 | tr '\n' ' ' | cut -c1-600
+    return 1
+  }
   if [[ ! -f "$script" ]]; then
     err "no target script $script"
     python3 -I "$here/eval.py" target "$name" "$dir" "$dir/target.json"
@@ -170,13 +177,13 @@ for name in "${names[@]}"; do
     grep -q marker-origin "$EVAL_MARKER_LOG" && break
     sleep 0.1 # bounded wait for the marker's geometry line (5 s)
   done
-  if bash "$script" host-start; then
+  if why=$(host_start); then
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
       bash "$script" latency "$input" "$samples" "$dir/latency-$input.json" || err "latency $input failed"
     done
   else
-    err "host did not start for latency"
+    err "host did not start for latency: $why"
   fi
   bash "$script" host-stop
   kill "$marker" 2>/dev/null || true
@@ -190,10 +197,10 @@ for name in "${names[@]}"; do
   scene=$!
   pids+=("$scene")
   sleep 2 # the scene's window is up before the host captures its first frame
-  if bash "$script" host-start; then
+  if why=$(host_start); then
     bash "$script" window "$window_s" "$dir/viewer-frame" "$go" "$dir/window.json" || err "window failed"
   else
-    err "host did not start for the window"
+    err "host did not start for the window: $why"
     touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
   fi
   touch "$stop"

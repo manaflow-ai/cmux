@@ -20,8 +20,12 @@
 //!   retires the journal segments before it. A failed log sync (in it, at a log's close, or in
 //!   `flush_session`) freezes it: a later sync may report success for pages the kernel dropped,
 //!   so the journal keeps every line and the store asks the daemon to stop
-//!   ([`Store::stop_reason`]); the next start's replay writes the logs again. Ten failed
-//!   checkpoints in a row ask the same.
+//!   ([`Store::stop_reason`]). The freeze is a `frozen` record in the journal (a control record
+//!   that a full queue never refuses; the journal closes only after the shutdown's last
+//!   checkpoint): the open that replays it writes every replayed chat's lines again. A record the
+//!   journal still refuses (its writer stopped) leaves a durable marker, `<home>/journal-frozen`,
+//!   that the open reads the same way. Ten failed checkpoints in a row ask the daemon to stop
+//!   too.
 //! - Recovery (open) repairs each log and never deletes a whole line or a folder: see
 //!   [`Inner::repair`]. It writes every replayed chat's lines again from the point the journal
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
@@ -63,22 +67,32 @@ mod meta;
 mod new_folders;
 mod repair;
 
-use checkpoint::{read_checkpoint, remove_checkpoint_temporaries};
+use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
 pub(super) use meta::SETTLE_HOLD;
 use repair::Replay;
 #[cfg(test)]
-pub(super) use repair::STOP_AFTER_CUT;
+pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
-/// review of #34901 and never shipped: a refused line is never journaled now.)
+/// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
+/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used.)
 const KIND_LOG: u16 = 1;
 const KIND_FORGET: u16 = 2;
+/// A freeze (a failed sync of the store's files; its reason as text): the open that replays it
+/// writes every replayed chat's lines again (`Inner::freeze`).
+const KIND_FROZEN: u16 = 6;
 
 const JOURNAL_DIR: &str = "journal";
 const CHECKPOINT_NAME: &str = "journal-projected.json";
+/// The checkpoint file's schema.
 const CHECKPOINT_SCHEMA: &str = "acpmux.journal-projected.v1";
+/// A durable marker of a freeze whose `frozen` record may not have reached the journal (refused,
+/// or not durable when the journal closed): the next open writes every replayed chat's lines
+/// again, as for the record (fail closed; delta review of #35866, D1;
+/// `journal_store/checkpoint.rs`).
+const FROZEN_NAME: &str = "journal-frozen";
 /// Where the journaled lines of a log that recovery leaves as it is go.
 const UNAPPLIED_DIR: &str = "journal-unapplied";
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
@@ -148,6 +162,20 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next `frozen` record a freeze on this thread appends is refused, as when the
+    /// journal's writer stopped (`AppendError::Closed`).
+    pub(crate) static FAIL_FROZEN_RECORD: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    /// Tests: a freeze on this thread stops right before it writes its fallback marker (off any
+    /// sync's count).
+    pub(crate) static HOLD_BEFORE_FROZEN_MARKER: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FROZEN_MARKER`].
+#[cfg(test)]
+fn hold_before_frozen_marker() {
+    log_sync::hold(&HOLD_BEFORE_FROZEN_MARKER);
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
@@ -283,12 +311,40 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+    /// The log segments whose verified bytes the open's repair wrote back over themselves: the
+    /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
+    /// be in the page cache only, and a previous run's failed sync may have dropped pages that
+    /// still read back; the write marked the range dirty again, so the sync puts the bytes on the
+    /// disk whatever happened before (delta review 2 of #35866, D2). The checkpoint only syncs:
+    /// a file put at the path since is never written (delta review 3, D3). A delete drops its
+    /// chat's.
+    read_segments: BTreeMap<PathBuf, repair::WrittenBack>,
+    /// How many more written-back segments the open may keep open (`repair::held_cap`).
+    held_left: usize,
+    /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
+    /// marker: its repair writes every replayed chat's lines again.
+    rewrite_all: bool,
+    /// The open found the freeze marker (`FROZEN_NAME`): the first checkpoint that succeeds
+    /// removes it.
+    marker: bool,
+    /// Chats whose lines the open took from a repair file (`journal_store/repair.rs`): written
+    /// again too, as their earlier repair could not write them.
+    rewrite: BTreeSet<String>,
+    /// An upper bound of the LSN of each chat's newest log record in this process (an append, or
+    /// the open's replay and repair). A chat without one has no log record past the checkpoint
+    /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
+    /// checkpoint of its own (`Store::commit_compaction`).
+    log_lsn: HashMap<String, Lsn>,
 }
 
 impl Order {
     /// Whether a checkpoint has anything to do.
     fn has_work(&self) -> bool {
-        self.applied > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
+        self.applied > self.checkpointed
+            || !self.dirty.is_empty()
+            || !self.metas.is_empty()
+            || !self.read_segments.is_empty()
+            || self.marker
     }
 }
 
@@ -309,6 +365,7 @@ impl JournalStore {
         remove_checkpoint_temporaries(home);
         let local = LocalStore::new(home.join("sessions"), config.segment_bytes)?;
         let from = read_checkpoint(home)?;
+        let marker = frozen_marker(home);
         let (journal, report, mut replay) =
             open_journal(storage, &home.join(JOURNAL_DIR), journal_config, from)?;
         for damage in &report.damage {
@@ -343,6 +400,9 @@ impl JournalStore {
             order: Mutex::new(Order {
                 checkpointed: from,
                 damage: !report.damage.is_empty(),
+                rewrite_all: replay.frozen || marker,
+                marker,
+                held_left: repair::held_cap(),
                 ..Order::default()
             }),
             checkpointing: Mutex::new(()),
@@ -360,8 +420,11 @@ impl JournalStore {
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
         inner.apply(replay)?;
-        if let Err(error) = inner.checkpoint() {
-            tracing::warn!("event journal checkpoint after the replay: {error:#}");
+        // The checkpoint after the replay runs on the checkpointer's thread at once, not here: the
+        // daemon binds its socket after this open returns, and the checkpoint's syncs are the
+        // open's cost per replayed chat (6.1 s for 300 chats on a loaded Mac, fleet 59175d6b).
+        if inner.order.lock_or_recover().has_work() {
+            inner.timer.lock_or_recover().wanted = true;
         }
         let store = Self {
             inner,
@@ -397,6 +460,19 @@ impl JournalStore {
     #[cfg(test)]
     pub(super) fn opened(&self) -> &cmux_journal::OpenReport {
         &self.opened
+    }
+
+    /// Tests: the written-back segments listed for the next checkpoint (`Order::read_segments`):
+    /// how many the open keeps open, and how many it closed.
+    #[cfg(test)]
+    pub(super) fn written_back(&self) -> (usize, usize) {
+        let order = self.inner.order.lock_or_recover();
+        let held = order
+            .read_segments
+            .values()
+            .filter(|written| matches!(written, repair::WrittenBack::Held(_)))
+            .count();
+        (held, order.read_segments.len().saturating_sub(held))
     }
 }
 
@@ -547,6 +623,13 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
         }
         order.applied = lsn;
+        // A chat's first line in this process allocates its entry; every later one reuses it.
+        match order.log_lsn.get_mut(id) {
+            Some(newest) => *newest = lsn,
+            None => {
+                order.log_lsn.insert(id.to_owned(), lsn);
+            }
+        }
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
         drop(order);
@@ -646,14 +729,31 @@ impl Store for JournalStore {
             }),
         })
     }
-    /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
-    /// then checkpoints).
+    /// No write lands after this returns; then the shutdown's last checkpoint, while the journal is
+    /// still open; then the journal closes, every record fully synced. The last checkpoint runs
+    /// here and not after (delta review of #35866, D1): a log sync that fails in it, or in a sync
+    /// under way that it waits for, freezes the store, and its `frozen` record must reach the
+    /// journal. A checkpoint after this (`Hub::seal`'s flush) finds no work.
     fn seal(&self) {
-        // Under the appends' lock: an append lands in the log and the journal, or in neither.
-        let _order = self.inner.order.lock_or_recover();
-        Store::seal(&self.inner.local);
+        {
+            // Under the appends' lock: an append lands in the log and the journal, or in neither.
+            let _order = self.inner.order.lock_or_recover();
+            Store::seal(&self.inner.local);
+        }
+        if let Err(error) = self.inner.checkpoint() {
+            tracing::warn!("the event journal's last checkpoint: {error:#}");
+        }
+        let order = self.inner.order.lock_or_recover();
         if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
             tracing::error!("seal the event journal: {error}");
+            // Fail closed: a frozen store's record may not be durable.
+            let frozen = order.frozen;
+            drop(order);
+            if frozen {
+                self.inner.keep_frozen_marker(
+                    "the event journal did not close with its frozen record durable",
+                );
+            }
         }
     }
     fn close_log(&self, id: &str) {
@@ -668,17 +768,28 @@ impl Store for JournalStore {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
     }
-    /// A checkpoint first, so no journal record of the chat is past it: a replay never writes
-    /// the lines a retention rewrite cut back into its log. A frozen or failed checkpoint stops
-    /// the rewrite. The commit (its record before and after the renames, the renames, the folder's
-    /// sync after them) runs in `counted_sync`, so a failed sync in it freezes the store, as a
-    /// failed log sync does (#35905): a later sync of the folder may report success for the
+    /// No journal record of the chat may be past the checkpoint: a replay must never write the
+    /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or
+    /// below it (`Order::log_lsn`; retention takes chats untouched for days) needs no checkpoint;
+    /// any other runs one first, and a frozen or failed checkpoint stops the rewrite. The caller
+    /// holds the chat's append lock (no record of it lands meanwhile), so a checkpoint in flight
+    /// (the one after a restart's replay takes seconds with many chats) never holds that lock for
+    /// an old chat. The commit (its record before and after the renames, the renames, the
+    /// folder's sync after them) runs in `counted_sync`, so a failed sync in it freezes the store,
+    /// as a failed log sync does (#35905): a later sync of the folder may report success for the
     /// renames a failed one dropped, so no checkpoint may go past it. The rewritten copies are
     /// synced earlier, in `stage_compaction`, before any rename: a failure there only fails the
     /// pass and changes no log.
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
         let inner = &self.inner;
-        inner.checkpoint()?;
+        let covered = {
+            let order = inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            inner.checkpoint()?;
+        }
         inner.counted_sync("a rewritten event log failed to sync", || {
             Store::commit_compaction(&inner.local, id, staged)
         })
@@ -714,6 +825,16 @@ impl Store for JournalStore {
             }
             Store::delete(&inner.local, id)?;
         }
+        // Its folder is gone: the segments the open wrote back need no sync. A handle the open
+        // kept for one is closed here, off the appends' lock (a close can start disk work).
+        let dir = inner.local.dir(id);
+        let gone: Vec<repair::WrittenBack> = {
+            let mut order = inner.order.lock_or_recover();
+            let paths: Vec<PathBuf> =
+                order.read_segments.keys().filter(|path| path.starts_with(&dir)).cloned().collect();
+            paths.iter().filter_map(|path| order.read_segments.remove(path)).collect()
+        };
+        drop(gone);
         if let Some(path) = repair {
             inner.remove_repair(&path)?;
             inner.order.lock_or_recover().repairs.remove(id);

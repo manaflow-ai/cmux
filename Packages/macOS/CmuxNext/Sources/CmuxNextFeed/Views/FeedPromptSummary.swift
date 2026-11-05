@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// What a request asks, above its controls: the command, the diff, the
 /// origin, the statement. `full` shows everything (inbox detail).
@@ -88,7 +89,7 @@ struct FeedCodeBlock: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 9).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(colors.hover))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius, style: .continuous).fill(colors.hover))
     }
 }
 
@@ -124,8 +125,8 @@ struct FeedDiffPreview: View {
             .padding(.vertical, 5)
             .textSelection(.enabled)
         }
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(colors.hover.opacity(0.6)))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius, style: .continuous).fill(colors.hover.opacity(0.6)))
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius, style: .continuous))
     }
 
     private func color(_ line: String) -> Color {

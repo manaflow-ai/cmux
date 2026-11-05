@@ -39,7 +39,7 @@ enum SessionInfoMetrics {
     /// A line's highlight's right end to its trailing column's right edge.
     static let trail: CGFloat = LayoutGrid.gap
     static let rowHeight: CGFloat = LayoutGrid.row
-    static let rowRadius: CGFloat = 6
+    static var rowRadius: CGFloat { Metrics.insetCornerRadius }
     static let indent: CGFloat = LayoutGrid.sidebarDepthIndent
     static let groupGap: CGFloat = LayoutGrid.gapInner
     static let padding: CGFloat = LayoutGrid.gap
@@ -1021,7 +1021,7 @@ final class SessionInfoButtonView: NSView {
         }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = Metrics.controlCornerRadius
         addSubview(content)
         themedToolTip = button.label
         setAccessibilityElement(true)
@@ -1065,7 +1065,7 @@ final class SessionInfoButtonView: NSView {
     override var acceptsFirstResponder: Bool { enabled }
     override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
     override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius).fill() }
     override func keyDown(with event: NSEvent) {
         if SessionInfoKeys.presses(event), press() { return }
         super.keyDown(with: event)
