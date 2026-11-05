@@ -670,9 +670,12 @@ impl Store for JournalStore {
     }
     /// A checkpoint first, so no journal record of the chat is past it: a replay never writes
     /// the lines a retention rewrite cut back into its log. A frozen or failed checkpoint stops
-    /// the rewrite. The rewrite's syncs (its record, the rewritten segments, their folder) freeze
-    /// the store when they fail, as a failed log sync does (#35905): a later sync of the folder
-    /// may report success for the renames a failed one dropped, so no checkpoint may go past it.
+    /// the rewrite. The commit (its record before and after the renames, the renames, the folder's
+    /// sync after them) runs in `counted_sync`, so a failed sync in it freezes the store, as a
+    /// failed log sync does (#35905): a later sync of the folder may report success for the
+    /// renames a failed one dropped, so no checkpoint may go past it. The rewritten copies are
+    /// synced earlier, in `stage_compaction`, before any rename: a failure there only fails the
+    /// pass and changes no log.
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
         let inner = &self.inner;
         inner.checkpoint()?;

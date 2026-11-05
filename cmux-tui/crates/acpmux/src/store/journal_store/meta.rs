@@ -545,29 +545,12 @@ impl Inner {
     }
 
     /// Keeps a chat's metadata image beside the logs:
-    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only, synced with its folder (an
-    /// error at any step is returned, as for kept lines).
+    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only, written whole under a
+    /// temporary name, synced, renamed into place, the folder synced (`Inner::write_kept`; an
+    /// error at any step is returned, as for kept lines). A new file each time, so a restart that
+    /// keeps the image aside again after a failed folder sync makes its entry again (review of
+    /// #35963, finding 1): the folder's next sync covers that new entry.
     fn keep_aside_meta(&self, id: &str, lsn: Lsn, image: &[u8]) -> Result<PathBuf> {
-        let dir = self.home.join(UNAPPLIED_DIR);
-        crate::config::refuse_lost_home(&dir)?;
-        crate::config::private_state_dir(&dir)?;
-        let name: String = id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' })
-            .collect();
-        let path = dir.join(format!("{name}.{lsn}.session.json"));
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
-        file.write_all(image)?;
-        file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", path.display()))?;
-        drop(file);
-        sync_directory(&dir)?;
-        Ok(path)
+        self.write_kept(id, &format!("{lsn}.session.json"), None, &[image.to_vec()])
     }
 }
