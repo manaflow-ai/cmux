@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture tool results, not shipped UI.
-// A web search or fetch call's sources (webSources.ts) for its chip (WebSources.tsx). Before: the
+// A web search or fetch call's sources (webSourceList.ts) for its chip (WebSources.tsx). Before: the
 // call drew as a generic row, its links a line of JSON inside the opened result.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { webSources, withoutLinks } from "./webSources";
+import { webSources, withoutLinks } from "./webSourceList";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const tool = (extra: Partial<Tool>): Tool =>

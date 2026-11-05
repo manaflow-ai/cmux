@@ -1,11 +1,11 @@
-// A web search or fetch call's sources (webSources.ts) under its row: one quiet line, "Sources"
+// A web search or fetch call's sources (webSourceList.ts) under its row: one quiet line, "Sources"
 // and the first sites' names, that opens to each page's title and site; a click on a page opens
 // it in a cmux browser tab, as a link in a reply does (chips/LinkHoverCard.tsx `browser.openIn`).
 import { memo, useId, useState } from "react";
 import { callChipHost } from "../chips/host";
 import { useT } from "../i18n";
 import { ChevronRight, Globe } from "./icons";
-import type { WebSource } from "./webSources";
+import type { WebSource } from "./webSourceList";
 import "./WebSources.css";
 
 /// The sites the closed line names before "+N".
