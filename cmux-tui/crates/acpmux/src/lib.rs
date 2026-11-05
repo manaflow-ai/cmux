@@ -126,6 +126,7 @@ pub mod registry;
 pub mod resume;
 pub mod review_box;
 pub mod route_account;
+pub mod route_shadow;
 mod route_probe;
 mod router_socket;
 pub mod routes;

@@ -2003,6 +2003,7 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod mcp_connect;
+mod accounts;
 mod routes;
 mod secrets;
 mod vault;
