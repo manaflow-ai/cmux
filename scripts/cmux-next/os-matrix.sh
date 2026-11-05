@@ -8,12 +8,18 @@
 #                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
+#   --nightly  newest or a NIGHTLY feed build number, in place of --build: the onboarding suite only
+#              (vm.sh downloads that DMG from the feed on the Tart host).
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
 #              (14, 15, 26; default 14,15). One VM at a time; about 3 min per major for the smoke.
 #   --suite    smoke (default): launch, window, a terminal that echoes, a split, a Chromium and a
 #              WebKit tab that load a page served in the guest, Settings, quit.
 #              fuzz: the seeded UI fuzz (fuzz.py) for --minutes (default 15) per major.
 #              repro:NAME: replay scripts/fuzz/macos-matrix/repros/NAME.jsonl.
+#              onboarding: scoreboard row ON1 (cmuxterm-hq#7146): install the NIGHTLY from its DMG and
+#              turn on Computer Use through cmux's own window and System Settings, over VNC only,
+#              then a scripted agent clicks, types and drags in background apps; a video and a still
+#              per step (onboarding.mp4, shot-*.png) and the person's action count against the reference.
 #              exec:NAME: an OS probe, scripts/fuzz/macos-matrix/probes/NAME.swift, compiled on the
 #              Tart host from the runner ref and run in each guest (exit 0 PASS, 1 FAIL, else no
 #              verdict; its output is in <out>/<major>/result.json). It tests the OS, not the build.
@@ -32,10 +38,11 @@
 # cmux-unit tests inside the guest are not supported (the base images have no Xcode); see MATRIX.md.
 set -euo pipefail
 
-BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1
+BUILD="" NIGHTLY="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) BUILD=$2; shift 2 ;;
+    --nightly) NIGHTLY=$2; shift 2 ;;
     --os) OS=$2; shift 2 ;;
     --suite) SUITE=$2; shift 2 ;;
     --seed) SEED=$2; shift 2 ;;
@@ -44,11 +51,16 @@ while [[ $# -gt 0 ]]; do
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
-[[ "$BUILD" =~ ^[0-9a-f]{24}$ ]] || { echo "--build needs a 24-character fleet build job id" >&2; exit 2; }
+if [[ "$SUITE" == onboarding ]]; then
+  [[ -z "$BUILD" && "$NIGHTLY" =~ ^(newest|[0-9]{1,20})$ ]] || { echo "--suite onboarding takes --nightly newest|BUILD, not --build" >&2; exit 2; }
+else
+  [[ -z "$NIGHTLY" ]] || { echo "--nightly goes only with --suite onboarding" >&2; exit 2; }
+  [[ "$BUILD" =~ ^[0-9a-f]{24}$ ]] || { echo "--build needs a 24-character fleet build job id" >&2; exit 2; }
+fi
 [[ "$OS" =~ ^[0-9]+(,[0-9]+)*$ ]] || { echo "--os takes majors like 14,15" >&2; exit 2; }
 # The controller's grammar: no leading zeros.
 [[ "$SEED" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "--seed takes a whole number" >&2; exit 2; }
@@ -56,11 +68,11 @@ done
 [[ "$ATTEMPT" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "--attempt takes 1..999" >&2; exit 2; }
 suite_args=(--suite "${SUITE%%:*}")
 case "$SUITE" in
-  smoke) ;;
+  smoke|onboarding) ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
   exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
-  *) echo "--suite takes smoke, fuzz, repro:NAME or exec:NAME" >&2; exit 2 ;;
+  *) echo "--suite takes smoke, fuzz, repro:NAME, exec:NAME or onboarding" >&2; exit 2 ;;
 esac
 
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
@@ -81,13 +93,15 @@ if len(set(majors)) != len(majors): sys.exit("--os names a major twice")
 for m in majors:
     if m not in pins: sys.exit("macOS %s has no pinned image in images.json (have %s)" % (m, ",".join(sorted(pins))))
     print("--label=tart-" + pins[m][len("sha256:"):][:32])' "$images" "$OS") || exit 2
-OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
+what=${BUILD:0:12}; [[ -n "$NIGHTLY" ]] && what="nightly-$NIGHTLY"
+OUT=${OUT:-$ROOT/artifacts/os-matrix/$what-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"
-key="os-matrix-${BUILD:0:12}-${REF:0:12}-${OS//,/-}-${SUITE//:/-}-a$ATTEMPT"
+key="os-matrix-$what-${REF:0:12}-${OS//,/-}-${SUITE//:/-}-a$ATTEMPT"
 [[ "$SUITE" == fuzz ]] && key+="-s$SEED-m$MINUTES"
-args=(--arg=--build-job "--arg=$BUILD" --arg=--majors "--arg=$OS")
+if [[ -n "$NIGHTLY" ]]; then args=(--arg=--nightly "--arg=$NIGHTLY"); else args=(--arg=--build-job "--arg=$BUILD"); fi
+args+=(--arg=--majors "--arg=$OS")
 for a in "${suite_args[@]}"; do args+=("--arg=$a"); done
-echo "os-matrix: build $BUILD, macOS $OS, suite $SUITE, vm.sh at $REF, key $key" >&2
+echo "os-matrix: build ${BUILD:-NIGHTLY $NIGHTLY}, macOS $OS, suite $SUITE, vm.sh at $REF, key $key" >&2
 set +e
 # shellcheck disable=SC2086
 "$CI" run --class vm --script scripts/fuzz/macos-matrix/vm.sh --ref "$REF" "${args[@]}" $labels --key "$key" 2>&1 \
