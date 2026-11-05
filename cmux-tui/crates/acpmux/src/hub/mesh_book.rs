@@ -166,6 +166,11 @@ impl Hub {
             .collect()
     }
 
+    /// Whether the hub lists machine `host` for this person.
+    pub(crate) fn mesh_book_has_host(&self, host: &str) -> bool {
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).hosts.contains_key(host)
+    }
+
     /// The machine whose hub row has session id `id`, when one only has it: the app opens a
     /// listed chat by its bare id.
     pub(crate) fn mesh_book_host(&self, id: &str) -> Option<String> {

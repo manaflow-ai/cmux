@@ -176,6 +176,32 @@ pub(crate) async fn forward(
     Some(reply)
 }
 
+/// A prompt from the app's pane to a chat the hub lists for this person's other machine
+/// (`hub/mesh_book.rs`): sent through the hub as `acpmux send HOST/ID` is (`mesh_send.rs`), never
+/// refused as no session here. Its turn runs there; the pane reads it as it reads the chat. None
+/// for anything else, which the usual prompt path takes.
+pub(crate) async fn prompt(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: &Value,
+) -> Option<Result<Value, RpcError>> {
+    if m != method::SESSION_PROMPT || !may_read(conn) {
+        return None;
+    }
+    let mesh = hub.mesh.get()?.clone();
+    let key = params.get("sessionId").and_then(Value::as_str)?;
+    let target = match key.split_once('/') {
+        Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
+        Some(_) => return None,
+        None => format!("{}/{key}", hub.mesh_book_host(key)?),
+    };
+    if !hub.mesh_may_route(&target) {
+        return None;
+    }
+    Some(super::super::mesh_send::send(hub, conn, &mesh, params, &target).await)
+}
+
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or
 /// the app's pane. A peer daemon's link, a web client or a paired device never may.
 fn may_read(conn: &Conn) -> bool {

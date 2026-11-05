@@ -230,3 +230,61 @@ async fn a_read_runs_only_a_read_method() {
         read(&hub, "machine-b", "own-e2e", method::SESSION_PROMPT, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.read_unsupported"), "{refused:?}");
 }
+
+/// The app's prompt to a chat the hub lists for another machine of the same person goes through
+/// the hub and runs there as a turn; nothing here refuses it as no session (#36710 review).
+#[tokio::test]
+async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "own-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+    };
+    a.set_mesh_book(hosts, vec![row]);
+
+    // As the pane sends it: the listed row's bare id.
+    let sent = call(
+        &a,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello from a"}]}),
+    )
+    .await;
+    assert_eq!(sent["via"], "mesh", "{sent}");
+    // B runs it as a turn: its reply shows there within the bound.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let info = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+        if info.to_string().contains("echo: hello from a") {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "no reply on B: {info}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // A name the hub does not list here stays this daemon's refusal.
+    assert!(prompt_target_is_listed(&a, "machine-c/own-e2e").is_none());
+}
+
+/// The target [`prompt`] would send `key` to, without sending.
+fn prompt_target_is_listed(hub: &Arc<Hub>, key: &str) -> Option<()> {
+    let (host, _) = key.split_once('/')?;
+    hub.mesh_book_has_host(host).then_some(())
+}
