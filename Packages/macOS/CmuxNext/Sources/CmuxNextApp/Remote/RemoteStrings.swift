@@ -201,7 +201,7 @@ enum RemoteStrings {
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.need.unrunnable", defaultValue: "The cmux-tui there does not run (%@). Install cmux-tui to replace it.", table: "Remote", bundle: .module), detail)
         case .protocolMismatch(let remote, let local):
-            return String(format: String(localized: "remote.need.protocol", defaultValue: "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it.", table: "Remote", bundle: .module), remote, local)
+            return String(format: String(localized: "remote.need.protocol", defaultValue: "The cmux-tui there is a different version than this app uses (%1$d, not %2$d). Install cmux-tui to update it.", table: "Remote", bundle: .module), remote, local)
         case .wrongApp(let app):
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:

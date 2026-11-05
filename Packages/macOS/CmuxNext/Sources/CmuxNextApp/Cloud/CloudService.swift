@@ -172,7 +172,7 @@ final class CloudService {
                          nightlySession: { await SessionHandoffClient.nightly().fetchTokens() })
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
-        deviceID = CloudDeviceID(paths: paths, work: work)
+        installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
         api = CloudAPIClient(
             configuration: configuration,
@@ -267,11 +267,11 @@ final class CloudService {
 
     static var deviceName: String { MacName().linkDeviceName() }
 
-    /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
-    /// lane when Cloud starts; async callers use ``installID()``.
-    func localDeviceID() throws -> String { try deviceID.loadNow() }
+    /// This Mac's install id (the build's own, never the selected backend's) for a synchronous caller
+    /// (``CloudDeviceID/loadNow()``): read once, on the files lane when Cloud starts; async callers use ``installID()``.
+    func localDeviceID() throws -> String { try installIDs.machine.loadNow() }
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
-    func installID() async throws -> String { try await deviceID.load() }
+    func installID() async throws -> String { try await installIDs.machine.load() }
 
     /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
     /// broker's target reads it: a Worker machine's owner link on the app server link. A personal
@@ -280,7 +280,7 @@ final class CloudService {
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil
     }
-    @ObservationIgnored private let deviceID: CloudDeviceID
+    @ObservationIgnored let installIDs: CloudInstallIDs
 
     var isSignedIn: Bool { auth.isSignedIn }
 
@@ -289,11 +289,11 @@ final class CloudService {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
-        if configuration.apiBaseURL.isFileURL { return CloudStrings.localBackend }
         // The app server path needs no web backend (cx-t2rz).
         #if DEBUG
-        if debugBackendFixture { return nil }
+        if debugBackendFixture { return nil } // reachable even with no selected backend (DebugCloudMachineFixture)
         #endif
+        if configuration.apiBaseURL.isFileURL { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
     }
@@ -312,7 +312,7 @@ final class CloudService {
         // A failed client-config bootstrap leaves the local app usable, but
         // must not restore auth or start the credential relay/Cloud observers.
         guard !configuration.apiBaseURL.isFileURL else { return }
-        deviceID.preload()
+        installIDs.preload()
         auth.start(); changes.start()
         startCredentialProvider()
         if linkEvents == nil {

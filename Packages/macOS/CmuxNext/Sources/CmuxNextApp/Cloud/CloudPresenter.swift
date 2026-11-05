@@ -154,6 +154,10 @@ enum CloudPresenter {
                 let scope = CloudCodexBrokerScope(userID: userID, teamID: teamID)
                 try await services.cloud.codexBroker.run(
                     machineID: session.machineID, scope: scope, confirmed: true, forceRefresh: true,
+                    askLocalSignIn: { [weak services] in
+                        guard let services else { return false }
+                        return await CloudStartChat.askCodexSignIn(services, mayAsk: !request.automatic, in: nil)
+                    },
                     presentDeviceCode: { [weak services, tabID = tab.id] prompt in
                         let view = services?.madeAgentTabs?.existingView(tabID).flatMap { $0.window == nil || $0.isHiddenOrHasHiddenAncestor ? nil : $0 }
                         return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))

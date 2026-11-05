@@ -198,13 +198,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
-        owned = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
-        # The notarization recovery takes its own owned pick, then the nightly build pool.
-        recovery = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+        # After their owned pick, only the signer's label: a trusted-only mini that runs no pull request job.
+        owned = "|| 'glaeda-trusted-next-signing' }}"
         for name in ("sign-nightly-identity-legacy", "build-sign-notarize-nightly", "recover-nightly-next-notarization"):
             runs_on = re.search(r"^    runs-on: (.+)$", text[text.index(f"\n  {name}:"):], re.MULTILINE).group(1)
-            if name == "recover-nightly-next-notarization":
-                owned = recovery
             with self.subTest(job=name):
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)

@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 @testable import CmuxNextApp
 import Foundation
 import Testing
@@ -66,6 +67,8 @@ struct CloudCredentialRecoveryTests {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
         // cloud.startChat's first-login confirm caches and installs a year-long login: only the person says Set Up.
         #expect(DebugDialog.userOnly.contains(CloudPresenter.firstLoginIdentifier))
+        // Using the Mac's own Codex sign-in on Cloud machines: only the person's click says Use My Login.
+        #expect(DebugDialog.userOnly.contains(CloudCodexSignInConsent.identifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {

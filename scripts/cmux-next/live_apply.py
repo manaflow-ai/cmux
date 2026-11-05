@@ -9,10 +9,11 @@ Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heavies
   web-live    plus the app's web bundles (webviews/): hot-swapped into the running app
   daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
   swift-live  plus app Swift changed only inside function bodies and computed properties, or new
-              Swift files (the patch carries them: Prototypes/ViewShell/inject.sh)
+              Swift files (the patch carries them: Prototypes/ViewShell/inject.sh), in a module the
+              live code build patches (LIVE_MODULES)
   rebuild     a new binary: a stored property, a changed signature, a new type, conformance or
               enum case in an existing file, a new entry point (`@main`), a resource, manifest,
-              plist or entitlement
+              plist or entitlement, or Swift in a module live code does not patch
   ios-only    iOS only: the Mac app does not change
 
 The rules are regular expressions over the diff lines, checked by hand on 20 merged PRs (19 right):
@@ -40,6 +41,11 @@ STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|i
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
 ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
+# The modules a patch can replace code in: the app's live code build makes only CmuxNextApp's
+# symbols interposable (docs/cmux-next/live-code.md, scripts/reload.sh), and the view shell's
+# inject.sh patches its own module. Every other module is linked into the app as it was built.
+LIVE_MODULES = {"CmuxNextApp", "ViewShell"}
+SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 
 # Heaviest first: a change takes the verdict of its heaviest file.
@@ -106,6 +112,9 @@ def classify(files, diffs):
             why = [] if status == "D" else swift_reasons(diffs.get(path, []), status == "A")
             if status == "A" and os.path.basename(path) == "main.swift":
                 why = ["new entry point"]
+            module = SWIFT_MODULE.search(path)
+            if status != "D" and not why and (module.group(1) if module else None) not in LIVE_MODULES:
+                why = [f"outside the live code modules ({module.group(1) if module else path})"]
             for reason in why:
                 note("rebuild", path, reason)
             if not why:
