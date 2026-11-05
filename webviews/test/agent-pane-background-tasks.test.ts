@@ -307,7 +307,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await note.getAttribute("aria-expanded")).toBe("true");
     const card = page.locator(`[id="${await note.getAttribute("aria-controls")}"]`);
     await card.waitFor({ timeout: 5_000 });
-    expect(await card.locator(".cv-shell__command").textContent()).toBe("$ pytest -x");
+    // A task whose registry has no output stays a compact details row; opening it does not
+    // manufacture an empty shell card.
+    expect(await card.locator(".cv-bgtask__raw-command").textContent()).toBe("pytest -x");
+    expect(await card.locator(".cv-shell").count()).toBe(0);
     // acpmux's own words on the end.
     expect(await card.locator(".cv-bgtask__detail").textContent()).toBe("Tests passed");
     // The clicked line stays where it was (foldAnchor.ts).
