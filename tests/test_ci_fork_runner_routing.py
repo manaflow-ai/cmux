@@ -320,11 +320,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
 # job that runs on a reused owned machine by design and still holds a secret there: each needs
 # its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
 SECRET_RUNNER_EXCEPTIONS = {
-    ("nightly.yml", "generate-nightly-deltas"):
-        "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
-        "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("nightly.yml", "build-sign-notarize-nightly"):
-        "the same picker as generate-nightly-deltas: only Blacksmith macOS labels; in the one-mini mode "
+        "pick-classic-sign-runner's outputs: only Blacksmith macOS labels; in the one-mini mode "
         "(vars.CI_CLASSIC_NIGHTLY_MINI, a push or schedule of main) the literal glaeda-trusted-next-signing, "
         "cmux15's trusted signing runner, where glaeda gives the job the whole Mac and its claim gate fails it "
         "before any secret otherwise (tests/test_classic_nightly_one_mini.py)",
@@ -358,7 +355,7 @@ SECRET_RUNNER_EXCEPTIONS = {
         "(it seeds their DerivedData)",
 }
 APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
-                             if key in {("nightly.yml", "generate-nightly-deltas"), ("nightly.yml", "pick-nightly-app-runner"),
+                             if key in {("nightly.yml", "pick-nightly-app-runner"),
                                         ("nightly.yml", "pick-classic-prepare-runner")}}
 # A secret a job reads: `${{ secrets.X }}` (not the job's own GITHUB_TOKEN), `secrets[...]`, or
 # `secrets: inherit` into a reusable workflow. Context names are case-insensitive.

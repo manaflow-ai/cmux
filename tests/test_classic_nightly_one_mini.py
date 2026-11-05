@@ -59,9 +59,8 @@ TRUSTED_EVENTS = ("push", "schedule")
 REF = re.compile(r"\b(?:needs\.[\w-]+\.(?:outputs\.\w+|result)|inputs\.\w+|vars\.\w+)")
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
 # publish-nightly runs only while decide's should_publish is false, which a push or schedule of main never is (main
-# publishes through auto-resume-nightly-notarization.yml), and generate-nightly-deltas and republish-nightly-deltas
-# need it to be both true and false, so on main these three never take a runner.
-UNREACHED_ON_MAIN = {"publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas"}
+# publishes through auto-resume-nightly-notarization.yml), so on main it never takes a runner.
+UNREACHED_ON_MAIN = {"publish-nightly"}
 KEPT = {"promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
         "refresh-compilation-cache", "refresh-test-compilation-cache"} | UNREACHED_ON_MAIN
 # Jobs on the shared nightly-only runners that hold a secret in this mode, by design: the CI cache writer keys and
