@@ -245,7 +245,9 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
 }
 
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display.
+/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
+/// `link` feature) asks.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
 pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
     let (content, displays) = shareable_displays()?;
     // SAFETY: CGMainDisplayID has no preconditions.
