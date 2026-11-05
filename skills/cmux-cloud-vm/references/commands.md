@@ -225,9 +225,9 @@ authorization for the target and effect.
 
 ```bash
 cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
-cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt '…' --json  # on machine "dev" (created when missing); answers once sent
+cmux cloud start-chat --name dev --prompt '…' --json                       # on machine "dev" (created when missing); answers once sent
 cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
-cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
+cmux cloud start-session --name dev --agent codex                          # take machine "dev", or create it
 ```
 
 `start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
