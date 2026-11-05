@@ -78,29 +78,25 @@ fi
 # the wait is the kernel's exit event (kqueue NOTE_EXIT on macOS, pidfd on Linux), not a poll.
 survivors="$(pgrep -f "$WORK/" | grep -vx "$$" || true)"
 if [[ -n "$survivors" ]]; then
+  # The kernel's exit events decide, not kill(pid, 0): an exited process stays a zombie until launchd reaps
+  # it, and kill(0) succeeds on a zombie. If python itself fails, the pgrep list stands.
   # shellcheck disable=SC2086
-  survivors="$(/usr/bin/env python3 -I - "${CMUX_EMBEDDER_SURVIVOR_WAIT_S:-10}" $survivors <<'PY'
-import os, select, sys, time
+  survivors="$(/usr/bin/env python3 -I - "${CMUX_EMBEDDER_SURVIVOR_WAIT_S:-10}" $survivors <<'PY' || echo "$survivors"
+import errno, os, select, sys, time
 deadline = time.monotonic() + float(sys.argv[1])
 pids = [int(p) for p in sys.argv[2:]]
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+live = set()
 if hasattr(select, "kqueue"):
     kq = select.kqueue()
-    live = set()
     for pid in pids:
         try:
             kq.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
                                       select.KQ_NOTE_EXIT)], 0, 0)
-            live.add(pid)
-        except OSError:
-            pass  # already gone
+        except OSError as e:
+            if e.errno != errno.ESRCH:  # gone (exited, maybe a zombie) is ESRCH; anything else counts as alive
+                print(pid)
+            continue
+        live.add(pid)
     while live and (left := deadline - time.monotonic()) > 0:
         for ev in kq.control(None, len(live), left):
             live.discard(ev.ident)
@@ -112,13 +108,13 @@ else:
         except ProcessLookupError:
             continue
         fds[fd] = pid
-        poller.register(fd, select.POLLIN)
+        poller.register(fd, select.POLLIN)  # readable once the process exits, zombie or not
     while fds and (left := deadline - time.monotonic()) > 0:
         for fd, _ in poller.poll(left * 1000):
             poller.unregister(fd); os.close(fd); fds.pop(fd)
-for pid in pids:
-    if alive(pid):
-        print(pid)
+    live = set(fds.values())
+for pid in sorted(live):
+    print(pid)
 PY
 )"
 fi
