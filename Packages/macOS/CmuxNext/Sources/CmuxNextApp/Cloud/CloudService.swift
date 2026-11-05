@@ -703,7 +703,7 @@ final class CloudService {
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
         session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.
-        session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
+        session.resumer = { [weak self] id, origin in try await self?.resumeMachine(id, origin: origin == .user ? .user : .script) }
         // An attach reads a record that may be stale (paused behind the app) again first.
         session.refresher = { [weak self] force in
             if force { _ = await self?.refresh() } else { _ = await self?.refresh(ifOlderThan: .seconds(30)) }

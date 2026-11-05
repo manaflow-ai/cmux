@@ -86,7 +86,7 @@ final class CloudMachineSession {
     /// Resumes this machine through the Resume Machine path
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
-    @ObservationIgnored var resumer: (@MainActor (String) async throws -> Void)?
+    @ObservationIgnored var resumer: (@MainActor (String, CloudLinkOrigin) async throws -> Void)?
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a
@@ -232,7 +232,7 @@ final class CloudMachineSession {
         Task {
             defer { resuming = false }
             do {
-                try await resumer(machineID)
+                try await resumer(machineID, origin)
             } catch {
                 guard !disconnected else { return }
                 resumeFailure = CloudStrings.errorText(error)
@@ -240,11 +240,10 @@ final class CloudMachineSession {
             }
             // The resume's refresh connects a record that turned live; a
             // refresh that failed leaves the record paused, so connect here.
-            guard !disconnected, !machine.status.isLive else { return }
             // Keep the raw record paused until reconciliation supplies the live record. The
             // resume mutation may still be pending, and connect() must not be blocked by a
             // synthetic running status that makes the later paused -> running edge disappear.
-            connect()
+            if !disconnected, !machine.status.isLive { connect() }
         }
     }
 
@@ -480,9 +479,10 @@ final class CloudMachineSession {
             legacyLinkFailure = nil
             if machine.status.isLive { retryNow() }
         }
+        var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
             let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() } else if appLink != nil, machine.status == .paused { attach(origin: .script) }
+            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() } else if appLink != nil, machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
         }) { [daemon] in
             self.resumeFailure != nil || self.legacyLinkFailure?.definitive == true || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }

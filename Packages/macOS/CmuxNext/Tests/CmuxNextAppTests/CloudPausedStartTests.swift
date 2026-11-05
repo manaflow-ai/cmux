@@ -20,11 +20,13 @@ struct CloudPausedStartTests {
                                    localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 
-    /// Resume Machine, as CloudService's resumer does: the record turns running.
-    static func resumes(_ session: CloudMachineSession, counting resumed: CloudLinkRedialSessionTests.Dials) {
-        session.resumer = { [weak session] _ in
+    /// Resume Machine, as CloudService's resumer does: the record turns running (unless `settles`, when the
+    /// platform's start ends with the machine paused again). A start's resume is a script's, never a click's.
+    static func resumes(_ session: CloudMachineSession, counting resumed: CloudLinkRedialSessionTests.Dials, settles: Bool = false) {
+        session.resumer = { [weak session] _, origin in
             resumed.refused += 1
-            guard let session else { return }
+            #expect(origin == .script, "a start resumed the machine as a click")
+            guard let session, !settles else { return }
             var live = session.machine
             live.status = .running
             live.pauseReason = nil
@@ -84,6 +86,16 @@ struct CloudPausedStartTests {
         #expect(session.resumeFailure == nil)
         wait.cancel()
         _ = await wait.value
+    }
+
+    /// A resume the platform settles back to paused is its answer: the wait resumes once, not on every redial.
+    @Test func aStartsWaitResumesAMachineOnce() async {
+        let resumed = CloudLinkRedialSessionTests.Dials()
+        let session = Self.session(.paused, LateReceiverResolver(refusing: 0, dials: CloudLinkRedialSessionTests.Dials()))
+        defer { session.disconnect() }
+        Self.resumes(session, counting: resumed, settles: true)
+        #expect(await session.linkUp(within: .seconds(4)) == false)
+        #expect(resumed.refused == 1)
     }
 }
 
