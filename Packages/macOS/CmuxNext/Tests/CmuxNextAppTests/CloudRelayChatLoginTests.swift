@@ -83,7 +83,7 @@ struct CloudRelayChatLoginTests {
 
     /// Runs the relay chat bound with a login step that leaves `decision`, and answers its result and the steps' order.
     static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
-                          loginWithin: Duration = CloudStartSession.loginWithin) async throws
+                          loginWithin: Duration = CloudStartSession.loginWithin, accountChanges: Bool = false) async throws
         -> (result: Result<[String: ActionResultValue], ActionWorkFailure>?, work: ActionWorkFailure??, steps: [String]) {
         let f = fixture()
         _ = Steps.shared.take()
@@ -92,6 +92,7 @@ struct CloudRelayChatLoginTests {
                                             Steps.shared.append("login")
                                             if loginTakes > .zero { try await Task.sleep(for: loginTakes) }
                                             machine.harnessLogin = decision
+                                            if accountChanges { throw ActionFailure(message: "account changed") }
                                             try still()
                                         }, relay: { Self.relay }, loginWithin: loginWithin))
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
@@ -192,6 +193,14 @@ struct CloudRelayChatLoginTests {
         try await Task.sleep(for: .seconds(4))
         #expect(Steps.shared.take() == [], "the relay sent after the run answered")
         #expect(CloudStartSession.loginWithin + .seconds(20) <= CloudHandlers.answerWithin, "the turn keeps 20 s of the result deadline")
+    }
+
+    /// A sign-out or team switch while the login step waited: nothing is sent, and the code is a terminal login one.
+    @Test func anAccountChangeDuringTheLoginSendsNothing() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: "installed"), accountChanges: true)
+        #expect(run.steps == ["login"])
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_account_changed"))
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
