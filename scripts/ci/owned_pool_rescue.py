@@ -322,7 +322,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
-    ".github/workflows/cloud-vm-image-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,

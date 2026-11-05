@@ -29,8 +29,7 @@
 
 use super::*;
 use crate::mesh::{
-    Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
-    StartWork,
+    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
@@ -42,6 +41,10 @@ use tokio::sync::{mpsc, watch};
 #[path = "mesh_control_ledger.rs"]
 mod control_ledger;
 use control_ledger::{Claim, ControlLedger};
+
+/// A read of a session through the hub, both sides (`mesh_read.rs`).
+#[path = "mesh_read.rs"]
+pub(crate) mod read;
 
 /// The loops' timings.
 #[derive(Debug, Clone)]
@@ -562,6 +565,11 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // A read changes nothing, so it needs no ledger: a repeat runs again and answers
+            // the session as it is then.
+            if op == "read" {
+                return Some(read::answer(hub, message).await);
+            }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
                 Some(daemon) => daemon.to_owned(),
@@ -829,7 +837,8 @@ pub async fn deliver(
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
     // Sender display metadata alone must never change legacy session delivery semantics.
-    let team = message.to.team_address.is_some() || message.start_work.is_some();
+    let own_user = crate::cli::cloud_join::machine_user_id();
+    let team = team_delivery(message, own_user.as_deref());
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {
@@ -902,11 +911,9 @@ pub async fn deliver(
         Ok(_) => Some(Ack::delivered(prompt_id, None)),
         // A paused agent pair holds it in the session's queue: the person's resume runs it.
         Err((why, Next::Held)) => Some(Ack::delivered(prompt_id, Some(format!("held: {why}")))),
-        Err((why, Next::Fail)) => Some(Ack {
-            state: AckState::Refused,
-            prompt_id: Some(prompt_id.to_owned()),
-            detail: Some(why),
-        }),
+        Err((why, Next::Fail)) => {
+            Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(why) })
+        }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
         Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
@@ -918,6 +925,24 @@ pub async fn deliver(
     }
 }
 
+/// Whether `message` is delivered by the team rules (information unless the hub allows work).
+/// A team address always is. A prompt to a session by id or name is too when the hub marked it
+/// (`startWork`), unless the same person sent it: the hub marks every message `information` by
+/// default, and the person's own machine prompting their own session is a turn, as a send from
+/// this machine is (`acpmux send B/NAME`, own-machines e2e prompt-reply, 2026-11-05).
+fn team_delivery(message: &InMessage, own_user: Option<&str>) -> bool {
+    if message.to.team_address.is_some() {
+        return true;
+    }
+    if message.start_work.is_none() {
+        return false;
+    }
+    let own = own_user.filter(|own| !own.is_empty());
+    let same_person = message.from.team_address.is_none()
+        && own.is_some_and(|own| message.from.user.as_deref() == Some(own));
+    !same_person
+}
+
 fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
@@ -925,7 +950,7 @@ fn start_work_allowed(message: &InMessage) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::{Sender, Target};
+    use crate::mesh::{AckState, Sender, Target};
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {
@@ -959,6 +984,27 @@ mod tests {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
         assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
+    fn the_same_persons_direct_prompt_is_a_turn_and_any_other_marked_one_is_information() {
+        let mut message = from("machine-a", "own-e2e");
+        message.from.user = Some("person-1".into());
+        // The hub marks every message `information` by default.
+        assert!(!team_delivery(&message, Some("person-1")), "the same person's own prompt");
+        assert!(team_delivery(&message, Some("person-2")), "another person's");
+        assert!(team_delivery(&message, None), "no person recorded here");
+        message.from.user = None;
+        assert!(team_delivery(&message, Some("person-1")), "no hub-stamped sender");
+        message.from.user = Some("person-1".into());
+        message.from.team_address = Some("@person-1/lead".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team sender");
+        message.from.team_address = None;
+        message.to.team_address = Some("@person-1/coordinator".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team address always is");
+        message.to.team_address = None;
+        message.start_work = None;
+        assert!(!team_delivery(&message, None), "an unmarked direct prompt, as before");
     }
 
     #[test]

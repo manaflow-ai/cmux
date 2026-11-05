@@ -510,8 +510,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
-    /// by itself (its own links and history).
+    /// The fragment the host last asked the page to show (``open(route:)``), or the one the page
+    /// showed when it moved from Chromium to WebKit (``reopenForLiveOverride(hosting:isCurrent:)``);
+    /// the page may move on by itself (its own links and history).
     public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.

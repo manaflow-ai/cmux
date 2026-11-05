@@ -22,6 +22,7 @@ impl Transport for Enrollment {
             team: "team_00000000000000000001".into(),
             user: "user_00000000000000000001".into(),
             install: "inst_00000000000000000001".into(),
+            machine_join: None,
         }))
     }
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 578,
+  "count": 579,
   "sections": [
     {
       "id": "general",
@@ -1485,6 +1485,14 @@
           }
         },
         {
+          "key": "updates.liveWebReload",
+          "title": "Live Web Reload",
+          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
           "key": "updates.meteredNetwork",
           "title": "On Metered Networks",
           "help": "While downloads wait, a found update shows on Settings and one click downloads it.",
@@ -1732,6 +1740,28 @@
             "max": 28,
             "unit": "points"
           }
+        },
+        {
+          "key": "agentPane.display.font.ui",
+          "title": "Chat Interface Font",
+          "help": "The font of the whole chat: replies, the composer, cards and menus.",
+          "kind": "choice",
+          "default": "inter-tuned",
+          "group": "Agent Chat",
+          "values": [
+            "inter-tuned",
+            "inter",
+            "verdana",
+            "roboto",
+            "plex",
+            "source-sans",
+            "geist",
+            "cmux-sans",
+            "hanken",
+            "atkinson",
+            "system-ui",
+            "system-ui-tight"
+          ]
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -3178,7 +3208,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+          "help": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",
@@ -6208,14 +6238,6 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
-        {
-          "key": "labs.classicHome",
-          "title": "Classic Home",
-          "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
         {
           "key": "labs.liveCode",
           "title": "Live Code",

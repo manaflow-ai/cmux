@@ -1,9 +1,7 @@
 {
   "agentPane.debug.codexToolRuns": {"case": "delete", "why": "On by default; deleting the off switch keeps Codex-style runs and drops the old path."},
   "agentPane.debug.liveLineBelow": {"case": "delete", "why": "On by default; deleting the off switch keeps the live line at the bottom."},
-  "agentPane.debug.lostPromptReplay": {"case": "delete", "why": "On by default since #32389 (Leo's 'Not sent' report); deleting the off switch keeps replay."},
   "agentPane.debug.scrollerFade": {"case": "delete", "why": "On by default; deleting the off switch keeps the fading scrollbar."},
-  "agentPane.debug.sideSessions": {"case": "delete", "why": "On by default since #26108 (Leo: '/btw ... need to be in fast'); deleting the gate keeps /btw and Ask a Side Question."},
   "agentPane.debug.subagentTray": {"case": "delete", "why": "On by default; deleting the off switch keeps the subagent tray."},
   "agentPane.debug.turnPreviewCards": {"case": "delete", "why": "Off by Leo's call (10-20: a mentioned dev server is not worth a card nobody asked for); deleting removes the unused preview card."},
   "agentPane.debug.needsYouPill": {"case": "keep", "why": "Off because it does not work yet (Leo 10-23: 'default off ... bc it doenstr work rn... we need to fix it'); fix it, then flip."},
