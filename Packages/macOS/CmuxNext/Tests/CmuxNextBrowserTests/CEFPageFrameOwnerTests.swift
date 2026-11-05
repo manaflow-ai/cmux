@@ -226,34 +226,67 @@ import Testing
         #expect(host.hostView.layerHosting.page == nil)
     }
 
-    /// Lead (cmux-ad m14, STATUS 13849): with DevTools docked, S5 ON made the held-key film's main thread miss 40 frames
-    /// (p50 2.92 -> 8.64 ms, 9-15 -> 21-28 view layouts per frame), because the page then followed its pane in every frame:
-    /// the chrome's whole subtree laid out and both page windows (the page's and DevTools') resized per frame. OFF holds
-    /// that chrome whole (a page that places itself cannot hold). Until a profile shows that per-frame cost inside the
-    /// budget, S5 keeps OFF's whole hold for such a page: it does not follow, and a key resize gives its page windows no
-    /// page sync share.
-    @Test func aPageWithDockedDevToolsKeepsTheWholeChromeHeldInAKeyResize() throws {
+    /// Lead (cmux-ad m14, STATUS 13849; m18): with DevTools docked, S5 ON missed 40 frames in the held-key film (main p50
+    /// 2.92 -> 8.64 ms, 21-28 view layouts per frame against 9-15). Per motion frame only geometry: a page with docked
+    /// DevTools follows its pane like a plain page, its tab container lays out once per step (itself: one frame set per view
+    /// in it, no layout of anything under it), and the page and DevTools hosts take their part of the pane's size in every
+    /// step. No hold: S5 has none.
+    @Test func aPageWithDockedDevToolsFollowsItsPaneWithGeometryOnly() throws {
         Self.set(pages: true)
         defer { Self.set(pages: nil) }
+        LayoutPassGuard.shared.install()
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first) = try Self.liveHost(runtime)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.closeAfterTest() }
-        first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
         window.contentView?.addSubview(first.container)
         first.devToolsController.layout.dock = .bottom
         first.devToolsController.willOpen()
         first.devToolsController.opened(browser: 20, docked: true)
         first.container.layoutSubtreeIfNeeded()
-        try #require(first.devToolsController.reservesRoom, "SETUP: DevTools takes no room")
+        let devTools = try #require(first.devToolsController.views?.host, "SETUP: no DevTools views")
+        try #require(first.devToolsController.reservesRoom && devTools.superview === first.container, "SETUP: DevTools not docked")
 
-        #expect(!first.container.holdsPageInPaneMotion, "a page with docked DevTools follows its pane in every frame")
+        #expect(first.container.holdsPageInPaneMotion, "a page with docked DevTools does not follow its pane")
         first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
-        #expect(!host.hostView.layerHosting.inPaneDrag, "the page window took a page sync share for a key resize")
-        #expect(first.devToolsController.views?.host.layerHosting.inPaneDrag != true, "DevTools took a page sync share")
+        #expect(first.container.heldPageSize == nil, "the page keeps a held size")
+        var misses: [String] = []
+        let steps: [CGFloat] = (1...12).map { CGFloat($0) * 10 }
+        for dx in steps {
+            let before = Self.layoutCalls()
+            first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            let calls = Self.layoutCalls().subtracting(before)
+            if calls.total > 1 { misses.append("step \(Int(dx)): \(calls.total) layout calls \(calls.byClass)") }
+            let frames = first.devToolsController.frames(in: first.container.bounds)
+            if host.hostView.frame != frames.page { misses.append("step \(Int(dx)): page \(host.hostView.frame), area \(frames.page)") }
+            if devTools.frame != frames.devTools { misses.append("step \(Int(dx)): DevTools \(devTools.frame), area \(frames.devTools)") }
+        }
+        #expect(misses.isEmpty, "\(misses.count) problems in \(steps.count) steps: \(misses.prefix(4))")
         first.container.holdPage(for: nil)
+    }
+
+    /// m18 (Lawrence: "web content is allowed to slightly lag behind it, but must not protrude from it"): a hosted page's
+    /// pixels never pass its host view's edge. The hosted view fills the host and clips its context's layers (the fork's
+    /// root takes the page window's size, which can be larger than the pane for a frame while it shrinks).
+    @Test func aHostedPageNeverDrawsPastItsPane() throws {
+        Self.set(pages: true)
+        defer { Self.set(pages: nil) }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        defer { withExtendedLifetime(view) {} }
+        let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
+        turn.end()
+        let page = try #require(hosting.page, "SETUP: not hosted")
+        // The pane shrinks; the page's last frame is still its old, larger size.
+        view.setFrameSize(NSSize(width: 250, height: 300))
+        page.layer?.sublayers?.first?.bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        #expect(page.frame == view.bounds, "the hosted page does not fill its pane's host: \(page.frame) in \(view.bounds)")
+        #expect(page.layer?.masksToBounds == true, "the hosted page's layer does not clip to the pane")
+        hosting.stop()
     }
 
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
@@ -331,6 +364,22 @@ import Testing
         change()
         for await enabled in asks { return enabled }
         return nil
+    }
+
+    /// Layout calls so far, by view class (`LayoutPassGuard`).
+    private static func layoutCalls() -> LayoutCalls {
+        LayoutCalls(byClass: Dictionary(LayoutPassGuard.shared.passesByClass.map { ($0.viewClass, $0.passes) }, uniquingKeysWith: +))
+    }
+
+    struct LayoutCalls {
+        var byClass: [String: Int]
+        var total: Int { byClass.values.reduce(0, +) }
+        func subtracting(_ earlier: LayoutCalls) -> LayoutCalls {
+            LayoutCalls(byClass: byClass.compactMapValues { $0 }.reduce(into: [:]) { out, entry in
+                let delta = entry.value - (earlier.byClass[entry.key] ?? 0)
+                if delta > 0 { out[entry.key] = delta }
+            })
+        }
     }
 
     /// Sets the S5 switch (nil: every tunable here at its default) and the waits it overrides.
