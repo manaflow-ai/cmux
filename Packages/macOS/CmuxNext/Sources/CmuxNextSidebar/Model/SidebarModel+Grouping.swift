@@ -38,6 +38,8 @@ extension SidebarModel {
                 grouping.held = (new.id, before)
             }
         }
+        // Recents lists the newest activity first: a newer activity moves the row (to the top, as in ChatGPT).
+        if grouping.groupsByRecents && old.lastActivity != new.lastActivity { return true }
         return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder)
     }
 }
