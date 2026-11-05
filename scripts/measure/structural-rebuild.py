@@ -14,9 +14,10 @@ This times that path, one phase at a time, so a change to the build can show wha
      incremental turned off), and the launch to usable time.
 
 The edits are taken back when the run ends (git checkout of the one file), so the warm checkout stays at its
-commit. The log prints STRUCTURAL-REBUILD-ROW {json} per build and STRUCTURAL-REBUILD {json} at the end.
+commit; a run refuses to start when that file already has local changes, which the checkout would erase. The log
+prints STRUCTURAL-REBUILD-ROW {json} per build and STRUCTURAL-REBUILD {json} at the end.
 """
-import argparse, json, os, re, statistics, subprocess, sys, time
+import argparse, json, os, re, signal, statistics, subprocess, sys, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -29,19 +30,25 @@ TIMING = re.compile(r"^(?P<kind>[A-Za-z][\w ]*?) \((?P<tasks>\d+) tasks?\) \| (?
 
 
 def reload(config, log_dir, index):
-    """One reload.sh build; returns (seconds, app path, reload log path)."""
+    """One reload.sh build; returns (seconds, app path, reload log path, wall-clock start)."""
     cmd = ["./scripts/reload.sh", "--tag", TAG] + (["--config", config] if config else [])
     env = dict(os.environ, CMUX_DEV_BACKEND_MODE="local", CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1")
-    start = time.monotonic()
+    started, start = time.time(), time.monotonic()
     # Streamed to the step's log as it runs, so a long cold build is never a silent step the fleet's watchdog ends.
-    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Its own process group, so a run that ends early (a SIGTERM, a failed write) ends xcodebuild with it.
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)
     lines = []
-    with open(os.path.join(log_dir, f"reload-{index}.out"), "w") as f:
-        for line in proc.stdout:
-            f.write(line)
-            lines.append(line)
-            print(f"[reload {index}] {line}", end="", flush=True)
-    proc.wait()
+    try:
+        with open(os.path.join(log_dir, f"reload-{index}.out"), "w") as f:
+            for line in proc.stdout:
+                f.write(line)
+                lines.append(line)
+                print(f"[reload {index}] {line}", end="", flush=True)
+        proc.wait()
+    finally:
+        if proc.poll() is None:
+            end_group(proc)
     seconds = round(time.monotonic() - start, 1)
     out = "".join(lines)
     logs = re.findall(r"^==> log: (.+)$", out, re.M)
@@ -49,14 +56,34 @@ def reload(config, log_dir, index):
     if proc.returncode != 0 or not apps:
         print(out[-4000:], file=sys.stderr)
         raise SystemExit(f"structural-rebuild: reload {index} failed (exit {proc.returncode}) after {seconds} s")
-    return seconds, apps[-1].strip(), (logs[-1].strip() if logs else None)
+    return seconds, apps[-1].strip(), (logs[-1].strip() if logs else None), started
 
 
-def build_facts(reload_log):
+def end_group(proc):
+    """SIGTERM to the reload's process group, SIGKILL if it is still there after 30 s."""
+    for sig, wait in ((signal.SIGTERM, 30), (signal.SIGKILL, 10)):
+        try:
+            os.killpg(proc.pid, sig)
+            proc.wait(wait)
+            return
+        except ProcessLookupError:
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def exit_on_signal(signum, _frame):
+    """A SIGTERM or SIGHUP (the step's timeout) unwinds like an error, so the edits are taken back and the app and
+    the reload are ended."""
+    raise SystemExit(f"structural-rebuild: ended by signal {signum}")
+
+
+def build_facts(reload_log, since=0.0):
     """xcodebuild's timing summary, and the swift-driver's incremental diagnostics (scripts/ci/
     swift_incremental_diagnostics.py: how many files it queued as changed, pulled in by a dependency, or scheduled
     as invalidated, and whether incremental was turned off), from reload.sh's log. These are the driver's
-    incremental decisions, not a count of the files compiled."""
+    incremental decisions, not a count of the files compiled. The receipt sits next to a log path every reload
+    reuses, so one written before `since` (this reload's start) is an earlier build's and is not read."""
     facts = {"timing": {}, "incremental": None}
     if not reload_log or not os.path.exists(reload_log):
         return facts
@@ -65,7 +92,7 @@ def build_facts(reload_log):
     for m in TIMING.finditer(summary):
         facts["timing"][m["kind"]] = {"tasks": int(m["tasks"]), "seconds": float(m["seconds"])}
     receipt = reload_log + ".incremental.json"
-    if os.path.exists(receipt):
+    if os.path.exists(receipt) and os.path.getmtime(receipt) >= since:
         counts = json.load(open(receipt)).get("counts", {})
         facts["incremental"] = {k: counts.get(k) for k in ("initial_files", "dependency_cascade_files",
                                                            "scheduled_invalidated_files",
@@ -89,6 +116,15 @@ def add_property(index):
     open(path, "w").write(text[:match.end()] + line + text[match.end():])
 
 
+def refuse_local_edits():
+    """The run ends with a git checkout of EDIT_FILE, so it refuses to start on a file with edits of its own."""
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", EDIT_FILE], cwd=ROOT, capture_output=True,
+                           text=True, check=True).stdout.strip()
+    if dirty:
+        raise SystemExit(f"structural-rebuild: {EDIT_FILE} has local changes ({dirty}); "
+                         "commit or remove them first, the run takes its edits back with git checkout")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True)
@@ -97,39 +133,44 @@ def main():
     parser.add_argument("--config", default="", choices=["", "debug", "bench"],
                         help="reload.sh --config (debug or bench); default its own")
     opts = parser.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, exit_on_signal)
     os.makedirs(opts.out, exist_ok=True)
-    rows, launcher = [], None
+    refuse_local_edits()
+    rows, launcher, edited = [], None, False
 
     def record(row):
         rows.append(row)
         print("STRUCTURAL-REBUILD-ROW " + json.dumps(row), flush=True)
 
     try:
-        seconds, app, log = reload(opts.config, opts.out, 0)
+        seconds, app, log, started = reload(opts.config, opts.out, 0)
         # Assigned before launch(), so a launch that spawns the app and then fails is still stopped below.
         launcher = launcher_for(app, opts.out)
         launcher.launch(timeout=180)
         record({"build": 0, "edit": None, "reload_s": seconds, "launch_to_usable_s": launcher.ready_seconds,
-                **build_facts(log)})
+                **build_facts(log, started)})
         for i in range(1, opts.edits + 1):
+            edited = True
             add_property(i)
             stop_start = time.monotonic()
             launcher.stop()
             launcher = None
             stop_s = round(time.monotonic() - stop_start, 1)
-            seconds, app, log = reload(opts.config, opts.out, i)
+            seconds, app, log, started = reload(opts.config, opts.out, i)
             launcher = launcher_for(app, opts.out)
             launcher.launch(timeout=180)
             ready = launcher.ready_seconds
             record({"build": i, "edit": f"stored property {i} on HomeHostView", "stop_s": stop_s,
                     "reload_s": seconds, "launch_to_usable_s": ready,
-                    "edit_to_usable_s": round(stop_s + seconds + (ready or 0), 1), **build_facts(log)})
+                    "edit_to_usable_s": round(stop_s + seconds + (ready or 0), 1), **build_facts(log, started)})
     except LaunchError as error:
         raise SystemExit(f"structural-rebuild: launch failed: {error}")
     finally:
         if launcher:
             launcher.stop()
-        subprocess.run(["git", "checkout", "--", EDIT_FILE], cwd=ROOT, check=False)
+        if edited:
+            subprocess.run(["git", "checkout", "--", EDIT_FILE], cwd=ROOT, check=False)
 
     edits = [r for r in rows if r["edit"]]
     summary = {"sha": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip(),
