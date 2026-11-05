@@ -606,7 +606,6 @@
   max-height: calc(var(--cv-line-height) * 3);
   overflow: hidden;
   color: color-mix(in srgb, currentColor 82%, transparent);
-  cursor: pointer;
   user-select: none;
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);

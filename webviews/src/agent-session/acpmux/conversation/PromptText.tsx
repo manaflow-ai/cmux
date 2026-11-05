@@ -229,7 +229,8 @@ export function PromptText({
 /// lines its preview clips too, so the prompt would measure long, clamp, measure short and unclamp
 /// without end.
 function drawnBox(node: Node): { top: number; bottom: number; height: number } | undefined {
-  const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : undefined;
+  // 1 is ELEMENT_NODE; a test DOM may install no global `Node`.
+  const element = node.nodeType === 1 ? (node as Element) : undefined;
   if (element?.classList.contains("cv-user__paste-block")) return element.getBoundingClientRect();
   if (!element || !element.querySelector(".cv-user__paste-block")) {
     const range = node.ownerDocument?.createRange();
