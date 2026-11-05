@@ -101,7 +101,7 @@ export const ToolDetail = memo(function ToolDetail({
               />
             )}
           </div>
-          {output && <ToolOutput result={output} reveal={reveal} />}
+          {output && <ToolOutput result={output} reveal={reveal} ownCopy={false} />}
         </section>
       )}
       {after}

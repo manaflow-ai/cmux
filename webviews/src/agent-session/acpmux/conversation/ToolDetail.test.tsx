@@ -215,3 +215,31 @@ test("a one-line value with Markdown marks draws them", () => {
   expect(inputFields({ note: "Ship **WEB-412** after `bun test`" })?.[0]?.look).toBe("markdown");
   expect(inputFields({ note: "Ship WEB-412 after the tests" })?.[0]?.look).toBe("prose");
 });
+
+test("an opened call has one copy button for its output, with every hover action on", async () => {
+  (globalThis as Record<string, unknown>).cmuxExperiments = { "hover-actions": "all" };
+  try {
+    const item: AcpmuxActivity = {
+      kind: "tool",
+      text: "Start session",
+      tool: {
+        id: "t5",
+        title: "Start session",
+        kind: "other",
+        status: "completed",
+        inputSummary: JSON.stringify(START),
+        output: "Started session landing-hydration.",
+      },
+    };
+    const container = await render(<ToolRow item={item} />);
+    await open(container);
+    // The Output heading's button, never a second one in the output card's corner.
+    const copies = [...container.querySelectorAll(".cv-tool-detail button")].filter((button) =>
+      /^Copy/.test(button.getAttribute("aria-label") ?? ""),
+    );
+    expect(copies.map((button) => button.getAttribute("aria-label"))).toEqual(["Copy output"]);
+    expect(container.querySelector('.cv-tool-detail__copy[aria-label="Copy output"]')).not.toBeNull();
+  } finally {
+    delete (globalThis as Record<string, unknown>).cmuxExperiments;
+  }
+});
