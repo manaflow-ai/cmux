@@ -15,7 +15,8 @@ pub(super) const APPLY: &str = "live_code_apply";
 pub(super) const UNDO: &str = "live_code_undo";
 pub(super) const LOG: &str = "live_code_log";
 
-const DIR: &str = "The live folder (default: CMUX_LIVE_CODE_DIR, else ~/Library/Caches/cmux-next/live-code).";
+const DIR: &str =
+    "The live folder (default: CMUX_LIVE_CODE_DIR, else ~/Library/Caches/cmux-next/live-code).";
 
 pub(super) fn descriptors() -> [Value; 4] {
     let read_only = json!({"readOnlyHint": true, "destructiveHint": false,
@@ -74,7 +75,10 @@ pub(super) fn descriptors() -> [Value; 4] {
 }
 
 /// The CLI words a call runs (after `cmux --json`), or the error for bad arguments.
-pub(super) fn words(name: &str, arguments: &Map<String, Value>) -> Option<Result<Vec<String>, String>> {
+pub(super) fn words(
+    name: &str,
+    arguments: &Map<String, Value>,
+) -> Option<Result<Vec<String>, String>> {
     let allowed: &[&str] = match name {
         STATUS => &["dir"],
         APPLY => &["patch", "dir", "timeout_seconds"],
@@ -117,7 +121,9 @@ pub(super) fn words(name: &str, arguments: &Map<String, Value>) -> Option<Result
 pub(super) fn call(name: &str, arguments: &Map<String, Value>) -> Option<Value> {
     let words = match words(name, arguments)? {
         Ok(words) => words,
-        Err(message) => return Some(tool_error(envelope(v2_tools::invalid(message), "not_run", None))),
+        Err(message) => {
+            return Some(tool_error(envelope(v2_tools::invalid(message), "not_run", None)));
+        }
     };
     Some(run(&words, name == APPLY || name == UNDO))
 }
@@ -125,7 +131,13 @@ pub(super) fn call(name: &str, arguments: &Map<String, Value>) -> Option<Value> 
 fn run(words: &[String], changes: bool) -> Value {
     let program = match std::env::current_exe() {
         Ok(program) => program,
-        Err(error) => return failed("live_code.failed", &format!("this cmux has no path: {error}"), "not_run"),
+        Err(error) => {
+            return failed(
+                "live_code.failed",
+                &format!("this cmux has no path: {error}"),
+                "not_run",
+            );
+        }
     };
     let output = Command::new(program)
         .arg("--json")
@@ -136,11 +148,19 @@ fn run(words: &[String], changes: bool) -> Value {
         .output();
     let output = match output {
         Ok(output) => output,
-        Err(error) => return failed("live_code.failed", &format!("cmux live-code did not start: {error}"), "not_run"),
+        Err(error) => {
+            return failed(
+                "live_code.failed",
+                &format!("cmux live-code did not start: {error}"),
+                "not_run",
+            );
+        }
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let last_json = |text: &str| text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
+    let last_json = |text: &str| {
+        text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+    };
     if !output.status.success() {
         // The CLI's own error (code and message), with what to do next for an agent.
         let error = last_json(&stdout).or_else(|| last_json(&stderr));
@@ -163,7 +183,8 @@ fn run(words: &[String], changes: bool) -> Value {
 
 fn failed(code: &str, message: &str, state: &str) -> Value {
     // No answer means the app may be stuck: the next step is a relaunch.
-    let next = if code == "live_code.no_answer" { json!({"next": "relaunch the app"}) } else { json!({}) };
+    let next =
+        if code == "live_code.no_answer" { json!({"next": "relaunch the app"}) } else { json!({}) };
     let error = json!({"code": code, "message": message, "details": next, "retryable": false});
     tool_error(envelope(error, state, None))
 }

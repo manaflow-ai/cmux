@@ -44,9 +44,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let output = if json { OutputMode::Json } else { global.output };
     Some(match parse(&rest) {
         Ok(invocation) => run(output, &global, invocation),
-        Err(error) => {
-            super::app::failure("usage.invalid", &format!("cmux: {error}"), output, 2)
-        }
+        Err(error) => super::app::failure("usage.invalid", &format!("cmux: {error}"), output, 2),
     })
 }
 
@@ -81,16 +79,16 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             "--no-wait" if verb == "apply" || verb == "undo" => wait = None,
             "--timeout" if verb == "apply" || verb == "undo" => {
                 let text = value("--timeout")?;
-                let seconds: u64 = text
-                    .parse()
-                    .map_err(|_| UsageError::new(app.unexpected_argument.replace("{value}", &text)))?;
+                let seconds: u64 = text.parse().map_err(|_| {
+                    UsageError::new(app.unexpected_argument.replace("{value}", &text))
+                })?;
                 wait = Some(Duration::from_secs(seconds.clamp(1, 600)));
             }
             "-n" | "--lines" if verb == "log" => {
                 let text = value(arg)?;
-                lines = text
-                    .parse()
-                    .map_err(|_| UsageError::new(app.unexpected_argument.replace("{value}", &text)))?;
+                lines = text.parse().map_err(|_| {
+                    UsageError::new(app.unexpected_argument.replace("{value}", &text))
+                })?;
             }
             other if other.starts_with('-') => {
                 return Err(UsageError::new(app.unexpected_argument.replace("{value}", other)));
@@ -158,7 +156,7 @@ fn process_runs(pid: i64) -> bool {
     // Signal 0 checks the process exists; EPERM means it does, as another user's.
     // SAFETY: kill with signal 0 sends nothing; it only checks the pid.
     unsafe { libc::kill(pid, 0) == 0 }
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 fn now_nanos() -> u128 {
@@ -197,7 +195,9 @@ pub(super) fn request_undo(folder: &Path, all: bool) -> std::io::Result<String> 
 pub(super) fn answer(log: &str, name: &str) -> Option<Result<String, String>> {
     log.lines().rev().find_map(|line| {
         let line = line.trim_start_matches("live code: ");
-        if line.starts_with(&format!("applied {name} ")) || line.starts_with(&format!("rolled back {name} ")) {
+        if line.starts_with(&format!("applied {name} "))
+            || line.starts_with(&format!("rolled back {name} "))
+        {
             Some(Ok(line.to_owned()))
         } else if line.starts_with(&format!("{name} refused: ")) {
             Some(Err(line.to_owned()))
@@ -249,16 +249,21 @@ pub(super) fn status_text(status: &Value) -> String {
         field("pid"),
         if field("watching").as_bool() == Some(true) { "running" } else { "not running" },
         field("generation"),
-        if field("team_signed_only").as_bool() == Some(true) { ", team-signed patches only" } else { "" },
+        if field("team_signed_only").as_bool() == Some(true) {
+            ", team-signed patches only"
+        } else {
+            ""
+        },
     );
     let patches = status.get("patches").and_then(Value::as_array).cloned().unwrap_or_default();
     if patches.is_empty() {
         text.push_str("no patch applied: the code as built\n");
     }
     for patch in &patches {
-        let files = patch.get("files").and_then(Value::as_array).map(|files| {
-            files.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
-        });
+        let files = patch
+            .get("files")
+            .and_then(Value::as_array)
+            .map(|files| files.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
         text.push_str(&format!(
             "  {}  {} functions  {}  {}\n",
             patch.get("name").and_then(Value::as_str).unwrap_or("?"),
@@ -290,7 +295,8 @@ pub(super) fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocati
         Invocation::Log { dir, lines } => {
             let folder = folder(dir.as_deref());
             let log = std::fs::read_to_string(folder.join("live-code.log")).unwrap_or_default();
-            let tail: Vec<&str> = log.lines().rev().take(lines).collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: Vec<&str> =
+                log.lines().rev().take(lines).collect::<Vec<_>>().into_iter().rev().collect();
             let text = if tail.is_empty() { String::new() } else { tail.join("\n") + "\n" };
             return print(output, &json!({"folder": folder, "lines": tail}), &text);
         }
@@ -307,7 +313,9 @@ pub(super) fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocati
     };
     let name = match placed {
         Ok(name) => name,
-        Err(error) => return super::app::failure("live_code.io", &format!("cmux: {error}"), output, 1),
+        Err(error) => {
+            return super::app::failure("live_code.io", &format!("cmux: {error}"), output, 1);
+        }
     };
     let Some(wait) = wait else {
         return print(output, &json!({"requested": name}), &format!("requested {name}\n"));
@@ -316,7 +324,10 @@ pub(super) fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocati
         Some(Ok(line)) => print(output, &json!({"name": name, "done": line}), &format!("{line}\n")),
         Some(Err(line)) => super::app::failure("live_code.refused", &line, output, 1),
         None => {
-            let message = messages.no_answer.replace("{name}", &name).replace("{seconds}", &wait.as_secs().to_string());
+            let message = messages
+                .no_answer
+                .replace("{name}", &name)
+                .replace("{seconds}", &wait.as_secs().to_string());
             super::app::failure("live_code.no_answer", &message, output, 4)
         }
     }
