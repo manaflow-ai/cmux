@@ -44,6 +44,9 @@ BASE_BRANCH = "feat-cmux-next"
 # The workflows whose jobs run tests on a pull request.
 TEST_WORKFLOWS = ("cmux-next-guards.yml", "cmux-next-fast-gates.yml", "cmux-next.yml", "rust-workspaces.yml",
                   "ci.yml", "cmux-tui-sdks.yml", "cmux-tui.yml", "cmux-tui-spec.yml", "app-platform.yml")
+# Failed jobs that only aggregate other jobs or run static checks (no test of their own): their logs
+# are not read.
+NO_TESTS = ("Web status", "cmux-next checks (god files", "Rust notices", "web lint", "Fail on any red")
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 PY_TEST = re.compile(r"((?:[\w.-]+/)*test_[\w-]+\.py)\b")  # an absolute runner path is resolved in check
@@ -142,7 +145,7 @@ def collect(since: str, until: str, out: Path, max_runs: int) -> int:
                 runs_read += 1
                 jobs = json.loads(gh("api", f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100"))["jobs"]
                 for job in jobs:
-                    if job["conclusion"] != "failure":
+                    if job["conclusion"] != "failure" or any(x in job["name"] for x in NO_TESTS):
                         continue
                     try:
                         log = gh("api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['id']}/logs")
