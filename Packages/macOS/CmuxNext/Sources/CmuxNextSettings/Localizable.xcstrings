@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.cloud.useMyCodexLogin": {
+      "comment": "Settings toggle: use the Codex sign-in on this Mac for the person's own Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Use My Codex Login on My Own Cloud Machines"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "استخدام تسجيل دخول Codex الخاص بي على أجهزة Cloud الخاصة بي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Koristi moju Codex prijavu na mojim Cloud mašinama"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug mit Codex-login på mine egne Cloud-maskiner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mein Codex-Login auf meinen eigenen Cloud-Maschinen verwenden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usar mi inicio de sesión de Codex en mis propias máquinas Cloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utiliser ma connexion Codex sur mes propres machines Cloud"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa il mio accesso Codex sulle mie macchine Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分の Cloud マシンで自分の Codex ログインを使用"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើការចូល Codex របស់ខ្ញុំលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 Cloud 머신에서 내 Codex 로그인 사용"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk Codex-påloggingen min på mine egne Cloud-maskiner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Używaj mojego logowania Codex na moich maszynach Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usar meu login do Codex nas minhas próprias máquinas Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использовать мой вход в Codex на моих машинах Cloud"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้การเข้าสู่ระบบ Codex ของฉันบนเครื่อง Cloud ของฉันเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kendi Cloud makinelerimde Codex oturumumu kullan"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовувати мій вхід у Codex на моїх машинах Cloud"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng đăng nhập Codex của tôi trên máy Cloud của riêng tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 机器上使用我的 Codex 登录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 機器上使用我的 Codex 登入"}}
+      }
+    },
+    "settings.cloud.useMyCodexLogin.help": {
+      "comment": "Help text for the Codex sign-in toggle for Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمنح أجهزة Cloud التي تملكها وصولاً قصير الأمد من تسجيل دخول Codex على هذا الـ Mac، فتبدأ محادثاتها مسجّلة الدخول. لا يحصل الجهاز أبداً على رمز التحديث الخاص بك، ولا يخزّنه cmux أبداً. عند الإيقاف: يطلب الجهاز تسجيل دخول Codex بدلاً من ذلك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Daje Cloud mašinama koje posjeduješ kratkotrajan pristup iz Codex prijave na ovom Macu, pa njihovi chatovi počinju prijavljeni. Mašina nikad ne dobija tvoj refresh token, a cmux ga nikad ne čuva. Isključeno: mašina umjesto toga traži Codex prijavu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Giver Cloud-maskiner, du ejer, kortvarig adgang fra Codex-loginet på denne Mac, så deres chats starter logget ind. Maskinen får aldrig dit refresh-token, og cmux gemmer det aldrig. Fra: en maskine beder i stedet om et Codex-login."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gibt Cloud-Maschinen, die dir gehören, kurzlebigen Zugriff aus dem Codex-Login dieses Macs, sodass ihre Chats angemeldet starten. Die Maschine erhält nie dein Refresh-Token, und cmux speichert es nie. Aus: Eine Maschine fragt stattdessen nach einer Codex-Anmeldung."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Da a las máquinas Cloud que te pertenecen acceso de corta duración desde el inicio de sesión de Codex de este Mac, para que sus chats empiecen con la sesión iniciada. La máquina nunca recibe tu token de actualización y cmux nunca lo guarda. Desactivado: la máquina pide iniciar sesión en Codex."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Donne aux machines Cloud qui vous appartiennent un accès de courte durée depuis la connexion Codex de ce Mac, pour que leurs chats démarrent connectés. La machine ne reçoit jamais votre jeton d’actualisation, et cmux ne le stocke jamais. Désactivé : une machine demande plutôt une connexion Codex."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dà alle macchine Cloud di tua proprietà un accesso di breve durata dall’accesso Codex di questo Mac, così le loro chat partono già connesse. La macchina non riceve mai il tuo refresh token e cmux non lo salva mai. Disattivato: la macchina chiede invece un accesso a Codex."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac の Codex サインインから、自分の Cloud マシンに短期間のアクセスを渡し、チャットがサインイン済みで始まるようにします。マシンがリフレッシュトークンを受け取ることはなく、cmux が保存することもありません。オフ: マシンは代わりに Codex へのサインインを求めます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្តល់ការចូលប្រើរយៈពេលខ្លីពីការចូល Codex លើ Mac នេះ ទៅម៉ាស៊ីន Cloud ដែលអ្នកជាម្ចាស់ ដូច្នេះការជជែករបស់វាចាប់ផ្តើមដោយបានចូលរួចហើយ។ ម៉ាស៊ីនមិនដែលទទួលបាន refresh token របស់អ្នកទេ ហើយ cmux មិនដែលរក្សាទុកវាទេ។ បិទ៖ ម៉ាស៊ីនស្នើឱ្យចូល Codex ជំនួសវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac의 Codex 로그인으로 내가 소유한 Cloud 머신에 단기 액세스를 제공해 채팅이 로그인된 상태로 시작되게 합니다. 머신은 새로 고침 토큰을 절대 받지 않으며 cmux도 저장하지 않습니다. 끄면: 머신이 대신 Codex 로그인을 요청합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gir Cloud-maskiner du eier kortvarig tilgang fra Codex-påloggingen på denne Macen, så chattene deres starter pålogget. Maskinen får aldri refresh-tokenet ditt, og cmux lagrer det aldri. Av: en maskin ber om Codex-pålogging i stedet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Daje maszynom Cloud, których jesteś właścicielem, krótkotrwały dostęp z logowania Codex na tym Macu, więc ich czaty startują zalogowane. Maszyna nigdy nie dostaje twojego tokenu odświeżania, a cmux nigdy go nie przechowuje. Wyłączone: maszyna prosi zamiast tego o logowanie do Codex."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dá às máquinas Cloud que você possui acesso de curta duração a partir do login do Codex neste Mac, para que os chats delas comecem conectados. A máquina nunca recebe seu token de atualização, e o cmux nunca o armazena. Desativado: a máquina pede um login do Codex."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Даёт вашим машинам Cloud краткосрочный доступ из входа в Codex на этом Mac, чтобы их чаты начинались с выполненным входом. Машина никогда не получает ваш refresh-токен, и cmux никогда его не хранит. Выкл.: машина вместо этого просит войти в Codex."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ให้เครื่อง Cloud ที่คุณเป็นเจ้าของได้รับสิทธิ์เข้าถึงระยะสั้นจากการเข้าสู่ระบบ Codex บน Mac เครื่องนี้ เพื่อให้แชทเริ่มต้นโดยเข้าสู่ระบบแล้ว เครื่องจะไม่ได้รับโทเค็นรีเฟรชของคุณ และ cmux ไม่เคยจัดเก็บโทเค็นนี้ ปิด: เครื่องจะขอให้เข้าสู่ระบบ Codex แทน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sahibi olduğun Cloud makinelerine bu Mac'teki Codex oturumundan kısa süreli erişim verir, böylece sohbetleri oturum açık başlar. Makine yenileme token'ını asla almaz ve cmux onu asla saklamaz. Kapalı: makine bunun yerine Codex oturumu ister."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надає вашим машинам Cloud короткочасний доступ із входу в Codex на цьому Mac, щоб їхні чати починалися з виконаним входом. Машина ніколи не отримує ваш refresh-токен, і cmux ніколи його не зберігає. Вимкнено: машина натомість просить увійти в Codex."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cấp cho máy Cloud bạn sở hữu quyền truy cập ngắn hạn từ đăng nhập Codex trên máy Mac này, để các cuộc trò chuyện của nó bắt đầu khi đã đăng nhập. Máy không bao giờ nhận refresh token của bạn và cmux không bao giờ lưu nó. Tắt: máy sẽ yêu cầu đăng nhập Codex."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "用这台 Mac 上的 Codex 登录，为你拥有的 Cloud 机器提供短期访问权限，让它们的聊天一开始就已登录。机器永远拿不到你的刷新令牌，cmux 也从不存储它。关闭：机器会改为要求登录 Codex。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "用這台 Mac 上的 Codex 登入，為你擁有的 Cloud 機器提供短期存取權，讓它們的聊天一開始就已登入。機器永遠拿不到你的重新整理權杖，cmux 也從不儲存它。關閉：機器會改為要求登入 Codex。"}}
+      }
+    },
     "settings.agentPane.display.commandLabels": {
       "comment": "Settings > Appearance > Agent Chat > Command Labels (cmux-next.json only): the title of the command label rules",
       "extractionState": "manual",

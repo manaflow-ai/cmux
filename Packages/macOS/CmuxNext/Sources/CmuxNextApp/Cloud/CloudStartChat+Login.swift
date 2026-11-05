@@ -55,7 +55,8 @@ extension CloudStartChat {
             if provider == .codex { // The Mac's broker: short-lived access, a device-code sign-in only when it holds none; it checks the account itself.
                 // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
                 if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
-                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true) { [weak services] prompt in
+                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, in: nil) }) { [weak services] prompt in
                     guard codexPrompt, let window = services?.windows.active?.window else { return false }
                     return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
                 }
