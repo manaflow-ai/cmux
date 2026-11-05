@@ -42,6 +42,8 @@ public final class WorkspaceLanes {
     private var tails: [String: Task<Void, Never>] = [:]
     /// Each window's outstanding creates, oldest first.
     private var creates: [String: [Create]] = [:]
+    /// Keys of taken creates whose close is running (the create left `creates` when its close began).
+    private var closing: Set<String> = []
 
     /// Runs `body`, which creates workspace `key` and returns its id, after
     /// the window's earlier operations. `close` closes it by key (a close
@@ -63,8 +65,10 @@ public final class WorkspaceLanes {
                 entry.settled = await settle()
                 entry.created = true
                 if entry.closeWhenCreated {
+                    self?.closing.insert(entry.key)
                     self?.drop(entry, from: lane)
                     await entry.close(id)
+                    self?.closing.remove(entry.key)
                 }
                 return id
             } catch {
@@ -97,9 +101,10 @@ public final class WorkspaceLanes {
         } else if !newest.created {
             newest.closeWhenCreated = true
         } else {
+            closing.insert(newest.key)
             drop(newest, from: window)
             let key = newest.key
-            run(in: window) { await newest.close(key); return nil }
+            run(in: window) { [weak self] in await newest.close(key); self?.closing.remove(key); return nil }
         }
         return true
     }
@@ -114,9 +119,10 @@ public final class WorkspaceLanes {
         if creates[lane]?.isEmpty == true { creates[lane] = nil }
     }
 
-    /// Whether a create of workspace `key` is outstanding in any window (queued, in flight, or made and not yet listed).
+    /// Whether a create of workspace `key` is outstanding in any window (queued, in flight, or made and not yet listed),
+    /// or the close that took it is still running.
     public func isOutstanding(_ key: String) -> Bool {
-        creates.values.contains { $0.contains { $0.key == key } }
+        closing.contains(key) || creates.values.contains { $0.contains { $0.key == key } }
     }
 
     /// How many creates `window` has outstanding (tests and diagnostics).

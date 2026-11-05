@@ -73,9 +73,9 @@ struct WorkspaceSpawner {
             do {
                 return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
                     let terminals = services.workspace(id: id).map { WorkspaceClose.closing($0, on: daemon) } ?? []
-                    _ = await daemon.failure("close-workspace") { connection in
+                    if (await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
-                    }
+                    }) != nil { ClosingWorkspaces.shared.end(id, refused: true, in: nil) } // a taken create that stays lists again
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
                 windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
@@ -111,9 +111,9 @@ struct WorkspaceSpawner {
         return {
             do {
                 return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
-                    _ = await daemon.failure("close-workspace") { connection in
+                    if (await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
-                    }
+                    }) != nil { ClosingWorkspaces.shared.end(id, refused: true, in: nil) } // a taken create that stays lists again
                 }, settle: { await Self.settled(on: daemon) }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()

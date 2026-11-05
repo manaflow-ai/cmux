@@ -133,15 +133,11 @@ final class PendingWorkspaceRows {
             if let explicit = row.slot {
                 slot = explicit
             } else if let byDefault = row.byDefault {
-                if let resolved = byDefault.slot(for: row.id, section: section, in: sections, home: home, catchingUp: catchingUp) {
-                    slot = resolved
-                } else if byDefault.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) {
-                    continue
-                } else {
-                    slot = .bottom(anchor: nil)
-                }
+                // Before the slot: `top` resolves to the section's top without the current row, which may sit in a group.
+                if byDefault.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { continue }
+                slot = byDefault.slot(for: row.id, section: section, in: sections, home: home, catchingUp: catchingUp) ?? .bottom(anchor: nil)
             } else {
-                // No slot keeps the daemon's place: the end of the loose rows.
+                // No slot keeps the daemon's place: the end of the section.
                 slot = .bottom(anchor: nil)
             }
             guard let slot, let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }

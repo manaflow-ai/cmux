@@ -226,7 +226,7 @@ extension AppActions {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: { ClosingWorkspaces.shared.hide(untilGone: $0); PendingWorkspaceRows.shared.remove($0) }) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: { ClosingWorkspaces.shared.hide(untilGone: $0); PendingWorkspaceRows.shared.remove($0); _ = InstantClose.begin([$0], in: window, windows: services.windows) }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key, services.selectionCloses.canStart(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
