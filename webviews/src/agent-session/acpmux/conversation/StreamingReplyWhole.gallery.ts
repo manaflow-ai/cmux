@@ -20,9 +20,9 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
 const ASK = "Where do G2 and item A stand?";
-const HEAD = "- **G2 exists only on cosmic-gray**, not on GitHub, and nothing has pushed it. Its owner, `";
+const HEAD = "- **G2 exists only on studio-mac**, not on GitHub, and nothing has pushed it. Its owner, `";
 const TAIL =
-  "gcp-codex-swarm-02/prebuilt-ci` in `lane--ci-apply-to-prebuilt`, ran it before.\n- **Item A** (`gcp-agent-lane-2/quit-no-alert`) is in review.";
+  "build-box/prebuilt-ci` in `ci-apply-to-prebuilt`, ran it before.\n- **Item A** (`build-box/quit-no-alert`) is in review.";
 const STEER = "skip G2, just tell me about item A";
 
 const opened = [

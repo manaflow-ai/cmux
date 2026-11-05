@@ -104,13 +104,13 @@ const opened: Step[] = [
 test("a steer sent while an unnamed message streams leaves the message whole above it", async () => {
   const rows = await rowsOf([
     ...opened,
-    ["in", "agent_message_chunk", say("G2 exists only on cosmic-gray, pushed. Its owner, `")],
+    ["in", "agent_message_chunk", say("G2 exists only on studio-mac, pushed. Its owner, `")],
     ["mux", "user_message", { text: "which lane?", promptId: "p-2", steer: true }],
-    ["in", "agent_message_chunk", say("gcp-codex-swarm-02/prebuilt-ci`, ran it before.")],
+    ["in", "agent_message_chunk", say("build-box/prebuilt-ci`, ran it before.")],
   ]);
   expect(drawn(rows)).toEqual([
     "user: Where is G2?",
-    "assistant: G2 exists only on cosmic-gray, pushed. Its owner, `gcp-codex-swarm-02/prebuilt-ci`, ran it before.",
+    "assistant: G2 exists only on studio-mac, pushed. Its owner, `build-box/prebuilt-ci`, ran it before.",
     "user: which lane?",
   ]);
   // Still one message being written: it shows no action row yet.
@@ -120,7 +120,7 @@ test("a steer sent while an unnamed message streams leaves the message whole abo
 test("after its next step, the unnamed agent's answer to the steer starts below the bubble", async () => {
   const rows = await rowsOf([
     ...opened,
-    ["in", "agent_message_chunk", say("G2 exists only on cosmic-gray.")],
+    ["in", "agent_message_chunk", say("G2 exists only on studio-mac.")],
     ["mux", "user_message", { text: "which lane?", promptId: "p-2", steer: true }],
     ["in", "agent_message_chunk", say(" Its owner is lane 2.")],
     ["in", "agent_thought_chunk", think("The person asks which lane.")],
@@ -128,7 +128,7 @@ test("after its next step, the unnamed agent's answer to the steer starts below 
   ]);
   expect(drawn(rows)).toEqual([
     "user: Where is G2?",
-    "assistant: G2 exists only on cosmic-gray. Its owner is lane 2.",
+    "assistant: G2 exists only on studio-mac. Its owner is lane 2.",
     "user: which lane?",
     "assistant: Lane 2 owns it.",
   ]);
@@ -138,7 +138,7 @@ test("a host's notice mid-message leaves a named message whole above it", async 
   const rows = await rowsOf(
     [
       ...opened,
-      ["in", "agent_message_chunk", say("G2 exists only on cosmic-gray. Its owner, `", "m-1")],
+      ["in", "agent_message_chunk", say("G2 exists only on studio-mac. Its owner, `", "m-1")],
       ["mux", "host_notice", { text: "cmux Cloud resized this machine." }],
       ["in", "agent_message_chunk", say("lane-2`, pushed it.", "m-1")],
       ["in", "agent_message_chunk", say("Next message.", "m-2")],
@@ -147,7 +147,7 @@ test("a host's notice mid-message leaves a named message whole above it", async 
   );
   expect(drawn(rows)).toEqual([
     "user: Where is G2?",
-    "assistant: G2 exists only on cosmic-gray. Its owner, `lane-2`, pushed it.",
+    "assistant: G2 exists only on studio-mac. Its owner, `lane-2`, pushed it.",
     "notice: cmux Cloud resized this machine.",
     "assistant: Next message.",
   ]);
@@ -157,7 +157,7 @@ test("a named message keeps its text across a steer, and the next message starts
   const rows = await rowsOf(
     [
       ...opened,
-      ["in", "agent_message_chunk", say("G2 exists only on cosmic-gray. Its owner, `", "m-1")],
+      ["in", "agent_message_chunk", say("G2 exists only on studio-mac. Its owner, `", "m-1")],
       ["mux", "user_message", { text: "which lane?", promptId: "p-2", steer: true }],
       ["in", "agent_message_chunk", say("lane-2`, pushed it.", "m-1")],
       ["in", "agent_message_chunk", say("Lane 2.", "m-2")],
@@ -166,7 +166,7 @@ test("a named message keeps its text across a steer, and the next message starts
   );
   expect(drawn(rows)).toEqual([
     "user: Where is G2?",
-    "assistant: G2 exists only on cosmic-gray. Its owner, `lane-2`, pushed it.",
+    "assistant: G2 exists only on studio-mac. Its owner, `lane-2`, pushed it.",
     "user: which lane?",
     "assistant: Lane 2.",
   ]);
