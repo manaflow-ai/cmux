@@ -1,5 +1,3 @@
-import CmuxNextControl
-import CmuxNextSettings
 import Foundation
 import ObjectiveC
 import QuartzCore
@@ -12,26 +10,59 @@ import QuartzCore
 /// `start` installs the timing override once (it stays for the process; unarmed it only forwards) and
 /// clears the record; `stop` returns it: calls, their total and max ms, and passes (calls of one Core
 /// Animation commit, consecutive within 1 ms) with their p50/p95/max ms.
+///
+/// From `start` to `stop` it also checks that each terminal changes size with its pane (the bench fails a drag or a
+/// key resize that holds one, ``TerminalPaneFollowProbe``): `stop` adds `follow_frames` and `terminals_followed`.
 @MainActor
-final class DebugTerminalDisplayProbe {
+public final class TerminalDisplayProbe {
+    /// What `debug.terminal_display` answers (snake_case keys). The pane check's keys are only in `stop`'s reply.
+    public nonisolated struct Report: Encodable, Sendable {
+        public var armed: Bool
+        public var calls: Int
+        public var totalMs: Double
+        public var maxCallMs: Double
+        public var passes: Int
+        public var passP50Ms: Double
+        public var passP95Ms: Double
+        public var passMaxMs: Double
+        public var followFrames: Int?
+        public var terminalsFollowed: [String: TerminalPaneFollowTally]?
+
+        enum CodingKeys: String, CodingKey {
+            case armed, calls, passes
+            case totalMs = "total_ms", maxCallMs = "max_call_ms", passP50Ms = "pass_p50_ms", passP95Ms = "pass_p95_ms"
+            case passMaxMs = "pass_max_ms", followFrames = "follow_frames", terminalsFollowed = "terminals_followed"
+        }
+    }
+
     private var armed = false
     private var installed = false
     /// Per call: start (CACurrentMediaTime) and duration, seconds.
     private var calls: [(start: CFTimeInterval, duration: CFTimeInterval)] = []
     static let capacity = 200_000
+    private let follow = TerminalPaneFollowProbe()
+    /// The app's live terminals by tab key (the content cache's), for the pane check; set by the app.
+    public var terminals: @MainActor () -> [(key: String, session: TerminalSession)] = { [] }
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
-        switch params["action"]?.stringValue ?? "read" {
+    public init() {}
+
+    /// `action`: "start", "stop", or anything else to read the record.
+    public func handle(action: String?) -> Report {
+        switch action ?? "read" {
         case "start":
             calls.removeAll(keepingCapacity: true)
             armed = install()
-            return .object(["armed": .bool(armed)])
+            follow.start(terminals())
+            return report()
         case "stop":
-            let stats = stats()
+            var report = report()
             armed = false
-            return stats
+            follow.stop()
+            report.followFrames = follow.frames
+            report.terminalsFollowed = follow.tallies
+            return report
         default:
-            return stats()
+            return report()
         }
     }
 
@@ -54,7 +85,7 @@ final class DebugTerminalDisplayProbe {
 
     /// Built outside the main actor so the block carries no isolation check of its own.
     private nonisolated static func timed(_ original: @escaping @convention(c) (AnyObject, Selector) -> Void,
-                                          probe: DebugTerminalDisplayProbe) -> @convention(block) (AnyObject) -> Void {
+                                          probe: TerminalDisplayProbe) -> @convention(block) (AnyObject) -> Void {
         { layer in
             let start = CACurrentMediaTime()
             original(layer, #selector(CALayer.display))
@@ -65,7 +96,7 @@ final class DebugTerminalDisplayProbe {
         }
     }
 
-    private func stats() -> JSONValue {
+    private func report() -> Report {
         var passes: [Double] = []
         var passEnd: CFTimeInterval = -1
         for call in calls {
@@ -81,16 +112,8 @@ final class DebugTerminalDisplayProbe {
             return sorted[min(sorted.count - 1, Int((p * Double(sorted.count - 1)).rounded()))]
         }
         let durations: [Double] = calls.map { $0.duration * 1000 }
-        let total: Double = durations.reduce(0, +)
-        var result: [String: JSONValue] = [:]
-        result["armed"] = .bool(armed)
-        result["calls"] = .number(Double(calls.count))
-        result["total_ms"] = .number(total)
-        result["max_call_ms"] = .number(durations.max() ?? 0)
-        result["passes"] = .number(Double(passes.count))
-        result["pass_p50_ms"] = .number(percentile(0.5))
-        result["pass_p95_ms"] = .number(percentile(0.95))
-        result["pass_max_ms"] = .number(sorted.last ?? 0)
-        return .object(result)
+        return Report(armed: armed, calls: calls.count, totalMs: durations.reduce(0, +), maxCallMs: durations.max() ?? 0,
+                      passes: passes.count, passP50Ms: percentile(0.5), passP95Ms: percentile(0.95),
+                      passMaxMs: sorted.last ?? 0)
     }
 }
