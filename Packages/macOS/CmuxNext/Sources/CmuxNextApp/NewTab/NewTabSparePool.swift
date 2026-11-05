@@ -112,10 +112,9 @@ final class NewTabSparePool {
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
-    init(services: AppServices, memoryPressure: MemoryPressureEvents) {
-        self.services = services
-        self.memoryPressure = memoryPressure
-    }
+    /// The restored agent pages still drawing their last frame: the launch warm waits for them (tests pass their own).
+    private let launchHold: LaunchImageHold
+    init(services: AppServices, memoryPressure: MemoryPressureEvents, launchHold: LaunchImageHold = .shared) { (self.services, self.memoryPressure, self.launchHold) = (services, memoryPressure, launchHold) }
 
 
     /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
@@ -394,7 +393,8 @@ final class NewTabSparePool {
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        // The launch warm builds once the restored agent pages painted: beside them it took the turns the shown chat waited on.
+        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in launch ? self?.launchHold.whenClear { [weak self] in self?.warmNow() } : self?.warmNow() }
     }
 
     private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
