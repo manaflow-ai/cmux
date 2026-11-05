@@ -218,9 +218,10 @@ def rate_limited(error: subprocess.CalledProcessError) -> bool:
     return bool(RATE_LIMIT.search(f"{error.stderr or ''} {error.stdout or ''}"))
 
 
-# The lane VM gh shim's words for a call the lane-gh broker (or the shim, on its behalf) would not make:
-# "gh: lane-gh call graphql OWNER/REPO: graphql: field ... is refused ... it holds no GitHub token".
-BROKER_REFUSAL = re.compile(r"lane-gh call graphql\b|holds no GitHub token")
+# The lane VM gh shim's words for a call the lane-gh broker refused (its Refused answer, "refused: REASON"):
+# "gh: lane-gh call graphql OWNER/REPO: refused: graphql: field ... is refused ...". Only that: a broker outage, a
+# lost socket or a GitHub error on the same path is no refusal, and keeps the plain "cannot read" report.
+BROKER_REFUSAL = re.compile(r"lane-gh call graphql \S+: refused: ")
 
 
 class BrokerRefused(Exception):
