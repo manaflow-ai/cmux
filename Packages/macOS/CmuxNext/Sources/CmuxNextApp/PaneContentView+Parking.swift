@@ -95,9 +95,10 @@ extension PaneContentView: ParkedFrameSource {
         view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // A hidden agent or internal page follows the pane (`layoutParked` sizes a row-sharing one), so it shows with no redraw
-        // at a new size; with `ParkedViewSizing` on it keeps its frame. Terminals and browsers: `install` sets their frame.
-        if ParkedViewSizing.isOn || !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { view.autoresizingMask = [] }
+        // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
+        // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
+        // sets their frame. A page that shares the tab row is sized by `layoutParked` instead.
+        if !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()

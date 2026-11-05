@@ -72,9 +72,8 @@ public final class PaneContentAreaView: NSView {
     /// The parked subviews' sizing (FRAME OWNER REFACTOR S7b, ``ParkedViewSizing``): a hidden ``ParkedFrameKeeping`` subview
     /// keeps its frame through a live resize, a spring, a hold or a person's drag, and after it takes the frame its owner
     /// (``ParkedFrameSource``) shows it at.
-    public private(set) lazy var parkedSizing = ParkedViewSizing(showFrame: { [weak self] view in
-        guard let self, view.superview === self, view.isHidden, !self.isHolding,
-              (view as? any ParkedFrameKeeping)?.keepsFrameWhileParked == true else { return nil }
+    public private(set) lazy var parkedSizing = ParkedViewSizing(container: self, showFrame: { [weak self] view in
+        guard let self, view.isHidden, !self.isHolding, (view as? any ParkedFrameKeeping)?.keepsFrameWhileParked == true else { return nil }
         return (self.superview as? any ParkedFrameSource)?.parkedFrame(of: view) ?? self.contentBounds(for: view)
     }, inMotion: { [weak self] in self?.isInParkedSizingMotion ?? false })
 

@@ -18,8 +18,7 @@ extension AgentPaneView: PaneFirstPaintGated {
     }
 }
 
-/// A page tab: transparent until its document paints, like an agent page
-/// (no-flicker audit). Content that is not a page has nothing to wait for.
+/// A page tab: transparent until its document paints, like an agent page (no-flicker audit). Content that is not a page has nothing to wait for.
 extension InternalPageView: PaneFirstPaintGated, ParkedFrameKeeping {
     public var awaitsFirstPaint: Bool { (content as? PageWebView).map { !$0.hasPainted } ?? false }
     var keepsFrameWhileParked: Bool { PageWebView.shown(in: content) == nil } // no hold covers a web page's redraw at a new size

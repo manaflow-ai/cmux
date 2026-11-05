@@ -19,7 +19,9 @@ public final class ParkedViewSizing {
         weak var view: NSView?
     }
 
-    /// The frame `view` shows at, in its superview; nil: not this container's to size (it shows, or left).
+    /// The view the parked views are in.
+    private weak var container: NSView?
+    /// The frame `view` shows at in the container; nil: it is not a parked view that keeps its frame.
     private let showFrame: @MainActor (NSView) -> NSRect?
     /// Whether the container is in a motion now (a live resize, a spring, a person's drag): the idle point sizes nothing
     /// then, and the motion's end asks again.
@@ -29,15 +31,19 @@ public final class ParkedViewSizing {
     private var armed = false
     /// Whether input waits in the application's queue (the idle point does nothing then).
     var inputWaits: @MainActor () -> Bool = { ParkedViewSizing.applicationHasQueuedInput() }
-    /// Calls its argument at the main run loop's next idle point (after AppKit's display and Core Animation's commit).
+    /// Calls its argument at the main run loop's next idle point: after AppKit's display and Core Animation's commit, one
+    /// before `.max`, so work that waits for the pass's end (``AfterFrameCommit``) runs after it.
     var atIdlePoint: @MainActor (@escaping @MainActor () -> Void) -> Void = { body in
-        MainRunLoopObserver.once(activities: .beforeWaiting, order: .max, body)
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: .max - 1, body)
     }
 
     /// - Parameters:
-    ///   - showFrame: The frame a parked view shows at now, in its superview; nil for one that is not parked here.
+    ///   - container: The view the parked views are in.
+    ///   - showFrame: The frame a parked view shows at now in `container` (also one parked elsewhere that comes in); nil
+    ///     for one that does not keep its frame while parked.
     ///   - inMotion: Whether the container is in a motion now.
-    public init(showFrame: @escaping @MainActor (NSView) -> NSRect?, inMotion: @escaping @MainActor () -> Bool) {
+    public init(container: NSView, showFrame: @escaping @MainActor (NSView) -> NSRect?, inMotion: @escaping @MainActor () -> Bool) {
+        self.container = container
         self.showFrame = showFrame
         self.inMotion = inMotion
     }
@@ -46,16 +52,23 @@ public final class ParkedViewSizing {
     /// `views` whose frame is not its show frame is sized at the coming idle points. Replaces what was pending.
     public func motionDidEnd(_ views: [NSView]) {
         guard Self.isOn else { return }
-        pending = views.filter { view in showFrame(view).map { $0 != view.frame } ?? false }.map { Entry(view: $0) }
+        pending = views.filter { view in view.superview === container && showFrame(view).map { $0 != view.frame } ?? false }
+            .map { Entry(view: $0) }
         arm()
     }
 
-    /// `view` shows now: it takes its show frame at once, before its container asks whether its paint holds, and leaves
-    /// the queue.
+    /// `view` shows in the container now: it takes its show frame at once, before the container asks whether its paint
+    /// holds, and leaves the queue. One parked in another container (a tab moved) takes the size it shows at, so the hold
+    /// sees the change; the container puts it in place as it adds it.
     public func willShow(_ view: NSView) {
         guard Self.isOn else { return }
         pending.removeAll { $0.view == nil || $0.view === view }
-        if let frame = showFrame(view), view.frame != frame { view.frame = frame }
+        guard let frame = showFrame(view) else { return }
+        if view.superview === container {
+            if view.frame != frame { view.frame = frame }
+        } else if view.frame.size != frame.size {
+            view.setFrameSize(frame.size)
+        }
     }
 
     private func arm() {
@@ -73,7 +86,7 @@ public final class ParkedViewSizing {
         guard !inputWaits() else { return arm() }
         while let entry = pending.first {
             pending.removeFirst()
-            guard let view = entry.view, view.isHidden, let frame = showFrame(view), frame != view.frame else { continue }
+            guard let view = entry.view, view.superview === container, view.isHidden, let frame = showFrame(view), frame != view.frame else { continue }
             view.frame = frame
             view.layoutSubtreeIfNeeded()
             break
