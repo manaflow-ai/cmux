@@ -71,8 +71,10 @@ impl std::fmt::Display for ReadError {
 impl std::error::Error for ReadError {}
 
 const REPO_REQUIRED: [&str; 3] = ["id", "root_path", "name"];
-const REPO_OPTIONAL: [&str; 4] =
-    ["is_hidden", "setup_script", "archive_script", "run_scripts_json"];
+/// Conductor's database names the hidden flag `hidden`; `is_hidden` is read too, for
+/// layouts that spell it that way.
+const REPO_OPTIONAL: [&str; 5] =
+    ["hidden", "is_hidden", "setup_script", "archive_script", "run_scripts_json"];
 const WORKSPACE_REQUIRED: [&str; 6] =
     ["id", "repo_id", "branch", "state", "path", "archive_commit"];
 
@@ -105,7 +107,9 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
         id: cell("id").unwrap_or_default(),
         name: cell("name").unwrap_or_default(),
         root_path: cell("root_path").map(PathBuf::from),
-        hidden: cell("is_hidden").is_some_and(|value| value == "1" || value == "true"),
+        hidden: ["hidden", "is_hidden"]
+            .into_iter()
+            .any(|name| cell(name).is_some_and(|value| value == "1" || value == "true")),
         setup_script: cell("setup_script"),
         archive_script: cell("archive_script"),
         run_scripts: cell("run_scripts_json"),

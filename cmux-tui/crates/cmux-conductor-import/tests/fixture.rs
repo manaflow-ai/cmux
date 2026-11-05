@@ -95,7 +95,7 @@ enabled = true
     connection
         .execute_batch(&format!(
             "PRAGMA user_version = 112;
-             CREATE TABLE repos (id TEXT PRIMARY KEY, root_path TEXT, name TEXT, is_hidden INTEGER,
+             CREATE TABLE repos (id TEXT PRIMARY KEY, root_path TEXT, name TEXT, hidden INTEGER,
                  setup_script TEXT, archive_script TEXT, run_scripts_json TEXT, updated_at TEXT);
              CREATE TABLE workspaces (id TEXT PRIMARY KEY, repo_id TEXT, branch TEXT, state TEXT,
                  path TEXT, archive_commit TEXT, directory_name TEXT);
