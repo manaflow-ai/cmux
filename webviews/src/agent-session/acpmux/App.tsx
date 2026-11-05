@@ -11270,15 +11270,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     let activePresentation: ReturnType<typeof snapshotFrames> | undefined;
+    let stopSwitchEdge: (() => void) | undefined;
     const connectHost = async () => {
       // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
       activePresentation?.stop();
+      stopSwitchEdge?.();
       const presentation = snapshotFrames(presentFrame, setSnapshot);
       activePresentation = presentation;
       presentationRef.current = presentation;
+      // The switch store commits at once (useSyncExternalStore): the snapshot its change goes with
+      // draws in the same paint, so a started chat's composer never lands a frame after its row.
+      stopSwitchEdge = harnessSwitch.subscribe(() => presentation.act());
       // Keep the existing Cloud route and destination picker alive for wake-and-send recovery
       // while reconnecting. This separate gate blocks typing hints until the new handshake installs
       // its identity, without unmounting ComposerContext and losing a pending machine selection.
@@ -11905,7 +11910,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               false,
               heldPromptParams(fromTrust),
             ),
-          "chat.cancel": () => client.cancel(),
+          "chat.cancel": () => {
+            presentation.act();
+            return client.cancel();
+          },
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
@@ -12576,6 +12584,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // a web update's reload waits for the start too.
         const startChat = window.cmuxAcpmuxActions["chat.new"]!;
         window.cmuxAcpmuxActions["chat.new"] = (params) => {
+          // A start's first snapshot draws with the start's own state, not a frame after it.
+          presentation.act();
           // The chat it starts takes the agent its typing warmed (newChatPrewarm.ts).
           newChatPrewarm.sent();
           untakenSends.current += 1;
@@ -12584,6 +12594,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A new chat's first send starts its chat, which takes the warm agent: nothing is released.
         const sendPrompt = window.cmuxAcpmuxActions["chat.send"]!;
         window.cmuxAcpmuxActions["chat.send"] = (params) => {
+          // A send's first snapshot draws with the cleared composer, not a frame after it.
+          presentation.act();
           newChatPrewarm.sent();
           return sendPrompt(params);
         };
@@ -12731,6 +12743,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return () => {
       cancelled = true;
       activePresentation?.stop();
+      stopSwitchEdge?.();
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       setStartModeSource(undefined);

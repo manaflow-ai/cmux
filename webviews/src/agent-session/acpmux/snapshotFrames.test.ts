@@ -415,3 +415,66 @@ test("a control snapshot then a streamed one in one display frame publish once",
   expect(shown).toHaveLength(2);
   expect(shown[1]!.rows).toEqual(streamed.rows);
 });
+
+test("a user action's snapshots present at once until its frame; the burst after it coalesces", () => {
+  const frameEnds: (() => void)[] = [];
+  const { presenter, shown, frames, paint } = rig(frameEnds);
+  const sent: AcpmuxSnapshot = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    rows: [{ id: "local-1", version: 1, at: 1, kind: "user" as const, text: "Sent" }],
+  };
+  const creating = { ...sent, connection: "creating" };
+  const attached = { ...sent, connection: "attached" };
+  const accepted = { ...attached, connection: "connected" };
+  presenter.act();
+  // The send's own snapshots draw in the same paint as the cleared composer.
+  presenter.push(sent);
+  presenter.push(creating);
+  expect(shown).toEqual([sent, creating]);
+  // Its frame paints: the daemon's replies after it coalesce again, once per frame.
+  paint();
+  for (const end of frameEnds.splice(0)) end();
+  presenter.push(attached);
+  presenter.push(accepted);
+  expect(shown).toHaveLength(2);
+  expect(frames).toHaveLength(1);
+  paint();
+  expect(shown).toEqual([sent, creating, accepted]);
+});
+
+test("a user action presents what was already queued, in its own commit", () => {
+  const { presenter, shown, frames, paint } = rig();
+  const queued = { ...emptySnapshot(), sessionId: "chat", connection: "attached" };
+  presenter.push(queued);
+  expect(shown).toHaveLength(0);
+  presenter.act();
+  expect(shown).toEqual([queued]);
+  // The frame it had asked for presents nothing again.
+  while (frames.length) paint();
+  expect(shown).toHaveLength(1);
+});
+
+test("a user action's window keeps one publication in a frame that already published", () => {
+  const frameEnds: (() => void)[] = [];
+  const { presenter, shown, paint } = rig(frameEnds);
+  presenter.push({ ...emptySnapshot(), sessionId: "chat" }, "frame");
+  expect(shown).toHaveLength(1);
+  // Still inside that display frame: the action's snapshot joins the next one.
+  presenter.act();
+  presenter.push({ ...emptySnapshot(), sessionId: "chat", connection: "sent" });
+  expect(shown).toHaveLength(1);
+  for (const end of frameEnds.splice(0)) end();
+  paint();
+  paint();
+  expect(shown).toHaveLength(2);
+  expect(shown[1]!.connection).toBe("sent");
+});
+
+test("a stopped connection's action presents nothing", () => {
+  const { presenter, shown } = rig();
+  presenter.act();
+  presenter.stop();
+  presenter.push(emptySnapshot());
+  expect(shown).toHaveLength(0);
+});
