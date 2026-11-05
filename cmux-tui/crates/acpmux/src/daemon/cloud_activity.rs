@@ -412,6 +412,9 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
             tracker.person_prompted(at);
         }
         let Some(line) = tracker.line(at_work as u64, renew, now) else { continue };
+        if flushes_before(&line) {
+            flush_to_disk().await;
+        }
         if !send(&path, &line).await {
             tracker.unsent();
         }
@@ -422,6 +425,34 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
 /// rebuilt yet may be a running turn). The next tick after it settles sends the real count.
 pub(super) fn reported_at_work(at_work: usize, settled: bool) -> usize {
     if settled { at_work } else { at_work.max(1) }
+}
+
+/// Whether `line` lets the Cloud pause the machine (no session at work), so the guest's writes
+/// are flushed to disk before it goes. A paused machine's files are read from its saved disk
+/// without waking it (Freestyle `vm.fs` reads while paused, cmux#36050): a write still in the
+/// page cache at the pause is not on that disk, so a chat transcript read from a paused machine
+/// missed its last lines (7 appended, 1 readable; after a `sync`, all of them).
+pub(super) fn flushes_before(line: &Value) -> bool {
+    line.pointer("/acp_activity/turns").and_then(Value::as_u64) == Some(0)
+}
+
+/// How long the report waits for the flush: a busy disk never holds the activity line back
+/// (the machine is not paused before the next line anyway).
+#[cfg(unix)]
+const FLUSH_BUDGET: Duration = Duration::from_secs(2);
+
+/// Flushes the machine's dirty pages (`sync(2)`: the agents' transcripts, acpmux's own chat
+/// logs) on a blocking thread, waiting at most [`FLUSH_BUDGET`].
+/// A no-op off Unix: Cloud machines are Linux guests.
+async fn flush_to_disk() {
+    #[cfg(unix)]
+    {
+        let flush = tokio::task::spawn_blocking(|| {
+            // SAFETY: sync(2) takes no arguments and cannot fail.
+            unsafe { libc::sync() }
+        });
+        let _ = tokio::time::timeout(FLUSH_BUDGET, flush).await;
+    }
 }
 
 /// One line on its own connection; false when the agent did not take it.
