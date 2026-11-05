@@ -62,6 +62,11 @@ class WorkspaceScalingTests(unittest.TestCase):
         self.assertEqual(sidebar["sidebar_scroll"]["status"], "undefined")
         self.assertEqual(sidebar["switch"]["status"], "undefined")
 
+    def test_non_object_probe_report_is_treated_as_missing(self):
+        rows = bench.collect({1: {"instant": [], "sidebar": "bad", "typing": 3}})
+        failures = bench.coverage_failures(rows)
+        self.assertTrue(any(failure["workspaces"] == 1 for failure in failures))
+
 
 if __name__ == "__main__":
     unittest.main()
