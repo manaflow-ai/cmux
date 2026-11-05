@@ -242,3 +242,77 @@ fn a_harness_acpmux_saw_stop_working_still_shows() {
     let sent = posted(&h);
     assert!(sent.iter().any(|t| t.contains("did no work")), "{sent:?}");
 }
+
+/// What the Chief posted in side conversation `conversation`.
+fn side_posts(h: &Harness, conversation: &str) -> Vec<String> {
+    let owner = h.owner.lock().unwrap();
+    owner.stores[conversation]
+        .ops
+        .iter()
+        .filter_map(|(_, op)| match op {
+            cmux_conversation::Op::MessageSend { parts, .. } => match parts.first() {
+                Some(cmux_conversation::Part::Text { text, .. }) => Some(text.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// A member's message in a side conversation is not in the reply ledger: no retry turn follows, so
+/// the stalled turn says in plain words that it could not start, never silence and never the
+/// start's diagnostics.
+#[test]
+fn a_side_conversation_message_hears_in_plain_words_that_no_agent_started() {
+    let mut h = harness();
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), STALL.into());
+    h.connect();
+    h.add_side("conv_side", "user_side");
+    let question = h.post_side("conv_side", "user_side", "check the deploy");
+    h.wake(&[("conv_side", question.seq)]);
+    settle_with_timers(&mut h, WAIT);
+    let sent = side_posts(&h, "conv_side");
+    assert!(
+        sent.iter().any(|t| t.contains("could not start an agent")),
+        "{sent:?}"
+    );
+    for text in &sent {
+        assert!(!text.contains("agent_start"), "{text}");
+        assert!(!text.contains("turn failed"), "{text}");
+    }
+}
+
+/// A hung harness's error carries numbers (its pid, seconds) that must not read as an HTTP status
+/// a retry cures: it shows on the first try.
+#[test]
+fn a_hung_harness_with_a_status_like_pid_shows_without_retries() {
+    let mut h = harness();
+    h.agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        "session/new: agent_start: its agent did no work for 300 s; its agent process (pid 15023, 2 processes in all) is alive at normal CPU class (priority 20), ran 502 s, used 0.1 s of CPU, 0 of 12 threads running, 9 page-ins".into(),
+    );
+    // Upstream cuts wait 15 s each by default: a misread "502" would show only after them.
+    h.brain
+        .set_upstream_resume_backoff(vec![Duration::from_secs(15)]);
+    h.connect();
+    h.say("user_local", "hi");
+    let began = Instant::now();
+    settle_with_timers(&mut h, WAIT);
+    let sent = posted(&h);
+    assert_eq!(
+        sent.iter().filter(|t| t.contains("did no work")).count(),
+        1,
+        "{sent:?}"
+    );
+    // Neither the in-turn session retries (6.5 s of backoff) nor an upstream cut ran.
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+}

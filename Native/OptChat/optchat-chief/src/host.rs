@@ -2268,7 +2268,8 @@ pub fn probe_until_ready(
 
 /// Whether `error` is a harness start that ran out of time: acpmux's start
 /// deadline (`agent_start did not finish within 90s; ...`, its
-/// `deadline_exceeded` error) or Chief's own wait on it ("no answer within").
+/// `deadline_exceeded` error) or Chief's own wait on its `session/new`. Any
+/// other request that went unanswered is not a start, and stays a fault.
 /// A harness acpmux saw stop working says "did no work", which is not this:
 /// it is a fault the person hears of. A loaded or
 /// memory-starved machine (2026-11-04: swap full, the harness in page-in
@@ -2277,7 +2278,7 @@ pub fn start_stall(error: &str) -> bool {
     [
         "did not finish within",
         "did not start within",
-        "no answer within",
+        "session/new: no answer within",
     ]
     .iter()
     .any(|t| error.contains(t))

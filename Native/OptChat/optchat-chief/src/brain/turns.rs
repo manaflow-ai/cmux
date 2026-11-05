@@ -1286,10 +1286,14 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         if let Some(cut) = self.is_cut(key, &outcome) {
+            self.cut_ran |= !outcome.unstarted;
             self.turn_cut(key, outcome, cut);
             return;
         }
         self.cuts = 0;
+        if std::mem::take(&mut self.cut_ran) {
+            outcome.unstarted = false;
+        }
         self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
@@ -1339,19 +1343,22 @@ impl Brain {
         // stay open in the reply ledger, which runs a retry turn and, if none
         // answers, says so in plain words.
         let stalled = unstarted_stall(&outcome);
-        // The ledger holds a person message of the Chief conversation only
-        // (`reply_ledger.rs`): a turn that also answers others (a member's
-        // message in a group) says in plain words that it could not start.
+        // The ledger holds only a person message of the Chief conversation
+        // (`reply_ledger.rs`): a turn whose messages it all holds, with at
+        // least one it saw (a cut turn's resume answers its cut messages
+        // through the ledger), stays quiet and the retry turn answers. Any
+        // other stalled turn (a group member's message, a subagent's report,
+        // a turn with nothing waiting) says in plain words that it could not
+        // start, and writes no failure note, so the next turn still sees what
+        // this one did not answer.
+        let awaited = |id: &String| self.state.awaiting.iter().any(|a| &a.id == id);
         let held = self
             .state
             .turn
             .as_ref()
             .filter(|t| t.key == key)
-            .is_none_or(|t| {
-                t.answers
-                    .iter()
-                    .all(|id| self.state.awaiting.iter().any(|a| &a.id == id))
-            });
+            .is_some_and(|t| t.answers.iter().all(awaited))
+            && !self.unanswered_in_turn().is_empty();
         let unstarted = stalled && held;
         if stalled
             && !quiet
@@ -1362,12 +1369,9 @@ impl Brain {
                 if held {
                     "its messages wait for a retry turn"
                 } else {
-                    "it says so in plain words"
+                    "it says so in plain words; the next turn takes up its items"
                 }
             ));
-        }
-        if stalled && !held {
-            outcome.error = Some(UNSTARTED_TEXT.to_owned());
         }
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
@@ -1381,7 +1385,7 @@ impl Brain {
         let failure_note = match &outcome.error {
             Some(error)
                 if !(quiet
-                    || unstarted
+                    || stalled
                     || tool_stopped
                     || outcome.orphan.is_some()
                     || steered_waits) =>
@@ -1488,14 +1492,14 @@ impl Brain {
             .collect();
         // Work announced as pending that this turn closes: a silent turn
         // still answers with a done marker, unless the owner stopped it.
-        let closes = !(quiet || unstarted)
+        let closes = !(quiet || stalled)
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
         // An owner-stopped turn posts no done marker, so the work it would
         // close stays open for a later turn to close; so does a turn that
         // never started.
-        if !(quiet || unstarted) {
+        if !(quiet || stalled) {
             self.state
                 .open_answers
                 .retain(|id| !answers.contains(id) || pending.contains(id));
@@ -1663,16 +1667,15 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
     "ECONNRESET",
 ];
 
-/// What a turn that could not start says where no retry turn follows (a
-/// message the reply ledger does not hold): never the start's diagnostics.
-const UNSTARTED_TEXT: &str =
-    "I could not start an agent to answer this; the machine may be busy. Please send it again.";
+/// What a turn that could not start says when the reply ledger does not hold
+/// its messages: never the start's diagnostics.
+const UNSTARTED_TEXT: &str = "I could not start an agent just now; the machine may be busy. I will pick this up with the next message.";
 
 /// A turn whose prompt never reached a harness because its start stalled or
 /// broke off: rerun, and past its cuts never posted (its message waits in the
 /// reply ledger). A usage limit is not cured by a retry and stays a failure.
 fn unstarted_stall(outcome: &TurnOutcome) -> bool {
-    let Some(error) = outcome.error.as_deref() else {
+    let Some(error) = outcome.error.as_deref().map(crate::turn::error_head) else {
         return false;
     };
     outcome.unstarted
@@ -1687,7 +1690,9 @@ fn unstarted_stall(outcome: &TurnOutcome) -> bool {
 
 /// Whether, and why, a failed turn was cut.
 pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
-    let error = outcome.error.as_deref()?;
+    // Its words, not the numbers of the process detail after them (a pid of
+    // 15023 or "ran 502 s" is no HTTP status).
+    let error = crate::turn::error_head(outcome.error.as_deref()?);
     if outcome.orphan.is_some() {
         return (error == crate::turn::CONNECTION_LOST).then_some(Cut::Link);
     }

@@ -336,8 +336,15 @@ pub fn is_start_stall(error: &str) -> bool {
     crate::host::start_stall(error) || crate::subagents::is_transient_start_failure(error)
 }
 
+/// An error's words before acpmux's process detail ("; its agent process
+/// (pid 15023) ... ran 502 s ..."), whose numbers read as HTTP statuses.
+pub fn error_head(error: &str) -> &str {
+    error.split("; its agent process").next().unwrap_or(error)
+}
+
 /// Whether a turn's `session/new` error is worth a new try.
 pub fn is_transient_session_failure(error: &str) -> bool {
+    let error = error_head(error);
     TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
 }
 

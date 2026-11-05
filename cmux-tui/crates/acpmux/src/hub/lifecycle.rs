@@ -889,24 +889,28 @@ impl Hub {
             // the start by another process: acpmux clears it at the spawn) runs once more
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
-            if let Some(state) = harness.background().filter(|_| !retried) {
-                self.end_cold_start(session).await;
-                let why = if failed.is_some() { "failed" } else { "missed its deadline" };
-                tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
-                self.append(
-                    session,
-                    "mux",
-                    "agent_start_retried_at_normal",
-                    json!({"timedOut": failed.is_none(), "harness": state}),
-                );
-                retried = true;
-                continue;
-            }
             // A start that waits on its harness ends with None only when its harness did no work
             // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
             // the Chief retries as a slow machine.
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
+            if let Some(state) = harness.background().filter(|_| !retried) {
+                self.end_cold_start(session).await;
+                let why = match (&failed, hung) {
+                    (Some(_), _) => "failed",
+                    (None, true) => "did no work",
+                    (None, false) => "missed its deadline",
+                };
+                tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
+                self.append(
+                    session,
+                    "mux",
+                    "agent_start_retried_at_normal",
+                    json!({"timedOut": failed.is_none() && !hung, "hung": failed.is_none() && hung, "harness": state}),
+                );
+                retried = true;
+                continue;
+            }
             return Err(match failed {
                 Some(e) => e,
                 None => {
@@ -2070,8 +2074,6 @@ impl<'a> ReplayHold<'a> {
     }
 }
 
-/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
-/// Its `data.harness` carries the same fields when they were read.
 /// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
 /// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
 /// a deadline so its creator shows it rather than waiting again.
@@ -2090,6 +2092,8 @@ fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
     e
 }
 
+/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
+/// Its `data.harness` carries the same fields when they were read.
 fn start_deadline_exceeded(
     budget: std::time::Duration,
     harness: &crate::cpu_class::HarnessSeen,
