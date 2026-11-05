@@ -10,7 +10,8 @@ This times that path, one phase at a time, so a change to the build can show wha
      launch, so the edits below start from a built, running app.
   2. Per edit: add one stored property to HomeHostView, stop the app, rebuild with reload.sh, launch again.
      Each row has the reload's wall time, xcodebuild's timing summary (task time per kind of task, which is not
-     wall time: tasks overlap), the Swift files the driver compiled, and the launch to usable time.
+     wall time: tasks overlap), the swift-driver's incremental decisions (files queued, cascaded, invalidated;
+     incremental turned off), and the launch to usable time.
 
 The edits are taken back when the run ends (git checkout of the one file), so the warm checkout stays at its
 commit. The log prints STRUCTURAL-REBUILD-ROW {json} per build and STRUCTURAL-REBUILD {json} at the end.
@@ -52,8 +53,11 @@ def reload(config, log_dir, index):
 
 
 def build_facts(reload_log):
-    """xcodebuild's timing summary and the driver's compiled Swift files, from reload.sh's log."""
-    facts = {"timing": {}, "swift_files": None}
+    """xcodebuild's timing summary, and the swift-driver's incremental diagnostics (scripts/ci/
+    swift_incremental_diagnostics.py: how many files it queued as changed, pulled in by a dependency, or scheduled
+    as invalidated, and whether incremental was turned off), from reload.sh's log. These are the driver's
+    incremental decisions, not a count of the files compiled."""
+    facts = {"timing": {}, "incremental": None}
     if not reload_log or not os.path.exists(reload_log):
         return facts
     text = open(reload_log, errors="replace").read()
@@ -63,8 +67,9 @@ def build_facts(reload_log):
     receipt = reload_log + ".incremental.json"
     if os.path.exists(receipt):
         counts = json.load(open(receipt)).get("counts", {})
-        facts["swift_files"] = {k: counts.get(k) for k in ("initial_files", "dependency_cascade_files",
-                                                           "scheduled_invalidated_files")}
+        facts["incremental"] = {k: counts.get(k) for k in ("initial_files", "dependency_cascade_files",
+                                                           "scheduled_invalidated_files",
+                                                           "incremental_disabled_reasons", "dependency_read_failures")}
     return facts
 
 

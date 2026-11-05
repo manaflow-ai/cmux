@@ -17,14 +17,16 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
                    "Ld (1 task) | 3.5 seconds\n"
                    "PhaseScriptExecution (13 tasks) | 22.1 seconds\n\n** BUILD SUCCEEDED **\n")
     Path(str(log) + ".incremental.json").write_text(json.dumps(
-        {"counts": {"initial_files": 1, "dependency_cascade_files": 16, "scheduled_invalidated_files": 17}}))
+        {"counts": {"initial_files": 1, "dependency_cascade_files": 16, "scheduled_invalidated_files": 17,
+                    "incremental_disabled_reasons": 0, "dependency_read_failures": 0, "diagnostic_evidence_lines": 40}}))
     facts = sr.build_facts(str(log))
     assert facts["timing"] == {"CompileSwiftSources": {"tasks": 17, "seconds": 41.25},
                                "Ld": {"tasks": 1, "seconds": 3.5},
                                "PhaseScriptExecution": {"tasks": 13, "seconds": 22.1}}, facts
-    assert facts["swift_files"] == {"initial_files": 1, "dependency_cascade_files": 16,
-                                    "scheduled_invalidated_files": 17}, facts
-    assert sr.build_facts(os.path.join(tmp, "missing.log")) == {"timing": {}, "swift_files": None}
+    assert facts["incremental"] == {"initial_files": 1, "dependency_cascade_files": 16,
+                                    "scheduled_invalidated_files": 17, "incremental_disabled_reasons": 0,
+                                    "dependency_read_failures": 0}, facts
+    assert sr.build_facts(os.path.join(tmp, "missing.log")) == {"timing": {}, "incremental": None}
 
     source = Path(tmp) / sr.EDIT_FILE
     source.parent.mkdir(parents=True)
