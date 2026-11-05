@@ -232,7 +232,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
-/* The activity dot: a crisp 5px circle at the icon's top right, ringed in the page's colour so it
+/* The activity dot: a crisp 6px circle at the icon's top right, ringed in the page's colour so it
    reads apart from the glyph. It breathes only while the turn runs (`working`, the only loop, and
    only with full motion); with changes left and no turn it holds still. No work, no dot. */
 .acpmux-header-tools[data-activity-on="changes"] [data-quick-action="changes"]::after,

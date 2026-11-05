@@ -465,7 +465,6 @@ const base: HeaderToolsProps = {
   onMenuOpen: async () => undefined,
 };
 
-
 // Thunderdome B, header icon motion (headerMotion.ts; Debug Settings agentChat.headerMotion; Leo
 // 2026-11-05: should the top-right icons be "a little more animated?"). The plays freeze each motion
 // at a frame (every running animation paused at `at` ms), so a still shows it mid-flight.
@@ -511,8 +510,8 @@ const motionHover =
   (name: string): Play =>
   async (ctx) => {
     const button = ctx.find({ role: "button", name });
-    button.dispatchEvent(new (ctx.document.defaultView!.PointerEvent)("pointerover", { bubbles: true }));
-    button.dispatchEvent(new (ctx.document.defaultView!.PointerEvent)("pointerenter", { bubbles: false }));
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerover", { bubbles: true }));
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerenter", { bubbles: false }));
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-preview"), { capMs: 2000 });
   };
 const motionBase = (motion: HeaderToolsProps["motion"]): HeaderToolsProps => ({
@@ -531,7 +530,7 @@ const motionVariants = {
     play: motionLit(["splitRight"]),
   },
   "motion-cue-working": {
-    note: "Header motion: cue. While the chat's turn runs, a crisp 5px dot on Changes breathes (1.2 s, opacity only, the only loop, and only while a turn runs).",
+    note: "Header motion: cue. While the chat's turn runs, a crisp 6px round dot on Changes breathes (1.2 s, opacity only, the only loop, and only while a turn runs).",
     props: { ...motionBase("animated-cue"), working: true },
   },
   "motion-cue-pending": {
