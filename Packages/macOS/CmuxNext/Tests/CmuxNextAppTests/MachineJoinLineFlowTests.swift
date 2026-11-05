@@ -196,10 +196,15 @@ import Testing
          {"kind":"joined","id":"m_2","state":"online","lastHeartbeat":"2026-11-05T11:58:29.000Z"},
          {"kind":"joined","id":"m_3","state":"offline","lastHeartbeat":\(ms)},
          {"kind":"joined","id":"m_4","state":"online"},
-         {"kind":"joined","id":"m_5","lastHeartbeat":"2026-11-05T11:59:59Z","revoked":true}]
+         {"kind":"joined","id":"m_5","lastHeartbeat":"2026-11-05T11:59:59Z","revoked":true},
+         {"kind":"joined","id":"m_6","state":"revoked","lastHeartbeat":"2026-11-05T11:59:59Z"},
+         {"kind":"joined","id":"m_7","state":"offline","lastHeartbeat":\(ms / 1000)},
+         {"kind":"joined","id":"m_8","state":"offline","lastHeartbeat":"\(ms)"}]
         """
         let rows = try #require(JoinedMachine.list(from: Data(json.utf8), now: now))
-        #expect(rows.map(\.state) == [.online, .offline, .online, .online, .revoked])
+        // m_6: the CLI says revoked and keeps its last heartbeat; a fresh heartbeat never brings it back.
+        // m_7: epoch seconds; m_8: milliseconds as digits.
+        #expect(rows.map(\.state) == [.online, .offline, .online, .online, .revoked, .revoked, .online, .online])
     }
 
     @Test func aMintDecodesThePlatformsISOExpiry() throws {

@@ -45,17 +45,21 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     /// (cmux-platform `src/server/mesh/Core.ts`, 90 s; the daemon heartbeats every 30 s or sooner).
     public static let onlineWindow: TimeInterval = 90
 
-    /// Its state from its own heartbeat at `now`: revoked first; then online when `heartbeat` is within
+    /// Its state from its own heartbeat at `now`: revoked first (the platform's `revoked`, or the CLI's
+    /// `state: "revoked"`, which keeps the last heartbeat); then online when `heartbeat` is within
     /// ``onlineWindow`` (a clock a little ahead counts as now); with no readable heartbeat, the CLI's word.
     static func state(revoked: Bool, heartbeat: Date?, listed: State?, now: Date) -> State {
-        if revoked { return .revoked }
+        if revoked || listed == .revoked { return .revoked }
         guard let heartbeat else { return listed ?? .offline }
         return now.timeIntervalSince(heartbeat) <= onlineWindow ? .online : .offline
     }
 
-    /// A heartbeat as the platform sends it: RFC 3339 text, or epoch milliseconds.
+    /// A heartbeat as the platform sends it: RFC 3339 text, or an epoch number (seconds below 1e11,
+    /// else milliseconds, the CLI's own `epoch_ms` rule), as a number or a digits-only string.
     static func heartbeat(_ value: Any?) -> Date? {
-        if let ms = value as? NSNumber, !(value is Bool) { return Date(timeIntervalSince1970: ms.doubleValue / 1000) }
+        let number: Double? = if let n = value as? NSNumber, !(value is Bool) { n.doubleValue }
+            else if let text = value as? String, !text.isEmpty, text.allSatisfy(\.isNumber) { Double(text) } else { nil }
+        if let number { return Date(timeIntervalSince1970: number < 100_000_000_000 ? number : number / 1000) }
         return JoinLine.date(value)
     }
 

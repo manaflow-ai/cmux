@@ -444,7 +444,6 @@ import CmuxNextTestSupport
         #expect(opened == 0)
     }
 
-    /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
     /// The section as the sidebar shows it: This Mac, then the hub's machines (an online Linux box, an
     /// offline Mac) with the revoked one gone: `Packages/macOS/CmuxNext/.build/machines-section-hub.png`.
     @Test func theSectionWithHubMachinesRenders() throws {
@@ -469,6 +468,7 @@ import CmuxNextTestSupport
         try data.write(to: out)
     }
 
+    /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
     @Test func theJoinedRowsRender() throws {
         _ = NSApplication.shared
         let rows = [Self.rowView(Fake.machine("m_1", "lane-vm-3"), menuOpen: true),
