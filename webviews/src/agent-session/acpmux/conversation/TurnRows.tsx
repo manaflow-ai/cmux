@@ -7,6 +7,7 @@ import type { AcpmuxRow } from "../model";
 import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
+import { WhoElseCard } from "./WhoElseCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -158,6 +159,8 @@ function groupNode(
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "whoElse":
+      return <WhoElseCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
       return (
         <AcpmuxSendLine

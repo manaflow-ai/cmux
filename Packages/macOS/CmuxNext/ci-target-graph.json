@@ -1350,10 +1350,12 @@
         "CmuxNextActions",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextSidebar"
       ],
       "packages": []
     },
@@ -1836,7 +1838,8 @@
         "CmuxNextCloud",
         "CmuxNextDesign",
         "CmuxNextIcons",
-        "CmuxNextRemote"
+        "CmuxNextRemote",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

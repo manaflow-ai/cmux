@@ -41,7 +41,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
-import { turnWork, workEnds } from "./waterfallSpans";
+import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -55,6 +55,7 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { canonicalCall } from "../toolNames";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1269,13 +1270,11 @@ function shapeTurn(
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
     version:
-      version * 1024 +
+      version * 16 +
       (retryable ? 1 : 0) +
       (resumable || continuable ? 2 : 0) +
       (retryTarget ? 4 : 0) +
-      (changedFiles ? 8 : 0) +
-      // A background shell that ended after the summary moves its Timeline bar, so the footer redraws.
-      16 * workEnds(work),
+      (changedFiles ? 8 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -2053,6 +2052,10 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
+  // A search names its pattern, not the folder it searches in (toolNames.ts).
+  const canonical = canonicalCall(tool)?.tool;
+  if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
+    return label;
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
 }
 
@@ -2100,6 +2103,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
     group.type === "dispatch" ||
+    group.type === "whoElse" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;

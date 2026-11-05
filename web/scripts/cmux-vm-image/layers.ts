@@ -68,8 +68,8 @@ const isImageScript = (file: string) =>
   (file.startsWith(`${SCRIPTS_DIR}/`) && /^[\w.-]+\.ts$/.test(file.slice(SCRIPTS_DIR.length + 1))) || /^images\/cmux-vm\/[\w.-]+\.ts$/.test(file);
 
 /**
- * bake.ts's entry point and every image script it imports, transitively (static, re-export and dynamic imports of
- * ./x), read at `rev` through `read` (path -> text, or undefined when the file is absent).
+ * bake.ts's entry point and every image script it imports, transitively (static, side-effect, re-export and dynamic
+ * imports of ./x, with or without a .ts or .js extension), read at `rev` through `read` (path -> text, or undefined when the file is absent).
  */
 export function bakeScriptClosure(read: (file: string) => string | undefined): Set<string> {
   const seen = new Set<string>(["images/cmux-vm/bake.ts"]);
@@ -79,7 +79,8 @@ export function bakeScriptClosure(read: (file: string) => string | undefined): S
     seen.add(file);
     const text = read(file);
     if (text === undefined) continue;
-    for (const m of text.matchAll(/(?:from|import\()\s*["']\.\/([\w.-]+?)(?:\.ts)?["']/g)) queue.push(`${SCRIPTS_DIR}/${m[1]}.ts`);
+    // `from "./x"`, `import "./x"` (side effect only), `import("./x")`; a .ts or .js extension names the same file.
+    for (const m of text.matchAll(/(?:\bfrom|\bimport\s*\(?)\s*["']\.\/([\w.-]+?)(?:\.[cm]?[jt]s)?["']/g)) queue.push(`${SCRIPTS_DIR}/${m[1]}.ts`);
   }
   return seen;
 }

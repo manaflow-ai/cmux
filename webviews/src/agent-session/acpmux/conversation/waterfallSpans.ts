@@ -66,17 +66,25 @@ function spanTimes(item: AcpmuxActivity): [number | undefined, number | undefine
 const spanFailed = (item: AcpmuxActivity) =>
   item.tool ? rowFailed(item.tool) || item.tool.background?.state === "failed" : false;
 
-/// Where `work`'s background shells ended, in one number under 64: a late end changes it, so the
-/// footer that carries the work takes a new version (turns.ts shapeTurn) and its Timeline redraws.
-/// It mixes each end's time with its place, so a new end moves it unless by chance, where a bare
-/// count of the ends came back to the same number after every 64.
-export function workEnds(work: readonly AcpmuxActivity[] | undefined): number {
-  let hash = 0;
-  work?.forEach((item, at) => {
-    const end = item.tool?.background?.endedAt;
-    if (end !== undefined) hash = (hash * 31 + end + at + 1) % 2_147_483_647;
-  });
-  return hash % 64;
+const endsKeys = new WeakMap<readonly AcpmuxActivity[], string>();
+
+/// Where and how `work`'s background shells ended, exactly: a shell that ends after its turn's
+/// summary changes only its activity row, never the footer's version, so the footer's memo
+/// (rows/SummaryRow.tsx) compares this too and its Timeline redraws. Kept per work array, which a
+/// footer holds until its turn's rows change.
+export function workEnds(work: readonly AcpmuxActivity[] | undefined): string {
+  if (!work) return "";
+  let key = endsKeys.get(work);
+  if (key === undefined) {
+    key = work
+      .map((item) => {
+        const background = item.tool?.background;
+        return background?.endedAt === undefined ? "" : `${background.endedAt}:${background.state}`;
+      })
+      .join(",");
+    endsKeys.set(work, key);
+  }
+  return key;
 }
 
 /// The timed work of a turn's rows, in order: its tool calls (not the drafts the transcript hides,

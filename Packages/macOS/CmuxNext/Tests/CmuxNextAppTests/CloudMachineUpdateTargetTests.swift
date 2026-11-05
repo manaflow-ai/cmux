@@ -113,6 +113,78 @@ struct CloudMachineUpdateTargetTests {
         #expect(await policy.turnRunning(target.id) == false)
     }
 
+    /// The start's own wait (``CloudWait/linked(within:_:updating:)`` over ``DaemonUpdatePolicy/turnRunning(_:)``): its
+    /// link came up on the daemon an update is replacing, so it links again once that update ended, and only then.
+    @Test func aStartLinksAgainOnceTheUpdateRunningUnderItEnds() async throws {
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let (began, beganNow) = AsyncStream<Void>.makeStream()
+        let (release, releaseNow) = AsyncStream<Void>.makeStream()
+        let source = CloudMachineUpdateTarget.Source(
+            daemon: { CloudMachineUpdateTarget.Daemon(build: Self.older, level: .limited) },
+            update: {
+                beganNow.yield()
+                for await _ in release { break }
+                return CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)
+            },
+            reconnect: { _ in })
+        let target = CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.bundled }, targets: { [target] }, enabled: { true }, report: { _ in },
+            directory: fixture.directory, clock: fixture.clock))
+        var links = 0
+        #expect(await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) })
+        #expect(links == 1, "no update runs: the start links once")
+
+        await policy.offer(target)
+        for await _ in began { break }
+        links = 0
+        let start = Task { @MainActor in
+            await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) }
+        }
+        while !(await policy.awaitsTurn(target.id)) { await Task.yield() }
+        #expect(links == 1, "the start linked again before the update ended")
+        releaseNow.yield()
+        #expect(await start.value)
+        #expect(links == 2, "the start never linked again after the update restarted the daemon")
+        await policy.drained()
+    }
+
+    /// A start whose link closed under it (EOF right after a resume) is tried once more once the link is back; any
+    /// other failure, and a second EOF, throw as they are.
+    @Test func aStartIsTriedOnceMoreOnlyAfterItsConnectionClosed() async throws {
+        let closed = { (error: any Error) in if case DaemonError.connectionClosed = error { true } else { false } }
+        var tries = 0, relinks = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw DaemonError.connectionClosed(reason: "EOF") }
+            return "session"
+        }, closed: closed, relink: { relinks += 1; return true })
+        #expect(started == "session")
+        #expect((tries, relinks) == (2, 1))
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (2, 1), "a second EOF is the answer: no third try")
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.notConnected },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (1, 0), "only a closed connection is tried again")
+
+        tries = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { false })
+        }
+        #expect(tries == 1, "a link that never came back is not tried on")
+    }
+
     @Test func theStartGateCountsEachStartOfAMachine() {
         let gate = CloudStartGate()
         gate.enter("vm-1")

@@ -11,6 +11,7 @@ import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
+import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
@@ -156,7 +157,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
+      <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {words}
         {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
