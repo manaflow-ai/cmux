@@ -52,10 +52,11 @@ CHROMIUM_CURRENCY_JOB = "Shipped Chromium is at most one stable milestone behind
 CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
 
 import argparse
-import base64
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -145,6 +146,94 @@ class GitHub(_evidence.GitHub):
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
         return super().json(route, paginate=paginate, per_page=per_page)
+
+    def blob(self, repo: str, ref: str, path: str) -> str:
+        """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
+        agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
+        quota (source_text). Refused when the object is missing, not a file, or binary."""
+        owner, _, name = repo.partition("/")
+        found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
+                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}"]))
+        repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
+        blob = repository.get("object") if isinstance(repository, dict) else None
+        if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
+            raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        if blob.get("isTruncated"):
+            raise Refused(f"{repo}@{ref}: {path} was served truncated")
+        return blob["text"]
+
+
+BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
+              "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+# Where git_text keeps its shallow, blob-less fetches of other repos (one bare repo each). Override for tests or a
+# host whose cache lives elsewhere.
+SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
+GIT_SECONDS = 60
+
+
+def source_cache() -> Path:
+    named = os.environ.get(SOURCE_CACHE_ENV)
+    if named:
+        return Path(named)
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "base-red-excuse" / "src"
+
+
+def git_remote(repo: str) -> str:
+    return f"https://github.com/{repo}.git"
+
+
+def git_text(repo: str, ref: str, path: str) -> str | None:
+    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+
+    A bare repo per REPO under source_cache(), fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`),
+    so a read costs one ref fetch and the one blob `git show` asks for, and no GitHub API quota at all. The fetch goes
+    to a ref of this process's own, so two runs reading different bases at once never read each other's."""
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or ref.startswith("-") or not ref:
+        return None
+    where = source_cache() / (repo.replace("/", "__") + ".git")
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
+                              timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
+
+    mine = f"refs/base-red-excuse/{os.getpid()}"
+    try:
+        if not (where / "HEAD").is_file():
+            where.mkdir(parents=True, exist_ok=True)
+            if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
+                              timeout=GIT_SECONDS).returncode:
+                return None
+        for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
+                           ("remote.origin.partialclonefilter", "blob:none")):
+            if git("config", key, value).returncode:
+                return None
+        if git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
+               f"+{ref}:{mine}").returncode:
+            return None
+        shown = git("show", f"{mine}:{path}")
+        if shown.returncode:
+            return None
+        return shown.stdout.decode()
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    finally:
+        try:
+            git("update-ref", "-d", mine)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def source_text(repo: str, ref: str, path: str, github) -> str:
+    """PATH's text in REPO at REF: git first (git_text, no API quota), then GitHub's GraphQL blob (GitHub.blob).
+    Never the REST contents API, which an agent host's gh shim refuses as a source read (glaeda-gh's API-source
+    guard): the classifier needs no override of that guard on any path."""
+    text = git_text(repo, ref, path)
+    if text is not None:
+        return text
+    return github.blob(repo, ref, path)
+
+
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -169,8 +258,8 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 HOME_REPO = "manaflow-ai/cmux"
 # Rollups of the other repos this script judges (--repo), named the same way: (workflow file, job id). Their workflows
 # are not in this checkout, so the contract is derived when a red is judged, from the repo's own workflow files at the
-# base (derive_rollups over the contents API, load_rollups). A repo not named here has no rollups: every red job of it
-# is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
+# base (derive_rollups over source_text: git, else GraphQL; load_rollups). A repo not named here has no rollups: every
+# red job of it is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
 # refused on every HQ PR as "no failing test or error line to match" (2026-11-04: hq#7038, hq#7039).
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
@@ -454,13 +543,7 @@ def load_rollups(repo: str, base: str, github) -> None:
     declared = OTHER_REPO_ROLLUPS[repo]
 
     def read(file: str) -> str:
-        found = github.json(f"repos/{repo}/contents/.github/workflows/{file}?ref={base}")
-        if not isinstance(found, dict) or found.get("encoding") != "base64" or not isinstance(found.get("content"), str):
-            raise Refused(f"{repo}@{base}: .github/workflows/{file} is not a file the contents API served in full")
-        try:
-            return base64.b64decode(found["content"]).decode()
-        except (ValueError, UnicodeDecodeError) as error:
-            raise Refused(f"{repo}@{base}: .github/workflows/{file}: {error}") from None
+        return source_text(repo, base, f".github/workflows/{file}", github)
 
     try:
         _REPO_ROLLUPS[repo] = derive_rollups(run=declared["run"], routed=declared["routed"], read=read)

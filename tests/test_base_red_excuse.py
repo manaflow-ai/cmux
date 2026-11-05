@@ -1,5 +1,4 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
-import base64
 import copy
 import importlib.util
 import json
@@ -14,6 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
 excuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(excuse)
+# Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
+# their fakes only; SourceReads runs the real git reader against a local repository.
+REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+
+
+def setUpModule():
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch.start()
+    unittest.addModuleCleanup(patch.stop)
 
 REPO = "manaflow-ai/cmux"
 HEAD = "a" * 40
@@ -1689,27 +1697,37 @@ jobs:
 SKILL_DOCS = "Skill documentation tests"
 
 
+# What an agent host's gh shim (glaeda-gh's API-source guard) answers a `gh api repos/O/R/contents/...` read with.
+SOURCE_REFUSAL = ("GitHub evidence request failed: glaeda-gh: reading manaflow-ai/cmuxterm-hq source through the "
+                  "GitHub API spends the quota every agent on this account shares")
+
+
 class HQGitHub(FakeGitHub):
-    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main from the contents API."""
+    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main as GraphQL serves a blob.
+    A contents API read is refused, as the gh shim on an agent host refuses it."""
 
     def __init__(self):
         super().__init__()
         self.workflows = {"skills-tests.yml": SKILLS_YML}
+        self.blobs, self.source_routes = [], []
         for job_id in (1, 2):
             self.jobs[job_id]["name"] = "Skill test scope"
         self.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": SKILL_DOCS, "status": "completed",
                         "conclusion": "failure", "steps": [{"name": "All parallel skill shards passed",
                                                             "conclusion": "failure"}]}
 
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        assert (repo, ref) == (HQ, "main"), (repo, ref)
+        file = path.removeprefix(".github/workflows/")
+        if file not in self.workflows:
+            raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        return self.workflows[file]
+
     def json(self, route, *, paginate=False):
-        prefix = f"repos/{HQ}/contents/.github/workflows/"
-        if route.startswith(prefix):
-            self.routes.append(route)
-            file, _, query = route[len(prefix):].partition("?")
-            assert query == "ref=main", route
-            if file not in self.workflows:
-                raise excuse.Refused(f"GitHub evidence request failed: 404 {file}")
-            return {"encoding": "base64", "content": base64.b64encode(self.workflows[file].encode()).decode()}
+        if "/contents/" in route or "/git/blobs/" in route or "/git/trees/" in route:
+            self.source_routes.append(route)
+            raise excuse.Refused(SOURCE_REFUSAL)
         assert route.startswith(f"repos/{HQ}/"), route
         route = route.replace(HQ, REPO).replace("branch=main", "branch=feat-cmux-next")
         route = route.replace("/compare/main...", "/compare/feat-cmux-next...")
@@ -1733,7 +1751,8 @@ class OtherRepoRollups(unittest.TestCase):
         lines = "\n".join(self.judge())
         self.assertIn("'Skill test scope'", lines)
         self.assertNotIn(SKILL_DOCS, lines)
-        self.assertIn(f"repos/{HQ}/contents/.github/workflows/skills-tests.yml?ref=main", self.gh.routes)
+        self.assertIn((HQ, "main", ".github/workflows/skills-tests.yml"), self.gh.blobs)
+        self.assertEqual(self.gh.source_routes, [], "no contents API read: the gh shim refuses it")
         self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
 
     def test_one_unexcused_shard_keeps_the_summary_red(self):
@@ -1774,11 +1793,128 @@ class OtherRepoRollups(unittest.TestCase):
     def test_a_repo_with_no_rollups_named_judges_every_job_as_itself(self):
         self.assertEqual(excuse.rollups("manaflow-ai/other"), excuse.NO_ROLLUPS)
         excuse.load_rollups("manaflow-ai/other", "main", self.gh)
-        self.assertEqual(self.gh.routes, [])
+        self.assertEqual((self.gh.routes, self.gh.source_routes, self.gh.blobs), ([], [], []))
 
     def test_rollups_not_read_are_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
             excuse.rollups(HQ)
+
+
+SOURCE_FAKE_GH = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["SOURCE_GH_LOG"], "a") as log:
+    log.write(json.dumps({"args": args, "override": os.environ.get("GLAEDA_GH_ALLOW_API_SOURCE")}) + "\\n")
+if args[:1] == ["api"] and any("/contents/" in a or "/git/blobs/" in a or "/git/trees/" in a
+                               or "raw.githubusercontent.com" in a for a in args):
+    sys.stderr.write("glaeda-gh: reading source through the GitHub API spends the quota every agent shares\\n")
+    sys.exit(2)
+if args[:2] == ["api", "graphql"]:
+    fields = dict(a.split("=", 1) for a in args[2:] if "=" in a and not a.startswith("-"))
+    ref, _, path = fields["expression"].partition(":")
+    found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
+    blob = None
+    if os.path.isfile(found):
+        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    sys.exit(0)
+sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
+sys.exit(1)
+"""
+
+
+class SourceReads(unittest.TestCase):
+    """Another repo's files (HQ's workflows, OTHER_REPO_ROLLUPS) are read with git or GraphQL, never the REST contents
+    API, which an agent host's gh shim refuses as a source read. Nothing sets the shim's one-call override."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-src-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(SOURCE_FAKE_GH)
+        (bin_dir / "gh").chmod(0o755)
+        self.log = self.tmp / "gh.log"
+        self.tree = self.tmp / "tree"
+        workflow = self.tree / HQ / "main/.github/workflows/skills-tests.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(SKILLS_YML)
+        env = {key: value for key, value in os.environ.items() if key != "GLAEDA_GH_ALLOW_API_SOURCE"}
+        env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}", SOURCE_GH_LOG=str(self.log),
+                   SOURCE_GH_TREE=str(self.tree), BASE_RED_EXCUSE_SOURCE_CACHE=str(self.tmp / "cache"))
+        patch = unittest.mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        rollups = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        rollups.start()
+        self.addCleanup(rollups.stop)
+
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_the_real_client_derives_hq_rollups_with_contents_reads_refused(self):
+        excuse.load_rollups(HQ, "main", excuse.rate_limit_aware(excuse.GitHub()))
+        self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(call["args"][:2] == ["api", "graphql"] for call in calls), calls)
+        self.assertTrue(all(call["override"] is None for call in calls), calls)
+
+    def test_a_missing_file_over_graphql_refuses_every_rollup(self):
+        (self.tree / HQ / "main/.github/workflows/skills-tests.yml").unlink()
+        with self.assertRaisesRegex(excuse.Refused, f"{HQ} rollups at main: .*not a text file.*no rollup red is excused"):
+            excuse.load_rollups(HQ, "main", excuse.GitHub())
+
+    def test_the_classifier_judges_an_hq_red_with_contents_reads_refused(self):
+        gh = HQGitHub()
+        gh.blob = excuse.GitHub().blob  # the real GraphQL read, through the fake gh above
+        lines = "\n".join(excuse.judge(HQ, "main", HEAD, [10], gh))
+        self.assertIn("'Skill test scope'", lines)
+        self.assertEqual(gh.source_routes, [])
+        self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def origin(self) -> Path:
+        work = self.tmp / "origin"
+        (work / ".github/workflows").mkdir(parents=True)
+        (work / ".github/workflows/skills-tests.yml").write_text(SKILLS_YML.replace("Other check", "From git"))
+        self.git("init", "-q", "-b", "main", str(work))
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "workflows", cwd=work)
+        self.git("config", "uploadpack.allowFilter", "true", cwd=work)
+        return work
+
+    def test_git_answers_first_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+            again = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(text, again)
+        self.assertEqual(self.calls(), [])
+        cache = self.tmp / "cache" / "manaflow-ai__cmuxterm-hq.git"
+        self.assertEqual(self.git("--git-dir", str(cache), "for-each-ref"), "", "the run's own fetch ref is removed")
+
+    def test_git_that_cannot_answer_falls_back_to_graphql(self):
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertEqual(text, SKILLS_YML)
+        self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_no_code_path_sets_the_shims_source_override(self):
+        sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
+                                                           "test_reds.py", "gh_pages.py")]
+        sources += sorted((ROOT / ".github/workflows").glob("*.yml"))
+        setting = [str(path.relative_to(ROOT)) for path in sources
+                   if path.is_file() and "GLAEDA_GH_ALLOW_API_SOURCE" in path.read_text()]
+        self.assertEqual(setting, [])
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
@@ -2614,6 +2750,9 @@ class Script(unittest.TestCase):
             def json(self, route, *, paginate=False):
                 raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
 
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
+
             def log(self, repo, job):
                 raise AssertionError("no log is read once a read is rate-limited")
 
@@ -2644,6 +2783,9 @@ class Script(unittest.TestCase):
         class Limited:
             def json(self, route, *, paginate=False):
                 raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
 
         excuse._REPO_ROLLUPS.pop(HQ, None)
         with unittest.mock.patch.object(excuse, "RateLimited", RateLimited):
