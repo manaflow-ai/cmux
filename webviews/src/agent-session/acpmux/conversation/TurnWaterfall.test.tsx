@@ -167,7 +167,13 @@ test("64 more background ends still move the footer's version part, where a coun
     Array.from({ length: n }, (_, at) => ({
       kind: "tool",
       text: "sleep",
-      tool: { id: `bg${at}`, title: "sleep", kind: "execute", status: "completed", background: { state: "completed", endedAt: 5_000 + at * 37 } },
+      tool: {
+        id: `bg${at}`,
+        title: "sleep",
+        kind: "execute",
+        status: "completed",
+        background: { state: "completed", endedAt: 5_000 + at * 37 },
+      },
     }));
   expect(workEnds(ended(65))).not.toBe(workEnds(ended(1)));
   expect(workEnds(undefined)).toBe(0);

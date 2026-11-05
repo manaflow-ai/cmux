@@ -9777,9 +9777,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A harness can reuse a call id in a later prompt: the call that started at `startedAt` (a
       // waterfall bar's, TurnWaterfall.tsx) is that one, else the first call with the id.
       const holds = (row: AcpmuxRow, timed: boolean) =>
-        Boolean(
-          row.items?.some((item) => item.tool?.id === toolId && (!timed || item.tool.startedAt === startedAt)),
-        );
+        Boolean(row.items?.some((item) => item.tool?.id === toolId && (!timed || item.tool?.startedAt === startedAt)));
       const timed = toolId && startedAt !== undefined ? rows.findIndex((row) => holds(row, true)) : -1;
       const index = timed >= 0 ? timed : toolId ? rows.findIndex((row) => holds(row, false)) : -1;
       const row = rows[index];
