@@ -103,7 +103,7 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
             "gta1": f"({x:.0f},{y:.0f})",
             "venus": f"[{x - 2:.0f},{y - 2:.0f},{x + 2:.0f},{y + 2:.0f}]",
         }[FakeServer.family]
-        self._reply({"choices": [{"message": {"content": answer}}], "timings": {"peak_memory_gb": 3.5}})
+        self._reply({"choices": [{"message": {"content": answer}}], "timings": {"peak_memory": 3.5}})
 
     def _reply(self, payload):
         data = json.dumps(payload).encode()

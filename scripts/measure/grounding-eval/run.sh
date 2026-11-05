@@ -39,21 +39,41 @@ fi
 echo "GROUNDING-EVAL-MACHINE host=$(hostname -s) server=$server rev=$GROUNDING_EVAL_REV models=$models"
 status=0
 results=()
+# Stops a server this script started (its pid, printed by serve-*.sh), waiting until it is gone so
+# the next model never starts beside it; on vLLM, also until the GPU memory is given back.
+stop_server() {
+  local pid="$1"
+  kill "$pid" 2>/dev/null
+  for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+  if [[ "$server" == vllm ]]; then
+    for _ in $(seq 1 60); do
+      used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
+      [[ "$used" -le $((baseline + 512)) ]] && break
+      sleep 1
+    done
+  fi
+}
+baseline=0
+if [[ "$server" == vllm ]]; then
+  baseline="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
+fi
 IFS=',' read -r -a ids <<<"$models"
 for id in "${ids[@]}"; do
   port=$((8000 + RANDOM % 1000))
+  suffix=""
+  [[ "$max_pixels" != 0 ]] && suffix="-px$max_pixels"
   if [[ "$server" == vllm ]]; then
     pid="$("$here/serve-vllm.sh" "$id" "$port")" || { echo "GROUNDING-EVAL model=$id status=serve-failed"; status=1; continue; }
-    served="$id" tag="$id" extra=(--structured --gpu-peak-file "$out/$id.gpu-peak")
+    served="$id" tag="$id$suffix" extra=(--structured --gpu-peak-file "$out/$id.gpu-peak")
   else
     pid="$("$here/serve-mlx.sh" "$id" "$port" "$quant")" || { echo "GROUNDING-EVAL model=$id status=serve-failed"; status=1; continue; }
-    served="${GROUNDING_EVAL_MLX_CACHE:-$HOME/.cache/cmux-grounding/mlx}/$id-$quant" tag="$id-$quant" extra=()
+    served="${GROUNDING_EVAL_MLX_CACHE:-$HOME/.cache/cmux-grounding/mlx}/$id-$quant" tag="$id-$quant$suffix" extra=()
   fi
   "$python" -I "$here/grounding_eval.py" run --data "$data" --model "$id" --server "$server" \
     --endpoint "http://127.0.0.1:$port/v1" --served-name "$served" --bench "$bench" --limit "$limit" \
-    --max-pixels "$max_pixels" "${extra[@]}" --resume --out "$out/$tag.json" || status=1
-  kill "$pid" 2>/dev/null
-  wait "$pid" 2>/dev/null
+    --max-pixels "$max_pixels" ${extra[@]+"${extra[@]}"} --resume --out "$out/$tag.json" || status=1
+  stop_server "$pid"
   [[ -f "$out/$tag.json" ]] && results+=("$out/$tag.json")
 done
 if [[ ${#results[@]} -gt 0 ]]; then

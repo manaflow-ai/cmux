@@ -51,9 +51,13 @@ Both listen on 127.0.0.1 and speak OpenAI's chat completions.
 
 Batch 1, temperature 0, thinking off, no history. Each image is resized client-side the way the model's
 own processor would (`smart_resize` with the card's pixel bounds), so the coordinates a model returns
-map back exactly. Prompts are the ones on each model card. Latency is the client's wall time per
-request (encode, upload, prefill, decode). Memory is mlx-vlm's reported peak, or the GPU peak
-`serve-vllm.sh` samples with nvidia-smi (vLLM reserves 90% of the GPU up front, so that number is the
-reservation, not the need; the weights' size is the floor).
+map back exactly. Prompts are the ones on each model card. Samples run in a fixed shuffled order, and
+the servers run without prefix or image caches, so a screenshot asked about twice is not answered from
+cache. Latency is the client's wall time from sending a request to reading its answer (upload, prefill,
+decode; the PNG encode is excluded), after one discarded warm-up request. Memory is mlx-vlm's reported
+peak, or the GPU memory `serve-vllm.sh` samples with nvidia-smi, marked "reserved" in the summary:
+vLLM reserves 90% of the GPU up front, so that number is the reservation, not the need (the weights'
+size is the floor). Holo on vLLM runs with structured outputs (its card's recommendation) and is marked
+"(structured)"; on mlx it runs without. Errors are retried on `--resume`, and a run stops after 10 in a row.
 
 Tests: `python3 tests/test_grounding_eval.py` (needs Pillow; no GPU, no network).

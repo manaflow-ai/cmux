@@ -18,9 +18,10 @@ Output schema `cmux.grounding-eval/1`:
   run:        at, host, model, hf, license, family, endpoint, server, max_pixels, limit
   benchmarks: NAME -> n, correct, accuracy, parse_failures, errors,
               by_group {GROUP: {n, accuracy}}, canvas {n, accuracy}
-  latency_ms: p50, p95, mean, n (client wall time per request, batch 1)
-  memory_gb:  peak (server-reported: mlx-vlm's timings.peak_memory_gb, or the
-              GPU peak serve-vllm.sh samples), null when not reported
+  latency_ms: p50, p95, mean, n (client wall time from request sent to answer read,
+              batch 1, after one discarded warm-up request; image encoding excluded)
+  memory_gb:  peak, source (mlx-vlm's per-request timings.peak_memory, or the GPU
+              memory serve-vllm.sh samples, which is vLLM's up-front reservation)
 A number that was not measured is null, never missing.
 """
 from __future__ import annotations
@@ -31,6 +32,7 @@ import io
 import json
 import math
 import os
+import random
 import re
 import socket
 import statistics
@@ -52,8 +54,13 @@ HF = "https://huggingface.co"
 # Photoshop, Premiere, AutoCAD, SolidWorks...): the AX tree there is thin,
 # which is exactly when the helper falls back to grounding.
 CANVAS_GROUPS = {"Creative", "CAD"}
-# OSWorld-G element types that AX rarely exposes as named elements.
-CANVAS_GUI_TYPES = {"Icon", "Image", "Slider", "Color Picker", "Grid", "Toolbar"}
+# OSWorld-G: an icon with no text label, or a control drawn without one (the
+# elements AX most often leaves unnamed).
+CANVAS_GUI_TYPES = {"Image", "Slider", "Color Picker", "Grid"}
+
+
+def osworld_canvas(types: list[str]) -> bool:
+    return bool(CANVAS_GUI_TYPES.intersection(types)) or ("Icon" in types and "Label" not in types)
 
 HOLO_SCHEMA = (
     "{'properties': {'x': {'description': 'X coordinate as integer in [0, 1000]', 'maximum': 1000, "
@@ -265,7 +272,7 @@ def load_samples(data: Path, bench: str) -> list[dict]:
                 "id": row["id"], "image": str(root / "images" / row["image_path"]),
                 "instruction": row["instruction"], "target": target,
                 "groups": list(row["GUI_types"]),
-                "canvas": bool(CANVAS_GUI_TYPES.intersection(row["GUI_types"])),
+                "canvas": osworld_canvas(row["GUI_types"]),
             })
     else:
         raise ValueError(f"unknown benchmark {bench}")
@@ -281,7 +288,9 @@ def encode_image(path: str, model: dict, max_pixels: int | None) -> tuple[str, i
     with Image.open(path) as image:
         image = image.convert("RGB")
         width, height = image.size
-        h, w = smart_resize(height, width, model["factor"], model["min_pixels"], max_pixels or model["max_pixels"])
+        # Never above the server's own bound, or the server resizes again and absolute answers drift.
+        bound = min(max_pixels, model["max_pixels"]) if max_pixels else model["max_pixels"]
+        h, w = smart_resize(height, width, model["factor"], model["min_pixels"], bound)
         if (w, h) != (width, height):
             image = image.resize((w, h), Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
@@ -296,9 +305,9 @@ def post(endpoint: str, body: dict, timeout: float) -> dict:
         return json.load(response)
 
 
-def served_model(endpoint: str) -> str:
+def served_models(endpoint: str) -> list[str]:
     with urllib.request.urlopen(endpoint.rstrip("/") + "/models", timeout=30) as response:
-        return json.load(response)["data"][0]["id"]
+        return [entry["id"] for entry in json.load(response)["data"]]
 
 
 def percentile(values: list[float], q: float) -> float | None:
@@ -324,6 +333,7 @@ def score(records: list[dict]) -> dict:
     summary.update({
         "correct": sum(1 for r in records if r["correct"]),
         "parse_failures": sum(1 for r in records if r["point"] is None and r["error"] is None),
+        "truncated": sum(1 for r in records if r.get("finish") == "length"),
         "errors": sum(1 for r in records if r["error"] is not None),
         "by_group": {g: acc(rows) for g, rows in sorted(groups.items())},
         "canvas": acc([r for r in records if r["canvas"]]),
@@ -337,7 +347,13 @@ def run(args: argparse.Namespace) -> int:
         print(f"unknown model {args.model}; one of {', '.join(models)}", file=sys.stderr)
         return 2
     model = models[args.model]
-    served = args.served_name or served_model(args.endpoint)
+    listed = served_models(args.endpoint)
+    served = args.served_name or listed[0]
+    # vLLM lists exactly its --served-model-name; mlx-vlm may list other cached models, so only vLLM is held to it.
+    if args.server == "vllm" and args.served_name and args.served_name not in listed:
+        # Another server on this port: never measure the wrong model.
+        print(f"{args.endpoint} serves {listed}, not {args.served_name}", file=sys.stderr)
+        return 1
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     samples_path = out.with_suffix(".samples.jsonl")
@@ -345,10 +361,13 @@ def run(args: argparse.Namespace) -> int:
     if samples_path.exists() and args.resume:
         for line in samples_path.read_text().splitlines():
             record = json.loads(line)
-            done[f"{record['bench']}:{record['id']}"] = record
+            if record.get("error") is None:  # an error (a dead server) is asked again
+                done[f"{record['bench']}:{record['id']}"] = record
     benchmarks: dict[str, dict] = {}
     latencies: list[float] = []
     peaks: list[float] = []
+    warmed = False
+    failed_in_a_row = 0
     with open(samples_path, "a" if args.resume else "w") as log:
         for bench in args.bench.split(","):
             samples = load_samples(Path(args.data), bench)
@@ -356,6 +375,9 @@ def run(args: argparse.Namespace) -> int:
                 # Every Nth sample, so a short run still covers every app and group.
                 step = max(1, len(samples) // args.limit)
                 samples = samples[::step][: args.limit]
+            # A fixed shuffle, so one screenshot's questions are not asked back to back
+            # (servers cache a repeated image's features, which a live screenshot never gets).
+            random.Random(7146).shuffle(samples)
             records = []
             for i, sample in enumerate(samples):
                 key = f"{bench}:{sample['id']}"
@@ -369,16 +391,26 @@ def run(args: argparse.Namespace) -> int:
                 url, w, h, width, height = encode_image(sample["image"], model, args.max_pixels)
                 body = request_body(model, served, build_messages(model["family"], sample["instruction"], url, w, h),
                                     args.structured)
+                if not warmed:
+                    # One discarded request: graph capture and kernel compiles stay out of the latency.
+                    try:
+                        post(args.endpoint, body, args.timeout)
+                    except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError):
+                        pass
+                    warmed = True
                 record = {"bench": bench, "id": sample["id"], "groups": sample["groups"], "canvas": sample["canvas"],
                           "sent": [w, h], "size": [width, height], "point": None, "correct": False,
-                          "latency_ms": None, "peak_gb": None, "output": None, "error": None}
+                          "latency_ms": None, "peak_gb": None, "output": None, "finish": None, "error": None}
                 started = time.perf_counter()
                 try:
                     response = post(args.endpoint, body, args.timeout)
                     record["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
-                    text = response["choices"][0]["message"].get("content") or ""
+                    choice = response["choices"][0]
+                    text = choice["message"].get("content") or ""
                     record["output"] = text[:400]
-                    peak = (response.get("timings") or {}).get("peak_memory_gb")
+                    record["finish"] = choice.get("finish_reason")
+                    timings = response.get("timings") or {}
+                    peak = timings.get("peak_memory") or timings.get("peak_memory_gb")
                     if peak:
                         record["peak_gb"] = float(peak)
                         peaks.append(float(peak))
@@ -387,13 +419,18 @@ def run(args: argparse.Namespace) -> int:
                         x, y = point[0] * width / w, point[1] * height / h
                         record["point"] = [round(x, 1), round(y, 1)]
                         record["correct"] = point_in_target(x, y, sample["target"])
-                except (urllib.error.URLError, TimeoutError, ConnectionError, KeyError, ValueError) as error:
+                except (urllib.error.URLError, TimeoutError, ConnectionError, KeyError, IndexError, ValueError) as error:
                     record["error"] = str(error)[:300]
                 if record["latency_ms"] is not None:
                     latencies.append(record["latency_ms"])
                 log.write(json.dumps(record) + "\n")
                 log.flush()
                 records.append(record)
+                failed_in_a_row = failed_in_a_row + 1 if record["error"] else 0
+                if failed_in_a_row >= 10:
+                    print(f"10 requests in a row failed (last: {record['error']}); stopping. "
+                          "Rerun with --resume once the server is back.", file=sys.stderr)
+                    return 1
                 if i % 50 == 0:
                     right = sum(1 for r in records if r["correct"])
                     print(f"{bench} {i + 1}/{len(samples)} acc={right / len(records):.3f}", file=sys.stderr)
@@ -414,20 +451,21 @@ def run(args: argparse.Namespace) -> int:
         "latency_ms": {"p50": percentile(latencies, 0.5), "p95": percentile(latencies, 0.95),
                        "mean": round(statistics.fmean(latencies), 1) if latencies else None, "n": len(latencies)},
         "memory_gb": {"peak": max(peaks) if peaks else gpu_peak,
-                      "source": "mlx-vlm timings" if peaks else ("nvidia-smi" if gpu_peak else None)},
+                      "source": "mlx-vlm timings" if peaks else ("nvidia-smi reservation" if gpu_peak else None)},
     }
     out.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({k: result[k] for k in ("latency_ms", "memory_gb")}))
     for bench, summary in benchmarks.items():
         print(f"GROUNDING-EVAL model={model['id']} bench={bench} acc={summary['accuracy']} "
               f"canvas={summary['canvas']['accuracy']} n={summary['n']} parse_failures={summary['parse_failures']} "
-              f"errors={summary['errors']}")
+              f"truncated={summary['truncated']} errors={summary['errors']}")
     return 0
 
 
 def summarize(paths: list[str]) -> str:
-    rows = ["| Model | Licence | Server | ScreenSpot-Pro | SSP canvas | OSWorld-G | OSW-G canvas | p50 ms | p95 ms | Peak GB |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| Model | Licence | Server | ScreenSpot-Pro | SSP canvas | OSWorld-G | OSW-G canvas | n | Unparsed | Errors "
+            "| p50 ms | p95 ms | Memory GB |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     def pct(value: float | None) -> str:
         return "-" if value is None else f"{value * 100:.1f}%"
@@ -439,12 +477,21 @@ def summarize(paths: list[str]) -> str:
         result = json.loads(Path(path).read_text())
         bench = result["benchmarks"]
         ssp, owg = bench.get("screenspot-pro", {}), bench.get("osworld-g", {})
+        runs = [b for b in (ssp, owg) if b]
+        server = result["run"].get("server") or "-"
+        if result["run"].get("structured"):
+            server += " (structured)"
+        memory = num(result["memory_gb"]["peak"])
+        if (result["memory_gb"].get("source") or "").endswith("reservation"):
+            memory += " (reserved)"
         rows.append(" | ".join([
-            f"| {result['run']['model']}", result["run"]["license"], result["run"].get("server") or "-",
+            f"| {result['run']['model']}", result["run"]["license"], server,
             pct(ssp.get("accuracy")), pct((ssp.get("canvas") or {}).get("accuracy")),
             pct(owg.get("accuracy")), pct((owg.get("canvas") or {}).get("accuracy")),
+            str(sum(b["n"] for b in runs)), str(sum(b["parse_failures"] for b in runs)),
+            str(sum(b["errors"] for b in runs)),
             num(result["latency_ms"]["p50"]), num(result["latency_ms"]["p95"]),
-            num(result["memory_gb"]["peak"]) + " |",
+            memory + " |",
         ]))
     return "\n".join(rows)
 
