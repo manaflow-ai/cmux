@@ -299,6 +299,36 @@ class PerTest(unittest.TestCase):
         new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
         self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
 
+    def test_two_suites_same_display_name_are_not_one_test(self):
+        # A `@Test("...")` name prints with no suite, and suites interleave (three were open at once in
+        # tests/fixtures/test_reds/26346-head-run-40620080851.log), so the suite cannot be read from the
+        # ✘ line. The issue's file can: a display name whose head and base failures record their issues in
+        # files that do not overlap is two tests, not one red (cmux#35902).
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at HomePlanTests.swift:14:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_the_same_display_named_test_is_still_a_base_red(self):
+        # The same test, failing at another line of its own file, or at a second expectation in it: the
+        # files overlap, so it stays the base's red. The classifier is per test, not per assertion.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" recorded an issue at CloudPlanHelper.swift:3:1: Expectation failed',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:31:9: Expectation failed',
+                   SUMMARY)
+        self.assertFalse(reds.classify(head, base).own, reds.classify(head, base).reasons)
+
+    def test_a_display_name_with_no_file_on_either_side_compares_by_name(self):
+        # Only the `failed after` line, as a rerun summary prints: nothing says which suite, so the name
+        # alone decides, exactly as before this comparison existed.
+        both = log('✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertFalse(reds.classify(both, both).own)
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
