@@ -56,18 +56,18 @@ def open_(first, empty=0.0, **extra):
 class SubagentClickTests(unittest.TestCase):
     class Run:
         """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` or `selector` names
-        the element; one the page does not show answers "no visible element matches". `hover` answers the same way
-        and `chat_state` with an empty state."""
+        the element; one the page does not show answers "no visible element matches". `chat_state` answers with an
+        empty state. (`hover` takes a point, never a selector, so the bench never asks it by selector.)"""
         def __init__(self, shown):
-            self.shown, self.clicked, self.probed = shown, [], []
+            self.shown, self.clicked = shown, []
 
         def rpc(self, method, params=None, timeout=40):
             assert method == "debug.agent_pane"
             if params["action"] == "chat_state":
                 return {"pane": "p"}
             target = params.get("text") or params.get("selector")
-            assert target and params["action"] in ("click", "hover")
-            (self.clicked if params["action"] == "click" else self.probed).append(target)
+            assert target and params["action"] == "click"
+            self.clicked.append(target)
             if target not in self.shown:
                 return {"pane": "p", "error": "no visible element matches"}
             return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
@@ -107,10 +107,27 @@ class SubagentClickTests(unittest.TestCase):
         run = self.Run({".cv-tool"})
         reply = bench.click_subagent(run)
         self.assertEqual(reply["error"], "no visible element matches")
-        self.assertEqual(run.probed, list(bench.PROBE_SELECTORS))
-        self.assertEqual(reply["probe"][".cv-tool"], "shown")
-        self.assertEqual(reply["probe"]["button.cv-subagent-done"], "no visible element matches")
-        self.assertIn("chat_state", reply["probe"])
+        self.assertEqual(set(reply["probe"]), {"chat_state"})
+
+    def test_a_finished_turns_closed_group_opens_before_the_click(self):
+        # The seeded chat's subagents all ended, so their group starts closed and none of their lines is in the page.
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.GROUP_TOGGLE})
+        answer = run.rpc
+
+        def rpc(method, params=None, timeout=40):
+            reply = answer(method, params, timeout)
+            if params.get("selector") == bench.GROUP_TOGGLE and reply.get("clicked"):
+                run.shown.discard(bench.GROUP_TOGGLE)
+                run.shown.add(bench.SUBAGENT_LINES[0])
+            return reply
+
+        run.rpc = rpc
+        with mock.patch.object(bench.time, "sleep"):
+            self.assertEqual(bench.open_subagent_groups(run), 1)
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINES[0])
+        self.assertIs(reply["clicked"], True)
 
 
 class SummaryTests(unittest.TestCase):
