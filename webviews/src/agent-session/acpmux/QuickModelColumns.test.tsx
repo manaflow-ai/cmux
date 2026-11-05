@@ -429,7 +429,7 @@ test("the account card lists only the other accounts, then Add account…", asyn
     (node) => node.textContent === "Add account…",
   )!;
   await click(add);
-  expect(document.querySelector('[role="dialog"][aria-label="Add account"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"].acpmux-add-account')).not.toBeNull();
   expect(calls.added).toHaveLength(0);
 });
 

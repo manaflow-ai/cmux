@@ -51,6 +51,8 @@ pub mod receiver_agent;
 mod receiver_files;
 #[cfg(target_os = "linux")]
 mod receiver_lifecycle;
+#[cfg(unix)]
+pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

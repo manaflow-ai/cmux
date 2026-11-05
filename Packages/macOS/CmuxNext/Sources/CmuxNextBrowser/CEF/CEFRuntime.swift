@@ -117,8 +117,8 @@ final class CEFRuntime {
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
-    /// Recent renderer and helper process failures (`debug.crashes`).
-    let crashLog = BrowserCrashLog()
+    /// Recent renderer and helper process failures (`debug.crashes`); the ones a person saw also go to crash reporting.
+    let crashLog = BrowserCrashLog(), failureReports = CEFFailureReports()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
     /// Runs once CEF is initialized (the App re-installs its crash signal

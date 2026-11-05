@@ -4,6 +4,12 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use super::*;
 
 #[test]
+fn backend_identity_probe_opts_into_revisions_without_changing_other_requests() {
+    assert_eq!(request_value("identify")["revisions"], true);
+    assert!(request_value("server-stats").get("revisions").is_none());
+}
+
+#[test]
 fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
     use std::io::Read;
     use std::sync::mpsc;
@@ -26,6 +32,22 @@ fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
 }
 
 #[test]
+fn connection_limit_probe_rejects_an_oversized_busy_refusal() {
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let refusal = br#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}
+"#;
+    let prefix = (super::super::identify::RESPONSE_LIMIT + 1).saturating_sub(refusal.len());
+    let sender = std::thread::spawn(move || {
+        let _ = io::copy(&mut io::repeat(b' ').take(prefix as u64), &mut server);
+        let _ = server.write_all(refusal);
+    });
+
+    let result = probe(Box::new(client), Instant::now() + Duration::from_secs(1));
+    sender.join().unwrap();
+    assert!(matches!(result, Probe::Answered), "oversized refusals must fail closed");
+}
+
+#[test]
 fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
     use std::sync::mpsc;
 
@@ -42,6 +64,36 @@ fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
     assert!(
         matches!(result, Probe::Answered),
         "partial protocol data must not authorize replacement"
+    );
+}
+
+#[test]
+fn connection_limit_probe_deadline_bounds_a_trickling_partial_line() {
+    use std::time::Instant;
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        // Keep every read making progress just before its timeout. The probe
+        // must still stop at its absolute deadline without waiting for EOF.
+        for _ in 0..50 {
+            if server.write_all(b"x").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    });
+    let started = Instant::now();
+    let result = probe(Box::new(client), started + Duration::from_millis(100));
+    let elapsed = started.elapsed();
+    sender.join().unwrap();
+
+    assert!(
+        matches!(result, Probe::Answered),
+        "partial protocol data must not authorize replacement"
+    );
+    assert!(
+        elapsed < Duration::from_millis(400),
+        "probe exceeded its absolute deadline: {elapsed:?}"
     );
 }
 

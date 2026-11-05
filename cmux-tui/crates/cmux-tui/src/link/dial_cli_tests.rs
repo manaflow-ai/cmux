@@ -89,8 +89,9 @@ async fn a_refusal_from_the_link_keeps_its_code_and_a_success_names_the_path() {
             stream.write_all(reply.as_bytes()).await.unwrap();
         }
     });
-    let refused = connect(&path, "host_a", Service::Ssh).await.unwrap_err();
+    let (refused, detail) = connect_because(&path, "host_a", Service::Ssh).await.unwrap_err();
     assert_eq!(refused.exit_code(), 4);
+    assert_eq!(detail, None);
     let connected = connect(&path, "host_a", Service::Ssh).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&connected_line(&connected)).unwrap();
     assert_eq!(value["ok"], true);
@@ -132,4 +133,16 @@ async fn an_explicit_socket_is_dialed_exactly_and_checked() {
     assert_eq!(chosen, path);
     connect(&chosen, "host_a", Service::Daemon).await.unwrap();
     server.await.unwrap();
+}
+
+/// The link's `error_detail` of a refusal reaches the stderr line the app reads.
+#[test]
+fn a_refusal_line_carries_the_links_detail() {
+    let line = Failure::Refused(Some(DialError::Unreachable))
+        .line_because(Some("connect_info: cloud.machine.not_bound"));
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["error_code"], "unreachable");
+    assert_eq!(value["error_detail"], "connect_info: cloud.machine.not_bound");
+    let bare: serde_json::Value = serde_json::from_str(&Failure::LinkUnavailable.line()).unwrap();
+    assert!(bare.get("error_detail").is_none());
 }

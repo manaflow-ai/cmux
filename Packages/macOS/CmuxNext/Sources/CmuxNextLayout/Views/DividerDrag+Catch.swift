@@ -1,18 +1,19 @@
 import AppKit
 import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S2B, rule C: a drag that starts while its edge springs takes over where the edge shows.
+/// FRAME OWNER REFACTOR S2B, rule D: a drag that starts while its edge springs holds the edge where it is drawn.
 extension DividerDrag {
-    /// The press of a drag that latched `motion.frameOwner.sharedEdges`, while the screen moves: the drag's value (a
-    /// split's ratio, a column's width) goes to where its edge shows from its anchor, in the drag's own transaction, and
-    /// the window lays that out now in a pass that moves nothing on screen (every frame keeps where it shows and its
-    /// velocity). Each edge then gets its share of the change of speed that stops the dragged line against its anchor
-    /// (`SharedEdgeMotion.Influence`), and the drag starts again from that layout (``start(_:at:)``), so the pointer's
-    /// travel changes the pane 1:1. A cancel (a click, Escape) sends again the unconfirmed release the catch replaced
-    /// (`DividerDragState.replaced`), in a new transaction, so it settles or is refused as any release. Nothing to
-    /// catch (the edge at rest from its anchor), a canvas or a zoomed screen: the drag as before. A press that cannot
-    /// catch while the screen moves, or whose drag would shrink a pane that still shows far under its rest size past
-    /// zero, turns the rule off for its drag (whole frames snap, as before S2B).
+    /// The press of a drag that moves edges (`DividerDragState.sharedEdges`), while the screen moves: the drag's value (a
+    /// split's ratio, a column's width) goes to the value that rests its line on the pixel it is drawn on, in the drag's
+    /// own transaction, and the window lays that out now in a pass that moves nothing on screen (every frame keeps where
+    /// it shows and its velocity). Each edge then gets its share of the change of speed and place that stops the line on
+    /// that pixel (`SharedEdgeMotion.Influence`), and the drag starts again from that layout (``start(_:at:)``),
+    /// measuring the pointer from the drawn line: the pointer alone moves it, 1:1. A cancel (a click, Escape) sends
+    /// again the unconfirmed release the catch replaced (`DividerDragState.replaced`), in a new transaction, so it
+    /// settles or is refused as any release. A line at rest, a canvas or a zoomed screen: the drag as before. A press
+    /// that cannot hold while the screen moves, or whose drag could shrink a pane that its spring takes far under its
+    /// rest size past zero (also with any part of a clamp's spring taken off), turns the rule off for its drag (whole
+    /// frames snap, as before S2B).
     func catchShown(_ kind: DividerHandleView.Kind, at windowPoint: NSPoint) {
         guard let drag = screen.activeDrag, drag.sharedEdges else { return }
         guard !screen.context.reduceMotion, screen.canvasGeometry == nil, !screen.zoomed else { return }
@@ -26,26 +27,21 @@ extension DividerDrag {
             ScreenGeometry.compute(value.applied(to: layout), viewport: viewport, style: style, scale: 0)
         }
         let caughtGeometry = geometry(caught.value)
-        let influence = caught.probes.lazy.compactMap({
+        // The probes go a few points either way from where the layout rests the line (a clamped value rests it at the
+        // anchor's rest place plus the pane's minimum, not where it is drawn), so one of them moves it.
+        let rested = SharedEdgeMotion.restLine(kind, axis: caught.axis, in: caughtGeometry) ?? caught.held
+        let probes = [rested + SharedEdgeMotion.probeStep, rested - SharedEdgeMotion.probeStep].map { caught.valueAt($0 - caught.base) }
+        let influence = probes.lazy.compactMap({
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
         }).first
         if caught.catches, influence == nil { return turnSharedEdgesOff() }
-        // The caught value, laid out as the screen will (on its pixel grid), must put the line's rest place where it
-        // shows from its anchor, within the shared-edge tolerance: a value the layout clamps (an extent under a minimum,
-        // past the ratio range) or rounds further would leave the line springing under a still pointer. Such a press
-        // takes the drag from before S2B.
-        if caught.catches {
-            let installed = ScreenGeometry.compute(caught.value.applied(to: layout), viewport: viewport, style: style, scale: screen.scale)
-            guard let rest = SharedEdgeMotion.Influence.target(kind, in: screen.baseGeometry),
-                  let now = SharedEdgeMotion.Influence.target(kind, in: installed) else { return turnSharedEdgesOff() }
-            let moved = caught.axis == .horizontal ? now.minX - rest.minX : now.minY - rest.minY
-            if abs(moved - caught.lineMove) >= 0.5 { return turnSharedEdgesOff() }
-        }
-        // No pane may show a negative size later in this drag (rule C keeps each edge's spring leftover): checked on
-        // every pane, after the catch this press makes, along its spring's whole path.
+        // No pane may show a negative size later in this drag (rule D keeps each edge's spring leftover): checked on
+        // every pane, after the catch this press makes, along its spring's whole path, also without its share of a
+        // clamp's spring (the line's leftover from where the layout rests it: the pointer can take it off).
         let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)
         if SharedEdgeMotion.mayShowNegativeSize(screen.paneFrames, targets: caught.catches ? caughtGeometry.panes : nil,
                                                 influence: caught.catches ? influence : nil, speedChange: caught.speedChange,
+                                                clampLeftover: caught.catches ? caught.held - rested : 0,
                                                 minimum: style.minimumPaneSize, spring: spring) {
             return turnSharedEdgesOff()
         }
@@ -61,13 +57,15 @@ extension DividerDrag {
         screen.activeDrag?.catching = false
         for pane in Array(screen.paneFrames.keys) {
             guard var frame = screen.paneFrames[pane] else { continue }
-            influence.apply(caught.speedChange, to: &frame, from: influence.caught.panes[pane], to: influence.probe.panes[pane])
+            influence.apply(caught.speedChange, placeChange: caught.placeChange, to: &frame, from: influence.caught.panes[pane],
+                            to: influence.probe.panes[pane])
             screen.paneFrames[pane] = frame
         }
         for handle in Array(screen.dividerFrames.keys) {
             guard var frame = screen.dividerFrames[handle] else { continue }
             let from = SharedEdgeMotion.Influence.target(handle, in: influence.caught)
-            influence.apply(caught.speedChange, to: &frame, from: from, to: SharedEdgeMotion.Influence.target(handle, in: influence.probe))
+            influence.apply(caught.speedChange, placeChange: caught.placeChange, to: &frame, from: from,
+                            to: SharedEdgeMotion.Influence.target(handle, in: influence.probe))
             screen.dividerFrames[handle] = frame
         }
         screen.context.requestFrames()
@@ -75,6 +73,15 @@ extension DividerDrag {
         (fresh.transaction, fresh.touched, fresh.sharedEdges) = (current.transaction, current.touched, current.sharedEdges)
         (fresh.replaced, fresh.caughtValue, fresh.modifiers) = (current.replaced, current.caughtValue, current.modifiers)
         (fresh.lastWindowPoint, fresh.pressAt, fresh.lastRaw) = (current.lastWindowPoint, current.pressAt, current.lastRaw)
+        // The pointer holds the line where it is drawn, also where the layout clamps its rest place (an extent under its
+        // minimum from the anchor's rest place): `start` measured from that rest place; the drawn line is the grab.
+        if let rest = SharedEdgeMotion.restLine(kind, axis: caught.axis, in: screen.baseGeometry) {
+            fresh.grabOffset += rest - caught.held
+            fresh.pressAt += rest - caught.held
+        }
+        if !fresh.modifiers.push, !fresh.modifiers.all {
+            fresh.clampHold = SharedEdgeClamp(kind, axis: caught.axis, held: caught.held, base: caught.base, on: screen, influence: influence)
+        }
         screen.activeDrag = fresh
     }
 

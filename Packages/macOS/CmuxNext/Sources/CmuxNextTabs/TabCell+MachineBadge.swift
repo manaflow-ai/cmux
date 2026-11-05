@@ -42,10 +42,10 @@ extension TabCell {
 }
 
 extension TabItem {
-    /// The badge's color: the person's pick for the machine (MachineColor.pickedColor), from its
-    /// own name when the badge shows another, else textTertiary. Theme-scoped: read it inside
-    /// `themeScope.perform`.
+    /// The badge's color: the person's pick for the machine as text on the tab
+    /// (MachineColor.pickedRowTextColor), from its own name when the badge shows another, else
+    /// textTertiary. Theme-scoped: read it inside `themeScope.perform`.
     @MainActor var machineBadgeColor: NSColor {
-        MachineColor(name: machineName ?? machineBadge ?? "").pickedColor ?? Palette.textTertiary
+        MachineColor(name: machineName ?? machineBadge ?? "").pickedRowTextColor ?? Palette.textTertiary
     }
 }

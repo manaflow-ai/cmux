@@ -46,7 +46,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)?;
         }
 

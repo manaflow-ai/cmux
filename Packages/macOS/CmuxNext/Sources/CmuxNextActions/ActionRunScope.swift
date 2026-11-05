@@ -16,15 +16,18 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// The run may change this client's view: origin `user`, `focus: true`,
     /// or an action whose purpose is the view change (`focuses`).
     public var allowsViewChange: Bool
+    /// The person chose the run from an open menu (``ActionInvocation/menuPick``): its focus choices are theirs.
+    public var menuPick = false
 
-    public init(origin: ActionOrigin, allowsViewChange: Bool) {
+    public init(origin: ActionOrigin, allowsViewChange: Bool, menuPick: Bool = false) {
         self.origin = origin
         self.allowsViewChange = allowsViewChange
+        self.menuPick = menuPick
     }
 
     /// The scope of a run of an action described as `focuses` (or not).
     public init(_ invocation: ActionInvocation, focuses: Bool) {
-        self.init(origin: invocation.origin, allowsViewChange: invocation.allowsViewChange || focuses)
+        self.init(origin: invocation.origin, allowsViewChange: invocation.allowsViewChange || focuses, menuPick: invocation.menuPick)
     }
 
     /// This scope as a run started inside `outer`: a handler that runs
@@ -32,7 +35,8 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// run is built with the default user origin).
     public func nested(in outer: ActionRunScope?) -> ActionRunScope {
         guard let outer else { return self }
-        return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange)
+        return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange,
+                              menuPick: outer.menuPick || menuPick)
     }
 }
 

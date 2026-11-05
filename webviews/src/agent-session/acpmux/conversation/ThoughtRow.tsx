@@ -202,11 +202,7 @@ export const ThoughtRow = memo(function ThoughtRow({
             {thoughtPreview(text)}
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -275,11 +271,7 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
             {line}
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <div id={bodyId} className="cv-thought__text cv-thought__body cv-step-thought__body selectable" dir="auto">

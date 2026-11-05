@@ -46,6 +46,12 @@ public actor CloudCodexBroker {
     private let renewalRetryBase: Duration
     static let renewalRetryCap: Duration = .seconds(300)
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
+    /// The access the Mac's own Codex sign-in holds (``CloudCodexLocalAccess``), when the person allowed it;
+    /// asked before the private holder, so a Mac signed in to Codex needs no device login. Read only.
+    private var localSignIn: (@Sendable () async -> CloudCodexAccessGrant?)?
+    /// Whether ``cached`` came from the Mac's own Codex: its renewal runs while a newer token from the Mac
+    /// still qualifies (``CloudCodexLocalAccess/minimumLifetime``), not 2 minutes before the end.
+    private var cachedIsLocal = false
     private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var quitTimers: [UUID: Task<Void, Never>] = [:]
     private var quitWork: [UUID: Task<Void, Never>] = [:]
@@ -127,7 +133,7 @@ public actor CloudCodexBroker {
         guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         targets[target.machineID] = target
         targetGenerations[target.machineID] = generation
-        if !forceRefresh, let cached, cached.expiresAt > Date().addingTimeInterval(120) {
+        if !forceRefresh, await cachedStillAllowed(), let cached, cached.expiresAt > Date().addingTimeInterval(120) {
             try await deliver(cached, target: target, expectedGeneration: generation)
             return cached
         }
@@ -149,7 +155,35 @@ public actor CloudCodexBroker {
         return grant
     }
 
+    /// Sets where the Mac's own Codex access is read (``CloudCodexBrokerAdapter/localSignIn``).
+    func setLocalSignIn(_ source: (@Sendable () async -> CloudCodexAccessGrant?)?) { localSignIn = source }
+    /// Whether ``cached`` may still be delivered: a grant from the Mac's own Codex only while the person's
+    /// yes stands (``localSignIn`` answers nil once it is taken back or managed) and the Mac still holds that
+    /// same token. Else it is dropped, so nothing stale or of another account reaches another machine.
+    private func cachedStillAllowed() async -> Bool {
+        guard cachedIsLocal else { return true }
+        // Only the very token the Mac holds now: another account, or a newer token, drops the cache.
+        if let localSignIn, let current = await localSignIn(), current == cached { return true }
+        cached = nil; cachedIsLocal = false
+        return false
+    }
+
+    /// When the scheduled renewal runs (tests).
+    var scheduledRenewal: Date? { nextRenewalAt }
+
     private func performRefresh() async throws -> CloudCodexAccessGrant {
+        // The Mac's own Codex keeps its token fresh; cmux only reads it, so no second refresher ever
+        // rotates the Mac's refresh token. Nothing usable there: the private holder, as before.
+        // The same token again is no renewal: the Mac's Codex has not refreshed yet, so the holder is
+        // asked, and a failed renewal tries the Mac again after its backoff.
+        if let localSignIn, let grant = await localSignIn(), grant.accessToken != cached?.accessToken {
+            try await ensureScope()
+            if let previous = cached?.chatgptAccountID, previous != grant.chatgptAccountID { throw CloudCodexBrokerError.accountChanged }
+            guard grant.expiresAt > Date().addingTimeInterval(60) else { throw CloudCodexBrokerError.expiredAccess }
+            cached = grant
+            cachedIsLocal = true
+            return grant
+        }
         let response = try await request(method: "access", force: true, previousAccountID: cached?.chatgptAccountID)
         try await ensureScope()
         guard let token = response.accessToken, !token.isEmpty,
@@ -159,6 +193,7 @@ public actor CloudCodexBroker {
                                           expiresAt: Date(timeIntervalSince1970: expiry))
         guard grant.expiresAt > Date().addingTimeInterval(60) else { throw CloudCodexBrokerError.expiredAccess }
         cached = grant
+        cachedIsLocal = false
         return grant
     }
 
@@ -506,7 +541,7 @@ public actor CloudCodexBroker {
     /// current, else a fresh one.
     private func catchUp(_ target: CloudCodexBrokerTarget, generation: Int) async throws {
         let grant: CloudCodexAccessGrant
-        if let cached, cached.expiresAt > Date().addingTimeInterval(120) { grant = cached }
+        if await cachedStillAllowed(), let cached, cached.expiresAt > Date().addingTimeInterval(120) { grant = cached }
         else { grant = try await refreshAccess(schedule: true) }
         try await deliver(grant, target: target, expectedGeneration: generation)
     }
@@ -725,7 +760,8 @@ public actor CloudCodexBroker {
         guard refreshTask == nil, !targets.isEmpty, !stopped else { return }
         refreshCycle += 1
         let cycle = refreshCycle
-        let wait: Duration = failures == 0 ? .seconds(max(1, grant.expiresAt.timeIntervalSinceNow - 120)) : renewalRetryDelay(failures)
+        let lead = cachedIsLocal && grant == cached ? CloudCodexLocalAccess.minimumLifetime + 60 : 120
+        let wait: Duration = failures == 0 ? .seconds(max(1, grant.expiresAt.timeIntervalSinceNow - lead)) : renewalRetryDelay(failures)
         nextRenewalAt = Date().addingTimeInterval(Double(wait.components.seconds))
         let expectedScope = scope
         refreshTask = Task { [weak self] in

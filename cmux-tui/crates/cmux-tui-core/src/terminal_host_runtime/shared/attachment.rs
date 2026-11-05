@@ -13,6 +13,18 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+/// The longest a frame other than the input port's own waits for the frames the port took before it (S1.6b). Order
+/// holds while the port drains within it: a frame still in its write after it (a large paste to a host that reads
+/// slowly) lets the waiting frame go, and the frames the port queued behind that write may then follow it.
+const INPUT_ORDER_WAIT: Duration = Duration::from_secs(2);
+
+/// The end of a wait for the input port's earlier frames: [`INPUT_ORDER_WAIT`] from now, or the caller's own
+/// `deadline` when it is sooner.
+pub(super) fn input_order_deadline(deadline: Option<Instant>) -> Instant {
+    let cap = Instant::now().checked_add(INPUT_ORDER_WAIT).unwrap_or_else(Instant::now);
+    deadline.map_or(cap, |deadline| deadline.min(cap))
+}
+
 pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
@@ -32,7 +44,11 @@ use super::renderer_grant::ControlRequestUnanswered;
 mod connect;
 pub(crate) mod launch;
 mod pending_control;
+#[cfg(unix)]
+mod room_check;
 pub(crate) use pending_control::PendingControlResponse;
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) use room_check::room_check_queues;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -131,6 +147,12 @@ pub struct HostAttachment {
     pub(crate) launch_activation_pending: bool,
     /// The owner's copy of this host's PTY master (`pty_custody.rs`).
     pub(crate) pty_custody: Option<PtyCustody>,
+    /// The terminal's input port order (R-DAEMON-STATE S1.6b): every other frame this attachment writes waits until
+    /// the port wrote the keys it took before, so no frame passes a key. Set by the terminal that owns the attachment.
+    pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
+    /// The room check of this connection's inline keys, shared by every route of the connection.
+    #[cfg(unix)]
+    pub(crate) input_room: Arc<room_check::RoomCheck>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -150,6 +172,9 @@ impl std::fmt::Debug for HostAttachment {
 pub(crate) struct HostInputRoute {
     writer: Arc<Mutex<HostStream>>,
     protocol_version: u16,
+    /// The connection's room check for its inline keys (`room_check.rs`); every clone of the route shares it.
+    #[cfg(unix)]
+    room: Arc<room_check::RoomCheck>,
 }
 
 impl HostInputRoute {
@@ -157,7 +182,92 @@ impl HostInputRoute {
     pub(crate) fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
     }
+
+    /// One small frame on the route's connection on the caller's turn, only when that cannot wait: the connection's
+    /// writer is free and the host socket takes the whole frame now. True when it was written. False (nothing
+    /// written) when another writer holds the connection, the frame is larger than [`INLINE_FRAME_MAX`], or the
+    /// socket cannot take it whole at once; the caller then queues the frame for the terminal's input port. A frame
+    /// the socket refused with an error is not written either: the port's writer meets the same error and handles it
+    /// (a lost host's reconnect).
+    #[cfg(unix)]
+    pub(crate) fn try_send_now(&self, kind: MessageKind, payload: &[u8]) -> bool {
+        use std::os::fd::AsRawFd as _;
+        if payload.len() > INLINE_FRAME_MAX {
+            return false;
+        }
+        // A writer poisoned by a panic is recovered, as `send_host_frame` recovers it.
+        let writer = match self.writer.try_lock() {
+            Ok(writer) => writer,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
+        // Room first, where a send cannot be trusted to return at once (macOS: room_check.rs). The writer held here is
+        // the socket's only writer, so nothing takes that room before the send.
+        let Ok(payload_len) = u32::try_from(payload.len()) else { return false };
+        let Some(total) = crate::terminal_host_protocol::HEADER_LEN.checked_add(payload.len())
+        else {
+            return false;
+        };
+        if !self.room.has_room(writer.as_raw_fd(), total) {
+            return false;
+        }
+        let header = crate::terminal_host_protocol::input_frame_header(
+            self.protocol_version,
+            kind,
+            payload_len,
+        );
+        // One send of the header (on the stack) and the payload (in place): no heap copy of the key. MSG_DONTWAIT as
+        // well, where it is honoured. With room for the whole frame, a Unix stream socket takes it whole: a partial
+        // write cannot happen, and if one ever did the stream would be corrupt, so the connection is shut down as
+        // `send_host_frame` does after a failed write (the port's writer then sends the frame on the reconnected host).
+        let sent = send_frame_now(writer.as_raw_fd(), &header, payload);
+        if usize::try_from(sent).is_ok_and(|sent| sent == total) {
+            return true;
+        }
+        if sent > 0 {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        false
+    }
 }
+
+/// The largest frame payload [`HostInputRoute::try_send_now`] writes on the caller's turn: a person's key (a few
+/// bytes, a short paste of a word). Larger input goes through the port's writer. With its 32-byte header the frame
+/// stays under the 2048-byte send low-water mark that the macOS room check promises (`room_check.rs`).
+#[cfg(unix)]
+pub(crate) const INLINE_FRAME_MAX: usize = 1024;
+
+// The room the macOS room check promises (the default 2048-byte send low-water mark) must hold a whole inline frame, or
+// a send after it could still wait or write part of the frame.
+#[cfg(unix)]
+const _: () = assert!(
+    INLINE_FRAME_MAX + crate::terminal_host_protocol::HEADER_LEN < 2048,
+    "an inline frame must fit the room the room check promises"
+);
+
+/// Sends `header` and `payload` as one message with MSG_DONTWAIT (and no SIGPIPE): the bytes the socket took, or -1.
+#[cfg(unix)]
+fn send_frame_now(fd: std::os::fd::RawFd, header: &[u8], payload: &[u8]) -> isize {
+    let mut parts = [
+        libc::iovec { iov_base: header.as_ptr().cast_mut().cast(), iov_len: header.len() },
+        libc::iovec { iov_base: payload.as_ptr().cast_mut().cast(), iov_len: payload.len() },
+    ];
+    // SAFETY: zeroed msghdr is a valid empty message.
+    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
+    message.msg_iov = parts.as_mut_ptr();
+    message.msg_iovlen = 2;
+    // SAFETY: the descriptor is the connection's open socket, kept alive by the caller's writer guard; both parts are
+    // live buffers of their given lengths, and sendmsg only reads them.
+    unsafe { libc::sendmsg(fd, &message, libc::MSG_DONTWAIT | SEND_NO_SIGNAL) }
+}
+
+/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std
+/// sets SO_NOSIGPIPE on the sockets it creates and the Rust runtime ignores SIGPIPE, as for every other write on this
+/// socket; the send fails with EPIPE. The same gate as `pty_custody`'s sends.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SEND_NO_SIGNAL: libc::c_int = libc::MSG_NOSIGNAL;
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const SEND_NO_SIGNAL: libc::c_int = 0;
 
 /// One frame on a daemon-to-host connection's writer.
 pub(crate) fn send_host_frame(
@@ -189,12 +299,57 @@ impl HostAttachment {
     }
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        self.wait_input_order(None);
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The terminal's input port order for this attachment's frames (S1.6b).
+    pub(crate) fn set_input_order(&mut self, order: crate::surface::input_port::PortOrder) {
+        self.input_order = Some(order);
+    }
+
+    /// Before a frame other than the port's own: the frames the port took before are written first (S1.6b), within
+    /// [`input_order_deadline`] of the caller's `deadline`.
+    pub(crate) fn wait_input_order(&self, deadline: Option<Instant>) {
+        if let Some(order) = &self.input_order {
+            order.barrier(input_order_deadline(deadline));
+        }
+    }
+
+    /// A viewer-size frame (`ViewerSize`, `ReleaseViewer`): behind the frames the input port holds, on the port, with
+    /// no wait (a key that moves the grid sends one on its own turn, under the sizing lock); written directly when
+    /// the port holds none (S1.6c, `PortOrder::enqueue_after_pending`).
+    fn send_after_port(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        if let Some(order) = &self.input_order
+            && order.enqueue_after_pending(kind, payload)
+        {
+            return Ok(());
+        }
+        send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The writer for a frame other than the port's own, after the port's earlier frames (S1.6b).
+    fn direct_writer(&self) -> std::sync::MutexGuard<'_, HostStream> {
+        self.direct_writer_until(None)
+    }
+
+    /// [`Self::direct_writer`] for a caller with its own deadline: the wait for the port ends by it.
+    fn direct_writer_until(
+        &self,
+        deadline: Option<Instant>,
+    ) -> std::sync::MutexGuard<'_, HostStream> {
+        self.wait_input_order(deadline);
+        self.writer.lock().recover_poison()
     }
 
     /// The route the terminal's input port writes this connection's interactive input on.
     pub(crate) fn input_route(&self) -> HostInputRoute {
-        HostInputRoute { writer: self.writer.clone(), protocol_version: self.protocol_version }
+        HostInputRoute {
+            writer: self.writer.clone(),
+            protocol_version: self.protocol_version,
+            #[cfg(unix)]
+            room: Arc::clone(&self.input_room),
+        }
     }
 
     pub(crate) fn begin_input_confirmed(
@@ -255,7 +410,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
@@ -309,7 +464,7 @@ impl HostAttachment {
     /// the mirror before it resolves the acknowledgement. `None` when the
     /// host does not acknowledge viewer sizes, no size was sent, or the
     /// write failed.
-    pub(crate) fn begin_viewer_size_barrier(&self) -> Option<Receiver<Frame>> {
+    pub(crate) fn begin_viewer_size_barrier(&self, deadline: Instant) -> Option<Receiver<Frame>> {
         if !self.viewer_size_acks {
             return None;
         }
@@ -329,7 +484,7 @@ impl HostAttachment {
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(&mut *self.writer.lock().recover_poison(), &frame).is_ok();
+        let written = write_frame(&mut *self.direct_writer_until(Some(deadline)), &frame).is_ok();
         drop(viewer_size);
         if !written {
             self.control_responses.waiters.lock().recover_poison().remove(&request_id);
@@ -359,7 +514,7 @@ impl HostAttachment {
         let mut payload = Vec::with_capacity(4);
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
-        self.send(MessageKind::ViewerSize, &payload)?;
+        self.send_after_port(MessageKind::ViewerSize, &payload)?;
         Ok(true)
     }
 
@@ -401,7 +556,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer_until(Some(deadline));
             write_frame(&mut *writer, &frame).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -481,7 +636,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -580,7 +735,7 @@ impl HostAttachment {
         // admin connection has already failed; reconnect starts without
         // an implicit lease and therefore needs no compensating message.
         *viewer_size = None;
-        self.send(MessageKind::ReleaseViewer, &[])?;
+        self.send_after_port(MessageKind::ReleaseViewer, &[])?;
         Ok(true)
     }
 

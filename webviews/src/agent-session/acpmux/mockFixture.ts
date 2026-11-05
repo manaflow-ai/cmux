@@ -165,6 +165,9 @@ export const MODEL_RETRY_SESSION = "mock-model-retry";
 export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
 export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
 export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
+/// Four background agents in mixed states (Leo, 2026-11-03, watching Claude Code Desktop run agents in
+/// parallel: "yo wtf i want this kind of feature in cmux-next too", then "Tray only, richer").
+export const PARALLEL_AGENTS_SESSION = "mock-parallel-agents";
 
 export const mockSessions: MockSession[] = [
   {
@@ -702,6 +705,110 @@ export const mockSessions: MockSession[] = [
     },
   },
   {
+    // Four background agents at once, each in its own state (PARALLEL_AGENTS_SESSION): the tray lists
+    // the running one with its latest step, the one that stopped to wait on background work of its
+    // own, and under them the transcript keeps a quiet line for each that ended, the finished one's
+    // opening to its final report and the failed one's with Retry.
+    sessionId: PARALLEL_AGENTS_SESSION,
+    title: "Audit the nightly pipeline in parallel",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Two agents are still on it; the publish step's report is in.",
+    history: (at) => {
+      const id = (name: string) => `${PARALLEL_AGENTS_SESSION}/toolu_${name}`;
+      const agent = (name: string, task: string, fields: Record<string, unknown>) => ({
+        id: id(name),
+        parent: null,
+        name,
+        task,
+        background: true,
+        ...fields,
+      });
+      const progress = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_progress", subagentSessionId: change.id },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const spawned = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_spawned", subagentSessionId: change.id },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const ended = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_state_update", subagentSessionId: change.id, state: change.state },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const cache = agent("cache", "Measure the build cache", { state: "running", action: "Read warm-sources.json" });
+      const signing = agent("signing", "Time the signing step", {
+        state: "running",
+        action: "Waiting on the notarization run",
+        lastMessage: "Started the notarization run; I'll report when it settles.",
+      });
+      const publish = agent("publish", "Check the publish step", {
+        state: "completed",
+        lastMessage: [
+          "## Publish step",
+          "The publish step spends 4m 10s re-uploading the DMG it already uploaded.",
+          "",
+          "- The upload step runs twice: once in `build-nightly-app`, once in `publish`.",
+          "- Dropping the second upload saves about 4 minutes per nightly.",
+          "",
+          "**Fix:** reuse the first upload's artifact in `publish`.",
+        ].join("\n"),
+      });
+      const compile = agent("compile", "Profile the Release compile", {
+        state: "failed",
+        error: "Agent terminated early due to an API error. The request timed out after 600s.",
+      });
+      return [
+        {
+          ago: at + 600_000,
+          mux: "user_message",
+          msg: { text: "Audit the nightly pipeline end to end, in parallel." },
+        },
+        { ago: at + 600_000, mux: "turn_started" },
+        {
+          ago: at + 590_000,
+          update: text("I'll run four agents at once: the cache, signing, publish and the compile."),
+        },
+        spawned(at + 580_000, { ...cache, action: "Read the cache keys" }),
+        spawned(at + 579_000, { ...signing, state: "running", action: "Read the signing job", lastMessage: undefined }),
+        spawned(at + 578_000, { ...publish, state: "running", action: "Read publish.yml", lastMessage: undefined }),
+        spawned(at + 577_000, { ...compile, state: "running", action: "Read the compile timings", error: undefined }),
+        { ago: at + 570_000, mux: "turn_result", msg: { status: "completed" } },
+        ended(at + 300_000, compile),
+        ended(at + 200_000, publish),
+        progress(at + 120_000, cache),
+        // The signing agent stopped while its own background run goes on: Claude Code's notification
+        // says so, and acpmux weighs that end interim (hub/background_cause.rs).
+        ended(at + 90_000, { ...signing, state: "completed" }),
+        {
+          ago: at + 89_000,
+          mux: "background_turn",
+          msg: {
+            id: "mock-parallel-interim",
+            state: "started",
+            trigger: "task",
+            cause: {
+              kind: "subagent",
+              status: "interim",
+              weight: "silent",
+              origin: id("signing"),
+              summary: "The agent is waiting on its own background work.",
+            },
+          },
+        },
+        { ago: at + 88_000, mux: "background_turn", msg: { id: "mock-parallel-interim", state: "ended", quiet: true } },
+      ];
+    },
+  },
+  {
     // A Stop the agent never answered, with another agent's message steered in a second after it
     // (Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
     // like that"): acpmux forced the turn's end 10 s later and ran the message as the next turn's
@@ -786,7 +893,19 @@ export const mockSessions: MockSession[] = [
           ].join("\n"),
         ),
       },
-      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 5_000, mux: "turn_result", msg: { status: "completed" } },
+      // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
+      // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
+      // (its chip opens that chat) and has no chat for the second (its click says so).
+      ...["review-box/session-info-lane", "mesh-relay"].map((fromName, index) => ({
+        ago: at + 2_000 - index * 1_000,
+        mux: "user_message",
+        msg: {
+          text: index === 0 ? "the hq#7125 lane is up; Session Info panel next" : "mesh relay reconnected",
+          promptId: `mock-links-msg-${index}`,
+          _meta: { provenance: { kind: "agent_message", from: "cli", fromName, msgId: `mock-links-m-${index}` } },
+        },
+      })),
     ],
   },
   {
@@ -879,6 +998,12 @@ export const mockResolvable: Record<string, { sessionId: string; name: string; h
     sessionId: "mock-notice-mid-reply",
     name: "opus-session-info",
     host: "gcp-agent-lane-1",
+  },
+  // A lane's shell-sent message names only its sender (SESSION_LINKS_SESSION's received lines).
+  "review-box/session-info-lane": {
+    sessionId: "mock-notice-mid-reply",
+    name: "session-info-lane",
+    host: "review-box",
   },
 };
 

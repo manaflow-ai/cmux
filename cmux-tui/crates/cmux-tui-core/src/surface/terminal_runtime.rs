@@ -69,7 +69,22 @@ impl PtyTerminalRuntime {
     #[cfg(any(unix, windows))]
     pub(super) fn replace_runtime(&self, runtime: &mut PtyRuntime, next: PtyRuntime) {
         *runtime = next;
+        // The new connection's other frames go after the keys the port took (S1.6b).
+        if let PtyRuntime::Hosted(host) = runtime {
+            host.set_input_order(self.input_port.order());
+        }
         self.input_route.store(Self::input_route_of(runtime));
+        // After the store: a port writer waiting for a reconnect writes the keys it holds to the new connection now,
+        // before any other frame on it (#35082 review 1).
+        self.input_port.route_changed();
+    }
+
+    /// The reader will install no host connection now (it ended, gave the host up, or the owner detaches the
+    /// terminal): input that waits out a lost connection fails now, as the old path's write failed then.
+    pub(super) fn reader_gave_up(&self) {
+        self.stream_progress.notify();
+        // The input port's writer waits on its own route epoch, not on the stream (#35082 review 2).
+        self.input_port.reconnect_ended();
     }
 
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
@@ -78,6 +93,8 @@ impl PtyTerminalRuntime {
     #[cfg(any(unix, windows))]
     pub(super) fn input_route_failed(&self, _runtime: &PtyRuntime) {
         self.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+        // A port writer waiting for a reconnect fails its frame now, as the old path's write failed then.
+        self.input_port.route_changed();
     }
 }
 

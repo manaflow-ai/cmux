@@ -1,6 +1,4 @@
 # file	px	count: off-scale icon sizes that predate check-icon-scale.ts. Rows only shrink.
-agent-session/acpmux/chips/ReplyImage.tsx	18	1
-agent-session/acpmux/chips/ReplyMedia.tsx	18	1
 agent-session/acpmux/composer/attachmentIntake.tsx	8	2
 agent-session/acpmux/composer/inlineAttachments.tsx	8	1
 agent-session/acpmux/header/header.css	6	1
@@ -9,10 +7,7 @@ agent-session/acpmux/subagents/AgentsPill.tsx	9	1
 icon-picker/styles.css	17	1
 icon-picker/styles.css	18	3
 pages/changelog/updateSurfaces.css	8	1
-pages/cloud/EnvironmentFields.tsx	18	1
 pages/home-channels/ChiefWorkPanel.tsx	10	1
-pages/settings/components/AgentHarnesses.tsx	18	1
 sidebar/AllChatsDesigns.css	18	1
-styles.css	18	1
 ui/popupSurface.css	6	1
 ui/ui.css	6	2

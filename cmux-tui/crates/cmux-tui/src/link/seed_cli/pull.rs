@@ -87,7 +87,8 @@ fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
     };
     let fs = [cmux_tui_core::fs_ops::FS_CAPABILITY];
     if let Some(outdated) = machine_gate::outdated_identity(&identity, &fs) {
-        return failed(SeedError::new(machine_gate::OUTDATED, outdated.message()));
+        let outdated = outdated.judged(socket);
+        return failed(SeedError::new(outdated.code(), outdated.message()));
     }
     let or_copy = matches!(base, Base::RecordOrCopy);
     // The capability itself, whatever the machine's build (an `identify`
@@ -96,8 +97,10 @@ fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
     let exports = machine_gate::served(&identity).is_some_and(|served| served.contains(&export));
     let outdated = || {
         let build = machine_gate::build_id(&identity).map(str::to_owned);
-        let outdated = machine_gate::Outdated { missing: vec![export.to_owned()], build };
-        SeedError::new(machine_gate::OUTDATED, outdated.message())
+        let outdated =
+            machine_gate::Outdated { missing: vec![export.to_owned()], build, older: true }
+                .judged(socket);
+        SeedError::new(outdated.code(), outdated.message())
     };
     let machine = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let local_root = match std::fs::canonicalize(local) {

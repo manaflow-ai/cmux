@@ -193,7 +193,9 @@ def check_prepare_job(jobs: dict, job: str) -> None:
 
 def check_nightly_producer() -> None:
     text = nightly_text()
-    check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
+    # A whole word: CI_NIGHTLY_SIGN_RUNNER (the nightly-next signing runner label) is another variable.
+    check(re.search(r"\bNIGHTLY_SIGN\b", text) is None,
+          "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
     # The preparation runs as a primary job and a fallback job with the same steps.
     jobs = yaml.safe_load(text)["jobs"]
     for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):

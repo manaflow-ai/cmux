@@ -228,6 +228,11 @@ export function makeMemoryMeshStore() {
       Effect.sync(() => {
         for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && row.key === key && row.deletedAt === null) row.deletedAt = at;
       }),
+    markRulesDeleted: (tenantId, meshId, keys, at) =>
+      Effect.sync(() => {
+        const wanted = new Set(keys);
+        for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && wanted.has(row.key) && row.deletedAt === null) row.deletedAt = at;
+      }),
   });
 
   return {

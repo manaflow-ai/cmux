@@ -143,6 +143,53 @@ COMMANDS = [
     {"name": "compact", "description": "Clear conversation history but keep a summary in context",
      "argumentHint": "<optional custom summarization instructions>"},
 ]
+# Claude Code lists /rename (2.1.310); only a test that renames asks for it, so other command lists stay as they were.
+if os.environ.get("FAKE_CLAUDE_RENAMED"):
+    COMMANDS.append({"name": "rename", "description": "Rename the current conversation", "argumentHint": "[name]"})
+
+
+def is_cmux_guidance(block):
+    """Identify hidden cmux guidance in the stream-json content Claude receives."""
+    if not isinstance(block, dict):
+        return False
+    source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
+    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+        return True
+    # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
+    # question's chat and attachments are cmux-*-context blocks Claude must read.
+    text = block.get("text", "")
+    return isinstance(text, str) and text.lstrip().startswith(
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>"))
+
+
+def command_text(content):
+    """Match fixture commands on the person's text, retaining wire messages unchanged."""
+    return "".join(b.get("text", "") for b in content
+                    if isinstance(b, dict) and not is_cmux_guidance(b))
+
+
+def transcript_content(content, said):
+    """Keep raw context blocks in Claude's own transcript, as the real harness does."""
+    if not any(is_cmux_guidance(block) for block in content if isinstance(block, dict)):
+        return said
+    raw = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        copy = dict(block)
+        copy.pop("_meta", None)
+        raw.append(copy)
+    return raw
+
+
+def visible_transcript_text(content):
+    """Read a Claude transcript prompt without exposing cmux-only context to fixture commands."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(b.get("text", "") for b in content
+                   if isinstance(b, dict) and not is_cmux_guidance(b))
 
 
 # Claude Code's get_context_usage answer (detail "summary"), with what acpmux leaves out.
@@ -348,8 +395,7 @@ def long_step(prompt):
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
     for msg in waiting:
-        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
-                       if isinstance(b, dict))
+        said = command_text((msg.get("message") or {}).get("content") or [])
         send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": "read: " + said}}})
@@ -382,8 +428,7 @@ def gated(prompt, base):
                       "request_id": msg.get("request_id"), "response": {}}})
         with open(gate) as f:
             how = f.read().strip()
-        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
-                                  if isinstance(b, dict)) for m in waiting)
+        said = " | ".join(command_text((m.get("message") or {}).get("content") or []) for m in waiting)
         if how == "fail":
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
@@ -405,8 +450,7 @@ def gated(prompt, base):
         read = waiting[:1] if how == "end-first" else waiting
         for m in read:
             send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
-        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
-                                  if isinstance(b, dict)) for m in read)
+        said = " | ".join(command_text((m.get("message") or {}).get("content") or []) for m in read)
         waiting = waiting[len(read):]
         n += 1
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
@@ -528,6 +572,24 @@ while True:
     except ValueError:
         continue
     kind = msg.get("type")
+    # `/rename NAME`, answered as Claude Code 2.1.310 does (a local command, no model call); FAKE_CLAUDE_RENAMED
+    # names a file each name is added to, so a test sees the running process renamed (hub/live_name.rs).
+    content = (msg.get("message") or {}).get("content") if kind == "user" else None
+    if isinstance(content, str) and content.startswith("/rename "):
+        name = content[len("/rename "):].strip()
+        if os.environ.get("FAKE_CLAUDE_RENAMED"):
+            with open(os.environ["FAKE_CLAUDE_RENAMED"], "a") as f:
+                f.write(name + "\n")
+        said = "Session renamed to: " + name
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message"),
+              "session_id": SESSION})
+        send({"type": "system", "subtype": "session_title_changed", "title": name, "session_id": SESSION})
+        send({"type": "assistant", "message": {"id": "rename", "model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": said}]}, "parent_tool_use_id": None, "session_id": SESSION,
+              "local_command_run": {"command": "rename", "args": name}})
+        send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "duration_api_ms": 0,
+              "result": said, "local_command": "rename", "session_id": SESSION})
+        continue
     # The answer to the late subagent's ask: the subagent says what it was answered.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "late-1":
         behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
@@ -631,7 +693,8 @@ while True:
             with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
                 f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
-        if request.get("subtype") == "initialize" and SKILLS:
+        # A renaming test needs `rename` listed, as Claude Code lists it (live_name.rs asks only then).
+        if request.get("subtype") == "initialize" and (SKILLS or os.environ.get("FAKE_CLAUDE_RENAMED")):
             answer = {"commands": COMMANDS}
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):
@@ -746,7 +809,9 @@ while True:
         if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
-        said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # Fixture commands model the person's request. Context blocks remain in the
+        # wire message and replay above, but must not change exact command matches.
+        said = command_text(content)
         # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
         if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
             send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
@@ -755,7 +820,8 @@ while True:
             import datetime
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
-                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at,
+                                    "message": {"role": "user", "content": transcript_content(content, said)}}) + "\n")
                 reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
@@ -856,9 +922,9 @@ while True:
                       if isinstance(b, dict)]
             used = [b["id"] for b in blocks if b.get("type") == "tool_use"]
             answered = {b["tool_use_id"] for b in blocks if b.get("type") == "tool_result"}
-            text = json.dumps({"prompts": [r["message"]["content"] for r in records
-                                           if r.get("type") == "user" and isinstance(r["message"]["content"], str)
-                                           and r["message"]["content"] != "history-probe"],
+            text = json.dumps({"prompts": [visible_transcript_text(r["message"]["content"]) for r in records
+                                           if r.get("type") == "user"
+                                           and visible_transcript_text(r["message"]["content"]) != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records}),
                                # Tool calls the conversation holds with no result: Claude's API refuses those.
                                "unresolved": [i for i in used if i not in answered]})

@@ -224,6 +224,22 @@ struct SidebarAgentRowPresentationTests {
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
     }
 
+    /// An unnamed chat whose title was never generated reads as its tab does, not as the daemon's default
+    /// (Leo, 2026-11-05: "this workspace didn't inherit the agent chat name. Like it's still just called
+    /// Workspace whatever."). Its generated title replaces that once it arrives; a rename still wins.
+    @MainActor
+    @Test func anUnnamedChatWithoutAGeneratedTitleNamesItsRowAsItsTab() throws {
+        let workspace = try fixture(name: "workspace-347", nameSource: .auto, freeFormPrompt: true)
+        let placeholder = turnStore(title: "can u try doing the workflow here", generatedTitle: nil, sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title
+            == "can u try doing the workflow here")
+        let titled = turnStore(title: "Run the workflow", generatedTitle: "Run the workflow", sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: titled).title == "Run the workflow")
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: false, turns: placeholder).title == "workspace-347")
+        let renamed = try fixture(name: "workspace-347", nameSource: .user, nameRevision: 1, freeFormPrompt: true)
+        #expect(row(renamed, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title == "workspace-347")
+    }
+
     @MainActor
     @Test func aRunningTerminalFrontDoesNotUseABackgroundChatTitle() throws {
         let workspace = try fixture(nameSource: .auto, terminalFront: true)

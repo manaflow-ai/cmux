@@ -50,6 +50,10 @@ concurrency:
   group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   dispatch:
     # Only with the label, and on `labeled` only when the label added is this one.

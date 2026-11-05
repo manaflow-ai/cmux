@@ -7,7 +7,8 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 /// Bumped when what an archive holds, or how it is laid out, changes.
-const KEY_VERSION: &str = "acpmux-deps v1";
+// v2: archives packed with zstd -12 --long=27, each stored with its timing record (`remote::meta_key`).
+const KEY_VERSION: &str = "acpmux-deps v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ecosystem {

@@ -154,7 +154,22 @@ export type NewTabHost = {
   allChats?: false;
   /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
+  /// Where the page's new chat starts as the app already knows it (AgentPaneNewTabStart): drawn on
+  /// the first frame; the handshake's answer from the store replaces it only when it differs.
+  start?: NewTabStart;
 };
+
+/// A new chat's start before the store's answer: its folder, or none with Choose Folder… offered.
+export type NewTabStart = { cwd?: string; chooseFolder: boolean };
+
+function readNewTabStart(value: unknown): NewTabStart | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { cwd, chooseFolder } = value as { cwd?: unknown; chooseFolder?: unknown };
+  return {
+    ...(typeof cwd === "string" && cwd.startsWith("/") ? { cwd } : {}),
+    chooseFolder: chooseFolder === true,
+  };
+}
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
@@ -180,6 +195,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const pageWidgets = parsePageWidgets(object.pageWidgets);
   const weather = parseWeather(object.weather);
   const order = suggestionOrder(object.suggestionOrder);
+  const start = readNewTabStart(object.start);
   return {
     hotkeys,
     initialKind,
@@ -213,6 +229,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
+    ...(start ? { start } : {}),
   };
 }
 
@@ -1017,8 +1034,14 @@ function rowKey(row: OmnibarRow): string {
       return `command:${row.command}`;
     case "history":
       return `history:${row.url}`;
-    default:
-      return row.type;
+    // Rows that are the typed text itself (Run, Open, Ask) are a new row for each query, as a command
+    // row is: kept by their type alone, the last row (Ask) slid up whenever the matches above it fell
+    // away (`g` drew six rows, `gi` two), which counts as a layout shift on the frames that drew both
+    // (cmux#35744).
+    case "run":
+    case "open":
+    case "ask":
+      return `${row.type}:${row.text}`;
   }
 }
 

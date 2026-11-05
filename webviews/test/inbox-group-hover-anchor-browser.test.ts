@@ -56,7 +56,7 @@ await requireBrowserLane("inbox-group-hover-anchor-browser.test.ts", async () =>
     return { rect: await box(tip), text: await tip.textContent() };
   }
 
-  /** The tooltip sits just above or just below `anchor` (6px gap) and overlaps it horizontally. */
+  /** The tooltip sits just above or just below `anchor` (the compact 4px gap) and overlaps it horizontally. */
   function expectAt(tip: Box, anchor: Box, what: string) {
     const gap = Math.min(Math.abs(tip.top - anchor.bottom), Math.abs(anchor.top - tip.bottom));
     const overlap = Math.min(tip.right, anchor.right) - Math.max(tip.left, anchor.left);

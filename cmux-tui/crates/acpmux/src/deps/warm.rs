@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use super::archive::{self, Codec};
 use super::detect::{self, Plan, Project};
-use super::remote::{Fetched, Remote, Stored};
+use super::remote::{Fetched, Meta, Remote, Stored};
 use super::stats::{Choice, Stats};
 
 #[derive(Debug, Clone, Copy)]
@@ -161,7 +161,7 @@ async fn one(
     let archive_path: PathBuf = scratch.path().join("deps.tar");
     let stats = Stats::load();
     // What this key's last cold install here took: a restore must beat it.
-    let cold_record =
+    let mut cold_record =
         stats.keys.get(&report.key).and_then(|r| r.cold_ms).filter(|_| options.install);
     // Whether the cache lacks this key (an upload after the install fills it).
     let mut missing = false;
@@ -172,7 +172,16 @@ async fn one(
         report.restore = "present";
     } else if let Some(remote) = remote {
         // Restore only (a seed) always restores: no install follows to compare with.
-        let choice = if options.install { stats.choose(&report.key) } else { Choice::Restore };
+        let mut choice = if options.install { stats.choose(&report.key) } else { Choice::Restore };
+        // A machine with no cold install of its own goes by the uploader's
+        // (one small request); without one either, it restores.
+        if options.install
+            && cold_record.is_none()
+            && let Ok(Some(meta)) = remote.fetch_meta(&report.key).await
+        {
+            cold_record = Some(meta.cold_ms);
+            choice = stats.choose_from(&report.key, meta.cold_ms, meta.archive_bytes);
+        }
         if let Choice::Cold { cold_ms, expected_ms } = choice {
             report.restore = "cold_faster";
             report.cold_ms = Some(cold_ms);
@@ -180,7 +189,8 @@ async fn one(
         } else {
             let started = Instant::now();
             let give_up = |got: u64, size: u64, elapsed: u64| {
-                cold_record.is_some_and(|cold| stats.too_slow(cold, got, size, elapsed))
+                cold_record
+                    .is_some_and(|cold| stats.too_slow(&report.key, cold, got, size, elapsed))
             };
             let fetched = remote.fetch(&report.key, &archive_path, give_up).await;
             report.fetch_ms = ms(started);
@@ -257,6 +267,7 @@ async fn one(
         let (fetch_ms, unpack_ms, install_ms) =
             (report.fetch_ms, report.unpack_ms, report.install_ms);
         let cold = !restored && report.restore != "present";
+        let cold_known = cold_record;
         Stats::update(|s| {
             if restored {
                 if fetch_ms > 0 {
@@ -264,6 +275,9 @@ async fn one(
                 }
                 if unpack_ms > 0 {
                     s.unpack_bps = Some(restored_bytes as f64 * 1000.0 / unpack_ms as f64);
+                }
+                if let Some(cold_ms) = cold_known {
+                    s.learn_after_restore(&key, install_ms, cold_ms);
                 }
                 let k = s.key_mut(&key);
                 k.warm_ms = Some(fetch_ms + unpack_ms + install_ms);
@@ -278,7 +292,7 @@ async fn one(
     };
     if !options.upload_now {
         // The person's wait ends with the install: packing and uploading run detached.
-        report.upload = Some(match spawn_upload(&report.key, &plan, codec) {
+        report.upload = Some(match spawn_upload(&report.key, &plan, codec, report.install_ms) {
             Ok(()) => "background",
             Err(error) => {
                 report.error = Some(format!("background upload: {error:#}"));
@@ -296,6 +310,12 @@ async fn one(
     report.upload_ms = ms(started);
     report.upload = Some(upload_outcome(stored, &mut report.error));
     record_upload(&report.key, report.archive_bytes);
+    if report.upload == Some("created") {
+        let meta = Meta { cold_ms: report.install_ms, archive_bytes: report.archive_bytes };
+        if let Err(error) = remote.store_meta(&report.key, meta).await {
+            report.error = Some(format!("timing record: {error:#}"));
+        }
+    }
     Ok(())
 }
 
@@ -342,12 +362,15 @@ fn uploads_dir() -> PathBuf {
 /// Starts `machine deps upload` detached from this process (its own process
 /// group, no terminal), and returns once it holds its key's lock, so a
 /// `machine deps wait` that runs after this warm always waits for it.
-fn spawn_upload(key: &str, plan: &Plan, codec: Codec) -> anyhow::Result<()> {
+fn spawn_upload(key: &str, plan: &Plan, codec: Codec, cold_ms: u64) -> anyhow::Result<()> {
     use std::io::Read;
     anyhow::ensure!(plain_key(key), "key is not plain");
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
-    cmd.args(["machine", "deps", "upload", "--key", key, "--codec", codec.name(), "--root"])
+    cmd.args(["machine", "deps", "upload", "--key", key, "--codec", codec.name()])
+        .arg("--cold-ms")
+        .arg(cold_ms.to_string())
+        .arg("--root")
         .arg(&plan.root);
     for rel in &plan.include {
         cmd.arg("--include").arg(rel);
@@ -391,6 +414,7 @@ pub async fn upload(
     root: &Path,
     include: &[PathBuf],
     codec: Codec,
+    cold_ms: u64,
 ) -> anyhow::Result<&'static str> {
     use std::io::Write as _;
     anyhow::ensure!(plain_key(key), "key is not plain");
@@ -421,6 +445,10 @@ pub async fn upload(
         let mut error = None;
         let outcome = upload_outcome(remote.store(key, &path).await, &mut error);
         record_upload(key, bytes);
+        // Beside the archive: the cold install it saves, for machines that measured nothing yet.
+        if outcome == "created" && cold_ms > 0 {
+            remote.store_meta(key, Meta { cold_ms, archive_bytes: bytes }).await?;
+        }
         match error {
             Some(e) => Err(anyhow::anyhow!(e)),
             None => Ok(outcome),

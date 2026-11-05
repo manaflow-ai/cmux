@@ -513,7 +513,8 @@ async function wireCmuxTui(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
   const source = cmuxTuiSourceFromLock(lock);
   await L.step(vm, "cmux-tui-link", [
-    `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.cmux ${DEVBOX_WORK_HOME}/.cmux/bin`,
+    // ~/work is the default Cloud chat folder (`cmux cloud start-chat --cwd /home/cmux/work`, the move's work root).
+    `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.cmux ${DEVBOX_WORK_HOME}/.cmux/bin ${DEVBOX_WORK_HOME}/work`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui-hook ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui-hook`,
   ].join(" && "));

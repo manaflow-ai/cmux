@@ -39,8 +39,13 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     /// page with no `newTab.context` round trip (`injectedNewTabContext`, bd cx-z9kz0). The host
     /// gives what is true at this load: a reloaded page that became a chat gets none.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        guard let model = view?.model, model.sessionId == nil, let page = model.newTab,
-              let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
+        if let view, let log = view.flickerLog {
+            log.record("navigation", ["page": AgentPageFlickerLog.pageName(view), "engine": view.engineName])
+        }
+        guard let model = view?.model, model.sessionId == nil, var page = model.newTab else { return }
+        // Its start folder too, so the first frame draws the project or no project (``AgentPaneNewTab/start``).
+        page.start = model.startFolders.local(of: model)
+        guard let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.__cmuxNewTabContext = \(json);", completionHandler: nil)
     }
 
