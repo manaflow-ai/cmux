@@ -2343,8 +2343,10 @@ export function NewTabScreen(props: Props) {
                     <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                     {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                     <span className="nt-row-action" data-popup-skip>
-                      {rowAction(t, nt, row)}
-                      {index === current ? <kbd>↵</kbd> : row.type === "ask" && <kbd>⌘↵</kbd>}
+                      {/* An Ask row Return does not take shows Cmd-Return's keycap in its action's place
+                      (always asks), no wider than the word it replaces, so a narrow pane never overflows. */}
+                      {index === current || row.type !== "ask" ? rowAction(t, nt, row) : <kbd>⌘↵</kbd>}
+                      {index === current && <kbd>↵</kbd>}
                     </span>
                   </div>
                 ),
