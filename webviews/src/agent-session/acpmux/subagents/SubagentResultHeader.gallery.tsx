@@ -45,15 +45,20 @@ type Props = {
   report: "long" | "short";
   viewport: "split" | "dock" | "one-tab";
   stream: boolean;
+  state?: "completed" | "failed" | "running";
+  error?: string;
   tabRowHeight?: number;
 };
 
-function ResultHeadScene({ report, viewport, stream, tabRowHeight }: Props) {
+function ResultHeadScene({ report, viewport, stream, state = "completed", error, tabRowHeight }: Props) {
   const [extra, setExtra] = useState("");
   const agent: Subagent = {
     ...baseAgent,
+    state,
     result: `${report === "long" ? LONG_RESULT : SHORT_RESULT}${extra}`,
+    ...(error ? { error } : {}),
   };
+  if (state === "running") agent.result = undefined;
   const oneTab = viewport === "one-tab";
   const style: CSSProperties = {
     display: "flex",
@@ -197,6 +202,16 @@ export default componentEntry<Props>({
     "one-tab": {
       note: "A one-tab stage keeps the result head and the last report lines clickable below the native tab row.",
       props: { report: "long", viewport: "one-tab", stream: false, tabRowHeight: 36 },
+      play,
+    },
+    failed: {
+      note: "A failed subagent keeps its error as the report and marks only the state glyph red.",
+      props: { report: "short", viewport: "split", stream: false, state: "failed", error: "The worker stopped before returning a result." },
+      play,
+    },
+    running: {
+      note: "A running subagent shows its spinner and timing without duplicating a live report.",
+      props: { report: "long", viewport: "split", stream: false, state: "running" },
       play,
     },
   },

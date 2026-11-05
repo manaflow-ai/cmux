@@ -1823,6 +1823,7 @@ button.cv-subagent > :last-child {
 
 /* Result-first heads keep a finished subagent's answer visible before its full transcript. */
 .cv-subagent-result {
+  --cv-subagent-result-lines: 12;
   display: grid;
   gap: var(--ds-space-2);
   padding: var(--ds-space-3) var(--ds-space-4);
@@ -1843,6 +1844,11 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   font-size: var(--ds-font-size-xs);
 }
+.cv-subagent-result__head { min-height: var(--cv-tool-row-height, var(--cv-line-height)); }
+.cv-subagent-result__mark { display: inline-flex; flex: none; width: var(--grid-icon-box, 16px); height: var(--grid-icon-box, 16px); align-items: center; justify-content: center; }
+.cv-subagent-result[data-state="failed"] .cv-subagent-result__mark { color: var(--agent-status-failure); }
+.cv-subagent-result__time { flex: none; white-space: pre; }
+.cv-subagent-result__body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--grid-base); min-width: 0; }
 
 .cv-subagent-result__state {
   color: var(--cv-text);
@@ -1859,6 +1865,11 @@ button.cv-subagent > :last-child {
   color: var(--cv-text);
   font-size: var(--ds-font-size-sm);
 }
+.cv-subagent-result__report { align-self: stretch; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.cv-subagent-result__report[data-cut] { max-height: calc(var(--cv-line-height) * var(--cv-subagent-result-lines)); overflow: hidden; }
+.cv-subagent-result__report[data-more] { -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent); mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent); }
+.cv-subagent-result__toggle { all: unset; color: var(--cv-text-muted); cursor: pointer; font-size: var(--text-detail); }
+.cv-subagent-result__toggle:hover, .cv-subagent-result__toggle:focus-visible { color: var(--cv-text); text-decoration: underline; }
 
 /* The compact Background tasks dock gets a bounded report viewport; the split pane can use all of
    its flex share before the report scrolls. */

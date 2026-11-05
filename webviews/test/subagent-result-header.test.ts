@@ -16,7 +16,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
     return;
   }
   const entry = "agent-pane.subagent-result-header";
-  const variants = ["split-long", "dock-long", "dock-short", "stream-stable", "one-tab"] as const;
+  const variants = ["split-long", "dock-long", "dock-short", "stream-stable", "one-tab", "failed", "running"] as const;
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -79,6 +79,18 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
         };
       });
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
+      if (variant === "failed") {
+        expect(await page.locator(".cv-subagent-result").getAttribute("data-state")).toBe("failed");
+        expect(await page.locator(".cv-subagent-result__mark").evaluate((node) => getComputedStyle(node).color)).toMatch(
+          /rgb\(.*\)/,
+        );
+        expect(await page.locator(".cv-subagent-result__report").textContent()).toContain("worker stopped");
+      }
+      if (variant === "running") {
+        expect(await page.locator(".cv-subagent-result").getAttribute("data-state")).toBe("running");
+        expect(await page.locator(".cv-subagent-result__report").count()).toBe(0);
+        expect(await page.locator(".cv-subagent-result .cv-iconbtn").count()).toBe(0);
+      }
       if (variant === "one-tab") {
         const bottomHit = await page.evaluate(() => {
           const report = document.querySelector<HTMLElement>(".cv-subagent-result__report")!;
