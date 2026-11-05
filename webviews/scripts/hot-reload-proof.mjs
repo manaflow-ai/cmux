@@ -86,105 +86,139 @@ try {
   const page = await browser.newPage({ viewport: { width: 980, height: 820 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  // Vite's client logs each hot update and each full reload, with the module that caused it.
+  // Vite's client logs each hot update and each Fast Refresh it gives up on, with the module.
   const vite = [];
-  page.on("console", (message) => message.text().startsWith("[vite]") && vite.push(message.text()));
-  let loads = 0;
-  page.on("load", () => (loads += 1));
+  const viteListeners = new Set();
+  page.on("console", (message) => {
+    if (!message.text().startsWith("[vite]")) return;
+    vite.push(message.text());
+    for (const listener of viteListeners) listener();
+  });
+  // A reload counts when the page requests its new document, before that loads; a same-document
+  // navigation (history.pushState) requests nothing.
+  let reloads = 0;
+  const navigationListeners = new Set();
+  page.on("request", (request) => {
+    if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return;
+    reloads += 1;
+    for (const listener of navigationListeners) listener();
+  });
+  // Waits until Vite has answered a save: a reload (then its load), or quiet after Vite's last
+  // message (`quietMs`, `firstMs` if it sent none yet). The answer is event driven, so a slow
+  // reload is still counted and a hot swap costs no fixed wait.
+  const settle = ({ quietMs = 1_500, firstMs = 4_000, maxMs = 20_000 } = {}) =>
+    new Promise((resolve) => {
+      let quiet;
+      const cap = setTimeout(() => finish(), maxMs);
+      const finish = (reloaded) => {
+        clearTimeout(quiet);
+        clearTimeout(cap);
+        viteListeners.delete(onVite);
+        navigationListeners.delete(onNavigate);
+        if (!reloaded) return resolve();
+        // The old document is still the loaded one here: wait for the new one's load.
+        page
+          .waitForEvent("load", { timeout: 30_000 })
+          .catch(() => {})
+          .then(resolve);
+      };
+      const arm = (ms) => {
+        clearTimeout(quiet);
+        quiet = setTimeout(() => finish(), ms);
+      };
+      const onVite = () => arm(quietMs);
+      const onNavigate = () => finish(true);
+      viteListeners.add(onVite);
+      navigationListeners.add(onNavigate);
+      arm(firstMs);
+    });
   await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`);
-  const editor = page.locator(".ProseMirror").first();
-  await editor.waitFor({ timeout: 60_000 });
-  // Start a turn, then type the next message while it streams.
-  await editor.click();
-  await page.keyboard.type(PROMPT);
-  await page.keyboard.press("Enter");
-  await page.getByText(PROMPT).first().waitFor();
-  await editor.click();
-  await page.keyboard.type(DRAFT);
-  await page.evaluate(() => (window.__hotReloadProbe = "same page"));
-  const loadsBefore = loads;
-  // A full reload destroys the page's context mid-read: wait for the new page, then read it.
-  const state = async () => {
+  const reloadsBefore = reloads;
+  const editor = () => page.locator(".ProseMirror").first();
+  // A full reload destroys the page's context mid-read: wait for the new page, then read again.
+  const inPage = async (fn, arg) => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await read();
+        return await page.evaluate(fn, arg);
       } catch (error) {
         if (attempt === 3) throw error;
         await page.waitForLoadState("load");
       }
     }
   };
-  const read = () =>
-    page.evaluate(
-      ({ draft, prompt }) => ({
-        samePage: window.__hotReloadProbe === "same page",
-        draftKept: (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft),
-        transcriptKept: document.body.innerText.includes(prompt),
-      }),
-      { draft: DRAFT, prompt: PROMPT },
-    );
+  const repliesDone = () => inPage((reply) => document.body.innerText.split(reply).length - 1, LAST_REPLY);
 
+  // Each edit gets its own turn (about 3.5 s of scripted stream), started just before the save
+  // and with the next message typed, so every edit lands mid-turn however long the one before took.
   let n = 0;
   for (const probe of PROBES) {
     n += 1;
     const original = await fs.readFile(path.join(webviews, probe.file), "utf8");
     const edited = probe.edit(original, n);
     if (edited === original) throw new Error(`${probe.name}: the edit no longer applies to ${probe.file}`);
-    const started = performance.now();
+    const prompt = `${PROMPT} (${n})`;
+    await editor().waitFor({ timeout: 60_000 });
+    const repliesBefore = await repliesDone();
+    await editor().click();
+    await page.keyboard.type(prompt);
+    await page.keyboard.press("Enter");
+    await page.getByText(prompt).first().waitFor();
+    await editor().click();
+    await page.keyboard.type(DRAFT);
+    await inPage(() => (window.__hotReloadProbe = "same page"));
     const viteBefore = vite.length;
-    const loadsAtWrite = loads;
-    // The scripted turn's last reply has not arrived yet: the edit lands mid-turn.
-    const midTurn = !(await page.evaluate((reply) => document.body.innerText.includes(reply), LAST_REPLY));
+    const reloadsAtWrite = reloads;
+    // This turn's last reply has not arrived yet: the edit lands mid-turn.
+    const midTurn = (await repliesDone()) === repliesBefore;
+    const started = performance.now();
     await write(probe.file, edited);
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
     const ms = Math.round(performance.now() - started);
-    // A reload can follow the update by a few seconds (Vite invalidates up the importers first):
-    // give it time to land before reading the page.
-    await page.waitForEvent("load", { timeout: 4_000 }).catch(() => {});
+    // A reload can follow the update (Vite invalidates up the importers first): let it land.
+    await settle();
+    const now = await inPage(
+      ({ draft, prompt }) => ({
+        samePage: window.__hotReloadProbe === "same page",
+        draftKept: (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft),
+        transcriptKept: document.body.innerText.includes(prompt),
+      }),
+      { draft: DRAFT, prompt },
+    );
+    // The turn that was streaming when the code changed still finishes in the same page.
+    let turnFinished = true;
+    await page
+      .waitForFunction(
+        ({ reply, count }) => document.body.innerText.split(reply).length - 1 > count,
+        { reply: LAST_REPLY, count: repliesBefore },
+        { timeout: 20_000 },
+      )
+      .catch(() => (turnFinished = false));
     results.push({
       probe: probe.name,
       file: probe.file,
       midTurn,
       shown,
       ms,
-      ...(await state()),
-      reloaded: loads > loadsAtWrite,
+      ...now,
+      reloaded: reloads > reloadsAtWrite,
+      turnFinished,
       vite: vite.slice(viteBefore),
     });
   }
-  // The turn that was streaming when the code changed still finishes in the same page.
-  let turnFinished = true;
-  await page
-    .getByText(LAST_REPLY)
-    .first()
-    .waitFor({ timeout: 20_000 })
-    .catch(() => (turnFinished = false));
-  const live = { results, turnFinished, reloads: loads - loadsBefore, ...(await state()) };
+  const live = { results, reloads: reloads - reloadsBefore };
 
   for (const row of results)
     console.log(
       `${row.probe} (${row.file}, saved ${row.midTurn ? "mid-turn" : "after the turn"}): ${row.shown ? `shown in ${row.ms} ms` : "never shown"}, ` +
-        `reloaded ${row.reloaded}, same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
+        `reloaded ${row.reloaded}, same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}, ` +
+        `turn finished ${row.turnFinished}` +
         (row.vite.length ? `\n    ${row.vite.join("\n    ")}` : ""),
     );
-  console.log(`streaming turn finished after the edits: ${turnFinished}; page reloads: ${live.reloads}`);
+  console.log(`page reloads: ${live.reloads}`);
 
   const auditRows = [];
   if (audit) {
-    // Runs `fn` in the page, again after any reload that lands meanwhile.
-    const inPage = async (fn) => {
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          return await page.evaluate(fn);
-        } catch (error) {
-          if (attempt === 3) throw error;
-          await page.waitForLoadState("load");
-        }
-      }
-    };
-    // Wait for a reload or two quiet seconds: Vite answers a save within a second.
-    const settle = () => page.waitForEvent("load", { timeout: 2_000 }).catch(() => {});
     await restore();
     await settle();
     // Every pane component module the page loaded; touching one sends Vite's update for it.
@@ -193,13 +227,13 @@ try {
       .sort();
     for (const id of loaded) {
       const file = path.relative(webviews, id);
-      await page.locator(".ProseMirror").first().waitFor({ timeout: 60_000 });
+      await editor().waitFor({ timeout: 60_000 });
       await inPage(() => (window.__hotReloadProbe = "same page"));
-      const before = loads;
+      const before = reloads;
       const original = await fs.readFile(id, "utf8");
       await write(file, `${original}\n// hot-reload probe\n`);
       await settle();
-      const reloaded = loads > before || (await inPage(() => window.__hotReloadProbe !== "same page"));
+      const reloaded = reloads > before || (await inPage(() => window.__hotReloadProbe !== "same page"));
       auditRows.push({ file, hot: !reloaded });
       await restore();
       await settle();
@@ -214,9 +248,15 @@ try {
   console.log(out);
   const ok =
     results.every(
-      (row) => row.midTurn && row.shown && !row.reloaded && row.samePage && row.draftKept && row.transcriptKept,
+      (row) =>
+        row.midTurn &&
+        row.shown &&
+        !row.reloaded &&
+        row.samePage &&
+        row.draftKept &&
+        row.transcriptKept &&
+        row.turnFinished,
     ) &&
-    turnFinished &&
     errors.length === 0;
   process.exitCode = ok ? 0 : 1;
 } finally {

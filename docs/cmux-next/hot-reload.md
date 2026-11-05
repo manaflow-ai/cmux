@@ -130,9 +130,9 @@ to `--local` when the slot doesn't answer.
 ### Editing while it runs: what survives
 
 `bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
-starts the dev server `server --local` runs, opens `/agent-pane/?mock`, sends a prompt so a turn
-streams, types a draft, then edits source files and checks that each edit shows up in the same page
-with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
+starts the dev server `server --local` runs and opens `/agent-pane/?mock`. For each source edit it
+sends a prompt so a fresh turn streams, types a draft, saves the edit, and checks that it shows up
+in the same page with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
 component the page loaded, one at a time, and lists the ones that reload the page instead. It
 undoes every edit before it exits. Run it on the fleet with
 `cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
