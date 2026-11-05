@@ -35,7 +35,7 @@ public nonisolated enum SidebarBottomControlsVariant: String, Sendable, CaseIter
 
 extension SidebarTunables {
     /// Debug Settings `sidebar.bottomControls` (``SidebarBottomControlsVariant``).
-    public static let bottomControls = Tunable<SidebarBottomControlsVariant>.choice(
+    public nonisolated static let bottomControls = Tunable<SidebarBottomControlsVariant>.choice(
         "sidebar.bottomControls", .sidebar, "Bottom-left controls",
         help: "Prototype for the sidebar's bottom-left corner off the compact density: larger avatar and Search targets, a wide Search field, a named account row, or a bottom line that mirrors the titlebar line.",
         default: .standard, code: "SidebarTunables.bottomControls")
