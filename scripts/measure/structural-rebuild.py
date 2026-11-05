@@ -17,7 +17,7 @@ The edits are taken back when the run ends (git checkout of the one file), so th
 commit; a run refuses to start when that file already has local changes, which the checkout would erase. The log
 prints STRUCTURAL-REBUILD-ROW {json} per build and STRUCTURAL-REBUILD {json} at the end.
 """
-import argparse, json, os, re, statistics, subprocess, sys, time
+import argparse, json, os, re, signal, statistics, subprocess, sys, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -35,14 +35,20 @@ def reload(config, log_dir, index):
     env = dict(os.environ, CMUX_DEV_BACKEND_MODE="local", CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1")
     started, start = time.time(), time.monotonic()
     # Streamed to the step's log as it runs, so a long cold build is never a silent step the fleet's watchdog ends.
-    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Its own process group, so a run that ends early (a SIGTERM, a failed write) ends xcodebuild with it.
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)
     lines = []
-    with open(os.path.join(log_dir, f"reload-{index}.out"), "w") as f:
-        for line in proc.stdout:
-            f.write(line)
-            lines.append(line)
-            print(f"[reload {index}] {line}", end="", flush=True)
-    proc.wait()
+    try:
+        with open(os.path.join(log_dir, f"reload-{index}.out"), "w") as f:
+            for line in proc.stdout:
+                f.write(line)
+                lines.append(line)
+                print(f"[reload {index}] {line}", end="", flush=True)
+        proc.wait()
+    finally:
+        if proc.poll() is None:
+            end_group(proc)
     seconds = round(time.monotonic() - start, 1)
     out = "".join(lines)
     logs = re.findall(r"^==> log: (.+)$", out, re.M)
@@ -51,6 +57,25 @@ def reload(config, log_dir, index):
         print(out[-4000:], file=sys.stderr)
         raise SystemExit(f"structural-rebuild: reload {index} failed (exit {proc.returncode}) after {seconds} s")
     return seconds, apps[-1].strip(), (logs[-1].strip() if logs else None), started
+
+
+def end_group(proc):
+    """SIGTERM to the reload's process group, SIGKILL if it is still there after 30 s."""
+    for sig, wait in ((signal.SIGTERM, 30), (signal.SIGKILL, 10)):
+        try:
+            os.killpg(proc.pid, sig)
+            proc.wait(wait)
+            return
+        except ProcessLookupError:
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def exit_on_signal(signum, _frame):
+    """A SIGTERM or SIGHUP (the step's timeout) unwinds like an error, so the edits are taken back and the app and
+    the reload are ended."""
+    raise SystemExit(f"structural-rebuild: ended by signal {signum}")
 
 
 def build_facts(reload_log, since=0.0):
@@ -108,6 +133,8 @@ def main():
     parser.add_argument("--config", default="", choices=["", "debug", "bench"],
                         help="reload.sh --config (debug or bench); default its own")
     opts = parser.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, exit_on_signal)
     os.makedirs(opts.out, exist_ok=True)
     refuse_local_edits()
     rows, launcher, edited = [], None, False
