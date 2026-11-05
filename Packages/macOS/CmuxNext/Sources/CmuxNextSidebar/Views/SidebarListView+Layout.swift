@@ -339,7 +339,7 @@ extension SidebarListViewComponents {
                 let current = view.frame
                 let was = old.row(for: key)
                 let end = was.map { SidebarRowTransition.removeFrame($0, current: current, runTop: removeRuns[key], from: old, to: layout) }
-                if let was, SidebarRowTransition.foldedY(was, from: old, to: layout) != nil { folding.append(view) }
+                if let was, SidebarRowTransition.isFolded(was, from: old, to: layout) { folding.append(view) }
                 view.clipsToBounds = true
                 leaving.append((view, end ?? NSRect(x: current.minX, y: current.minY, width: current.width, height: 0)))
             }
