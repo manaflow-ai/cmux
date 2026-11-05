@@ -258,19 +258,28 @@ done
 
 RESTORE_SCRIPT = r"""
 set -euo pipefail
-src="$1"; keep="$2"
+src="$1"; keep="$2"; shift 2
 [ -d "$keep/orig" ] || { echo 0; exit 0; }
 cd "$src"
 n=0
-while IFS= read -r -d '' f; do
-  rel="${f#$keep/orig/}"
+put_back() {  # $1: a kept file under $keep/orig
+  local rel="${1#$keep/orig/}"
   case "$rel" in
     *.absent) rm -f "${rel%.absent}" ;;
-    *) mkdir -p "$(dirname "$rel")"; cp "$f" "$rel" ;;
+    *) mkdir -p "$(dirname "$rel")"; cp "$1" "$rel" ;;
   esac
+  rm -f "$1"
   n=$((n + 1))
-done < <(find "$keep/orig" -type f -print0)
-rm -rf "$keep"
+}
+if [ "$#" -gt 0 ]; then  # only these paths (edits deleted while watching); the rest stay kept
+  for rel in "$@"; do
+    case "$rel" in /*|*..*) echo "refusing $rel" >&2; exit 64;; esac
+    for f in "$keep/orig/$rel" "$keep/orig/$rel.absent"; do [ -e "$f" ] && put_back "$f"; done
+  done
+else
+  while IFS= read -r -d '' f; do put_back "$f"; done < <(find "$keep/orig" -type f -print0)
+  rm -rf "$keep"
+fi
 echo "$n"
 """
 
@@ -315,6 +324,8 @@ class Builder:
         return run(self.ssh() + [cmd], input=script.encode()).stdout.decode(errors="replace")
 
     def sync(self, edits: Path, rels: list[str]) -> None:
+        if not rels:
+            return
         listing = "\n".join(rels) + "\n"
         self.remote(KEEP_SCRIPT, self.src, self.keep, *rels)
         files_from = self.state / "sync.list"
@@ -343,8 +354,9 @@ class Builder:
             raise LiveError("the fetched framework does not match the build host's sha256")
         return dest
 
-    def restore(self) -> int:
-        return int(self.remote(RESTORE_SCRIPT, self.src, self.keep).strip() or 0)
+    def restore(self, rels: list[str] | None = None) -> int:
+        """Put back the tree's own copy of RELS (every kept path when None), and forget those paths."""
+        return int(self.remote(RESTORE_SCRIPT, self.src, self.keep, *(rels or [])).strip() or 0)
 
 
 def sha256(path: Path) -> str:
@@ -402,30 +414,41 @@ def pid_file(state: Path) -> Path:
     return state / "watch.pid"
 
 
+def is_watcher(pid: int) -> bool:
+    """Whether PID is still this tool's watcher: a recorded pid can be reused by an unrelated process."""
+    out = run(["ps", "-ww", "-o", "args=", "-p", str(pid)], check=False).stdout.decode(errors="replace")
+    return "chromium-live.py" in out and ("_watch" in out or "--foreground" in out)
+
+
 def running_pid(state: Path) -> int | None:
     try:
         pid = int(pid_file(state).read_text().split()[0])
         os.kill(pid, 0)
-        return pid
     except (OSError, ValueError, IndexError):
-        return None
+        pid = None
+    if pid is not None and is_watcher(pid):
+        return pid
+    pid_file(state).unlink(missing_ok=True)  # stale: the watcher is gone, or its pid now belongs to another process
+    return None
 
 
 def watch(cfg: dict, state: Path) -> int:
     builder = Builder(cfg, state)
     edits = Path(cfg["edits"])
-    stop = state / "stop"
-    stop.unlink(missing_ok=True)
+    stop = state / "stop"  # cleared by `start` before this watcher began, so a stop sent meanwhile is kept
     last = scan(edits)
     log(f"watching {edits} (builds {cfg['target']} on {cfg['build_host']})")
     while not stop.exists():  # stop condition: `chromium-live.py stop`
         time.sleep(SCAN_INTERVAL_S)
         cur = scan(edits)
         rels = sorted(r for r, m in cur.items() if last.get(r) != m)
+        removed = sorted(r for r in last if r not in cur)
         last = cur
-        if rels:
-            saved_at = max(cur[r] for r in rels) / 1e9
+        if rels or removed:
+            saved_at = max([cur[r] for r in rels], default=time.time_ns()) / 1e9
             try:
+                if removed:  # an edit deleted here: the build host's tree gets its own copy back
+                    builder.restore(removed)
                 entry = cycle(cfg, state, builder, rels, saved_at)
                 log(summary(entry))
             except (LiveError, subprocess.SubprocessError, OSError) as err:
@@ -471,6 +494,7 @@ def command_start(args) -> int:
            "binary_rel": args.binary_rel, "edits": str(edits), "app": str(app), "gpu": args.gpu,
            "session": hashlib.sha256(f"{tree}:{time.time()}".encode()).hexdigest()[:12]}
     (state / "config.json").write_text(json.dumps(cfg, indent=2) + "\n")
+    (state / "stop").unlink(missing_ok=True)
     if args.foreground:
         pid_file(state).write_text(f"{os.getpid()} {tree}\n")
         try:
