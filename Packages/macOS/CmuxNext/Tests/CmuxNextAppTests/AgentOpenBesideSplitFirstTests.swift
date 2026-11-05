@@ -98,6 +98,25 @@ import Testing
         withExtendedLifetime(model) {}
     }
 
+    /// #36226 review: the subagent's tab decides at its first show (`view(for:)`) whether it takes the warm spare, from
+    /// its reveal (`pendingTurns`). The split, and its provisional tab, show as the open returns, before the store has
+    /// answered the create; the reveal recorded only once it answered (`created`) could come after that first show, and
+    /// the pane then opened cold. Here the create never answers: the reveal is on the provisional tab all the same.
+    @Test(.timeLimit(.minutes(1))) func aSubagentsRevealIsOnItsTabBeforeTheStoreAnswers() async throws {
+        let (services, tabs, chat, creates) = try Self.chat(capabilities: Self.served)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s-chat")
+        tabs.wireHeader(model, key: chat)
+        let header = try #require(model.header)
+
+        #expect(header.openSubagent("s-chat-\(UUID().uuidString.prefix(8))", "reviewer", true))
+
+        #expect(services.daemon.store.pendingIntents.contains { if case .splitPane = $0 { true } else { false } })
+        #expect(tabs.pendingTurns.values.contains(AgentSubagentPanes.reveal("reviewer")),
+                "the provisional tab can show (view(for:)) with no reveal, so it opens cold: \(tabs.pendingTurns)")
+        if creates.splits.isEmpty { for await _ in creates.heard { break } }
+        withExtendedLifetime(model) {}
+    }
+
     /// An older daemon (no `conversation-tab-split-v1`) keeps the make-and-move path: no `split`, which it would ignore.
     @Test(.timeLimit(.minutes(1))) func withoutTheCapabilityTheTabIsMadeInTheChatsPane() async throws {
         let (services, tabs, chat, creates) = try Self.chat(capabilities: [.agentSessionTabs, .splitClientKeys])
