@@ -42,9 +42,13 @@ source scripts/live-code/lib/two-pass.sh
 live_code_list "$bin" "$out"
 app="$(reload "$out/reload-2.log" "$@" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$out/interposable.txt")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
+# Whether the CmuxNext modules compiled a file at a time, unoptimized and testable, as the live build
+# asks; printed before the check, which a whole-module module can fail.
+for module in CmuxNextApp CmuxNextDesign; do
+  commands="$(grep -E -- "-module-name $module " "$log" || true)"
+  echo "live-code build: $module frontend commands: $(grep -c . <<<"$commands" || true), whole-module: $(grep -c -- "-whole-module-optimization" <<<"$commands" || true), -Onone: $(grep -c -- "-Onone" <<<"$commands" || true), -enable-testing: $(grep -c -- "-enable-testing" <<<"$commands" || true)" >&2
+done
 live_code_check "$bin" "$out" || exit 1
-# Whether the CmuxNext modules compiled a file at a time, as the live build asks.
-echo "live-code build: CmuxNextApp frontend commands: $(grep -cE -- "-module-name CmuxNextApp " "$log" || true), whole-module: $(grep -E -- "-module-name CmuxNextApp " "$log" | grep -c -- "-whole-module-optimization" || true)" >&2
 echo "live-code build: built in $((SECONDS - build_start)) s"
 grep -E -- "-module-name CmuxNext[A-Za-z0-9_]* " "$log" > "$out/cmuxnext-commands.log" || true
 printf '%s\n' "$app" > "$out/app-path"
