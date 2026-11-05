@@ -104,7 +104,13 @@ for name in ${names[@]+"${names[@]}"}; do
     mv "$dir/$asset/cmux-cua" "$helper/Contents/MacOS/cmux-cua"
     owner_file=$(sed -n 's/^CMUX_CUA_HELPER_OWNER_FILE="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh")
     sed -n 's/^CMUX_CUA_HELPER_OWNER_VALUE="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh" >"$helper/Contents/Resources/${owner_file:-.cmux-cua-managed-helper}"
-    helper_id=$(bash "$root/scripts/build-cmux-cua.sh" --print-helper-id com.cmuxterm.app)
+    # Read, not run: the script hashes cmux's patches before it parses arguments, and the VM's copy
+    # of the tree has none.
+    helper_id=$(sed -n '/^helper_bundle_id_for_host()/,/^}/s/^ *echo "\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh" | head -1)
+    [[ "$helper_id" =~ ^[A-Za-z0-9.-]+$ ]] || {
+      echo "CU-DRIVER-EVAL-ERROR $name: no helper id in build-cmux-cua.sh; using com.cmuxterm.cua" | tee -a "$out/input-ab/download-errors.txt"
+      helper_id=com.cmuxterm.cua
+    }
     cat >"$helper/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
