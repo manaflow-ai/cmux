@@ -3567,6 +3567,8 @@ jobs:
           submodules: false
 
       # This run's own signing controls: the claim below and, for an unsigned resume, the keychain controls.
+      # Only scripts/ and the workflow are read from it, so it is sparse: a fresh full clone into this path took
+      # about 3 min of the one signer on every sign and every yield (run 41948676510, 04:42:55-04:46:05Z).
       - name: Checkout trusted signing controls
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3574,6 +3576,10 @@ jobs:
           ref: ${{ github.sha }}
           path: .nightly-signing-control
           submodules: false
+          filter: blob:none
+          sparse-checkout: |
+            scripts
+            .github/workflows
 
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
