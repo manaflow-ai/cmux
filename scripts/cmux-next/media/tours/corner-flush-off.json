@@ -31,7 +31,7 @@
    "shot": false
   },
   {
-   "title": "Workspace Corner",
+   "title": "Workspace Today",
    "cmux": [
     "workspace",
     "new",
@@ -44,7 +44,7 @@
    "title": "Quiet prompt",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
@@ -64,7 +64,7 @@
    "title": "Show it",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "focus"
    ],
    "wait": 2,
@@ -74,7 +74,7 @@
    "title": "Name the first tab",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
@@ -98,7 +98,7 @@
     "--name",
     "Docs",
     "--workspace",
-    "name:Corner"
+    "name:Today"
    ],
    "wait": 3,
    "shot": false
@@ -114,7 +114,7 @@
     "--name",
     "API",
     "--workspace",
-    "name:Corner"
+    "name:Today"
    ],
    "wait": 3,
    "shot": false
@@ -130,7 +130,7 @@
     "--name",
     "Notes",
     "--workspace",
-    "name:Corner"
+    "name:Today"
    ],
    "wait": 3,
    "shot": false
@@ -139,7 +139,7 @@
    "title": "Focus the first tab",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
@@ -160,7 +160,7 @@
    "title": "Select the second tab",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
@@ -175,7 +175,7 @@
    "title": "Select the third tab",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
@@ -190,7 +190,7 @@
    "title": "Back to the first tab",
    "cmux": [
     "workspace",
-    "name:Corner",
+    "name:Today",
     "screen",
     "current",
     "pane",
