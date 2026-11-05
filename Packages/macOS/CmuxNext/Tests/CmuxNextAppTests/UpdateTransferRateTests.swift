@@ -73,6 +73,17 @@ struct UpdateTransferRateTests {
         }
     }
 
+    /// Review F1 at fed5f328b37: a size near `UInt64.max` at a byte a second is more seconds than `Int`
+    /// holds; the card shows no time left rather than trapping (#36500).
+    @Test func anUnreachableSizeShowsNoTimeLeft() {
+        var rate = UpdateTransferRate()
+        let huge = UpdateIndicatorPhase.downloading(.downloading(received: 1, expected: .max))
+        rate.record(.downloading(.downloading(received: 0, expected: .max)), at: Self.start)
+        rate.record(huge, at: Self.start.addingTimeInterval(1))
+        #expect(rate.secondsLeft(expected: .max) == nil)
+        #expect(rate.text(expected: .max) == nil)
+    }
+
     /// A transfer built by hand with a zero size reads its bytes alone, never divides by it.
     @Test func aZeroSizeReadsTheBytesAlone() {
         let transfer = UpdateTransfer(stage: .downloading, receivedBytes: 1_000_000, expectedBytes: 0, fraction: 0.5)
