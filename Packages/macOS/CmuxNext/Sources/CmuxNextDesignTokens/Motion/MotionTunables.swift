@@ -44,6 +44,10 @@ public nonisolated enum MotionTunables {
         // Leaving: 0.16 ended visibly at 188 ms; 0.15 ends at 177 ms, inside standard and still
         // well over the 0.1 s that reads as a cut (Leo 2026-10-20).
         .popoverClose: (SpringParameters(response: 0.15, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
+        // Thunderdome r2 C: the leading edge lands well inside the ceiling; the trailing one, twice as slow, is the
+        // stretch, and still ends by it.
+        .gooLead: (SpringParameters(response: 0.09, dampingFraction: 0.92), "Goo morph: a droplet's edge on the side it travels to."),
+        .gooTrail: (SpringParameters(response: 0.18, dampingFraction: 0.92), "Goo morph: a droplet's edge on the side it leaves (the stretch)."),
         // MessagesLab `SidebarPinDragging.spring` (stiffness 320, damping 30: response 0.351) ended
         // visibly at 390 ms. Its damping fraction stays, so tiles still land with the same give
         // (about 1.6 pt overshoot on 200 pt); response 0.215 ends at 238 ms, under the ceiling

@@ -467,6 +467,15 @@ the gap, no row left out of place after drop or cancel).
 | (this commit, https://github.com/manaflow-ai/cmux/pull/23958) | Pinned workspace tile color (Austin 2026-10-25): a text-only pinned workspace with a color draws a dot before its title (`SidebarItemRowView.showsSwatchDot`), as its list row does; with none shown, the title alone. Its menu's header gets the name field (the field renames by name, which a tile allows). On hover a workspace tile shows the more button and close x (`SidebarItemRowView+HoverActions`). `SidebarPinnedTileColorTests`. |
 
 
+## Goo morph (Thunderdome r2 C, 2026-11-05)
+
+Debug `chrome.gooMorph` (off by default; `drop`, `pool`, `slime`). The window's top is one band of chrome over the
+sidebar header and every top-row tab strip; the cards start under it, level, and the sidebar header grows to the
+band's lower edge (`GooMorphChrome.headerHeight`). The sidebar's + takes the tabs' pill row, a circle as tall as a
+tab (`SidebarView.newButtonRow`). In `pool` and `slime` the sidebar is its own card with the + as its droplet, and
+it buds out of the pane's card on open and melts back in on close (`GooMorphChrome`, `GooMorphEngine`). Leo: round 1
+"barely even tried"; keep the rounded corners and the inner card, "a glass frame, another glass frame".
+
 ## Codex follow-up
 
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.

@@ -32,6 +32,15 @@ public final class SidebarView: NSView {
     /// sidebar, R109): the accessory then starts at the reserve alone.
     public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
+    /// The goo look (`chrome.gooMorph`): the top-row tabs' pill row in window coordinates (its middle and height);
+    /// the + takes that row, a circle as tall as a tab, so the + and the tabs share one line. Nil: the
+    /// traffic lights' line at the toolbar button size.
+    var newButtonRow: (() -> (midY: CGFloat, height: CGFloat)?)? { didSet { needsLayout = true } }
+    /// The + as it shows, in window coordinates, and how visible it is (its reveal), for the goo look's droplet.
+    var newButtonInWindow: (frame: CGRect, alpha: CGFloat)? {
+        guard window != nil, !newButton.isHidden else { return nil }
+        return (newButton.convert(newButton.bounds, to: nil), newButton.alphaValue)
+    }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
     let needsYouTray = SidebarNeedsYouTrayView() // the session tree's needs-you tray (SidebarView+NeedsYou)
@@ -286,8 +295,9 @@ public final class SidebarView: NSView {
         // Titlebar row: buttons trail the traffic lights at a stable frame.
         // Every control in the row centers on the traffic lights' line (the
         // tabs and the toolbar band do too); the row's middle without them.
-        let button = SidebarStyle.toolbarButtonSize
-        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        let gooRow = newButtonRow?().map { row in (midY: convert(NSPoint(x: 0, y: row.midY), from: nil).y, height: row.height) }
+        let button = gooRow?.height ?? SidebarStyle.toolbarButtonSize
+        let rowMidY = gooRow?.midY ?? window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
         let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)

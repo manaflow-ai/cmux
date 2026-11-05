@@ -133,6 +133,7 @@ extension TabStripView {
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
         movesInFlight.remove(generation)
+        reportSelectedPill()
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
         for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
@@ -278,7 +279,10 @@ extension TabStripView {
             movesInFlight.insert(generation)
             CATransaction.setMainCompletion { [weak self] in self?.moveEnded(generation) }
         }
-        defer { CATransaction.commit() }
+        defer {
+            CATransaction.commit()
+            reportSelectedPill()
+        }
         let tabHeight = min(metrics.tabHeight, bounds.height)
         let tabY = tabTop
         let mapping = scrollMapping

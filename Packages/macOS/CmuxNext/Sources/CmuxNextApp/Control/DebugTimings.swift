@@ -126,6 +126,7 @@ enum DebugTimings {
             turnStateApplies.removeAll()
             controlPublishes.removeAll()
             omnibarClicks.removeAll()
+            for window in NSApp.windows { (window.contentView as? any GooWindowHost)?.goo.engine.resetCosts() }
         }
         return report
     }
@@ -136,6 +137,8 @@ enum DebugTimings {
         for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
+            "goo_trace": .object((NSApp.windows.compactMap { ($0.contentView as? any GooWindowHost)?.goo.engine.costs }.max { $0.count < $1.count }?.summary ?? [:])
+                .mapValues { .number(($0 * 1000).rounded() / 1000) }),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),

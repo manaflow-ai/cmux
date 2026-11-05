@@ -15,6 +15,9 @@ public final class MainPaneChromeShadeView: NSView {
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
     private var cardsObservation: AnyObject?
+    /// The goo look's surface (`GooMorphEngine`): while set, the shade is everything but it, at `gooAlpha`.
+    private var gooSurface: CGPath?
+    private var gooAlpha: CGFloat = 0
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
@@ -56,11 +59,27 @@ public final class MainPaneChromeShadeView: NSView {
         rebuild()
     }
 
+    /// Shades everything but `surface` (the goo look's cards, droplets and necks) at `alpha`; nil goes back to the card.
+    public func setGooSurface(_ surface: CGPath?, alpha: CGFloat) {
+        gooSurface = surface
+        gooAlpha = alpha
+        rebuild()
+    }
+
     private func rebuild() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         shade.frame = bounds
+        if let gooSurface, gooAlpha > 0 {
+            // The surface is one region with no overlaps, so even-odd cuts it out of the window's rect.
+            let path = CGMutablePath()
+            path.addRect(bounds)
+            path.addPath(gooSurface)
+            shade.path = path
+            shade.fillColor = NSColor.black.withAlphaComponent(gooAlpha).cgColor
+            return
+        }
         guard alpha > 0, !card.isEmpty else {
             shade.path = nil
             return

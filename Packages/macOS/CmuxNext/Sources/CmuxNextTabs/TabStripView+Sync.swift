@@ -52,6 +52,7 @@ extension TabStripView {
         if !movesInFlight.isEmpty || !occlusionEnds.isEmpty { updateOcclusion() }
         if let selected, selected != lastSelectedID { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
+        reportSelectedPill()
         refreshHoverCard()
     }
 
@@ -193,6 +194,7 @@ extension TabStripView {
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
         cell.isStripShown = isShownInWindow
+        cell.hidesSelectionFill = hidesSelectionFill
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }

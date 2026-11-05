@@ -82,6 +82,11 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// The same popup shrinking back toward its control as it fades out, faster than it opened.
     /// Critically damped. Swift-only.
     case popoverClose
+    /// The goo look's droplet (Debug `chrome.gooMorph`): the edge on the side it travels to, fast, so it reaches
+    /// for a newly selected tab. Swift-only.
+    case gooLead
+    /// The same droplet's edge on the side it leaves, slower, so it stretches and gathers itself. Swift-only.
+    case gooTrail
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.

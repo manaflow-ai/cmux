@@ -50,6 +50,8 @@ final class TabCell {
     /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
+    /// The goo look draws the selected tab's fill as a droplet under the strip (`TabStripView.hidesSelectionFill`).
+    var hidesSelectionFill = false { didSet { if oldValue != hidesSelectionFill, isSelected { updateColors(animated: false) } } }
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -301,7 +303,7 @@ final class TabCell {
             let multi = isMultiSelected && !isSelected
             let selection = isWindowMain || isLifted ? Palette.selectionFill
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
-            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
+            let fill: NSColor? = fillsSelection ? (hidesSelectionFill && !isLifted ? nil : selection) : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.

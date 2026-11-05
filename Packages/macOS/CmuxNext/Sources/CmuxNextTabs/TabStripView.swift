@@ -89,6 +89,11 @@ public final class TabStripView: NSView {
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
+    /// The goo look draws this strip's selected tab as a droplet of its card (`TabStripView+Goo`): the tab's own
+    /// fill steps aside.
+    public var hidesSelectionFill = false {
+        didSet { if oldValue != hidesSelectionFill { for cell in cells.values { cell.hidesSelectionFill = hidesSelectionFill } } }
+    }
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
@@ -323,6 +328,7 @@ public final class TabStripView: NSView {
             startObserving()
             startObservingTokens()
             sync(fromModel: true)
+            reportSelectedPill()
         } else {
             observationTask?.cancel()
             observationTask = nil

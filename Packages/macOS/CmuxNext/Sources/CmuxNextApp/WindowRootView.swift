@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -37,6 +38,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let contentHost = MainPaneCardView(frame: .zero)
     /// The shade over the chrome around the curved main pane.
     let mainPaneShade = MainPaneChromeShadeView(frame: .zero)
+    /// The goo look (Debug `chrome.gooMorph`, `GooMorphChrome`).
+    let goo = GooMorphChrome()
     /// The content host's top and bottom pins (the side pins are in
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
@@ -178,7 +181,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        contentHost.onClipChange = { [weak self] in
+            if let window = self?.window { NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window) }
+        }
         wireContentAreaMotion()
+        goo.attach(self)
         applyMainPane()
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
@@ -210,7 +217,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal || presentsPage
-        sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
+        sidebar.sidebarView.titlebarHeightOverride = goo.headerHeight(cardTop: WindowTitlebar.cardTopInset(of: self, minimal: true, gutter: Metrics.mainPaneGutter))
+            ?? (minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight)
         needsLayout = true
     }
 
