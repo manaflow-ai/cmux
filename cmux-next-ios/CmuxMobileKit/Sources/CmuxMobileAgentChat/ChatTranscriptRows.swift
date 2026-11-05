@@ -205,9 +205,10 @@ final class ChatTranscriptBuilder {
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
             case .tool(let call):
-                if !NextStepAsk.drawsWrapUp(call) { add(row.id, .tool(call)) }
+                // A wrap-up call's row goes only where its card draws in its place.
+                if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) { add(row.id, .tool(call)) }
             case .toolGroup(_, let calls):
-                let shown = calls.filter { !NextStepAsk.drawsWrapUp($0) }
+                let shown = wrapUp == nil ? calls : calls.filter { !NextStepAsk.drawsWrapUp($0) }
                 if !shown.isEmpty { add(row.id, .toolGroup(shown, turnRunning: running)) }
             case .edit(let call):
                 if call.isRunning {
