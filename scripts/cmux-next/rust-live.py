@@ -193,8 +193,8 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(argv, capture_output=True, text=True, **kwargs)
 
 
-# cmux-tui/Cargo.toml's [profile.live]: our crates at opt-level 0 for the edit loop.
-PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "live"
+# The cargo profile to build (CMUX_RUST_LIVE_PROFILE): dev, so the checkout's warm dev build is reused.
+PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "dev"
 
 
 def cargo_args(daemons: list[str], target: str | None) -> list[str]:
