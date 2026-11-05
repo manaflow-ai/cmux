@@ -1170,7 +1170,8 @@ function Columns({
               kind="listbox"
               label={t("picker.model")}
               className="acpmux-cols-list"
-              data-cmux-minimal-scroller=""
+              data-cmux-card-scroll=""
+              data-cmux-scroll-only=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
             >
@@ -1239,7 +1240,8 @@ function Columns({
 
             <div
               className="acpmux-cols-list acpmux-cols-tune"
-              data-cmux-minimal-scroller=""
+              data-cmux-card-scroll=""
+              data-cmux-scroll-only=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 2 ? "" : undefined}
               aria-label={t("effort.title")}

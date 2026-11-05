@@ -53,7 +53,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
 
   for (const engine of ["chromium", "webkit"]) {
     for (const left of [16, 496])
-      test(`${engine}: rail hints stay outside the picker at x=${left}, with the account hint centered`, async () => {
+      test(`${engine}: rail hints stay outside the picker at x=${left}, keeping the account hint's default position`, async () => {
         const page = await open(engine, 1200, "quick-menu");
         try {
           await page.keyboard.press("Escape");
@@ -84,13 +84,17 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           await tip.filter({ hasText: "Claude Max" }).waitFor();
           const accountHint = (await tip.boundingBox())!;
           const avatar = (await account.boundingBox())!;
-          expect(Math.abs(accountHint.x + accountHint.width / 2 - avatar.x - avatar.width / 2)).toBeLessThanOrEqual(1);
+          if (left === 16) expect(accountHint.x).toBe(4);
+          else
+            expect(Math.abs(accountHint.x + accountHint.width / 2 - avatar.x - avatar.width / 2)).toBeLessThanOrEqual(
+              1,
+            );
         } finally {
           await page.close();
         }
       });
 
-    test(`${engine}: the minimal model scrollbar keeps a narrow lane and reaches the last row`, async () => {
+    test(`${engine}: the model scrollbar only shows during scrolling and reaches the last row`, async () => {
       const page = await open(engine);
       try {
         await page.addScriptTag({
@@ -100,7 +104,12 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           installScrollers(document);
         `,
         });
-        const scroll = await page.locator(".acpmux-cols-body > [role=listbox]").evaluate((list) => {
+        const column = page.locator(".acpmux-cols-body > [role=listbox]");
+        expect(await column.getAttribute("data-cmux-scrolling")).toBeNull();
+        const thumbColor = () =>
+          column.evaluate((node) => getComputedStyle(node, "::-webkit-scrollbar-thumb").backgroundColor);
+        expect(await thumbColor()).toBe("rgba(0, 0, 0, 0)");
+        const scroll = await column.evaluate((list) => {
           const node = list as HTMLElement;
           node.scrollTop = node.scrollHeight;
           const last = node
@@ -118,6 +127,16 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect(scroll.width).toBeLessThanOrEqual(9);
         expect(scroll.scrollbarWidth).toBe("auto");
         expect(scroll.lastBottom).toBeLessThanOrEqual(scroll.bottom + 1);
+        await page.waitForFunction(() =>
+          document.querySelector(".acpmux-cols-body > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
+        );
+        expect(await thumbColor()).not.toBe("rgba(0, 0, 0, 0)");
+        await page.waitForFunction(
+          () => !document.querySelector(".acpmux-cols-body > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
+        );
+        const bounds = (await column.boundingBox())!;
+        await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height - 12);
+        expect(await thumbColor()).toBe("rgba(0, 0, 0, 0)");
       } finally {
         await page.close();
       }

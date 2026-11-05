@@ -657,6 +657,10 @@ export const CARD_SCROLLER_CSS = `
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
 }
+/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+[${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only]:not([${SCROLLING_ATTRIBUTE}])::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);
 }
