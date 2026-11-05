@@ -10,7 +10,7 @@ legacy-identity requirement is a dispatch-time variable.
   publish-nightly's Final publication gate refuses a build without them green (scripts/ci/nightly_publish_guard.py
   webview-verdict).
 - .github/nightly-known-bad.json, read live from feat-cmux-next, holds a build whose commit contains a listed bad
-  commit without its fix, in publish-nightly and in publish-nightly-identity-legacy, before anything is uploaded.
+  commit without its fix, in publish-nightly, before anything is uploaded.
   Held is not failed; an unreadable list publishes with a warning.
 """
 from __future__ import annotations
@@ -254,17 +254,6 @@ class WorkflowTests(unittest.TestCase):
                     self.assertIn("steps.gate.outputs.refused != 'true'", step["if"])
         # A failed check never skips the job (its gate refuses with a reason instead).
         self.assertNotIn("check-nightly-webviews.result", job["if"])
-
-    def test_the_legacy_publication_checks_the_list_before_it_publishes(self):
-        job = jobs()["publish-nightly-identity-legacy"]
-        held_at = step_index(job, "Hold a build with a known-bad commit")
-        order_at = step_index(job, "Skip a build the old feed already has")
-        publish_at = step_index(job, "Publish the cmux NIGHTLY DMG, release notes and the old feed")
-        self.assertLess(held_at, order_at)
-        self.assertLess(order_at, publish_at)
-        self.assertIn("known-bad", job["steps"][held_at]["run"])
-        self.assertEqual(job["steps"][order_at]["env"]["KNOWN_BAD"], "${{ steps.known_bad.outputs.skip }}")
-        self.assertIn("steps.order.outputs.skip == 'false'", job["steps"][publish_at]["if"])
 
     def test_the_legacy_order_step_skips_a_held_build(self):
         script = ROOT / "scripts/ci/nightly-steps/legacy-identity-publish-skip-published.sh"

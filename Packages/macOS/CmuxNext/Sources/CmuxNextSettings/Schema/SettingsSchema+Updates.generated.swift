@@ -24,6 +24,9 @@ extension UpdatesSettings {
     /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
     public nonisolated static let webPath = ["updates", "web"]
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
+    /// `updates.liveWebReload`: Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: "we probably want to have this feature like toggleable on by default"); a missing web-dev.json changes nothing.
+    public nonisolated static let liveWebReloadPath = ["updates", "liveWebReload"]
+    public nonisolated static let liveWebReloadDefault = true
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
@@ -145,6 +148,16 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.webDefault.rawValue),
                 keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.liveWebReloadPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.liveWebReload", "Live Web Reload"),
+                help: SettingsText.keyed("settings.updates.liveWebReload.help", "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.liveWebReloadDefault),
+                keywords: ["web", "live", "hot reload", "reload", "dev server", "overlay", "edit", "web-dev"]
             ),
             SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,

@@ -1,6 +1,6 @@
 import type { Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
-import { displayInvite, inviteFromRandom, normalizeInvite, PAIRING_TTL_MS, sha256Hex } from "./domains/pairing.ts"
+import { displayInvite, inviteFromRandom, normalizeInvite, sha256Hex } from "./domains/pairing.ts"
 import { collectSecret, watchSecret, watchSecretValid } from "./pair-collect.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite } from "./pairing-do.ts"
@@ -36,7 +36,7 @@ const inviterLabel = (p: Principal): string | null => {
   return label ? label.slice(0, 120) : null
 }
 
-/** server.pair.invite: mint an invite for the caller's team and void the caller's previous one. */
+/** server.pair.invite: mint an invite for the caller's team and void the caller's previous one (pair-invite-owner.ts). */
 export const pairInvite = async (env: Env, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string }): Promise<OpReply> => {
   const op = frame.op
   const key = frame.idempotency_key
@@ -50,16 +50,33 @@ export const pairInvite = async (env: Env, principal: Principal, frame: { op: st
   const user = principal.user!
   if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) return fail(op, key, "auth.forbidden", "only team owners and admins may add a server")
   const now = Date.now()
+  // Idempotent per person and request key: the owner records the key before the invite is minted.
+  const keyHash = await sha256Hex(key)
+  const ownerStub = ownedStub(env, user)
+  const reply = (invite: string, expiresAt: number, secret: string, replayed: boolean): OpReply => ({
+    ok: true, op, value: { invite, display: displayInvite(invite), expires_at: expiresAt, watch_secret: secret }, transaction: "", idempotency_key: key, replayed, stream: "pairing", sequence: 0
+  })
   // 50-bit codes: a collision with a live invite is negligible; try a few anyway.
   for (let attempt = 0; attempt < 5; attempt++) {
-    const invite = inviteFromRandom(crypto.getRandomValues(new Uint8Array(7)))
-    const secret = await watchSecret(env, invite)
+    const candidate = inviteFromRandom(crypto.getRandomValues(new Uint8Array(7)))
+    const begun = await ownerStub.inviteOwnerBegin(keyHash, candidate, team, now)
+    if (begun.state === "conflict") return fail(op, key, "idempotency.conflict", "this idempotency key made an invite for another team")
+    const invite = begun.state === "fresh" ? candidate : begun.invite
+    const secret = await watchSecret(env, invite, user, keyHash)
+    if (begun.state === "replay" && begun.expires_at !== null) return reply(invite, begun.expires_at, secret, true)
     const minted = await inviteStub(env, invite).inviteMint({ invite, approver: user, team, inviter: inviterLabel(principal), watch_hash: await sha256Hex(secret), now })
-    if (!minted.ok) continue
-    // An invite lives at most its window plus a pairing code begun at its last moment.
-    const { previous } = await ownedStub(env, user).inviteReplaceOwned(invite, minted.expires_at + PAIRING_TTL_MS, now)
-    if (previous) await voidInvite(env, previous, "replaced", now)
-    return { ok: true, op, value: { invite, display: displayInvite(invite), expires_at: minted.expires_at, watch_secret: secret }, transaction: "", idempotency_key: key, replayed: false, stream: "pairing", sequence: 0 }
+    if (!minted.ok) {
+      await ownerStub.inviteOwnerForget(keyHash, invite)
+      continue
+    }
+    // Makes it the live invite and voids the previous one; a void that fails is retried on the owner's alarm.
+    const committed = await ownerStub.inviteOwnerCommit(keyHash, invite, minted.expires_at, now)
+    if (!committed.ok) {
+      // The owner gave the key up (this request stalled past its recheck): this invite must not stay live.
+      await voidInvite(env, invite, "replaced", now)
+      return fail(op, key, "owner.unreachable", "making the invite took too long, try again", true)
+    }
+    return reply(invite, minted.expires_at, secret, begun.state === "replay")
   }
   return fail(op, key, "owner.unreachable", "no free invite code, try again", true)
 }

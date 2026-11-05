@@ -335,6 +335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        // Before any page asks: Live Web Reload off ignores web-dev.json from the first request.
+        WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

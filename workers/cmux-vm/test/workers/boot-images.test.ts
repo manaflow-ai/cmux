@@ -37,6 +37,19 @@ describe("approved service boot images", () => {
     expect(t.upstreamRequests).toHaveLength(0);
   });
 
+  it("lists the approved images in configured order, not by id", async () => {
+    const later = { id: "cloud-native-a6d444a", revision: "r2", displayName: "Newer", snapshotId: SNAPSHOT, services: ["cloud-driver"] };
+    const earlier = { id: "cloud-native-91d3ea0", revision: "r1", displayName: "Rollback", snapshotId: SNAPSHOT, services: ["cloud-driver"] };
+    const t = await harness({ bootImages: JSON.stringify([later, earlier]) });
+    const key = await service(t);
+    const response = await t.request("/v1/vm-images", headers(key));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [
+      { id: "cloud-native-a6d444a", revision: "r2", displayName: "Newer" },
+      { id: "cloud-native-91d3ea0", revision: "r1", displayName: "Rollback" },
+    ] });
+  });
+
   it("does not turn ordinary VM write permission into image-service authority", async () => {
     const t = await harness();
     const key = await t.addKey("team_alpha", ["vm:write"]);
