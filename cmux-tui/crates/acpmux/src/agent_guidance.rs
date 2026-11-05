@@ -37,6 +37,8 @@ const MAX_FILES_PER_SKILL: usize = 200;
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// A skill folder deeper than this is not walked further.
 const MAX_DEPTH: usize = 4;
+/// A skill's description in the first-turn index is cut to this many characters.
+const MAX_DESCRIPTION_CHARS: usize = 300;
 
 /// Claude Code's first-turn guidance: when to read the `cmux:cmux-chat` skill.
 pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your TodoWrite list as a checklist, your sub-sessions in a tray and session links as chips. Read the cmux:cmux-chat skill before a task with more than one step, before starting or offering another session, and before ending a turn that changed files (it says how to end with a short recap). cmux defaults; the person's own instructions win.";
@@ -145,12 +147,17 @@ pub fn user_skills(dir: &Path) -> Vec<UserSkill> {
         .filter_map(|e| {
             let skill_dir = e.path();
             let file = skill_dir.join("SKILL.md");
-            if std::fs::metadata(&file).map_or(true, |m| !m.is_file() || m.len() > MAX_FILE_BYTES) {
+            // `symlink_metadata`: a symlinked SKILL.md is refused, so the index never points an
+            // agent outside the skills folder.
+            if std::fs::symlink_metadata(&file)
+                .map_or(true, |m| !m.file_type().is_file() || m.len() > MAX_FILE_BYTES)
+            {
                 return None;
             }
             let text = std::fs::read_to_string(&file).ok()?;
             match frontmatter(&text) {
                 Some((name, description)) if valid_name(&name) => {
+                    let description = cap_description(&description);
                     Some(UserSkill { name, description, dir: skill_dir })
                 }
                 _ => {
@@ -167,6 +174,13 @@ pub fn user_skills(dir: &Path) -> Vec<UserSkill> {
     skills.dedup_by(|a, b| a.name == b.name);
     skills.truncate(MAX_USER_SKILLS);
     skills
+}
+
+/// `description` cut to `MAX_DESCRIPTION_CHARS`, with an ellipsis when cut.
+fn cap_description(description: &str) -> String {
+    let mut chars = description.chars();
+    let head: String = chars.by_ref().take(MAX_DESCRIPTION_CHARS).collect();
+    if chars.next().is_some() { format!("{head}…") } else { head }
 }
 
 /// A skill name Claude Code accepts: lowercase letters, digits and `-`, at most 64.
@@ -393,6 +407,31 @@ mod tests {
         let off = Switches { codex: false, ..on };
         let only_index = first_turn_text(Family::Codex, &off, &skills).unwrap();
         assert!(only_index.starts_with("The person's own skills"), "{only_index}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_skill_md_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("SKILL.md");
+        std::fs::write(&target, "---\nname: outside\ndescription: Not in the folder.\n---\n")
+            .unwrap();
+        std::fs::create_dir_all(root.path().join("outside")).unwrap();
+        std::os::unix::fs::symlink(&target, root.path().join("outside/SKILL.md")).unwrap();
+        assert!(user_skills(root.path()).is_empty(), "the index must not point outside the folder");
+    }
+
+    #[test]
+    fn a_long_description_is_cut_in_the_index() {
+        let root = tempfile::tempdir().unwrap();
+        let long = "word ".repeat(2000);
+        skill(root.path(), "long", &format!("---\nname: long\ndescription: {long}\n---\n"));
+        let skills = user_skills(root.path());
+        assert_eq!(skills[0].description.chars().count(), MAX_DESCRIPTION_CHARS + 1);
+        assert!(skills[0].description.ends_with('…'));
+        let codex = first_turn_text(Family::Codex, &Switches::default(), &skills).unwrap();
+        assert!(codex.len() < AGENT_GUIDANCE.len() + 1000, "{} bytes", codex.len());
     }
 
     #[test]

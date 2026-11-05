@@ -665,7 +665,9 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
-    let plugin_dir = match materialize(&inputs.state_dir) {
+    // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
+    let chat_skill = crate::agent_guidance::Switches::current().claude;
+    let plugin_dir = match materialize(&inputs.state_dir, chat_skill) {
         Ok(dir) => Some(dir),
         Err(e) => {
             tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
@@ -1044,9 +1046,12 @@ fn user_plugin(state_dir: &Path) -> Option<PathBuf> {
 
 /// The plugin folder for the compiled-in skills, written once per content
 /// hash (to a temporary folder, then renamed, so a reader never sees half).
-fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
+/// `chat_skill` false leaves out `cmux-chat` (the `agents.guidance.claude` switch).
+fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
+    let skill_files: Vec<&(&str, &str)> =
+        SKILL_FILES.iter().filter(|(p, _)| chat_skill || !p.starts_with("cmux-chat/")).collect();
     let mut all = Vec::new();
-    for (path, text) in SKILL_FILES {
+    for (path, text) in skill_files.iter().copied() {
         all.extend_from_slice(path.as_bytes());
         all.push(0);
         all.extend_from_slice(text.as_bytes());
@@ -1068,7 +1073,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
         "version": env!("CARGO_PKG_VERSION"),
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
-    files.extend(SKILL_FILES.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
+    files.extend(skill_files.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
     files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);

@@ -59,14 +59,17 @@ It is captured when the chat is created, like the rest of the first-turn context
   `CMUX_AGENT_SKILLS_DIR` for tests), the same SKILL.md format Claude Code and Codex use, with
   `name` and `description` frontmatter. Claude Code gets them as a second session plugin,
   `cmux-user` (`cmux-user:<name>`), copied per content hash under `<ACPMUX_HOME>/agent-tools/`
-  (regular files only, no symlinks, size and count limits). Other harnesses get an index (name,
-  description, path) in the first-turn context and read the file when it applies.
+  (regular files only, no symlinks, size and count limits). A symlinked SKILL.md is refused.
+  Other harnesses get an index (name,
+  description cut to 300 characters, path) in the first-turn context and read the file when it
+  applies.
 - **Text**: the existing Context viewer override (user or project) stays the way to change the
   always-on rule.
 - **Switches**, all on by default, in Settings > Agents > Guidance and Skills, the palette,
   `cmux settings get|set` and MCP `settings_get` (agents may not set them: `userOnly`):
   `agents.guidance.claude`, `agents.guidance.codex`, `agents.guidance.otherAgents`,
-  `agents.guidance.userSkills`. They apply to chats created after the change.
+  `agents.guidance.userSkills`. They apply to chats created after the change. The Claude switch
+  also leaves `cmux-chat` out of the session plugin.
 
 ## Later
 
