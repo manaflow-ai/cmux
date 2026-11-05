@@ -456,6 +456,13 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A submodule whose commit is on its remote seeds at that commit even with
+/// uncommitted changes in it: the changes stay on this Mac and the plan
+/// names the submodule, so the folder is cloned on the machine instead of
+/// copied whole. RED before: any uncommitted change in a submodule refused
+/// the seed (cmuxterm-hq's three submodules), and the start copied 12.8 GB.
+/// A submodule commit that is not on its remote still refuses: the machine
+/// could not fetch it.
 #[test]
 fn submodule_local_work_falls_back() {
     let f = Fixture::new();
@@ -477,8 +484,15 @@ fn submodule_local_work_falls_back() {
 
     let checkout = f.work.join("vendor/lib");
     write(&checkout.join("lib.txt"), "dirty\n");
-    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
-    assert_eq!(dirty.code, FallbackCode::SubmoduleLocalWork, "{}", dirty.why);
+    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_or_else(|why| panic!("{why:?}"));
+    assert_eq!(dirty.submodules[0].commit, lib_head);
+    let named: Vec<(&str, &str)> =
+        dirty.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    assert_eq!(
+        named,
+        [("vendor/lib/", "a submodule's uncommitted changes stay on this Mac")],
+        "{named:?}"
+    );
     git(&checkout, &["commit", "-q", "-am", "local only"]);
     let unpushed = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
     assert_eq!(unpushed.code, FallbackCode::SubmoduleLocalWork, "{}", unpushed.why);
