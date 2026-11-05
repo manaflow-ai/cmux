@@ -95,6 +95,10 @@ WRAP_KIND_PAD = 8
 # its layout width frozen while its pane grows (a page-colored gap)
 PAGE_LAG = {"strip-page-lag2": 2, "strip-page-lag3": 3, "strip-page-lag2-bg": 2}
 PAGE_CLIP = {"strip-page-clip": 1, "strip-page-clip-wide": 8}  # samples late; the host's clip at the pane edge
+# m20 item 8 markers (pixel/page.html mk=HEX): a 2 CSS px stripe at the page's center and one ending MARKER_INSET_CSS from
+# its right edge, full height, in the marker color; MARKER_VARIANTS: on time; the center marker one frame at the old center
+MARKER_COLOR, MARKER_INSET_CSS = BLUE, 26
+MARKER_VARIANTS = ("strip-page-markers", "strip-page-markers-jump")
 WRAP_COLORS = [(200, 60, 20), (20, 160, 60), (60, 60, 200)]
 WRAP_LINE_ROWS = 4         # each line: 3 full rows, then a last row of 5 cells
 
@@ -165,6 +169,7 @@ def a_width(k, variant):
     if variant == "strip-wrap-narrow":
         return float(A_REST + 4 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))  # grows 80 px over samples 10-29
     sign = -1 if variant in ("cut", "backdrop", "strip-page-lag2", "strip-page-lag3", "strip-page-lag2-bg", "strip-page-frozen",
+                             "strip-page-markers", "strip-page-markers-jump",
                              "strip-wrap-crop", "strip-wrap-kind-crop") else 1  # A shrinks
     return float(A_REST + sign * 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
 
@@ -196,11 +201,18 @@ def draw_tui_at(img, x0, w, fill, y0=0):
                 [RED, WHITE, BLACK][k] if k < 3 else fill
 
 
-def draw_page(img, x0, w, y0=0, fill=GREEN, rings=(2, 4, 6)):
-    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px (RINGS) of red, white, black, then the fill."""
+def draw_page(img, x0, w, y0=0, fill=GREEN, rings=(2, 4, 6), markers=False, center_at=None):
+    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px (RINGS) of red, white, black, then the fill.
+    MARKERS: page.html's mk stripes (2 CSS px = 4 device px): one centered (CENTER_AT: its left edge, device px, else the
+    page's center), one ending MARKER_INSET_CSS from the page's right edge."""
     x0, w = int(round(x0)), int(round(w))
     x0c = max(x0, 0)
     img[y0:, x0c:x0 + w] = fill
+    if markers:
+        c = int(round(x0 + w / 2 - 2)) if center_at is None else int(round(center_at))
+        r = x0 + w - MARKER_INSET_CSS * 2
+        img[y0:, c:c + 4] = MARKER_COLOR
+        img[y0:, r - 4:r] = MARKER_COLOR
     inset = 0
     for color, width in zip((RED, WHITE, BLACK), rings):
         a, b = x0 + inset, x0 + w - inset
@@ -304,6 +316,12 @@ def frame(k, variant):
         draw_page(img, b_x, W - b_x, y0=y0, rings=(4, 8, 12))  # B's page stretched: its rings twice as wide
     elif variant == "strip-squeeze" and 20 <= k <= 22:
         draw_page(img, b_x, W - b_x, y0=y0, rings=(1, 2, 3))  # m14: B's page squeezed: its rings half as wide
+    elif variant in MARKER_VARIANTS:
+        # m20 item 8: B grows (A shrinks); strip-page-markers-jump keeps B's center marker at its rest place in frames 15-17
+        jumped = variant == "strip-page-markers-jump" and 15 <= k <= 17
+        rest_b = A_REST + DIV_PX
+        draw_page(img, b_x, W - b_x, y0=y0, markers=True,
+                  center_at=(rest_b + (W - rest_b) / 2 - 2) if jumped else None)
     elif variant == "strip-page-frozen" and MOVE[0] <= s < MOVE[1]:
         # m20: B's layout width frozen at rest while its pane grows: on its lo edge, the host's page-colored gap beyond
         rest_w = W - (A_REST + DIV_PX)
@@ -820,6 +838,9 @@ def build(root, name, variant):
     if variant in WRAP_VARIANTS:
         note["panes"]["pa"]["wrap"] = {"cell_px": CW, "pad_px": PAD,
                                        "colors": ["#%02X%02X%02X" % c for c in WRAP_COLORS]}
+    if variant in MARKER_VARIANTS:
+        note["panes"]["pb"]["markers"] = {"color": "#%02X%02X%02X" % MARKER_COLOR, "right_inset_css": MARKER_INSET_CSS,
+                                          "width_css": 2}
     if variant in WRAP_KIND_VARIANTS:
         note["panes"]["pa"] = {"kind": "wrap", "label": "p0"}  # the kit's wrap pane: no fill, no wrap facts (defaults)
     if variant == "spring":
@@ -2242,6 +2263,36 @@ class TerminalBandTests(unittest.TestCase):
         row = self.reports["strip-tui-band"]["m18"]["kinds"]["terminal"]
         self.assertGreater(row["lost_sides"], 0, row)
         self.assertTrue(row["lost_sides_ranges"], row)
+
+
+class PageMarkerTests(unittest.TestCase):
+    """m20 item 8 (Lead STATUS 14130): centered and right-aligned page content must not jump. pixel/page.html mk=HEX draws
+    a 2 CSS px stripe at the page's center and one ending right_inset_css from its right edge (the note's pane `markers`).
+    Per frame and scan row through the page, with both of its ring 1 edges found: the center stripe's middle within
+    1.5 px of the middle of the two ring edges, the right stripe's right edge within 1.5 px of the right ring edge less the
+    inset. Elsewhere, or missing, is `jump` (an m20 fail): the page's content is not where its own layout puts it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-markers-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True) for v in MARKER_VARIANTS}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def row(self, variant):
+        return self.reports[variant]["m20"]["kinds"]["page"]
+
+    def test_markers_at_their_layout_place_pass(self):
+        row = self.row("strip-page-markers")
+        self.assertEqual((row["jump"], row["fail"]), (0, 0), row)
+        self.assertGreater(row["marker_frames"], 50)
+
+    def test_a_center_marker_at_its_old_place_jumps(self):
+        row = self.row("strip-page-markers-jump")
+        self.assertEqual((row["jump_ranges"], row["fail_ranges"]), ("15-17", "15-17"), row)
+        self.assertGreaterEqual(row["worst_px"], 4.0)
 
 
 class M20ContractTests(unittest.TestCase):
