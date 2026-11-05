@@ -68,10 +68,10 @@ enum NewTabSlot {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
         let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
-        return { surface in
+        return { [weak pane] surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
-            place(in: { home(of: target.anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0) }
+            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0, pane: pane, open: open) }
         }
     }
 
@@ -79,11 +79,12 @@ enum NewTabSlot {
     static func placing(_ target: Target?, services: AppServices,
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
         guard let target else { return then }
-        if let pane = home(of: target.anchor, services) { begin(target, in: pane, services: services) } // shown in its slot at once
-        return { key in
+        let pane = home(of: target.anchor, services)
+        let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
+        return { [weak pane] key in
             then?(key)
-            place(in: { home(of: target.anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
-                slot(for: target, in: $0)
+            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
+                slot(for: target, in: $0, pane: pane, open: open)
             }
         }
     }
@@ -92,7 +93,7 @@ enum NewTabSlot {
     private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         switch target {
         case .after(let anchor): NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
-        case .start: NewTabSuccession.begin(atStartOf: pane, services: services)
+        case .start: NewTabSuccession.begin(after: nil, in: pane, services: services)
         }
     }
 
@@ -112,9 +113,9 @@ enum NewTabSlot {
         let before = index > 0 ? pane.tabs[index - 1] : nil
         return { surface in
             then(surface)
-            place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { others in
+            place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { [weak pane] others in
                 guard let before else { return others.prefix { $0.pinned }.count }
-                return others.firstIndex { $0 === before }.map { $0 + 1 }
+                return others.firstIndex { $0 === before }.map { $0 + 1 } ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
             }
         }
     }
@@ -148,11 +149,12 @@ enum NewTabSlot {
         })
     }
 
-    /// The final index for `target` among `others` (the pane's tabs but the new one); nil when
-    /// an after-anchor left. The start is right after the pinned tabs.
-    static func slot(for target: Target, in others: [TabModel]) -> Int? {
+    /// The final index for `target` among `others` (the pane's tabs but the new one); when an after-anchor
+    /// left, where `pane`'s `open` re-anchored the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil.
+    /// The start is right after the pinned tabs.
+    static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil) -> Int? {
         switch target {
-        case .after(let anchor): slot(after: anchor, in: others)
+        case .after(let anchor): slot(after: anchor, in: others) ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
         case .start: others.prefix { $0.pinned }.count
         }
     }

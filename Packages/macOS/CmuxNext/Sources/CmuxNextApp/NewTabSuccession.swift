@@ -24,8 +24,8 @@ struct NewTabSuccession {
 
     /// The New Tab page the new tab replaces, if it replaces one.
     let page: StripTabID?
-    /// The tab the new one goes right after; nil: the first unpinned slot.
-    let before: StripTabID?
+    /// The tab the new one goes right after; nil: the first unpinned slot. Re-anchored when it closes first.
+    var before: StripTabID?
     /// The pane's daemon tabs when the open started.
     let known: Set<String>
     /// The new tab's surface once known.
@@ -46,16 +46,10 @@ struct NewTabSuccession {
         return begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
     }
 
-    /// Starts showing the pane's next new tab right after `anchor`. Returns the open, for `made`.
+    /// Starts showing the pane's next new tab right after `anchor`, or first after its pinned tabs for nil. Returns the open, for `made`.
     @discardableResult
-    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    static func begin(after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         begin(page: nil, after: anchor, in: pane, services: services)
-    }
-
-    /// Starts showing the pane's next new tab first, after its pinned tabs. Returns the open, for `made`.
-    @discardableResult
-    static func begin(atStartOf pane: PaneModel, services: AppServices) -> DemandTimer? {
-        begin(page: nil, after: nil, in: pane, services: services)
     }
 
     private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
@@ -84,6 +78,9 @@ struct NewTabSuccession {
         deadline = ContinuousClock.now.advanced(by: Self.orderLimit)
         expire(after: Self.orderLimit)
     }
+
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once a later open replaced it.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)].flatMap { $0.expiry === open ? $0 : nil }.map { open in open.before.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { NewTabSlot.slot(after: $0, in: others) } ?? others.prefix { $0.pinned }.count } }
 
     private func expire(after limit: Duration) {
         guard let pane else { return }
@@ -130,7 +127,8 @@ struct NewTabSuccession {
         }
         if succession.surface != made { succession.found(made) }
         var others = snapshot.items.filter { $0.id != item.id && $0.id != succession.page }
-        // `NewTabSlot`'s slot: the page's, else right after the anchor's group, never among the pinned tabs.
+        if let before = succession.before, !others.contains(where: { $0.id == before }) { succession.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id))) }
+        // `NewTabSlot`'s slot: the page's, else right after the anchor's group (re-anchored above when it closed), never among the pinned tabs.
         var slot = others.prefix { $0.isPinned }.count
         if let before = succession.before, var index = others.firstIndex(where: { $0.id == before }) {
             if succession.page == nil, let group = others[index].groupID {
