@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextBrowserImport
 import Foundation
 import Testing
 
@@ -38,7 +39,7 @@ import Testing
     }
 
     @Test func theBundledRowsOfferHeliumWithItsExportPages() throws {
-        let helium = try #require(BrowserExportSource.all.first { $0.id == "helium" })
+        let helium = try #require(BrowserFileImport.exportRows().first { $0.id == "helium" })
         #expect(helium.name == "Helium")
         #expect(helium.family == .chromium)
         #expect(helium.bundleIDs == ["net.imput.helium"])
@@ -48,7 +49,7 @@ import Testing
 
     @Test func everyBundledBrowserRowCanBeDetected() {
         // Password managers too: 1Password and Bitwarden are apps Launch Services finds.
-        for source in BrowserExportSource.all {
+        for source in BrowserFileImport.exportRows() {
             #expect(!source.bundleIDs.isEmpty, "\(source.id) has no bundle id to detect it by")
         }
     }
