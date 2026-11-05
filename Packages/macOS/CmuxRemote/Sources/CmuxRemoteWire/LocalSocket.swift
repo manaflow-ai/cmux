@@ -149,14 +149,6 @@ public struct SocketPeer: Sendable {
         uid = credentials.cr_uid
         self.token = token
     }
-
-    /// The peer's executable path (`proc_pidpath`), or nil.
-    public var executablePath: String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
-        guard length > 0 else { return nil }
-        return String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    }
 }
 
 /// Unix stream sockets at a path.
