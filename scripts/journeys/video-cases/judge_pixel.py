@@ -329,10 +329,19 @@ def with_cue(codes, near_shell, bands):
 # ---------------------------------------------------------------------------------------------------------------
 # One side of one pane on one line
 # ---------------------------------------------------------------------------------------------------------------
-def walk_side(codes, start, step, kind, roles, fill, skip_px):
+def _touch_at_stop(outer, stop, step):
+    """3e.3: whether a ground run that ends at OUTER (a pixel boundary, outward in STEP) runs on past STOP, the pane's
+    own edge where another pane's cell or a closing ground begins: then the run is this pane's ground and the other
+    pane's in one color with no boundary between them, and this pane's view edge is not in the pixels."""
+    return (outer - stop) * step > 0.5
+
+
+def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
     """From START (a fill pixel), outward in STEP (-1 or +1): skip fill and "other" up to skip_px, then rings 3, 2, 1,
     then the ground strip (terminal), then what is beyond (a cue run is skipped and counted). Positions are pixel
-    boundaries; an "other" pixel between two runs counts half to each. `found`: how many rings were found."""
+    boundaries; an "other" pixel between two runs counts half to each. `found`: how many rings were found. STOP (device
+    px): the pane's own edge where another pane's cell or a closing ground begins (3e.3): `touch` is True when the
+    ground strip runs on past it (_touch_at_stop)."""
     L = len(codes)
     i, skipped = start + step, 0
     while 0 <= i < L and codes[i] in (fill, OTHER) and skipped < skip_px:
@@ -349,7 +358,7 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
         return j
 
     expected = ["ring3", "ring2", "ring1"] + (["theme"] if kind == "tui" else [])
-    widths, edges, pos, cue_px = {}, {}, i, 0.0
+    widths, edges, pos, cue_px, touch = {}, {}, i, 0.0, False
     cell = 0.0  # ring 1's width: one terminal cell along this line
     merged = False
     for role in expected:
@@ -367,6 +376,8 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
             continue
         a = pos
         pos = run_end(pos, want)
+        if role == "theme" and stop is not None:
+            touch = _touch_at_stop(boundary(pos) if 0 <= pos < L else (float(L) if step > 0 else 0.0), stop, step)
         if role == "theme" and cell > 0 and abs(pos - a) > cell + GROUND_PAD_MAX_PX:
             # The ground strip is Ghostty's padding and the whole-cell remainder: at most a cell and the padding. A longer
             # run goes on into a neighbour that shows ground color too (an empty terminal): this pane's view edge does
@@ -402,11 +413,21 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
     return {"rings": [widths["ring1"], widths["ring2"], widths["ring3"]],
             "strip": widths["theme"] if kind == "tui" else None, "ring_edge": ring_edge, "view_edge": view_edge,
             "beyond": beyond, "beyond_px": beyond_px, "gap": gap, "skipped": skipped, "found": found, "cue_px": cue_px,
-            "merged": merged}
+            "merged": merged, "touch": touch}
 
 
-def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip):
-    """One side of a pane on one line: {status: found | cut | cue | not found, ...walk_side's fields}."""
+TOUCH_NOT_JUDGED = ("its ground strip runs on into another pane's ground past its own edge (two grounds of one color: "
+                    "the edge between them is not in the pixels)")
+
+
+def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None):
+    """One side of a pane on one line: {status: found | cut | cue | not found, ...walk_side's fields}. STOP: the pane's
+    own edge where another pane's cell or a closing ground begins in the shown sample (3e.3, measure): a side whose ground
+    runs on past it is not found (not judged, never a pass)."""
+
+    def touched(w):
+        return {"status": "not found", "why": TOUCH_NOT_JUDGED} if w.get("touch") else None
+
     L = len(codes)
     ring3 = roles["ring3"]
 
@@ -422,17 +443,17 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip):
 
     e = int(round(edge))
     for c in candidates(e - near, e + near):
-        w = walk_side(codes, c, step, kind, roles, fill, skip)
+        w = walk_side(codes, c, step, kind, roles, fill, skip, stop)
         if w["found"] >= 2 and w["merged"]:
             return {"status": "not found", "why": "its ground strip runs on into a neighbour's ground"}
         if w["found"] >= 2:
-            return dict(w, status="found")
+            return touched(w) or dict(w, status="found")
         if w["cue_px"] > 0:
             return dict(w, status="cue")
     for c in candidates(a, b):
-        w = walk_side(codes, c, step, kind, roles, fill, skip)
+        w = walk_side(codes, c, step, kind, roles, fill, skip, stop)
         if w["found"] == 3 and not w["merged"]:
-            return dict(w, status="found")
+            return touched(w) or dict(w, status="found")
     if kind == "tui":
         # The grid shrank before the program redrew: inside the pane, near the edge, the fill borders the ground strip.
         lo, hi = max(a, e - near), min(b, e + near)
@@ -447,6 +468,8 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip):
                 while 0 <= j < L and codes[j] == roles["theme"]:
                     j += step
                 view_edge = (float(j) if step > 0 else float(j + 1)) if 0 <= j < L else (float(L) if step > 0 else 0.0)
+                if stop is not None and _touch_at_stop(view_edge, stop, step):
+                    return {"status": "not found", "why": TOUCH_NOT_JUDGED}
                 beyond = CLASS.get(int(codes[j]), "other") if 0 <= j < L else None
                 k = j
                 while 0 <= k < L and codes[k] == roles["shell"]:
@@ -496,9 +519,35 @@ def band_to_neighbour(sample, pid, axis, side, s):
     return None if best is None else best * s
 
 
-def measure(film, codes, axis, coord_px, sample):
+def touching_edge(film, sample, closing, pid, axis, side, coord_px):
+    """3e.3: pane PID's SIDE edge (device px) when, in SAMPLE, another pane's rect that can show the terminal ground color
+    at its edge (a terminal's padding; a pane the fixture does not know; faded or not) or a closing ground (CLOSING: the
+    sample's S3d `closing` rows) begins at it (within TOL_PX) and spans the line at COORD_PX across it: ground past that
+    edge may be the other pane's. A fixture page shows its rings and fill there, never the ground color: no stop (ground
+    past the edge into a page is this pane's own). Else None."""
+    s = film.scale
+    (x, y, w, h), _ = pane_rect(sample.panes[pid])
+    lo, hi = (x, x + w) if axis == "row" else (y, y + h)
+    edge = (hi if side == "hi" else lo) * s
+    for other, row in list(sample.panes.items()) + [(r[0], r) for r in closing]:
+        if str(other) == str(pid) or len(row) < 5 or float(row[3]) <= 0 or float(row[4]) <= 0:
+            continue
+        info = film.panes.get(str(other))
+        if info and info["kind"] == "page" and info["fill"] != film.roles["theme"] and not any(r is row for r in closing):
+            continue
+        (ox, oy, ow, oh), _ = pane_rect(row)
+        o_lo, o_hi, a0, a1 = (ox, ox + ow, oy, oy + oh) if axis == "row" else (oy, oy + oh, ox, ox + ow)
+        if not a0 * s <= coord_px < a1 * s:
+            continue
+        if abs((o_lo if side == "hi" else o_hi) * s - edge) <= TOL_PX:
+            return edge
+    return None
+
+
+def measure(film, codes, axis, coord_px, sample, closing=()):
     """{pane id: {"lo": side, "hi": side, "span": [lo, hi], "shell_in": px, "has_fill": bool}} for the fixture panes whose
-    content (below their tab strip) this line crosses."""
+    content (below their tab strip) this line crosses. CLOSING: the sample's S3d closing grounds (3e.3: a side whose ground
+    meets another pane's ground at its own edge)."""
     s = film.scale
     out = {}
     near, skip = int(NEAR_PT * s), int(SKIP_PT * s)
@@ -524,7 +573,8 @@ def measure(film, codes, axis, coord_px, sample):
             if not shown_edge:
                 sides[side] = None  # this edge is not on screen
                 continue
-            m = find_side(codes, a, b, edge, step, info["kind"], film.roles, info["fill"], near, skip)
+            stop = touching_edge(film, sample, closing, pid, axis, side, coord_px) if info["kind"] == "tui" else None
+            m = find_side(codes, a, b, edge, step, info["kind"], film.roles, info["fill"], near, skip, stop)
             if m.get("view_edge") is not None:
                 band = band_to_neighbour(sample, pid, axis, side, s)
                 band = GAP_CAP_PX if band is None else min(GAP_CAP_PX, band)
@@ -826,7 +876,7 @@ def measure_lines(film, lines, shown):
                 continue
             codes = with_cue(codes_all[f], near_shell[f], divider_bands(film, film.samples[k], axis, coord))
             per_line.append(codes)
-            for pid, m in measure(film, codes, axis, coord, film.samples[k]).items():
+            for pid, m in measure(film, codes, axis, coord, film.samples[k], film.closing_rows[k]).items():
                 inside.setdefault((pid, name, axis), [None] * film.n)[f] = (m["shell_in"], m["has_fill"])
                 for side in ("lo", "hi"):
                     measured.setdefault((pid, name, axis, side), [None] * film.n)[f] = m[side]
@@ -1149,6 +1199,8 @@ def judge(base, all_frames=False):
             status = m.get("status")
             if status == "not found":
                 lists["not_found"].append(f)
+                if m.get("why"):
+                    entry["why"] = m["why"]  # why the side is not judged in this frame (3e.3: two grounds touch)
                 entry["problems"] = problems
                 add_frame(f, entry)
                 continue
@@ -1430,7 +1482,10 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     of a kind: fail if an edge fails, else late, else page late 1, else pass; not judged when none of its edges can be
     judged. E7: frames where every strip edge (x on the strip rows, the strip tops on the columns) that moved into the
     frame's sample on the fixed clock is one sample late are late as a whole (the window presented the whole frame late);
-    against the film's own clock (3d) a whole-late film shows none (its clock took the lag), so E7 reads the fixed clock. Program grid size per press (E8) is not a film fact."""
+    against the film's own clock (3d) a whole-late film shows none (its clock took the lag), so E7 reads the fixed clock. Program grid size per press (E8) is not a film fact.
+    3e.3: a terminal side whose ground runs on into another pane's ground past its own edge has no content edge in the
+    pixels: it is not judged (never a pass); per kind, `touch_not_judged` counts those edges and
+    `touch_not_judged_ranges` gives their frames."""
     edges = strips.get("edges") or {}
     tops = strips.get("tops") or {}
     prev_strip = {pid: _previous_distinct(ext) for pid, ext in edges.items()}
@@ -1442,6 +1497,8 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     rules = {kind: collections.Counter() for kind in M6_KINDS}
     rule_frames = {kind: collections.defaultdict(set) for kind in M6_KINDS}  # kind -> rule -> frames that fail it
     sources = {kind: collections.Counter() for kind in M6_KINDS}
+    touch_edges = collections.Counter()  # kind -> edges not judged because two grounds touch (3e.3)
+    touch_frames = {kind: set() for kind in M6_KINDS}
     for key, per in sorted(measured.items()):
         if key not in side_rest:
             continue  # a side the pane loop does not judge (no fill on the line at rest)
@@ -1476,6 +1533,10 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
         offset = float(np.median([values[f] - pane_at(f)[0][si] for f in rest[:REST_FALLBACK * 4]])) if rest else 0.0
         for f in range(film.n):
             m = per[f]
+            if m is not None and m.get("why") == TOUCH_NOT_JUDGED:
+                touch_edges[kind] += 1
+                touch_frames[kind].add(f)
+                continue
             if m is None or m.get("status") not in ("found", "cut"):
                 continue
             cur, prev, nxt = pane_at(f)
@@ -1517,7 +1578,8 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                               "not_judged_ranges": ranges(by["not judged"]),
                               "fail_by_rule": {r: rules[kind][r] for r in M6_RULES},
                               "fail_frames_by_rule": {r: ranges(rule_frames[kind][r]) for r in M6_RULES},
-                              "sources": dict(sources[kind]), "edges": dict(edge_counts[kind])}
+                              "sources": dict(sources[kind]), "edges": dict(edge_counts[kind]),
+                              "touch_not_judged": touch_edges[kind], "touch_not_judged_ranges": ranges(touch_frames[kind])}
     late = sorted(set(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
                   | set(late_repeats))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
