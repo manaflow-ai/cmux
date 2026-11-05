@@ -30,3 +30,11 @@ import Testing
         #expect(right.contains(topLeft) && !right.contains(topRight))
     }
 }
+
+/// The goo value's fillets: only `flush-goo` draws them.
+@MainActor @Suite struct CornerFlushGooTests {
+    @Test func onlyGooHasFeet() {
+        #expect(CornerFlush.goo.feetRadius > 0)
+        for value in [CornerFlush.off, .flush, .tight] { #expect(value.feetRadius == 0) }
+    }
+}

@@ -14,11 +14,14 @@ extension TabStripView: TabStripCorner {
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
         let on = CornerFlush.current.isOn
         let foot = on ? max(0, bounds.height - (tabY + tabHeight)) : 0
-        for cell in cells.values { cell.cornerFoot = foot }
         var leads = false
         if on, tabsClip.frame.minX <= 0.5, let id = model.selectedID, let cell = cells[id], let place = placed[id] {
             let frame = cellFrame(place, isPinned: cell.item.isPinned)
             leads = frame.minX <= 0.5 && frame.maxX > 0.5
+        }
+        for (id, cell) in cells {
+            cell.cornerFeetSkipsLeading = leads && id == model.selectedID
+            cell.cornerFoot = foot
         }
         guard leads != leadsWithSelection || (on && !reportedCornerFlush) else { return }
         leadsWithSelection = leads

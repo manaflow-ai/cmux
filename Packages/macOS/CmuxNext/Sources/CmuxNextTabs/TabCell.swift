@@ -77,6 +77,12 @@ final class TabCell {
     var cornerFoot: CGFloat = 0 {
         didSet { if cornerFoot != oldValue, isSelected { stateChanged(animated: false) } }
     }
+    /// The flush corner's concave fillets at the foot (`flush-goo`, `TabCell+CornerFeet`), made on first use;
+    /// `cornerFeetSkipsLeading`: the tab is on the card's edge, where no leading fillet fits.
+    var cornerFeetLayer: CAShapeLayer?
+    var cornerFeetSkipsLeading = false {
+        didSet { if cornerFeetSkipsLeading != oldValue, isSelected { layoutLayers() } }
+    }
     /// The selected tab runs into the card (``cornerFoot``); a lifted (dragged) tab is a pill again.
     var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
     /// The share of the selected fill's alpha a background window's active tab keeps.
@@ -344,6 +350,7 @@ final class TabCell {
             backgroundLayer.backgroundColor = fill?.cgColor
             // The flush corner: the card's own surface, so the tab and the card read as one shape.
             if runsIntoCard { backgroundLayer.backgroundColor = Palette.windowBackground.cgColor }
+            cornerFeetLayer?.fillColor = Palette.windowBackground.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
                 backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
@@ -439,6 +446,7 @@ final class TabCell {
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         if runsIntoCard { backgroundLayer.frame.size.height += cornerFoot }
+        layoutCornerFeet()
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

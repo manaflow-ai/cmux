@@ -22,12 +22,16 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     case flush
     /// No gap on the sidebar's side: the card's left edge is the sidebar's edge.
     case tight = "flush-tight"
+    /// `flush`, and the selected tab meets the card through concave fillets, tangent to both, the
+    /// way two drops of water merge (Leo: "the surface tension of water").
+    case goo = "flush-goo"
 
     public var tunableTitle: String {
         switch self {
         case .off: "Off (today)"
         case .flush: "Flush: the first tab rises from the card's edge"
         case .tight: "Flush, tight: the card meets the sidebar"
+        case .goo: "Flush, goo: the selected tab flows into the card"
         }
     }
 
@@ -43,6 +47,10 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     }
 
     public var isOn: Bool { self != .off }
+
+    /// The radius of the concave fillets where the selected tab meets the card (`flush-goo`); 0 for
+    /// every other value.
+    @MainActor public var feetRadius: CGFloat { self == .goo ? Metrics.scale(8) : 0 }
 
     /// The card's radius: one grid step inside the 16 pt window corner (design/grid.md radii).
     @MainActor public var cardRadius: CGFloat { Metrics.scale(12) }
