@@ -33,6 +33,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
 
     private let primary: any StackAuthTokenStoreProtocol
     private let sources: [Source]
+    private let sharesSessions: Bool
     private var importTask: Task<String?, Never>?
     /// Refresh tokens of sessions this process adopted, and the ones their refreshes replaced them with.
     /// Kept for the process only, never written anywhere.
@@ -42,9 +43,12 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     /// - Parameters:
     ///   - primary: The app's own store; every write goes here.
     ///   - sources: Where a session comes from when `primary` has none, in order.
-    public init(primary: any StackAuthTokenStoreProtocol, sources: [Source]) {
+    ///   - sharesSessions: Whether an adopted session is another app's (the default). False when the
+    ///     sources are this app's own earlier stores: a sign-out then revokes it like any other.
+    public init(primary: any StackAuthTokenStoreProtocol, sources: [Source], sharesSessions: Bool = true) {
         self.primary = primary
         self.sources = sources
+        self.sharesSessions = sharesSessions
     }
 
     /// Runs the import once per process (or not at all after an earlier write) and waits for it.
@@ -76,7 +80,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     /// server: one this process adopted, or refreshed from one it adopted. The sources are not asked
     /// again, so a sign-out never fetches the other app's session.
     public func isShared(refreshToken: String) async -> Bool {
-        adopted.contains(refreshToken)
+        sharesSessions && adopted.contains(refreshToken)
     }
 
     public func getStoredAccessToken() async -> String? {

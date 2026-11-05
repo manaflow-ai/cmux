@@ -225,7 +225,8 @@ public final class CloudAuth {
         )
     }
 
-    /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
+    /// This build's own Keychain store with its file fallback; an empty legacy default adopts, once, a session
+    /// from the namespaced store its update used (``CloudConfiguration/namespacedLegacyStorage(homeDirectory:)``). Signed NEXT DEV on the NIGHTLY account
     /// (``CloudConfiguration/adoptsNightlySession``) instead keeps its session in memory only and, when it
     /// has none, adopts the one a running cmux NIGHTLY hands over (`nightlySession`). NIGHTLY's own session
     /// is only read, never changed or cleared, and a sign-out here leaves it alive on the server
@@ -237,10 +238,18 @@ public final class CloudAuth {
                            memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
-            return FallbackTokenStore(
+            let own = FallbackTokenStore(
                 primary: KeychainStackTokenStore(service: configuration.keychainService),
                 fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
             )
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
+            // Only read: a session signed in while the update read the namespaced store is this app's own.
+            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+            return ImportingTokenStore(primary: own, sources: [{
+                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+            }], sharesSessions: false)
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
