@@ -125,7 +125,7 @@
 }
 
 /* The person's pointer (cursorArt.tsx PersonPointerArt), a second telepointer at the frame's
-   fractions (--cu-person-x/-y): a plain 12px arrow in the page's text tone, rimmed in the page's
+   fractions (--cu-person-x/-y): a plain 12px arrow in the page's text tone, rimmed in the opaque page
    colour so it reads over a light or a dark window, with a "You" label on a small-radius rect at its
    lower right. Fixed size, under the agent's cursor. Outside the window it fades out where it was
    (the host clamps the point to the edge); still for a while, it dims. */
@@ -153,7 +153,7 @@
 }
 .acpmux-cu-preview__person-arrow > path {
   fill: var(--agent-text);
-  stroke: var(--agent-page-bg);
+  stroke: var(--acpmux-base, var(--agent-accent-text, Canvas));
   stroke-width: 2px;
   stroke-linejoin: round;
   paint-order: stroke;
@@ -163,7 +163,8 @@
   padding: 0 var(--ds-space-1, 4px);
   border-radius: var(--ds-radius-sm, 4px);
   background: var(--agent-text);
-  color: var(--agent-page-bg);
+  /* The opaque page colour, never the page background (clear in a see-through window). */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
   font: inherit;
   font-size: var(--text-caption);
   line-height: 14px;
