@@ -447,7 +447,11 @@ impl Mux {
                             )?,
                         ));
                     }
-                    let focused = &state.resource_indexes.pane_ids[&screen.active_pane];
+                    let focused = state
+                        .resource_indexes
+                        .pane_ids
+                        .get(&screen.active_pane)
+                        .context("focused pane has no public identity")?;
                     if *focused != source_pane_id {
                         let pane = topology_pane(&after, focused)?;
                         deltas.push(upsert(
