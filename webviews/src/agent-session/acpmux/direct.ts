@@ -703,11 +703,12 @@ function queuedEntry(
   };
 }
 
-/// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it
-/// while it is still another agent's message. An edit makes it the person's (hub/queue_edit.rs), and
-/// a person's Stop holds only other agents' messages.
+/// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it.
+/// A person's Stop holds the person's own prompts too (hub/cancel.rs), and an edit that makes another
+/// agent's held message the person's keeps it waiting for them (hub/queue_edit.rs).
 function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): QueuedPrompt {
-  return from?.heldByStop && !entry.heldByStop && entry.message ? { ...entry, heldByStop: true } : entry;
+  // Sent now, it no longer waits (hub/queue.rs `put_next`).
+  return from?.heldByStop && !entry.heldByStop && !entry.next ? { ...entry, heldByStop: true } : entry;
 }
 
 /// A guest's prompt's hold (acpmux `awaitingOwner`, `revision`). THE RULE: a held prompt is

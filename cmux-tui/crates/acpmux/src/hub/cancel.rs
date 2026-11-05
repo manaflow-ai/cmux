@@ -131,10 +131,13 @@ impl Hub {
     /// and the next one be about to start. A Stop of an idle chat with nothing queued holds nothing.
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
         let turn = session.turn().map(|t| t.turn_id);
+        // Prompts queued from here on run ahead of the ones it holds: a Stop while Claude compacts
+        // withdraws none of them (`cancel_matching`).
+        let since = now_ms();
         if turn.is_some() || session.queued() > 0 {
             self.hold_queue_for_person(session, turn.as_deref().unwrap_or_default());
         }
-        self.cancel(session).await
+        self.cancel_matching(session, None, None, Some(since)).await
     }
 
     /// Holds the other agents' messages queued now, and those that come until the hold ends: the
@@ -360,7 +363,7 @@ impl Hub {
         prompt_id: &str,
     ) -> Result<(), RpcError> {
         let running = self.stop_prompt_retry(session, prompt_id)?;
-        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
+        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id)), None).await
     }
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
@@ -374,7 +377,7 @@ impl Hub {
         session: &Arc<Session>,
         replacement: Option<&str>,
     ) -> Result<(), RpcError> {
-        self.cancel_matching(session, replacement, None).await
+        self.cancel_matching(session, replacement, None, None).await
     }
 
     async fn cancel_matching(
@@ -382,6 +385,9 @@ impl Hub {
         session: &Arc<Session>,
         replacement: Option<&str>,
         expected_prompt: Option<&str>,
+        // A person's Stop: when it began (ms). A prompt queued since is the person's next send,
+        // never withdrawn by a compaction Stop.
+        person_since: Option<u64>,
     ) -> Result<(), RpcError> {
         // Match and fence while holding the turn identity lock. A workflow's stale
         // child record must not cancel a queued/person turn that replaced its prompt.
@@ -473,6 +479,7 @@ impl Hub {
                         && !q.held_by_stop
                         // A guest's prompt that waits for the owner is the owner's to decide.
                         && !q.awaiting_owner
+                        && person_since.is_none_or(|since| q.queued_at < since)
                 })
                 .map(|q| q.prompt_id.clone())
                 .collect();

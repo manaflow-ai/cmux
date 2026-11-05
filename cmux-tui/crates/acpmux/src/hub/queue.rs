@@ -987,7 +987,7 @@ impl Hub {
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
-            (q.held, q.sent_now) = (false, true);
+            (q.held, q.sent_now, q.held_by_stop) = (false, true, false);
             queue.insert(0, q);
             queue.iter().map(|q| q.prompt_id.clone()).collect()
         };
