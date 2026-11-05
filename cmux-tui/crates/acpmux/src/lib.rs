@@ -21,6 +21,7 @@ pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
+pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -105,6 +106,7 @@ pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;

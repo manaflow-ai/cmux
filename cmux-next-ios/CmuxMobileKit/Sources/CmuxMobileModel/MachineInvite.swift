@@ -22,6 +22,9 @@ public struct MachineInvite: Hashable, Sendable, Identifiable, CustomStringConve
     /// The code as people read it: `ABCDE-12345`.
     public var display: String { String(code.prefix(5)) + "-" + String(code.suffix(5)) }
 
+    /// What Copy Code puts on the clipboard: the dashed form, as the Mac's card copies it.
+    public var copyableCode: String { display }
+
     /// The one line the new machine runs (the Mac's `PairingCode.Invite.line`).
     public var line: String { "cmux pair \(display)" }
 

@@ -204,8 +204,11 @@ public final class SettingsController {
 
     // MARK: - Writing
 
-    /// Writes `value` at a dotted or array key path. The watcher applies it.
+    /// Writes `value` at a dotted or array key path. The watcher applies it. A retired key is
+    /// refused as `SettingRetired`, as ``setSetting(at:to:by:)`` refuses it: a caller's raw write for a
+    /// key outside the schema (Toggle Setting) must not set it again.
     public func set(_ value: JSONValue, at path: [String]) async throws {
+        if SettingsSchema.isRetired(path) { throw SettingRetired(key: path.joined(separator: ".")) }
         try await file.set(value, at: path)
         // Atomic replacement can race the vnode event on the old inode. The
         // writer already knows the newest source exists, so drive the same

@@ -172,7 +172,7 @@ def prompt_text(params):
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
 
 
 def guidance_text(text):
@@ -185,7 +185,7 @@ def is_cmux_guidance(block):
     if not isinstance(block, dict):
         return False
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     return guidance_text(block.get("text", ""))
 
