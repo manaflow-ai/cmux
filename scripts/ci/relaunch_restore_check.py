@@ -217,6 +217,8 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
     # The fake agent echoes the prompt: the turn is in when the reply is.
     if not wait(lambda: chat_messages(inst, made["chat"]) >= 2, 30, 0.5):
         raise RuntimeError(f"the chat's first turn was never answered: {json.dumps(inst.cmux('agents', 'chat', 'read', made['chat']))[:400]}")
+    if not wait(lambda: chat_tab(inst.topology(), made["chat"]), 15, 0.25):
+        raise RuntimeError(f"no tab is bound to chat {made['chat']} 15 s after it was made: {json.dumps(chat_tabs(inst.topology()))[:600]}")
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
@@ -254,10 +256,20 @@ def chat_messages(inst: Instance, chat: str) -> int:
     return sum(1 for item in items if isinstance(item, dict) and item.get("role") in ("user", "assistant"))
 
 
-def chat_tab(topo: dict | None, chat: str) -> bool:
-    """The chat is reattached: a conversation tab in l5-b is bound to its session."""
-    return any(chat in (str(t.get("agent_session") or ""), str(t.get("chat") or ""), str(t.get("session") or ""))
-               for t in tabs_of(workspace_named(topo, "l5-b")))
+def chat_tab(topo: dict | None, chat: str) -> str | None:
+    """Where the chat is reattached: the name of the workspace whose tab is bound to its session (`agent_session`,
+    ControlTopology+JSON), or None. The name is part of the probe, so a chat back in another workspace is a change."""
+    for workspace in (topo or {}).get("workspaces") or []:
+        if isinstance(workspace, dict) and any(str(t.get("agent_session") or "") == chat for t in tabs_of(workspace)):
+            return str(workspace.get("name") or workspace.get("id"))
+    return None
+
+
+def chat_tabs(topo: dict | None) -> list[dict]:
+    """Every conversation-like tab with its workspace, for a failure's evidence."""
+    return [{"workspace": w.get("name"), **{k: t.get(k) for k in ("kind", "page", "agent_session")}}
+            for w in (topo or {}).get("workspaces") or [] if isinstance(w, dict) for t in tabs_of(w)
+            if t.get("agent_session") or t.get("kind") not in ("terminal", "browser")]
 
 
 def state(inst: Instance, topo: dict | None = None) -> dict:
@@ -282,7 +294,7 @@ def state(inst: Instance, topo: dict | None = None) -> dict:
         "workspaces": workspaces,
         "terminal_pid": pid,
         "scrollback_sha256": scrollback_sha256(inst, term) if term else None,
-        "chat": f"{chat}:{messages}:{'tab' if chat_tab(topo, chat) else 'no-tab'}" if chat and messages >= 0 else None,
+        "chat": f"{chat}:{messages}:{chat_tab(topo, chat) or 'no-tab'}" if chat and messages >= 0 else None,
     }
     return {k: v for k, v in found.items() if v is not None}
 
@@ -316,8 +328,7 @@ def usable(inst: Instance, before: dict, chat: str) -> tuple[bool, dict | None, 
     if not (workspace_named(topo, "l5-a") and workspace_named(topo, "l5-b")):
         return False, None, "l5 workspaces not back"
     if not chat_tab(topo, chat):
-        tabs = [{k: t.get(k) for k in ("kind", "agent_session", "chat", "session")} for t in tabs_of(workspace_named(topo, "l5-b"))]
-        return False, None, f"chat tab not bound (l5-b tabs {json.dumps(tabs)[:300]})"
+        return False, None, f"chat tab not bound (tabs {json.dumps(chat_tabs(topo))[:400]})"
     now = state(inst, topo)
     changed = [k for k in KEYS if before.get(k) != now.get(k)]
     return (not changed), now, ("changed: " + ", ".join(changed)) if changed else ""
