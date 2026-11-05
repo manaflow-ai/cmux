@@ -324,6 +324,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
         let (model, list, _, restore) = try Self.sidebar(work(collapsed: true))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         let reset = Self.insertMotion(.nudge)
         defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
@@ -371,6 +373,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func collapsingAGroupClipsItsMembersInPlace() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow())
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         let header = try #require(list.rowViews[.group(GroupID("g-work"))]).frame
         var members: [String: (view: SidebarRowView, frame: NSRect)] = [:]
         for member in ["docs", "web", "api"] {
@@ -401,6 +405,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func expandingAGroupOpensItsSlotOverTheMembersInPlace() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow(collapsed: true))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         let header = try #require(list.rowViews[.group(GroupID("g-work"))]).frame
         model.noteUserIntent()
         model.setGroupCollapsed(GroupID("g-work"), false)
@@ -623,6 +629,8 @@ struct SidebarRowsMoveOnRenderServerTests {
             defer { restore() }
             let reset = Self.insertMotion(motion)
             defer { reset() }
+            let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+            defer { whole() }
             let closedKey = SidebarRowKey.workspace(try #require(Self.sections([3]).first?.workspaces.first?.id))
             let closing = try #require(list.rowViews[closedKey])
             let height = closing.frame.height
@@ -770,6 +778,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aReloadWithoutMotionMidMoveShowsTheSlotsAtOnce() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         // Remove a realized row while the insert starts its move: it stays as a closing subview with
         // its render-server spring until the animated move ends.
         model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
@@ -794,6 +804,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func reduceMotionReloadRecyclesAClosingRowBeforeReusingItsKey() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
         list.reload(animated: true)
         try #require(!Self.springing(list).isEmpty, "the first change did not start a row move")
@@ -839,6 +851,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aReorderTheDisplaySleepsThroughEndsAtTheSlots() async throws {
         let (model, list, _, restore) = try Self.sidebar(count: 12)
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         // The slower pace keeps the move running past the turns AppKit takes to end its empty group.
         DesignSettings.shared.animationSpeed = .normal
         let slow = Self.slowMoves()
@@ -890,6 +904,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let members = (1...60).map { "m\($0)" }
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1"], members: members))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
         let reset = Self.insertMotion(.spring)
         defer { reset() }
         DesignSettings.shared.animationSpeed = .normal

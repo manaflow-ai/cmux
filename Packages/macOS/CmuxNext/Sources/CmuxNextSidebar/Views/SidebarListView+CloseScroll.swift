@@ -8,9 +8,10 @@ extension SidebarListViewComponents {
     /// rows and offset shift together so nothing jumps), then reveals the
     /// selection (`selectionReveal`) when it changed, or its row when it moved
     /// or was pushed out of view, by anyone (sidebar-focused-visible: the
-    /// focused row is always in view); the reveal animates with `Motion`
-    /// (instant under Reduce Motion, and to a new row, Cmd-N's, cx-evo3q) and
-    /// is the only scroll this change makes.
+    /// focused row is always in view); the reveal jumps (`SidebarChangeMotion`,
+    /// #34264; under `wholeList` it animates with `Motion`, instant under Reduce
+    /// Motion and to a new row, Cmd-N's, cx-evo3q) and is the only scroll this
+    /// change makes.
     func applyKeepingViewport(_ layout: SidebarLayout, animated: Bool) {
         let active = selectionRevealKey
         let previousActive = revealedActive
@@ -78,7 +79,11 @@ extension SidebarListViewComponents {
         // A Cmd-N row is new to a list that shows workspace rows already; the launch's restored rows are all new to a list
         // that shows none yet (only its section's header), so they jump too.
         let firstWorkspaceRows = toNewRow && !displayed.rows.contains { if case .workspace = $0.key { true } else { false } }
-        let jumps = !animated && (!toNewRow || firstWorkspaceRows) && abs(target - clip.bounds.minY) > 0.25
+        // Only the rows a change touches animate (`SidebarChangeMotion`, #34264): a reveal with motion jumps too, before
+        // apply, so the rows are realized once, at the reveal, and no row of the list slides by on the scroll. A new row's
+        // reveal keeps its own path below (it never slid). `wholeList` keeps the scroll on `.move`.
+        let glides = animated && !SidebarChangeMotion.movesOnlyChangedRows
+        let jumps = (animated ? !glides && !toNewRow : !toNewRow || firstWorkspaceRows) && abs(target - clip.bounds.minY) > 0.25
         if jumps {
             if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
             isShiftingViewport = true
@@ -87,7 +92,7 @@ extension SidebarListViewComponents {
             isShiftingViewport = false
         }
         apply(layout, animated: animated, newRowsInPlace: toNewRow && !keepsOffset && abs(target - clip.bounds.minY) > 0.25)
-        if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && !toNewRow) }
+        if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: glides && !toNewRow) }
         // The jump ends as the instant scroll it replaces did: the old viewport's rows park, a group editor follows, the
         // hover follows the scroll. Apply already realized the rows in view, so this makes no row view.
         if jumps { realizeVisibleRows() }

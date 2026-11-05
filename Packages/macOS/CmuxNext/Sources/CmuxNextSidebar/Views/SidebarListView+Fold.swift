@@ -51,6 +51,9 @@ extension SidebarListViewComponents {
         }
         // Only the user's own fold moves on the spring; another client's shows in one step (calm-sidebar-movement).
         let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace))
+        // Only the group's own rows animate (`SidebarChangeMotion`, #34264): its members fade in at their slots or go at
+        // once, and every row below takes its new slot at once. `wholeList` keeps the clipped fold (`clipFold`).
+        let snaps = animate && SidebarChangeMotion.movesOnlyChangedRows
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []
@@ -72,7 +75,7 @@ extension SidebarListViewComponents {
                 hoveredKey = nil
                 view.clearHoverImmediately()
             }
-            guard animate, let was = old.row(for: key) else {
+            guard animate, !snaps, let was = old.row(for: key) else {
                 recycle(view)
                 continue
             }
@@ -103,7 +106,7 @@ extension SidebarListViewComponents {
                 if opens {
                     // An opened member shows at its own place as the group's slot opens down over it (`clipFold`).
                     let member = opening?.contains(target.origin) == true
-                    view.frame = member ? target : SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
+                    view.frame = member || snaps ? target : SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
                     view.alphaValue = 0
                     view.clipsToBounds = true
                     view.opens += 1
@@ -112,15 +115,17 @@ extension SidebarListViewComponents {
                     view.alphaValue = 1
                 }
             }
-            if opens { openingRows[row.key] = SidebarRowOpening(until: now + Motion.sidebar.spring(.move).settlingTime()) }
+            // A snapped member opens nothing a later scroll could replay: realized later, it shows at its slot.
+            if opens, !snaps { openingRows[row.key] = SidebarRowOpening(until: now + Motion.sidebar.spring(.move).settlingTime()) }
             addSubview(view, positioned: .above, relativeTo: decorations)
             rowViews[row.key] = view
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
         }
         let (lines, start) = foldLines(old: old, new: layout, group: id)
         let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
-        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
-        if animate, let slot {
+        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion,
+                  insert: snaps ? .snap : nil, travel: snaps ? 0 : nil).run(in: self, from: old, to: layout, animated: animate)
+        if animate, !snaps, let slot {
             // The members' slot closes (or opens) on the rows' spring, its bottom edge with the rows below it.
             let members = (collapses ? leavingRows : appearing).map(\.0).filter { slot.contains($0.frame.origin) }
             clipFold(members, under: slot.minY, from: collapses ? slot.height : 0, to: collapses ? 0 : slot.height)

@@ -214,8 +214,9 @@ struct SidebarSelectionBatchCloseTests {
             }, within: .seconds(30))
             print("SidebarSelectionBatchClose: slow answer, intent at hide \(intentAtHide), animates here \(animates), closing row seen \(closingSeen)")
             #expect(intentAtHide, "the row left after a slow answer without the person's intent: it drops out with no animation")
-            // With motion available here (an awake display, animations on), the row is seen on its closing spring.
-            if animates { #expect(closingSeen, "the row left in one step, with no close animation") }
+            // With motion available here (an awake display, animations on), the row is seen on its closing spring under
+            // the motion before #34264; under the default only the rows a change touches animate and a closed row goes at once.
+            if animates, !SidebarChangeMotion.movesOnlyChangedRows { #expect(closingSeen, "the row left in one step, with no close animation") }
         }
     }
 

@@ -114,6 +114,8 @@ struct SidebarInsertBurstTests {
     func aRowStillOpeningThatMovesByItselfOpensAgainThere() throws {
         let (model, list, restore) = try Self.sidebar(Array(1...10), motion: .spring)
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList) // the motion before #34264
+        defer { whole() }
         model.sections = Self.sections(Array(1...10) + [100])
         list.reload(animated: true)
         let moved = try Self.key(100)

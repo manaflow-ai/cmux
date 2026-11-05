@@ -202,9 +202,12 @@ extension SidebarListViewComponents {
         // How the rows make room for a new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
         // workspace at the top it's a huge cascade"). Only for a change that only adds rows, among them workspaces new
         // to the model: one that also closes, moves or hides a row, or that lists a workspace again (a group's expand, a
-        // filter, "Show more"), moves every row as before, on `.move` over the whole distance.
-        let insertMotion = animate && insertsWorkspace && onlyAdds(layout, to: old) && opensOnlyNewWorkspaces(layout, from: old)
-            ? SidebarInsertMotion.tunable.value : nil
+        // filter, "Show more"), takes the snap (`SidebarChangeMotion`, #34264): only the rows it changes animate, so
+        // Cmd-Shift-T fades in the one row it reopens and every other row stands in its slot at once. Under the
+        // `wholeList` comparison such a change moves every row as before, on `.move` over the whole distance.
+        let newWorkspacesOnly = animate && insertsWorkspace && onlyAdds(layout, to: old) && opensOnlyNewWorkspaces(layout, from: old)
+        let insertMotion: SidebarInsertMotion? = newWorkspacesOnly ? SidebarInsertMotion.tunable.value
+            : animate && SidebarChangeMotion.movesOnlyChangedRows ? .snap : nil
         appliedSections = model.sections
         // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
         // a later move moves it, it does not open it again. A change that moves nothing settles every open now
@@ -325,7 +328,8 @@ extension SidebarListViewComponents {
             if adopting, !suppressed.contains(key) {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
-            } else if suppressed.contains(key) || !animate || placeholder || replaced {
+            } else if suppressed.contains(key) || !animate || placeholder || replaced || insertTravel == 0 {
+                // Under the snap the rows below stand in its slot at once: a leaving row goes at once too (#34264).
                 recycle(view)
             } else {
                 // A leaving row fades out without the selection fill: the

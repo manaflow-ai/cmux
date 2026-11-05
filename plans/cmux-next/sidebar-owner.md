@@ -87,6 +87,18 @@
   the status mark's size (`GroupHeaderRowView.machineMarkSide`, its own image so it does not depend on the rows'
   machine mark, which #32688 removes); the non-default leading look keeps the icon column's glyph size. A group's own
   icon already shares the workspace icon's box. Regression: `SidebarGroupIconSizeTests`, at each density and text size.
+- 2026-11-03: no change animates more of the sidebar than the rows it changes
+  (https://github.com/manaflow-ai/cmux/issues/34264, verbatim: "Reopening the last closed workspace with Cmd+Shift+T
+  animates every sidebar row instead of only the restored row in its original spot. Fix: animate only the inserted row
+  (or nothing), and audit other sidebar paths that animate the whole list (insert, move, restore). Fewer, simpler
+  animations."). Cause: a reopened workspace is listed unplaced at its section's top until the daemon's echo moves it
+  to its slot (`SidebarDocProjection.item(of:id:records:)`); that move was not an only-new-workspaces insert, so every
+  row between slid on `.move`. Debug Settings `sidebar.changeMotion` (`SidebarChangeMotion`, default `changedRows`):
+  every animated change outside a drag takes the insert snap. A row another change only shifts stands in its new slot
+  at once, a new, reopened or unfolded row fades in at its slot, a leaving row goes at once, the priority panel places
+  kept rows at once, and a selection's or Reveal in Sidebar's scroll jumps. This replaces, under the default, the fold
+  clip of the entry below and the close and reorder springs; `wholeList` keeps them for comparison. Regression:
+  `SidebarChangedRowsMotionTests`.
 - 2026-11-02: a group's fold clips its members to the group's height. Leo, verbatim, on collapsing a group: "the
   collapsing group animation is kinda funky looking when the text all races up" ("*compared to claude code"). Each
   member slid up to its header's y over its own distance while fading, so the members raced past each other and drew

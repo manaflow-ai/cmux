@@ -164,6 +164,7 @@ final class SidebarPriorityPanelView: NSView {
             opensUntil = [:]
             return
         }
+        if SidebarChangeMotion.movesOnlyChangedRows { return placeChangedRows(targets: targets, opening: opening, leaving: leaving.map(\.0)) }
         closing += leaving.map(\.0)
         placement += 1
         let current = placement
@@ -199,6 +200,30 @@ final class SidebarPriorityPanelView: NSView {
                 row.clipsToBounds = false
             }
         })
+    }
+
+    /// Only the rows that change animate (`SidebarChangeMotion`, #34264): every kept row takes its slot at once (a
+    /// re-rank or a taller preview moves no other row on a spring), a new row fades in at its own slot, and a row that
+    /// leaves goes at once, since the rows below already stand in its slot.
+    private func placeChangedRows(targets: [(SidebarPriorityRowView, NSRect)], opening: [(SidebarPriorityRowView, NSRect)],
+                                  leaving: [SidebarPriorityRowView]) {
+        placement += 1
+        // A kept row still fading in from an earlier change keeps its fade (a streaming chat re-places the rows often).
+        let stillFading = targets.map(\.0).filter { $0.alphaValue < 1 }
+        Motion.withoutAnimation {
+            for (row, frame) in targets + opening {
+                row.animator().frame = frame
+                row.clipsToBounds = false
+            }
+            for (row, _) in opening { row.alphaValue = 0 }
+        }
+        for row in closing + leaving { row.removeFromSuperview() }
+        closing = []
+        opensUntil = [:]
+        let fading = opening.map(\.0) + stillFading
+        guard !fading.isEmpty else { return }
+        Motion.sidebar.animate(.tabOpen, in: self, { for row in fading { row.animator().alphaValue = 1 } },
+                               settleAtSleep: { [weak self] in self?.placeRows(animated: false) })
     }
 
     /// The row follows the pointer over the others; released, it takes the slot its middle is in

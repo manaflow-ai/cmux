@@ -50,7 +50,7 @@ extension SidebarListViewComponents {
     /// `applyKeepingViewport`'s reveal for a change that moved no row: a new
     /// selection whose reveal (`selectionReveal`: its row with the header and
     /// list top around it, or its item in a block) is not wholly in view
-    /// scrolls in (with `Motion`).
+    /// scrolls in (a jump, `SidebarChangeMotion`).
     private func revealPatchedSelection() {
         let active = selectionRevealKey
         let previous = revealedActive
@@ -75,6 +75,7 @@ extension SidebarListViewComponents {
         let offset = clip.bounds.minY
         guard !viewport.isFullyVisible(item, at: offset, padding: 0) else { return }
         let target = viewport.reveal(item, from: offset, padding: SidebarLayout.revealPadding)
-        if abs(target - offset) > 0.25 { scrollClip(to: target, animated: true) }
+        // A jump: no row of the list slides by for a selection (`SidebarChangeMotion`, #34264).
+        if abs(target - offset) > 0.25 { scrollClip(to: target, animated: !SidebarChangeMotion.movesOnlyChangedRows) }
     }
 }

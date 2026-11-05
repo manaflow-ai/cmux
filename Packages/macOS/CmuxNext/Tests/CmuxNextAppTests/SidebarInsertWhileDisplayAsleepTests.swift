@@ -95,6 +95,9 @@ struct SidebarInsertWhileDisplayAsleepTests {
         defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
+        // A closing row closes its slot only under the motion before #34264 (now it goes at once).
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -162,6 +165,9 @@ struct SidebarInsertWhileDisplayAsleepTests {
         defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
+        // A closing row closes its slot only under the motion before #34264 (now it goes at once).
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         MotionInFlight.expirySlack = -100
