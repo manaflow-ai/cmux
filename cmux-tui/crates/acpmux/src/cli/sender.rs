@@ -97,16 +97,19 @@ mod tests {
     }
 
     fn host() -> String {
-        "big-red".to_owned()
+        "workstation".to_owned()
     }
 
     #[test]
     fn a_claude_code_or_codex_shell_names_itself_as_its_harness_on_its_host() {
         assert_eq!(
             implicit(env(&[("CODEX_THREAD_ID", "t-1")]), host).as_deref(),
-            Some("codex@big-red")
+            Some("codex@workstation")
         );
-        assert_eq!(implicit(env(&[("CLAUDECODE", "1")]), host).as_deref(), Some("claude@big-red"));
+        assert_eq!(
+            implicit(env(&[("CLAUDECODE", "1")]), host).as_deref(),
+            Some("claude@workstation")
+        );
         assert_eq!(harness_of(env(&[("CODEX_THREAD_ID", "t-1")])), Some("codex"));
         // ACPMUX_FROM still names it; a session's own send needs no name (its token proves it).
         assert_eq!(

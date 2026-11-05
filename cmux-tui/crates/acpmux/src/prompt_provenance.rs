@@ -723,10 +723,10 @@ mod sender_tests {
     #[test]
     fn a_named_local_sender_may_say_its_harness_and_nothing_else() {
         let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
-        let named = sent(json!({"fromAgent": "codex@big-red", "fromHarness": "codex"}));
+        let named = sent(json!({"fromAgent": "codex@workstation", "fromHarness": "codex"}));
         let harness = declared_harness(&named);
         assert_eq!(harness, Some(BoundSender { session_id: None, harness: Some("codex".into()) }));
-        let stamped = stamp_sender(named_sender("codex@big-red", "s-2"), harness.as_ref());
+        let stamped = stamp_sender(named_sender("codex@workstation", "s-2"), harness.as_ref());
         assert_eq!(stamped["kind"], "agent_message");
         assert_eq!(sender_of(Some(&stamped)), (None, Some("codex".into())));
         // No name, or a harness that is not a family name: no label.

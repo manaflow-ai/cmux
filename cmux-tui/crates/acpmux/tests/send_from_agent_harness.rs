@@ -91,7 +91,7 @@ fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_the_persons_stays_
     let made = cli(&dir, &["run", "-n", "coord", "warm up"], &[]);
     assert!(made.status.success(), "the session: {}", text(&made));
 
-    let agent = "Message from desktop-recovery-audit agent: scope corrected";
+    let agent = "Message from an audit agent: scope corrected";
     let sent = cli(&dir, &["send", "coord", agent], &[("CODEX_THREAD_ID", "thread-1")]);
     assert!(sent.status.success(), "the agent's send: {}", text(&sent));
     let provenance = provenance_of(&dir, agent).expect("the agent's prompt is recorded");

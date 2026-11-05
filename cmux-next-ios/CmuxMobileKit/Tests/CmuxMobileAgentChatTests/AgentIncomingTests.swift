@@ -49,10 +49,10 @@ import Testing
 
     @Test func plainSendFromACodexShellIsThatAgentsCardWithItsHarness() throws {
         // acpmux cli/sender.rs: a Codex or Claude Code shell outside acpmux names `<harness>@<host>`.
-        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@cosmic-gray","to":"s-1","fromHarness":"codex"}"#)
-        let text = "Message from desktop-recovery-audit agent: scope corrected."
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","fromHarness":"codex"}"#)
+        let text = "Message from an audit agent: scope corrected."
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
-        #expect(incoming?.messages == [.init(sender: "codex@cosmic-gray", text: text)])
+        #expect(incoming?.messages == [.init(sender: "codex@workstation", text: text)])
         #expect(incoming?.harness == "codex")
     }
 

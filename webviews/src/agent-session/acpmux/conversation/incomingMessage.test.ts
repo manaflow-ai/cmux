@@ -968,13 +968,13 @@ test("a plain send from a Codex or Claude Code shell is that agent's message, wi
   const sent = {
     kind: "agent_message",
     from: "fromAgent",
-    fromName: "codex@cosmic-gray",
+    fromName: "codex@workstation",
     to: "s-1",
     fromHarness: "codex",
   };
-  const text = "Message from desktop-recovery-audit agent: scope corrected.";
-  expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@cosmic-gray" })).toEqual({
+  const text = "Message from an audit agent: scope corrected.";
+  expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
     kind: "message",
-    message: { name: "codex@cosmic-gray", harness: "codex", text, raw: text },
+    message: { name: "codex@workstation", harness: "codex", text, raw: text },
   });
 });
