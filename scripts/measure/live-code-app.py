@@ -159,7 +159,7 @@ def main():
     else:
         # The engine writes "watching" first, so no log means it never started: say whether the app
         # has the engine compiled in (its log lines are string literals) and what the app printed.
-        binary = os.path.join(opts.app, "Contents/MacOS/cmux")
+        binary = app.binary  # "cmux DEV" in a tagged bundle
         compiled = b"live code: cannot watch" in open(binary, "rb").read()
         print(f"live-code-app: no live-code.log in {live}: the engine never started; "
               f"its code is {'in' if compiled else 'NOT in'} {binary}")
