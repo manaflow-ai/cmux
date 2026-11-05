@@ -307,7 +307,7 @@ public final class CmuxToastView: NSView {
     static var messageInset: CGFloat { Metrics.space2 }
 
     /// The shared toast glass radius, never a capsule.
-    static let cornerRadius = SurfaceRole.toast.cornerRadius ?? FloatingGlassStyle.toast.cornerRadius
+    static var cornerRadius: CGFloat { SurfaceRole.toast.cornerRadius }
 
     /// The popups' one subtle shadow, on this view's layer behind the surface
     /// (the surface clips to its corners, so it cannot cast its own).

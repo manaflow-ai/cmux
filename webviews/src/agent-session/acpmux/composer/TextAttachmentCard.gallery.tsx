@@ -2,7 +2,7 @@
 // The text attachment card (TextAttachmentCard.tsx) in the composer's strip, in the looks considered
 // for Leo's ask (2026-11-01): "bro this is a TERRIBLE text preview we need to do better for these
 // text type attachments' previews". `page` ships: the first lines in 11 px monospace from the top,
-// faded at the bottom, over "Pasted text · N lines", as Claude's paste tile. The others are drawn
+// faded at the bottom, over "Pasted text · N lines · N characters", as Claude's paste tile. The others are drawn
 // here only, by overriding the shipped card's styles: `page-body` (the lines in the body font),
 // `header` (the label on top, as ChatGPT's file card names it first) and `tile` (Claude's square
 // tile, lines and a PASTED-style label). The prompt's inline card is gallery

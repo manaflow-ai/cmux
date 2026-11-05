@@ -140,7 +140,7 @@ import {
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
-import { STALL_CHECK_MS, stallLine } from "./stallLog";
+import { STALL_CHECK_MS, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
 
 export type AcpmuxHostConfig = {
@@ -2201,7 +2201,9 @@ export class AcpmuxDirectClient {
   private planRow?: string;
   /// The chat's latest plan row, for Session Info's Progress: unlike `planRow` it outlives its turn
   /// (a later prompt marks it superseded, so it reads as ended) and goes only when the list is cleared.
-  private progressRow?: string;
+  // `undefined` means no plan has been seen; `null` preserves an explicit empty-plan clear while
+  // older pages fold in, so their historical plan cannot be mistaken for the live value.
+  private progressRow?: string | null;
   private progressSuperseded = false;
   /// Session Info's Progress as last published (liveProgress.ts): streamed snapshots reuse it until
   /// the checklist changes or its turn ends, so Session Info does not recount it on every token.
@@ -2587,7 +2589,8 @@ export class AcpmuxDirectClient {
         reject(new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
-        if (this.socket !== socket || this.closed) return;
+        // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
+        if (this.socket !== socket || this.closed || this.endedSocket === socket) return;
         this.wire.lifecycle("close", {
           code: event?.code,
           reason: event?.reason || undefined,
@@ -2599,27 +2602,7 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
-        this.cancelOlderPaging();
-        this.handoff.disconnect();
-        // acpmux drops a connection's attaches with it; the next attach watches them again.
-        this.offerChildren.reset(false);
-        this.groupedPermissions.clear();
-        this.permissions.disconnected();
-        this.rejectPending();
-        // Delivery is no longer observable on this connection. A reconnect must not inherit Stop.
-        this.stopAfterSeq = undefined;
-        this.stopSuperseded = false;
-        this.stopOpenerSeen = false;
-        this.stopTurnId = undefined;
-        this.stoppingEnded();
-        this.emit("disconnected");
-        if (!this.hasConnected || this.closed) return;
-        if (this.onLost) {
-          this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
-          const onLost = this.onLost;
-          this.close();
-          onLost();
-        } else this.scheduleReconnect();
+        this.connectionEnded(socket);
       };
       // A socket this client replaced still answers what was asked on it (an export that watches for
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
@@ -3497,6 +3480,35 @@ export class AcpmuxDirectClient {
     return this.lastSeq;
   }
 
+  /// The established socket `socket` is gone (it closed, or the pane gave up on it in
+  /// `recoverStall`): what it carried ends, and the pane connects again (a fresh handshake from its
+  /// host, or a reconnect of its own). Once per socket: a close that comes after the pane gave up on
+  /// it changes nothing more.
+  private connectionEnded(socket: WebSocket): void {
+    this.endedSocket = socket;
+    this.cancelOlderPaging();
+    this.handoff.disconnect();
+    // acpmux drops a connection's attaches with it; the next attach watches them again.
+    this.offerChildren.reset(false);
+    this.groupedPermissions.clear();
+    this.permissions.disconnected();
+    this.rejectPending();
+    // Delivery is no longer observable on this connection. A reconnect must not inherit Stop.
+    this.stopAfterSeq = undefined;
+    this.stopSuperseded = false;
+    this.stopOpenerSeen = false;
+    this.stopTurnId = undefined;
+    this.stoppingEnded();
+    this.emit("disconnected");
+    if (!this.hasConnected || this.closed) return;
+    if (this.onLost) {
+      this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
+      const onLost = this.onLost;
+      this.close();
+      onLost();
+    } else this.scheduleReconnect();
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
@@ -3683,28 +3695,75 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// The pane positions whose stall was checked already (`checkStall`): one check per position.
+  /// The pane positions whose stall was checked already (`checkStall`): one check per position and cause.
   private readonly stallChecked = new Set<string>();
-  /// A send to the shown chat went slow: when acpmux holds an event after the pane's last one that it
-  /// wrote a while ago, the pane missed the chat's events, and the log says so (stallLog.ts). A hidden
-  /// page holds its frames on purpose, so it is not checked; each position is checked once.
-  private checkStall(sessionId: string): void {
+  /// The socket whose end the pane already handled (`connectionEnded`), so its late close does nothing.
+  private endedSocket?: WebSocket;
+  /// Runs the stall check when a Stop's turn has not ended in `stallTiming.stopMs` (`cancel`).
+  private stopStallTimer?: ReturnType<typeof setTimeout>;
+  /// The chat whose Stop check came due while the page was hidden (`checkStall` skips a hidden
+  /// page): it runs when the page shows again (`showChanged`), so a hidden pane's Stop still ends.
+  private stopStallOwed?: string;
+  /// A send to the shown chat went slow, or its Stop did not end the turn: when acpmux holds a
+  /// transcript record after the pane's last one that it wrote a while ago, the pane missed the
+  /// chat's events (its stream stopped while the socket stayed open, as after acpmux was replaced
+  /// under the app's bridge, #32859). The log says so (stallLog.ts) and the pane connects again
+  /// (`recoverStall`): the new attach draws what it missed, the sent prompts' echoes and the stopped
+  /// turn's end, so a send shows and Stop ends instead of "Stopping…" forever. Only transcript
+  /// records count: raw harness lines are never streamed to the pane, so their seqs are no gap. A
+  /// hidden page holds its frames on purpose, so it is not checked; each position is checked once
+  /// per cause.
+  private checkStall(sessionId: string, cause: "send" | "stop" = "send"): void {
     if (this.closed || this.selectedSessionId !== sessionId || !pageShown()) return;
     const paneSeq = this.lastSeq;
-    const key = `${sessionId} ${paneSeq}`;
+    const key = `${sessionId} ${paneSeq} ${cause}`;
     if (this.stallChecked.has(key)) return;
     this.stallChecked.add(key);
-    const connection = this.socket?.readyState === WebSocket.OPEN ? "open" : "not open";
-    void this.typed("_acpmux/events", { sessionId, afterSeq: paneSeq, limit: 1 }, STALL_CHECK_MS).then(
+    const socket = this.socket;
+    const generation = this.selectionGeneration;
+    const connection = socket?.readyState === WebSocket.OPEN ? "open" : "not open";
+    const asked = Date.now();
+    void this.typed(
+      "_acpmux/events",
+      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"] },
+      STALL_CHECK_MS,
+    ).then(
       (result) => {
-        const line = stallLine(sessionId, paneSeq, records(result?.events)[0], Date.now(), connection);
-        if (line) console.error(line);
+        const newer = records(result?.events)[0];
+        // The record came live while the read was out: the stream works, only the read was slow.
+        if (newer && this.lastSeq >= newer.seq) return;
+        // Its age when the check asked: a slow answer does not make a record in flight look missed.
+        const line = stallLine(sessionId, paneSeq, newer, asked, connection, cause);
+        if (!line) return;
+        console.error(line);
+        this.recoverStall(socket, sessionId, generation);
       },
       (error: unknown) =>
         console.error(
           `agent pane stall check: session ${sessionId}: acpmux did not answer its events after seq ${paneSeq}: ${String((error as { code?: unknown } | null)?.code ?? error)}; connection ${connection}`,
         ),
     );
+  }
+
+  /// The stall check proved socket `socket` no longer carries the chat's events: the pane gives up on
+  /// it and connects again, as when it closes. Nothing when the pane moved on meanwhile (another
+  /// chat, another socket, closed).
+  private recoverStall(socket: WebSocket | undefined, sessionId: string, generation: number): void {
+    if (!socket || this.closed || this.socket !== socket || this.endedSocket === socket) return;
+    if (this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
+    if (socket.readyState !== WebSocket.OPEN) return;
+    // An open still reading the chat (a reconnect's) is already catching up; before the first one
+    // there is no lost path to take.
+    if (this.opening || !this.hasConnected) return;
+    // A send still waiting on this socket gets the lost connection's answer, as when it drops: a
+    // prompt this Mac's acpmux took is sent again under its promptId (lostPrompt.ts), so it runs once.
+    this.wire.lifecycle("stalled", { sessionId, message: "the chat's events stopped; connecting again" });
+    this.connectionEnded(socket);
+    try {
+      socket.close();
+    } catch {
+      // Already closing: the pane has left it either way.
+    }
   }
 
   /// Pages from its own cursor: live events keep advancing lastSeq meanwhile.
@@ -3964,7 +4023,12 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.closed) return;
     this.syncView();
-    if (pageShown()) this.markSeen(sessionId);
+    if (!pageShown()) return;
+    this.markSeen(sessionId);
+    const owed = this.stopStallOwed;
+    this.stopStallOwed = undefined;
+    if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
+      this.checkStall(sessionId, "stop");
   };
 
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
@@ -6809,7 +6873,8 @@ export class AcpmuxDirectClient {
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
         // Session Info's Progress goes with it, even when a later prompt already closed that row.
-        this.progressRow = undefined;
+        this.progressRow = null;
+        this.progressSuperseded = false;
         this.planRow = undefined;
         return;
       }
@@ -7727,10 +7792,13 @@ export class AcpmuxDirectClient {
     // deadline, as before: there is no failed row then, so no second copy to send.
     timers.push(
       setTimeout(() => {
-        if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true })) {
+        const state = this.deliveries.get(promptId)?.delivery.state;
+        if (state === "sending" && this.setDelivery(promptId, { slow: true })) {
           this.emit();
           this.checkStall(sessionId);
         }
+        // Taken, but its echo never came: the pane may have stopped getting the chat's events.
+        else if (state === "delivered" && this.optimisticPromptRows.has(promptId)) this.checkStall(sessionId);
       }, deliveryTiming.slowMs),
     );
     timers.push(
@@ -8226,6 +8294,16 @@ export class AcpmuxDirectClient {
       const turnId = opener?.msg?.turnId ?? this.summary?.turn?.turnId;
       this.stopTurnId = this.runningTurnId ?? (typeof turnId === "string" && turnId ? turnId : undefined);
       this.stoppedTurnId = this.stopTurnId;
+      // acpmux ends a turn that ignores Stop itself (cancel again at 10 s, end it at 15 s). Still
+      // stopping after that, the pane may have missed the end: it checks (`checkStall`).
+      if (this.stopStallTimer !== undefined) clearTimeout(this.stopStallTimer);
+      this.stopStallOwed = undefined;
+      this.stopStallTimer = setTimeout(() => {
+        this.stopStallTimer = undefined;
+        if (this.stoppingAfterSeq === undefined || !this.workingNow()) return;
+        if (pageShown()) this.checkStall(sessionId, "stop");
+        else this.stopStallOwed = sessionId;
+      }, stallTiming.stopMs);
       this.emit();
     }
   }
@@ -10447,8 +10525,9 @@ export class AcpmuxDirectClient {
     }
     // Progress stays the live chat's latest plan; an older page's only when the live events hold none,
     // and then as ended, since a later turn came after it.
-    const progressRow = live.progressRow ?? this.progressRow;
-    const progressSuperseded = live.progressRow ? live.progressSuperseded : this.progressRow !== undefined;
+    const progressRow = live.progressRow !== undefined ? live.progressRow : this.progressRow;
+    const progressSuperseded =
+      live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
@@ -10476,6 +10555,9 @@ export class AcpmuxDirectClient {
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
+    clearTimeout(this.stopStallTimer);
+    this.stopStallTimer = undefined;
+    this.stopStallOwed = undefined;
     this.frameRequest?.cancel?.();
     this.frameRequest = undefined;
     this.cancelTrustStart?.();

@@ -12,7 +12,7 @@ final class OnboardingSurfaceView: NSView {
     static let glassFillAlpha: CGFloat = 0.7
     /// The floating panel's inset and radius.
     static let panelInset: CGFloat = 12
-    static let panelRadius: CGFloat = 20
+    static var panelRadius: CGFloat { Metrics.surfaceCornerRadius }
 
     let surface: OnboardingSurface
     private let fill = NSView()

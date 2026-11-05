@@ -1392,7 +1392,10 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextComputerUse",
         "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDevices",
         "CmuxNextRemoteView",

@@ -544,6 +544,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "page", title: String(localized: "argument.projection.page", defaultValue: "Page", bundle: .module), kind: .string, isRequired: false),
                 ],
                 mainMenu: .debug,
                 isDebugOnly: true,

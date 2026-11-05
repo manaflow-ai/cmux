@@ -32,6 +32,8 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { ArrowUpIcon, BuildIcon, ContextRing, PlanIcon, ReturnIcon, StopIcon } from "./ComposerPickers";
+import { isActive, type Dictation } from "./dictation";
+import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
@@ -325,6 +327,10 @@ type Props = {
   accessory?: React.ReactNode;
   /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
   dictating?: boolean;
+  /// The pane's dictation. While a session runs the composer draws its strip before Send, and Send
+  /// (or Return) ends the session and sends once its last words land: the one send while
+  /// dictating (Leo 2026-11-05: "The dictate button has its own send button. We don't need that.").
+  dictation?: Dictation;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
@@ -476,6 +482,7 @@ export function Composer({
   leading,
   accessory,
   dictating = false,
+  dictation,
   prompt,
   onEdit,
   onCmuxCommand,
@@ -684,6 +691,8 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  /// Set while the send a finished dictation session waited for goes (send, below).
+  const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
@@ -1405,6 +1414,20 @@ export function Composer({
     if (sending.current) {
       setAttachError(t("composer.stillSending"));
       return false;
+    }
+    // A dictation session still running ends first, keeping its words, and this send goes once
+    // they are in the prompt (dictation.ts finish), so nothing is sent half-heard.
+    if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
+      dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submitNow.current(force, steer);
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return true;
     }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
@@ -2307,11 +2330,13 @@ export function Composer({
       {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
-  // A draft of attachments alone is still a draft: it gets Send, never Stop alone.
+  // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
+  // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
+  const listening = !shell && dictation !== undefined && isActive(dictation.state);
   const sendOrStop =
-    stop && !hasDraft ? (
+    stop && !hasDraft && !listening ? (
       stopButton
-    ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
+    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
@@ -2694,7 +2719,12 @@ export function Composer({
             </UsageRingMenu>
           )
         }
-        actionsLead={quietActions ? sendControl : undefined}
+        actionsLead={
+          <>
+            {listening && dictation && <DictationStrip dictation={dictation} />}
+            {quietActions && sendControl}
+          </>
+        }
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}

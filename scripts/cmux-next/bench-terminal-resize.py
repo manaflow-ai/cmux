@@ -18,13 +18,13 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            line, so every column change reflows real text.
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
-           in those columns resizes each frame, unless the build holds terminals through a drag
-           (`terminalDrag.holdSurface`, on by default since #32006): then they keep their size and text
-           through the drag, which ends where it began, so none resizes or draws (each round reports
-           `holds_terminals` as it ran). Before its timed rounds each drag layout runs a probe (one drag that
-           ends --probe-pt away, then one back) and prints it as its own TERMINAL-RESIZE-PROBE line: the
-           divider moved, a terminal fits a new grid, and its render counters counted it (full_resize or
-           full_swap, terminal_resize_verdict.resized) at the release, or the layout fails at once.
+           in those columns must change size with its pane in each frame. A build that holds terminals
+           through a drag (`terminalDrag.holdSurface`, on by default since #32006) fails: they keep their
+           size through the drag (each round reports `holds_terminals` as it ran, as data). Before its timed
+           rounds each drag layout runs a probe (one drag that ends --probe-pt away, then one back) and prints
+           it as its own TERMINAL-RESIZE-PROBE line: the divider moved, a terminal fits a new grid, and its
+           render counters counted it (full_resize or full_swap, terminal_resize_verdict.resized) at the
+           release, or the layout fails at once.
   keys     4 terminals in a 2x2 grid, each with history: Ctrl-Shift-L then Ctrl-Shift-H on the bottom-left
            one (`resizePaneRight`, `resizePaneLeft`; --key-repeat presses each, --key-gap-ms apart, the last
            one --key-settle-s before the next), so the divider between the columns moves and all 4 resize.
@@ -38,18 +38,27 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            and the run resets KEY after each such layout. `--ab motion.frameOwner.terminals` was FRAME OWNER
            S4's A/B.
 
+The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
+`debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
+commit: its pane's size, the size its host asked of it, and the size its layer shows. Each round reports `follow`:
+per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
+(shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
+with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
+data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
+
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
-missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
+missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
+main-thread time in Ghostty's display passes
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
 G1; absent before), full rebuilds. A terminal resized when its full rebuilds for a new grid grew
 (terminal_resize_verdict.resized: full_resize, or full_swap when the reflow preview drew the new size). After the drag every terminal's drawn, fitted and owner grids must
 agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json; the summary says what to
-compare. Exits non-zero, after writing the report, when a layout measured nothing (terminal_resize_verdict.py:
-a layout error or a failed probe, a drag or key resize in which no terminal resized, no frame was counted or no
-terminal drew (a held drag: no view laid out), a round whose arm could not be set, a split action that resized no
-terminal): such zeros are not a result.
+compare. Exits non-zero, after writing the report, when a drag or key round held a terminal at another size than its
+pane's, or a layout measured nothing (terminal_resize_verdict.py: a layout error or a failed probe, a drag or key resize
+in which no terminal resized, no frame was counted, no terminal drew or no terminal was checked against its pane, a
+round whose arm could not be set, a split action that resized no terminal): such zeros are not a result.
 """
 import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
 
@@ -199,8 +208,22 @@ def column_divider(dividers, middle):
     return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
 
 
+# `missed_split`: each missed refresh's cause from cmux's own stamps (debug.frames, FrameMissSplit): main_late (the main
+# work ran past the frame's target time), commit_late (the Core Animation commit did), presented_late (neither: the main
+# thread was idle at the target and the frame still missed); `missed_frames`: the first misses with their stamps.
 FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed", "main_p50_ms", "main_p95_ms",
-              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max")
+              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max", "missed_split",
+              "missed_frames")
+
+
+def pane_check(display):
+    """The round's pane check (terminal_resize_verdict.follow), taken out of `debug.terminal_display`'s stop reply:
+    `follow` and its totals for the round entry."""
+    checked = terminal_resize_verdict.follow(display)
+    if checked is None:
+        return {"follow": None}
+    return {"follow": checked, "held_frames": checked["held_frames"], "held_terminals": checked["held_terminals"],
+            "lagging_frames": checked["lagging_frames"]}
 
 
 def frame_numbers(frames):
@@ -220,8 +243,8 @@ def unsettled(after):
 
 def drag_holds_terminals():
     """Whether this build keeps each terminal's size and text through a divider drag (`terminalDrag.holdSurface`, on
-    by default since #32006): then a drag that ends where it began resizes and draws no terminal, in either arm. False
-    for a build without that switch (`debug.tunables` answers an error)."""
+    by default since #32006), as data: such a drag holds its terminals, so its rounds fail the pane check. False for a
+    build without that switch (`debug.tunables` answers an error)."""
     row = rpc("debug.tunables", {"action": "get", "key": "terminalDrag.holdSurface"}) or {}
     return row.get("value") is True
 
@@ -327,6 +350,7 @@ def measure(name):
             numbers, raw = frame_numbers(frames)
             # Resized in the drag: a full rebuild for a new grid, a resize or a reflow preview's swap (the drag ends
             # where it began, so start and end grids match; a build that holds terminals through the drag resizes none).
+            entry.update(pane_check(display))
             entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "main_ms": arms.distribution(raw["main_ms"]), "raw": raw, "display": display,
                           "counters": counter_delta(before, after), "unsettled_after": unsettled(after),
@@ -378,6 +402,7 @@ def measure_keys(name):
             time.sleep(1.0)  # bench script: the last press's frames and grids land
             after = surfaces()
             numbers, raw = frame_numbers(frames)
+            entry.update(pane_check(display))
             entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "interval_ms": arms.distribution(raw["intervals_ms"]), "main_ms": arms.distribution(raw["main_ms"]),
                           "motion_main_ms": arms.distribution(raw["motion_main_ms"]), "raw": raw, "presses": presses,

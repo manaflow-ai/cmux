@@ -1635,13 +1635,16 @@ fn start(
             Arc::new(|line: &str| log(line)),
         );
     }
+    // The memory's one change book: the inspector's edits and the chat's
+    // deleted messages (brain/inbox.rs) share its journal and rebuild worker.
+    let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
-            inspector: start_inspector(paths, &chat, &claude_text),
+            inspector: start_inspector(paths, &chat, &claude_text, &memory_editor),
             chief: Some(chief_tools.clone()),
             // The turn names of `Settings::turn_prefix`, the subagent names
             // of the sub preset (`optchat-sub-<home id>-<id>`).
@@ -1803,6 +1806,7 @@ fn start(
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
+    .with_memory_editor(Some(memory_editor.clone()))
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
@@ -2348,12 +2352,12 @@ fn start_inspector(
     paths: &Paths,
     chat: &Arc<OptChat>,
     system_text: &str,
+    editor: &Arc<crate::inspect::edit::Editor>,
 ) -> Option<Arc<crate::inspect::Inspector>> {
     let _ = std::fs::remove_file(&paths.inspector);
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     let inspector = Arc::new(
         crate::inspect::Inspector::new(
             chat.clone(),
@@ -2361,7 +2365,7 @@ fn start_inspector(
             paths.settle_status.clone(),
             system_text.to_owned(),
         )
-        .with_editor(editor),
+        .with_editor(editor.clone()),
     );
     if env("OPTCHAT_INSPECTOR_WEB").as_deref() != Some("1") {
         log("memory inspector: native (through the daemon); web page off");

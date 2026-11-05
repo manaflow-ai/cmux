@@ -75,25 +75,21 @@ extension CloudHandlers {
             // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
             if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: true, passesLogin: true),
                 passesLogin: CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: cloud.harnessLoginCopySwitch.current))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
             let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
-            // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
-            let supportsEnvironments = cloud.configuration.linkSource == .appServer
-            let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
-            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
-            // (the app server's create refuses one for now), so its path shows no size choice.
-            let sizes = cloud.configuration.linkSource == .legacy
-                ? cloud.planSizes : []
+            // Environments live in the cmux-next backend's CloudDO.
+            let environments = await cloud.appServerEnvironmentOptions()
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments,
-                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
+                // The app server's create takes no repository and no size for now.
+                supportsRepository: false, suggested: pick?.repo,
+                environments: environments, supportsEnvironments: true,
+                sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
@@ -171,6 +167,7 @@ extension CloudHandlers {
                     }
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        askLocalSignIn: { await CloudStartChat.askCodexSignIn(services, mayAsk: true, in: .window(originalWindow)) },
                         presentDeviceCode: { prompt in
                             await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
@@ -541,8 +538,8 @@ extension CloudHandlers {
     /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
     static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
-        let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
-        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
+        // The app server's create copies no folder: the workspace opens in the machine's empty folder.
+        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: false, cwd: cwd,
                                                byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
         else { return .thisMac(notice: nil) }
         switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {

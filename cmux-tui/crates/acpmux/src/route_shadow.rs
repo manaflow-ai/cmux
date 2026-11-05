@@ -38,6 +38,15 @@ pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
     dirs.recursive(true).mode(0o700);
     dirs.create(base.join(CONVERSATIONS))?;
     dirs.create(home)?;
+    // A folder with conversations of its own would not share the base's: refuse it, never make a
+    // shadow that cannot move a chat.
+    let sessions = home.join(CONVERSATIONS);
+    if sessions.symlink_metadata().is_ok_and(|m| !m.file_type().is_symlink()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{} has conversations of its own; pick an empty folder", home.display()),
+        ));
+    }
     std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
     for entry in std::fs::read_dir(base)? {
         let name = entry?.file_name();
@@ -106,6 +115,10 @@ mod tests {
         link(&shadow, &base).unwrap();
         assert_eq!(std::fs::read_to_string(shadow.join("AGENTS.md")).unwrap(), "shared");
         assert_eq!(std::fs::read_to_string(shadow.join("auth.json")).unwrap(), "shadow login");
+        // A folder with conversations of its own is never made a shadow.
+        let own = root.join("own");
+        std::fs::create_dir_all(own.join("sessions")).unwrap();
+        assert!(link(&own, &base).is_err());
         // A separate account home keeps its own conversations.
         std::fs::create_dir_all(other.join("sessions")).unwrap();
         assert!(!shares_conversations(&base, &other));
