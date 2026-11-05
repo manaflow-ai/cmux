@@ -106,7 +106,8 @@ impl AppError {
                 "no_session",
                 format!("no session {name} on {host}; {tail}"),
             )
-            .with_data(serde_json::json!({"candidates": candidates, "host": host, "name": name}));
+            .with_data(serde_json::json!({"reason": "no_session", "session": key,
+                "candidates": candidates, "host": host, "name": name}));
         }
         if candidates.is_empty() {
             return Self::no_session(key);
@@ -418,6 +419,12 @@ mod typed_error_tests {
         let app = AppError::no_session_from("h/proc-title", &refused);
         assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
         assert_eq!(app.message, "no session proc-title on h; did you mean: feed-lane, lane");
+        // `--json` keeps the refusal's whole shape.
+        assert_eq!(
+            app.envelope()["error"]["data"],
+            json!({"reason": "no_session", "session": "h/proc-title", "host": "h",
+                   "name": "proc-title", "candidates": ["feed-lane", "lane"]})
+        );
         let none = daemon(RpcError::invalid_params("no session: h/x").with_data(json!({
             "reason": "no_session", "host": "h", "name": "x", "candidates": []})));
         assert_eq!(

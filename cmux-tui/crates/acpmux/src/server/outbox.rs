@@ -110,9 +110,7 @@ pub(super) async fn handle(
         );
     }
     // A peer that is down now: queued and tried again, and the answer says so.
-    let host_unreachable = hub.resolve(&target).is_err()
-        && hub.resolve_remote(&target).is_none()
-        && hub.peer_down_for(&target).is_some();
+    let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
     let mux = request

@@ -59,6 +59,13 @@ impl Hub {
             && peer.rows_ready.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Whether a send to `key` goes to a peer whose link is down now: queued, and the answer
+    /// says `hostUnreachable`. A row cached from before the peer went down does not make it
+    /// reachable; a session here never counts.
+    pub fn host_unreachable_for(&self, key: &str) -> bool {
+        self.resolve(key).is_err() && self.peer_down_for(key).is_some()
+    }
+
     /// (the machine `key` names, the name on it, that machine's live session names): a peer's
     /// rows for `PEER/NAME`, this machine's sessions for a bare key or this machine's own name.
     fn names_on_host_of<'k>(&self, key: &'k str) -> (String, &'k str, Vec<String>) {
@@ -71,7 +78,9 @@ impl Hub {
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
                 .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
-                .map(|n| n.rsplit_once('/').map_or(n, |(_, last)| last).to_owned())
+                .map(|n| {
+                    n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
+                })
                 .collect();
             return (host.to_owned(), rest, names);
         }
@@ -117,20 +126,20 @@ pub fn closest(names: &[String], key: &str) -> Vec<String> {
     out
 }
 
-/// Levenshtein distance over chars.
+/// Levenshtein distance over chars, one row at a time.
 fn distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let here = row[j + 1];
-            row[j + 1] = (here + 1).min(row[j] + 1).min(prev + usize::from(ca != *cb));
-            prev = here;
+        let mut next = Vec::with_capacity(row.len());
+        next.push(i + 1);
+        for ((cb, diag), up) in b.iter().zip(&row).zip(row.iter().skip(1)) {
+            let left = next.last().copied().unwrap_or(usize::MAX - 1);
+            next.push((up + 1).min(left + 1).min(diag + usize::from(ca != *cb)));
         }
+        row = next;
     }
-    row[b.len()]
+    row.last().copied().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -149,6 +158,41 @@ mod tests {
         let near = closest(&all, "feed-lan");
         assert_eq!((near[0].as_str(), near.len()), ("feed-lane", 3), "{near:?}");
         assert!(closest(&[], "lane").is_empty());
+    }
+
+    /// A peer's names are suggested whole under that peer (a nested `review/child` stays
+    /// so), and "no such session" on a peer is final only once its list was applied.
+    #[test]
+    fn a_peers_names_keep_their_path_and_count_once_listed() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("b", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("b".into(), peer.clone());
+        let rows = vec![
+            serde_json::json!({"sessionId": "s1", "name": "review/child", "status": "ready"}),
+            serde_json::json!({"sessionId": "s2", "name": "gone-lane", "status": "closed"}),
+        ];
+        hub.apply_peer_notice("b", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+        let (text, data) = hub.no_session_text("b/review/chil");
+        assert_eq!(text, "no session review/chil on b; did you mean: review/child", "{data}");
+        assert_eq!(data["candidates"], serde_json::json!(["review/child"]));
+        // Not connected, nothing listed: not final.
+        assert!(!hub.no_session_is_final("b/x"));
+        peer.connected.store(true, SeqCst);
+        assert!(!hub.no_session_is_final("b/x"), "connected, list not applied yet");
+        peer.rows_ready.store(true, SeqCst);
+        assert!(hub.no_session_is_final("b/x"));
+        // A name on this machine is always final.
+        assert!(hub.no_session_is_final("nobody"));
+        // Its link drops with the rows still cached: a send there is to a machine that is down.
+        peer.connected.store(false, SeqCst);
+        assert!(hub.resolve_remote("b/review/child").is_some(), "the row is still cached");
+        assert!(hub.host_unreachable_for("b/review/child"));
+        assert!(!hub.host_unreachable_for("nobody"), "a name here is no peer's");
     }
 
     #[test]
