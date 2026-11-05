@@ -291,6 +291,9 @@ final class SidebarNoticeCardView: NSView {
     /// The right-hand control's glyph and hit square: well above the x's, on the shared spacing tokens.
     static var trailingGlyph: CGFloat { Metrics.space6 + Metrics.space1 }
     static var trailingSide: CGFloat { Metrics.space6 + Metrics.space4 + Metrics.space2 }
+    /// Where the right-hand control's column starts in a card `width` wide, a grid step past the text and bar.
+    /// The staged update card ends its Restart button here, so a click meant for the cancel never lands on it.
+    static func trailingColumnMinX(width: CGFloat) -> CGFloat { width - padding - trailingSide - Metrics.space4 }
 
     /// The card's height for `notice`: padding, the heading, the title, two
     /// detail lines, the progress bar and the button row when present.

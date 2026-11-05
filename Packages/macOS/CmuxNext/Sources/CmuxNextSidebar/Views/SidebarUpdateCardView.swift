@@ -224,7 +224,12 @@ final class SidebarUpdateCardView: NSView {
             y += caption
         }
         toggle.frame = NSRect(x: pad, y: y + Self.rowGap, width: width, height: SidebarUpdateToggle.height)
-        button.frame = NSRect(x: pad, y: toggle.frame.maxY + Self.rowGap, width: width, height: SidebarUpdateButton.height)
+        // Restart to Update ends where the download card's text and bar end: this card takes the download
+        // card's place with its bottom edge kept (`SidebarBottomCardSlot`), so a click meant for that card's
+        // cancel lands on the card, never on Restart (Leo 2026-11-04: "i only clicked the "download" button
+        // and it allegedly "updated""; 2026-11-05: "a better-looking update downloading thing").
+        let buttonWidth = min(width, SidebarNoticeCardView.trailingColumnMinX(width: b.width) - pad)
+        button.frame = NSRect(x: pad, y: toggle.frame.maxY + Self.rowGap, width: max(0, buttonWidth), height: SidebarUpdateButton.height)
         presence.didLayout()
     }
 

@@ -51,6 +51,11 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-05: Restart to Update ends where the download card's text and bar end
+  (`SidebarNoticeCardView.trailingColumnMinX`), one grid step before the cancel's column, so a click meant for the
+  download's cancel lands on the card, never on Restart; each card keeps its own height (the slot keeps the bottom
+  edge). Leo, verbatim: "can we have, like, a better-looking update downloading thing?", after 11-04's "i only
+  clicked the "download" button and it allegedly "updated"". Regression: `UpdateRestartColumnTests`.
 - 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
   is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
   before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
