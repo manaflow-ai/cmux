@@ -2,7 +2,7 @@
 // It, like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute". While
 // the chat waits on the person the live line is a pill with the attention dot; once answered, the
 // Thinking line that replaces it starts with that dot shrinking away, and the dot goes after.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { WaitingOn } from "../src/agent-session/acpmux/conversation/waitingOn";
 
@@ -69,11 +69,18 @@ test("the waiting line is a pill with the dot; once answered the dot shrinks bef
   await act(async () => void dot.dispatchEvent(new dom.window.Event("animationend", { bubbles: true })));
   expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
 
-  // With no animation (motion off) it still goes, within its fallback time.
-  await draw("question");
-  await draw(undefined);
-  expect(host.querySelector(".cv-needs-input-dot.is-answered")).not.toBeNull();
-  await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
-  expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
+  // With no animation (motion off) it still goes, within its fallback time (SETTLE_MS, 400 ms).
+  jest.useFakeTimers();
+  try {
+    await draw("question");
+    await draw(undefined);
+    expect(host.querySelector(".cv-needs-input-dot.is-answered")).not.toBeNull();
+    await act(async () => void jest.advanceTimersByTime(399));
+    expect(host.querySelector(".cv-needs-input-dot.is-answered")).not.toBeNull();
+    await act(async () => void jest.advanceTimersByTime(1));
+    expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
   await act(async () => root.unmount());
 });
