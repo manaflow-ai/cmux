@@ -224,12 +224,16 @@ function History({
   store: ArtifactsStore;
   strings: Strings;
 }) {
-  const { history, selectedCommit, diff } = snapshot;
+  const { history, historyFailure, selectedCommit, diff } = snapshot;
   if (!snapshot.selected || snapshot.fileLoading) return null;
   return (
     <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
       <h2 className="artifacts-history-title">{strings.t("artifacts.history.title")}</h2>
-      {history.length === 0 ? <p className="artifacts-muted">{strings.t("artifacts.history.none")}</p> : null}
+      {historyFailure ? (
+        <p className="artifacts-muted">{failureText(historyFailure, strings)}</p>
+      ) : history.length === 0 ? (
+        <p className="artifacts-muted">{strings.t("artifacts.history.none")}</p>
+      ) : null}
       <ol className="artifacts-commits">
         {history.map((commit) => {
           const active = commit.sha === selectedCommit;
@@ -248,7 +252,11 @@ function History({
                 <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
               </button>
               {active && diff?.sha === commit.sha ? (
-                <Change before={diff.before} after={diff.after} strings={strings} />
+                diff.unavailable ? (
+                  <p className="artifacts-note">{strings.t("artifacts.file.binary")}</p>
+                ) : (
+                  <Change before={diff.before} after={diff.after} strings={strings} />
+                )
               ) : null}
             </li>
           );

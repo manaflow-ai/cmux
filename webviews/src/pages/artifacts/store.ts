@@ -41,9 +41,14 @@ export interface ArtifactsSnapshot {
   fileLoading: boolean;
   fileFailure?: ArtifactsFailure;
   history: ArtifactCommit[];
+  /** Why the chosen file's history could not be read; its preview still shows. */
+  historyFailure?: ArtifactsFailure;
   selectedCommit?: string;
-  /** The chosen revision against its parent; `before` is absent for the file's first revision. */
-  diff?: { sha: string; before?: string; after: string };
+  /**
+   * The chosen revision against its parent; `before` is absent for the file's first revision.
+   * `unavailable`: either side has no text to compare (binary or too large), so no change shows.
+   */
+  diff?: { sha: string; before?: string; after: string; unavailable?: boolean };
 }
 
 const INITIAL: ArtifactsSnapshot = { status: "idle", paths: [], truncated: false, fileLoading: false, history: [] };
@@ -105,6 +110,7 @@ export class ArtifactsStore {
         fileLoading: false,
         fileFailure: undefined,
         history: [],
+        historyFailure: undefined,
         selectedCommit: undefined,
         diff: undefined,
       });
@@ -140,6 +146,7 @@ export class ArtifactsStore {
           fileLoading: false,
           fileFailure: undefined,
           history: [],
+          historyFailure: undefined,
           selectedCommit: undefined,
           diff: undefined,
         });
@@ -171,25 +178,41 @@ export class ArtifactsStore {
         fileLoading: true,
         fileFailure: undefined,
         history: [],
+        historyFailure: undefined,
         selectedCommit: undefined,
         diff: undefined,
       });
+    // The file and its history are read at once but answer on their own: a history that fails
+    // to read never hides the file's preview.
+    const historyRead = client
+      .call<ArtifactHistory>(
+        ArtifactsOps.history,
+        head ? { path, ref: head, limit: HISTORY_LIMIT } : { path, limit: HISTORY_LIMIT },
+      )
+      .then(
+        (history) => ({ history }),
+        (error: unknown) => ({ failure: failureOf(error) }),
+      );
+    let file: ArtifactFile;
     try {
-      const [file, history] = await Promise.all([
-        client.call<ArtifactFile>(ArtifactsOps.file, head ? { path, ref: head } : { path }),
-        client.call<ArtifactHistory>(
-          ArtifactsOps.history,
-          head ? { path, ref: head, limit: HISTORY_LIMIT } : { path, limit: HISTORY_LIMIT },
-        ),
-      ]);
-      if (request !== this.fileRequest) return;
-      this.set({ file, history: history.commits, fileLoading: false, fileFailure: undefined });
-      const newest = history.commits[0];
-      // Read at this head only once its newest change shows too; otherwise a refresh tries again.
-      if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;
+      file = await client.call<ArtifactFile>(ArtifactsOps.file, head ? { path, ref: head } : { path });
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileLoading: false, fileFailure: failureOf(error) });
+      return;
     }
+    if (request !== this.fileRequest) return;
+    this.set({ file, fileLoading: false, fileFailure: undefined });
+    const read = await historyRead;
+    if (request !== this.fileRequest) return;
+    if ("failure" in read) {
+      // Not read at this head yet: a refresh tries the history again.
+      this.set({ historyFailure: read.failure });
+      return;
+    }
+    this.set({ history: read.history.commits, historyFailure: undefined });
+    const newest = read.history.commits[0];
+    // Read at this head only once its newest change shows too; otherwise a refresh tries again.
+    if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;
   }
 
   /** Shows `commit`'s change to the chosen file; the chosen revision again only to retry a failed read. */
@@ -207,20 +230,26 @@ export class ArtifactsStore {
     // Reading the same revision again (a refresh) keeps its change on screen meanwhile.
     const same = this.snapshot.diff?.sha === commit.sha;
     this.set({ selectedCommit: commit.sha, fileFailure: undefined, ...(same ? {} : { diff: undefined }) });
-    const text = async (ref: string) => textOf(await client.call<ArtifactFile>(ArtifactsOps.file, { path, ref }));
+    const read = (ref: string) => client.call<ArtifactFile>(ArtifactsOps.file, { path, ref });
     try {
       const parent = commit.parents[0];
-      const [after, before] = await Promise.all([
-        head && head.commit === commit.sha ? textOf(head) : text(commit.sha),
+      const [afterFile, beforeFile] = await Promise.all([
+        head && head.commit === commit.sha ? head : read(commit.sha),
         // A parent where the file did not exist yet answers not found: the file was added.
         parent
-          ? text(parent).catch((error: unknown) =>
+          ? read(parent).catch((error: unknown) =>
               failureOf(error).code === "cmux.artifacts.not_found" ? undefined : Promise.reject(error),
             )
           : undefined,
       ]);
       if (request !== this.fileRequest) return false;
-      this.set({ diff: { sha: commit.sha, before, after: after ?? "" } });
+      const after = textOf(afterFile);
+      const before = beforeFile ? textOf(beforeFile) : undefined;
+      // A binary or too-large side has no text: say so rather than diff it as empty.
+      const unavailable = after === undefined || (beforeFile !== undefined && before === undefined);
+      this.set({
+        diff: unavailable ? { sha: commit.sha, after: "", unavailable } : { sha: commit.sha, before, after },
+      });
       return true;
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileFailure: failureOf(error) });

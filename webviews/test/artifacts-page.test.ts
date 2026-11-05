@@ -121,6 +121,58 @@ test("a parent where the file did not exist yet reads as added, not as a failure
   expect(snapshot.diff).toEqual({ sha: head, before: undefined, after: "a\n" });
 });
 
+test("a history that fails to read still shows the file, and a refresh tries it again", async () => {
+  const head = "a".repeat(40);
+  let historyFails = true;
+  const host = new Host((op) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history) {
+      if (historyFails) throw pageError("cmux.artifacts.unavailable", "History is unavailable.");
+      return { commits: [{ sha: head, parents: [], message: "Add a", authorName: "cmux", time: 0, trailers: {} }] };
+    }
+    return { path: "a.md", size: 2, contentType: "text/markdown", commit: head, content: "a\n" };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  let snapshot = store.getSnapshot();
+  expect(snapshot.fileFailure).toBeUndefined();
+  expect(snapshot.file?.content).toBe("a\n");
+  expect(snapshot.historyFailure?.code).toBe("cmux.artifacts.unavailable");
+  expect(snapshot.history).toEqual([]);
+
+  historyFails = false;
+  await store.start();
+  snapshot = store.getSnapshot();
+  expect(snapshot.historyFailure).toBeUndefined();
+  expect(snapshot.history.map((commit) => commit.message)).toEqual(["Add a"]);
+  expect(snapshot.diff).toEqual({ sha: head, before: undefined, after: "a\n" });
+});
+
+test("a revision with no text on either side shows no change rather than an empty diff", async () => {
+  const head = "a".repeat(40);
+  const parent = "b".repeat(40);
+  const host = new Host((op, params) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: [
+          { sha: head, parents: [parent], message: "Grow a", authorName: "cmux", time: 1, trailers: {} },
+          { sha: parent, parents: [], message: "Add a", authorName: "cmux", time: 0, trailers: {} },
+        ],
+      };
+    if (params.ref === parent)
+      return { path: "a.md", size: 2, contentType: "text/markdown", commit: parent, content: "a\n" };
+    return { path: "a.md", size: 9_000_000, contentType: "text/markdown", commit: head, tooLarge: true };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().diff).toEqual({ sha: head, after: "", unavailable: true });
+  await store.selectCommit(store.getSnapshot().history[1]!);
+  expect(store.getSnapshot().diff).toEqual({ sha: parent, before: undefined, after: "a\n" });
+});
+
 test("a reply for a file the person already left is dropped", async () => {
   let release: () => void = () => {};
   const slow = new Promise<void>((resolve) => (release = resolve));
