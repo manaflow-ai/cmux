@@ -4590,8 +4590,8 @@ jobs:
       # submodule, run 38669958906 skipped five accepted builds.
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
       # its own actor, so a limit that every workflow's github.token shares does not refuse it.
-      # Later jobs reuse these four steps by YAML alias (*gh-app-token-read, -write, *gh-app-install,
-      # -tooling): GitHub refuses a workflow file over 512,000 bytes before any job starts.
+      # Later jobs reuse three of these steps by YAML alias (*gh-app-token-read, -write, -install-tooling):
+      # GitHub refuses a workflow file over 512,000 bytes before any job starts.
       - &gh-app-token-read
         name: Mint the release App token for this job's gh calls
         id: gh-app-token
@@ -4605,8 +4605,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
 
-      - &gh-app-install
-        name: Send this job's gh calls as the release App, github.token as the fallback
+      - name: Send this job's gh calls as the release App, github.token as the fallback
         env:
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
@@ -5089,7 +5088,7 @@ jobs:
     # The release App key remains scoped to this protected environment. Publication uploads and writes feeds
     # at about one core (publish-nightly 64 s on 32 vCPU at 1.39 cores, .github/runners.json): with no owned
     # pool it takes the signing picker's Linux label, as keep-published-dsyms does, else the Linux 4 vCPU pool.
-    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # 120 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 300 || 180 }}
     env:
@@ -6058,8 +6057,7 @@ jobs:
 
       # The release App with every permission it has (Variables: read); the job's other App token
       # is contents-only. A failed mint leaves it empty, and the ring reads off.
-      - &ring-token
-        name: Mint the release App token that reads the Dev ring switch
+      - name: Mint the release App token that reads the Dev ring switch
         id: ring-token
         continue-on-error: true
         timeout-minutes: 2
