@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
-"""Cancel a nightly-next build or promotion run that is stuck on a runner label that stopped serving.
+"""Report a nightly-next build or promotion run stuck on a runner label that stopped serving, and
+re-run the jobs that never got a runner once the run has ended. It never cancels a nightly.
 
 GitHub fixes a job's runner label when it creates the job. If that label stops serving, the job waits
-forever, and changing the runner repository variables does not move it. Run 40771197361 (tip
-1f0f687b, 2026-10-28) had `decide` waiting 34 minutes on blacksmith-4vcpu-ubuntu-2404, with more jobs
-queued behind it, while every Blacksmith Linux label had stopped starting jobs. A re-run creates new
-jobs, which evaluate their runs-on again, so the way out is to cancel the run and build it again.
-
-This step only cancels, and only a run that an existing path builds again:
-  - the tip's push run on nightly-next below MAX_ATTEMPTS: the next tick step,
-    nightly_next_cancelled_tip.sh, re-runs a tip whose newest push run ended cancelled;
-  - an older commit's run on nightly-next (push or dispatch): the tip builds instead (rulebook,
-    Nightly freshness: stuck runs of older commits are skipped and the tip builds);
-  - a promotion on main ("Promote nightly-next to ..."): the tick's promotion request asks again.
-A dispatch of the tip, and the tip's push run at MAX_ATTEMPTS, are left alone with a warning: no path
-here builds them again, and a cancelled run that nothing rebuilds is worse than a stuck one.
-
-The rulebook allows cancelling a started nightly only when it is stuck past its timeout or certain to
-fail. A run is stuck here only when all of these hold, read twice (the second read right before the
-cancel, so a runner taking the job or a gate appearing in between keeps the run):
-  - the run is `queued` or `in_progress` and has no pending deployment (a run waiting on an
-    environment or a concurrency group is gated, not stuck);
-  - a job has waited STUCK_MINUTES (3) `queued` with no runner, counted no earlier than the
-    latest executed job's completion (job records can predate their dependencies), on labels none of which is owned
-    (glaeda-* jobs belong to the owned-pool rescue, owned_pool_rescue.py);
-  - every other job is `completed` or also `queued` with no runner.
-A newer tip is never a reason to cancel.
+(GitHub ends a job queued 24 hours), and changing the runner repository variables does not move it.
+Run 40771197361 (tip 1f0f687b, 2026-10-28) had `decide` waiting 34 minutes on
+blacksmith-4vcpu-ubuntu-2404, with more jobs queued behind it. This step used to cancel such a run for
+another path to build again. Nobody cancels a nightly (Lawrence, 2026-11-04; CLAUDE.md, "Nightlies run
+on one Mac mini, and nobody cancels them"), so now:
+  - an unfinished run with a job stuck STUCK_MINUTES (3) `queued` with no runner gets a warning and
+    keeps waiting. Stuck is read as before: no pending deployment, the wait counted no earlier than the
+    latest executed job's completion, labels none of which is owned (glaeda-* jobs belong to the
+    owned-pool rescue, owned_pool_rescue.py), every other job completed or also queued with no runner;
+  - once the tip's newest push run on nightly-next has ended, below MAX_ATTEMPTS, with every failed
+    job one that never got a runner (no runner and never started) on a label that is not owned, its
+    failed jobs are re-run, which re-runs the jobs that needed them too: follow()'s re-run after a run
+    ends in owned_pool_rescue.py. A run that ended cancelled is left to the next tick step,
+    nightly_next_cancelled_tip.sh, and a job that failed on a runner is a real red, never re-run here.
 
 Fail-closed: every Actions object is read through one typed reader (`Run`, `Job` below). A field that
 is missing, of the wrong JSON type, or outside its enum (status, conclusion, and their pairing: a
 completed object has a conclusion, an unfinished one has none), a list that is not a list, or a
-paginated listing whose count does not add up, is Unreadable, and nothing is cancelled for that run
-or, for a listing, that tick. The writes go out once, with no wrapper retries
-(GH_BUDGET_WAIT_ATTEMPTS=1, gh_budget_wait.sh), so a cancel never lands long after the read that
-justified it. After the cancel the run is read every SETTLE_SECONDS, at most FORCE_AFTER + 1 times;
-a force-cancel is sent only when the run is still `queued` or `in_progress` on the same attempt and a
-fresh stuck read still says so. A run that moves to a gate state, a new attempt, or that cannot be
-read, gets nothing more.
+paginated listing whose count does not add up, is Unreadable, and nothing is re-run for that run or,
+for a listing, that tick. The re-run goes out once, with no wrapper retries
+(GH_BUDGET_WAIT_ATTEMPTS=1, gh_budget_wait.sh).
 
     nightly_next_stuck_run.py REPO
 Needs gh with GH_TOKEN (actions: write). Exit 0 always once the arguments read: the step is advisory
@@ -51,14 +38,11 @@ import os
 import re
 import subprocess
 import sys
-import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
 STUCK_MINUTES = float(os.environ.get("STUCK_MINUTES", "3"))
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))  # nightly_next_cancelled_tip.sh's bound
-SETTLE_SECONDS = float(os.environ.get("SETTLE_SECONDS", "15"))
-FORCE_AFTER = int(os.environ.get("FORCE_AFTER", "6"))
 PAGE = 100
 PROMOTION_TITLE = "Promote nightly-next to"
 
@@ -72,7 +56,7 @@ TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 
 
 class Unreadable(Exception):
-    """An answer that failed, or that is not the shape this reads. Nothing is cancelled on it."""
+    """An answer that failed, or that is not the shape this reads. Nothing is re-run on it."""
 
 
 # ---- the typed reader
@@ -258,8 +242,14 @@ class Api:
             raise Unreadable("pending deployments are not a list")
         return len(body)
 
-    def cancel(self, run_id: int, force: bool = False) -> None:
-        self.gh(["api", "-X", "POST", f"repos/{self.repo}/actions/runs/{run_id}/{'force-cancel' if force else 'cancel'}"], True)
+    def tip_push_runs(self, tip: str) -> list[Run]:
+        """The tip's push runs of nightly.yml on nightly-next, newest first."""
+        runs = [Run.parse(item) for item in self.listing(
+            f"actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&head_sha={tip}", "workflow_runs")]
+        return sorted(runs, key=lambda run: run.id, reverse=True)
+
+    def rerun_failed_jobs(self, run_id: int) -> None:
+        self.gh(["api", "-X", "POST", f"repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs"], True)
 
 
 # ---- the decision
@@ -311,32 +301,16 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     return None
 
 
-def read_stuck(api: Api, run_id: int,
-               now: Callable[[], dt.datetime]) -> tuple[Run, Job | None, bool, bool]:
+def read_stuck(api: Api, run_id: int, now: Callable[[], dt.datetime]) -> tuple[Run, Job | None, bool]:
     run = api.run(run_id)
     if run.status not in ("queued", "in_progress"):
-        return run, None, False, False
+        return run, None, False
     if api.pending_deployments(run_id):
-        return run, None, False, False
+        return run, None, False
     jobs = api.jobs(run_id)
     started = any(started_job(job) for job in jobs) and not any(timed_out_job(job) for job in jobs)
     started_waiting = started and any(queued_without_runner(job) for job in jobs)
-    return run, stuck_job(run, jobs, now()), started, started_waiting
-
-
-def rebuilt_by(run: Run, tip: str) -> str | None:
-    """Which existing path builds the run's commit again once it is cancelled, or None."""
-    if run.event == "workflow_dispatch" and run.title.startswith(PROMOTION_TITLE):
-        if run.branch == "main" and os.environ.get("NIGHTLY_NEXT_TRAIN") != "on":
-            return "the tick's promotion request asks again"
-        return None
-    if run.branch != "nightly-next":
-        return None
-    if run.head_sha != tip:
-        return "an older commit's run; the tip builds"
-    if run.event == "push" and run.attempt < MAX_ATTEMPTS:
-        return "the next step (nightly_next_cancelled_tip.sh) re-runs the tip"
-    return None
+    return run, stuck_job(run, jobs, now()), started_waiting
 
 
 def candidates(api: Api) -> list[Run]:
@@ -354,26 +328,44 @@ def candidates(api: Api) -> list[Run]:
     return [found[run_id] for run_id in sorted(found)]
 
 
-def settle(api: Api, run_id: int, attempt: int, sleep: Callable[[float], None]) -> str:
-    """'cancelled', 'finished' (some other conclusion), 'running' (still queued or in progress on the
-    same attempt after every read), or 'moved' (a gate state, a new attempt, or unreadable)."""
-    for i in range(FORCE_AFTER + 1):
-        if i:
-            sleep(SETTLE_SECONDS)
-        try:
-            run = api.run(run_id)
-        except Unreadable:
-            return "moved"
-        if run.attempt != attempt:
-            return "moved"
-        if run.status == "completed":
-            return "cancelled" if run.conclusion == "cancelled" else "finished"
-        if run.status not in ("queued", "in_progress"):
-            return "moved"
-    return "running"
+def lost_job(job: Job) -> bool:
+    """A job that ended failed or cancelled without ever getting a runner, on a label that is not owned."""
+    return (job.status == "completed" and job.conclusion in ("failure", "cancelled", "timed_out")
+            and job.runner is None and job.started is None
+            and not any(label.startswith("glaeda-") for label in job.labels))
 
 
-def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], None] = time.sleep,
+def rerun_lost(api: Api, tip: str, log: Callable[[str], None], warn: Callable[[str], None]) -> None:
+    """Re-run the failed jobs of the tip's newest push run when it has ended and every failed job never got a runner."""
+    try:
+        runs = api.tip_push_runs(tip)
+        if not runs:
+            return
+        newest = runs[0]
+        if newest.status != "completed" or newest.conclusion in ("success", "cancelled", "skipped"):
+            return  # building, green, or nightly_next_cancelled_tip.sh's
+        jobs = api.jobs(newest.id)
+    except Unreadable as why:
+        log(f"nightly-next tip {tip[:12]}: its newest run could not be read ({why}); nothing re-run")
+        return
+    failed = [job for job in jobs if job.status == "completed" and job.conclusion not in ("success", "skipped", "neutral")]
+    if not failed or not all(lost_job(job) for job in failed):
+        return
+    names = ", ".join(job.name for job in failed)
+    if newest.attempt >= MAX_ATTEMPTS:
+        warn(f"the tip {tip[:12]}'s run {newest.id} ended {newest.conclusion} on attempt {newest.attempt} of "
+             f"{MAX_ATTEMPTS} because {names} never got a runner; not re-run again")
+        return
+    try:
+        api.rerun_failed_jobs(newest.id)
+    except Unreadable as error:
+        warn(f"run {newest.id}: the re-run of {names} was refused ({error}); the next tick reads it again")
+        return
+    log(f"::notice title=nightly-next tick::re-ran the failed jobs of run {newest.id} ({tip[:12]}, attempt "
+        f"{newest.attempt}): {names} never got a runner")
+
+
+def tick(api: Api, log: Callable[[str], None] = print,
          now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)) -> None:
     def warn(message: str) -> None:
         log(f"::warning title=nightly-next tick::{message}")
@@ -382,14 +374,13 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
         tip = api.tip()
         runs = candidates(api)
     except Unreadable as why:
-        warn(f"the nightly runs could not be read ({why}); no run is cancelled this tick")
+        warn(f"the nightly runs could not be read ({why}); nothing is re-run this tick")
         return
     if not runs:
         log("nightly-next: no unfinished nightly or promotion run")
-        return
     for listed in runs:
         try:
-            run, job, started, started_waiting = read_stuck(api, listed.id, now)
+            run, job, started_waiting = read_stuck(api, listed.id, now)
         except Unreadable as why:
             log(f"nightly-next run {listed.id}: could not be read ({why}); left alone")
             continue
@@ -399,63 +390,10 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
             else:
                 log(f"nightly-next run {run.id} ({run.event}, {run.head_sha[:12]}): running or waiting, no job stuck without a runner")
             continue
-        why = (f"{job.name} was created {int((now() - job.created).total_seconds() // 60)} min ago "
-               f"and is queued with no runner on {','.join(job.labels)}")
-        path = rebuilt_by(run, tip)
-        if path is None:
-            warn(f"run {run.id} is stuck ({why}), but it is the tip's {run.event} run on attempt {run.attempt}, "
-                 "which nothing here builds again; left queued")
-            continue
-        try:
-            # Read the branch tip before the final job snapshot. A runner can start
-            # while a tip read is retried; the subsequent job read must observe it
-            # before either cancellation write.
-            current_tip = api.tip()
-            again, still, started_again, _ = read_stuck(api, run.id, now)
-        except Unreadable as error:
-            log(f"nightly-next run {run.id}: could not be read again ({error}); left alone")
-            continue
-        if still is None or started_again or again.attempt != run.attempt:
-            log(f"nightly-next run {run.id}: changed since it was read (a runner, a gate or a new attempt); left alone")
-            continue
-        try:
-            # Discovery and earlier runs' settle waits can span a promotion. Re-evaluate
-            # against the branch tip read immediately before the final job snapshot.
-            path = rebuilt_by(again, current_tip)
-            if path is None:
-                log(f"nightly-next run {run.id}: no current rebuild path; left alone")
-                continue
-            api.cancel(run.id)
-        except Unreadable as error:
-            warn(f"run {run.id} is stuck ({why}), but the cancel was refused ({error}); the next tick reads it again")
-            continue
-        state = settle(api, run.id, run.attempt, sleep)
-        if state == "running":
-            try:
-                current_tip = api.tip()
-                again, still, started_again, _ = read_stuck(api, run.id, now)
-            except Unreadable:
-                still = None
-            if still is not None and not started_again and again.attempt == run.attempt:
-                try:
-                    if rebuilt_by(again, current_tip) is None:
-                        log(f"nightly-next run {run.id}: no current rebuild path; not force-cancelled")
-                        continue
-                    api.cancel(run.id, force=True)
-                except Unreadable as error:
-                    warn(f"run {run.id} did not finish after its cancel and the force-cancel was refused ({error})")
-                    continue
-                state = settle(api, run.id, run.attempt, sleep)
-            else:
-                state = "moved"
-        if state == "cancelled":
-            log(f"::notice title=nightly-next tick::cancelled run {run.id} ({run.event}, {run.head_sha[:12]}, "
-                f"attempt {run.attempt}): {why}; {path}")
-        elif state == "finished":
-            log(f"nightly-next run {run.id}: finished on its own before the cancel took")
-        else:
-            warn(f"run {run.id} is stuck ({why}); the cancel was sent but it has not been seen finished; "
-                 "the next tick reads it again")
+        warn(f"run {run.id} is stuck ({job.name} was created {int((now() - job.created).total_seconds() // 60)} min ago "
+             f"and is queued with no runner on {','.join(job.labels)}); a nightly run is never cancelled: it waits, "
+             "and once it ends the jobs that never got a runner are re-run")
+    rerun_lost(api, tip, log, warn)
 
 
 def main(argv: list[str]) -> int:
