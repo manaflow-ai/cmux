@@ -35,6 +35,23 @@ extension ActionRegistry {
         return menu
     }
 
+    /// `makeContextMenu`'s rows without Customize Menu…, detached for another menu to take (a pane's own).
+    public func contextMenuItems(for context: ActionMenuContext, target: ActionTargetRef? = nil,
+                                 entries: [ContextMenuEntry]? = nil) -> [NSMenuItem] {
+        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false)
+        let items = menu.items
+        menu.removeAllItems()
+        return items
+    }
+
+    /// Chat `chat`'s sidebar Priority row rows (Mark as Read, Pin, Snooze, Archive: the catalog's
+    /// `priorityRow` placements on its `agent-chat:` target), for a pane's menu on a link, name or
+    /// sender that names it. None while the row's actions cannot run: the sidebar then has no such row.
+    public func priorityRowItems(chat: String) -> [NSMenuItem] {
+        guard unavailableReason(for: "sidebar.priority.markRead") == nil else { return [] }
+        return contextMenuItems(for: .priorityRow, target: ActionTargetRef(kind: .agentChat, id: chat))
+    }
+
     /// One row of `context`'s menu whose arguments are known only when the menu opens (Open
     /// With's apps, one row per app): it runs `id` with `arguments` and the menu's facts, like
     /// a catalog row. Nil when `id` is not in the catalog or an administrator turned it off.

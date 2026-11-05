@@ -7669,15 +7669,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [mentionsKey],
   );
   // Each session reference's hover card reads the session from one store (started/SessionHoverCard.tsx).
+  // Every reference to one of the reader's chats has it (an agent link, a session name, a sender's
+  // name; Leo, 2026-11-05), with started session cards on or off: the experiment draws the cards and
+  // the name chips of started chats, not the hover.
   const hoverStore = useRef<SessionHoverStore | null>(null);
   hoverStore.current ??= new SessionHoverStore();
   useLayoutEffect(() => {
-    if (startedOn) hoverStore.current!.set(snapshot.sessions);
-  }, [startedOn, snapshot.sessions]);
-  const sessionHover = useMemo<SessionHover | null>(
-    () => (startedOn ? { store: hoverStore.current!, open: openOfferChat } : null),
-    [startedOn],
-  );
+    hoverStore.current!.set(snapshot.sessions);
+  }, [snapshot.sessions]);
+  const sessionHover = useMemo<SessionHover>(() => ({ store: hoverStore.current!, open: openOfferChat }), []);
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);

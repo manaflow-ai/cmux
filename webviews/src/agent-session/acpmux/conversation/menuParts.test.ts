@@ -32,3 +32,21 @@ test("elsewhere there is no chat part", () => {
   const doc = page(`<p id="text">plain words</p>`);
   expect(menuPartAt(doc.getElementById("text"))).toBeUndefined();
 });
+
+// Leo, 2026-11-05: "right clicking on a deeplink/link to another session/name of another
+// session/rendering of it shuold give thes options". An agent link that opens one of the reader's
+// chats is both that chat (its menu) and a link (Open Link, Copy Link).
+test("an agent link that opens a chat names the chat and keeps its link", () => {
+  const attributes = Object.entries(openSessionAttributes("lane-chat", true))
+    .map(([name, value]) => `${name}="${value}"`)
+    .join(" ");
+  const href = "https://cmux.com/deeplink/agent?harness=claude&session=lane-chat";
+  const doc = page(`<a href="${href.replace(/&/g, "&amp;")}" ${attributes}><code id="ref">lane</code></a>`);
+  expect(menuPartAt(doc.getElementById("ref"))).toEqual({ session: "lane-chat", sender: true, link: href });
+});
+
+test("an agent link not known as a chat stays a link", () => {
+  const href = "https://cmux.com/deeplink/agent?session=someone-else";
+  const doc = page(`<a href="${href}"><code id="ref">x</code></a>`);
+  expect(menuPartAt(doc.getElementById("ref"))).toEqual({ link: href });
+});

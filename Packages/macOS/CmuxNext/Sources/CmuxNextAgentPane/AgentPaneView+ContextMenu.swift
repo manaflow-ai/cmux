@@ -314,6 +314,7 @@ extension AgentPaneView {
                     goTo()
                 }
             },
+            sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,

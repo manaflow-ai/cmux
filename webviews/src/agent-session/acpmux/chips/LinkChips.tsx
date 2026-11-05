@@ -165,6 +165,9 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         data-pr-state={state}
         data-session-ref={agent["data-session-ref"]}
+        // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
+        data-open-session={agent["data-open-session"]}
+        data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
         rel="noreferrer"
         {...hover.trigger}

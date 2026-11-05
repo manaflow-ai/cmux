@@ -81,10 +81,9 @@ struct AgentChatTabActions {
     /// The empty-space menu's items, detached for the pane's menu to take.
     func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
-        let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
-                                            entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()))
-        let items = menu.items
-        menu.removeAllItems()
-        return items
+        return registry.contextMenuItems(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
+                                         entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()))
     }
+    /// A named chat's sidebar row rows (``ActionRegistry/priorityRowItems(chat:)``).
+    func sessionMenuItems(_ session: String) -> [NSMenuItem] { registry()?.priorityRowItems(chat: session) ?? [] }
 }

@@ -2,7 +2,10 @@
 // link that opens the session's chat when it is the reader's own or shared with them (the daemon
 // resolves it), and its web page otherwise; a `HOST/NAME` draws as plain code until the daemon
 // says it is a session, then as the session link chip a sender's name is (AgentTag.tsx), opening
-// the chat the same way (`chat.offer.open` with `sender`, App.tsx `openSenderChat`).
+// the chat the same way (`chat.offer.open` with `sender`, App.tsx `openSenderChat`). Once either
+// names one of the reader's chats it is that chat's reference: its hover card says the chat's state,
+// what it does now, its place, pull request and last change (started/SessionHoverCard.tsx), and its
+// right-click menu is the chat's (menuParts.ts `session`).
 import {
   useContext,
   useEffect,
@@ -26,6 +29,7 @@ import {
   type SessionRefTarget,
 } from "./sessionRefs";
 import { openSessionAttributes } from "./menuParts";
+import { useSessionHover } from "../started/SessionHoverCard";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
@@ -73,33 +77,62 @@ export function SessionRefCode({
     [pendingName, query],
   );
 
+  const sender = subsessions?.openSender !== undefined;
+  const { trigger, card } = useSessionHover(target?.sessionId ?? "");
+  const hover = target ? trigger : {};
+  // With its hover card (a page with session hover), the native tooltip would cover it.
+  const carded = target !== null && target !== undefined && trigger.onPointerEnter !== undefined;
+
   if (agentRef.kind === "name") {
     if (!target || !open) return <>{fallback}</>;
     return (
-      <button
-        type="button"
-        className="acpmux-started-chip cv-session-ref"
-        title={title}
-        aria-label={title}
-        data-session-ref=""
-        // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
-        {...openSessionAttributes(target.sessionId, subsessions?.openSender !== undefined)}
-        onClick={() => open(target.sessionId)}
+      <>
+        <button
+          {...hover}
+          type="button"
+          className="acpmux-started-chip cv-session-ref"
+          title={carded ? undefined : title}
+          aria-label={title}
+          data-session-ref=""
+          // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
+          {...openSessionAttributes(target.sessionId, sender)}
+          onClick={() => open(target.sessionId)}
+        >
+          <code className="cv-code">
+            <SoftBroken text={text} />
+          </code>
+        </button>
+        {card}
+      </>
+    );
+  }
+
+  const link = agentLinkProps(query, target, open, sender);
+  return (
+    <>
+      <a
+        className="cv-link cv-session-ref"
+        href={agentRef.href}
+        rel="noreferrer"
+        title={carded ? undefined : title}
+        aria-label={carded ? title : undefined}
+        {...hover}
+        {...link}
+        onPointerEnter={(event) => {
+          link.onPointerEnter?.();
+          hover.onPointerEnter?.(event);
+        }}
+        onFocus={(event) => {
+          link.onFocus?.();
+          hover.onFocus?.(event);
+        }}
       >
         <code className="cv-code">
           <SoftBroken text={text} />
         </code>
-      </button>
-    );
-  }
-
-  const link = agentLinkProps(query, target, open);
-  return (
-    <a className="cv-link cv-session-ref" href={agentRef.href} rel="noreferrer" title={title} {...link}>
-      <code className="cv-code">
-        <SoftBroken text={text} />
-      </code>
-    </a>
+      </a>
+      {target && card}
+    </>
   );
 }
 
@@ -109,6 +142,7 @@ function agentLinkProps(
   query: string | undefined,
   target: SessionRefTarget | null | undefined,
   open: ((sessionId: string) => void) | undefined,
+  sender = false,
 ) {
   const prefetch = query && target === undefined ? () => void resolveSessionRef(query) : undefined;
   const onClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -133,6 +167,8 @@ function agentLinkProps(
   };
   return {
     "data-session-ref": target ? "" : undefined,
+    // Once it names the reader's chat, its right-click is that chat's menu, its link rows kept.
+    ...(target && open ? openSessionAttributes(target.sessionId, sender) : {}),
     onPointerEnter: prefetch,
     onFocus: prefetch,
     onClick,
@@ -149,5 +185,5 @@ export function useAgentLinkClick(href: string) {
   const live = !readOnly && open !== undefined && sessionRefsResolve() && ref?.kind === "link";
   const query = live ? ref.query : undefined;
   const target = useSessionRef(query, false);
-  return query ? agentLinkProps(query, target, open) : NO_PROPS;
+  return query ? agentLinkProps(query, target, open, subsessions?.openSender !== undefined) : NO_PROPS;
 }
