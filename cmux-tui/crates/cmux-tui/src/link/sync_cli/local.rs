@@ -761,6 +761,50 @@ mod tests {
         assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
     }
 
+    /// The untracked secrets the git seed keeps on this Mac stay here on a
+    /// chat's copy too, in a git folder and outside one. RED before the copy
+    /// used the seed's rule: an untracked `id_rsa`, `*.pem`, `.netrc` and a
+    /// `.npmrc` with a token went to the machine; only `.env*` stayed.
+    #[test]
+    fn a_copy_keeps_every_untracked_secret_the_seed_keeps() {
+        let secrets = [
+            (".env.local", "TOKEN=x\n"),
+            ("id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n"),
+            ("keys/id_ed25519", "x\n"),
+            ("deploy/server.pem", "x\n"),
+            ("cert.p12", "x\n"),
+            (".netrc", "machine github.com login x password y\n"),
+            (".npmrc", "//registry.npmjs.org/:_authToken=npm_x\n"),
+            (".pypirc", "[pypi]\npassword = x\n"),
+        ];
+        let goes = [("README.md", "hi\n"), ("keys/id_ed25519.pub.txt", "x\n"), ("web/.npmrc", "save-exact=true\n")];
+        for in_git in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let top = std::fs::canonicalize(dir.path()).unwrap();
+            if in_git {
+                git(&top, &["init", "-q"]);
+                std::fs::write(top.join("tracked.txt"), "t\n").unwrap();
+                git(&top, &["add", "tracked.txt"]);
+                git(&top, &["commit", "-q", "-m", "base"]);
+            }
+            for (path, text) in secrets.iter().chain(goes.iter()) {
+                let file = top.join(path);
+                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                std::fs::write(file, text).unwrap();
+            }
+            let set = collect(&top, Rules::Copy).unwrap();
+            assert_eq!(set.git, in_git);
+            for (path, _) in secrets {
+                assert!(!set.files.contains_key(path), "git={in_git}: {path} went to the machine");
+            }
+            for (path, _) in goes {
+                assert!(set.files.contains_key(path), "git={in_git}: {path} stayed here");
+            }
+            let (_, counts) = set.skips.json();
+            assert_eq!(counts["secret"], serde_json::json!(secrets.len()), "git={in_git}: {counts}");
+        }
+    }
+
     #[test]
     fn an_alternates_line_is_a_path_plain_or_c_quoted() {
         assert_eq!(unquote(b"/a/b/objects"), b"/a/b/objects");
