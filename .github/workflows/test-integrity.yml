@@ -4,7 +4,7 @@ on:
   # This workflow is evaluated from the default branch, so a pull request
   # cannot remove or weaken the guard it is asking us to run.
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -12,12 +12,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: test-integrity-${{ github.event.pull_request.number || github.sha }}
+  # Label events get independent groups so label churn cannot cancel the
+  # authoritative lifecycle run for the same PR.
+  group: test-integrity-${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.run_id) || github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   deleted-or-weakened-tests:
-    name: deleted-or-weakened-tests
+    name: ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'test-integrity-approved') && 'deleted-or-weakened-tests-label-noop' || 'deleted-or-weakened-tests' }}
+    # Unrelated label events are separate no-op checks and cannot replace the
+    # required lifecycle check. Approval-label add/remove events remain
+    # authoritative for the current head.
+    if: ${{ github.event_name != 'pull_request_target' || github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened' || github.event.label.name == 'test-integrity-approved' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -25,17 +31,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
+          fetch-depth: 2
           # cmux is public, so the base fetch needs no workflow token. No PR
           # code is executed in this job.
           persist-credentials: false
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
-          if ! git fetch --no-tags origin "$base"; then
+          if ! git fetch --no-tags --depth=1 origin "$base"; then
             echo "test-integrity: base commit is unavailable" >&2
             exit 2
           fi
@@ -48,13 +55,24 @@ jobs:
             echo "test-integrity: base predates this guard; no comparison yet"
             exit 0
           fi
-          merge_base="$(git merge-base "$base" HEAD)"
+          if ! merge_base="$(git merge-base "$base" HEAD)"; then
+            # The shallow checkout usually contains the branch point. Deepen
+            # the targeted base only when it does not, avoiding a full clone.
+            git fetch --no-tags --deepen=10000 origin "$base"
+            merge_base="$(git merge-base "$base" HEAD)"
+          fi
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
           args=(--base "$merge_base")
-          # pull_request_target is the authoritative PR gate. Pushes to main
+          # pull_request_target is the authoritative PR gate. A maintainer's
+          # approval label is a one-head override; synchronize returns to strict
+          # so approval cannot silently cover later test changes. Pushes to main
           # stay report-only so an intended, already-reviewed retirement cannot
           # strand main.
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request_target" && "$TEST_INTEGRITY_APPROVED" != "true" ]]; then
             args+=(--strict)
+          fi
+          if [[ "$TEST_INTEGRITY_APPROVED" == "true" ]]; then
+            args+=(--allow-all)
+            echo "test-integrity: trusted test-integrity-approved label; recording findings without blocking"
           fi
           python3 "$RUNNER_TEMP/test_integrity.py" "${args[@]}"

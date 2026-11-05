@@ -154,8 +154,9 @@ def resolve_base(explicit: str | None) -> str:
 
 def run(base: str) -> list[Finding]:
     safe_diff = ("--text", "--no-ext-diff", "--no-textconv")
-    name_status = _git("diff", "--name-status", "--find-renames", *safe_diff, base, "HEAD", "--")
-    diff = _git("diff", "--unified=0", "--find-renames", *safe_diff, base, "HEAD", "--")
+    git_config = ("-c", "core.quotePath=false")
+    name_status = _git(*git_config, "diff", "--name-status", "--find-renames", *safe_diff, base, "HEAD", "--")
+    diff = _git(*git_config, "diff", "--unified=0", "--find-renames", *safe_diff, base, "HEAD", "--")
     return analyze(name_status, diff)
 
 

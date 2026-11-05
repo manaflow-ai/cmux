@@ -44,7 +44,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Flag deleted or weakened tests
@@ -53,6 +53,9 @@ jobs:
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base"
+          fi
           if git cat-file -e "$base:scripts/ci/test_integrity.py" 2>/dev/null; then
             git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
             python3 "$RUNNER_TEMP/test_integrity.py" --base "$base"

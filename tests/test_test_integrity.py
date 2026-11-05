@@ -108,16 +108,28 @@ class TestIntegrity(unittest.TestCase):
         findings = module.analyze("M\ttests/test_x.py\n", diff)
         self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
 
+    def test_unicode_diff_path_keeps_content_checks(self):
+        diff = """diff --git a/tests/test_ä.py b/tests/test_ä.py
+--- a/tests/test_ä.py
++++ b/tests/test_ä.py
+@@ -1,2 +1,1 @@
+-assert value
+-assert other
++pass
+"""
+        findings = module.analyze("M\ttests/test_ä.py\n", diff)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
     def test_diff_commands_disable_attributes_and_text_conversion(self):
         calls = []
 
         def fake_git(*args):
             calls.append(args)
-            return "" if args[1] == "--name-status" else "HEAD"
+            return "" if "--name-status" in args else "HEAD"
 
         with mock.patch.object(module, "_git", side_effect=fake_git):
             module.run("base")
-        self.assertEqual(calls[0][0:4], ("diff", "--name-status", "--find-renames", "--text"))
+        self.assertEqual(calls[0][0:6], ("-c", "core.quotePath=false", "diff", "--name-status", "--find-renames", "--text"))
         self.assertIn("--no-ext-diff", calls[0])
         self.assertIn("--no-textconv", calls[0])
 
@@ -137,11 +149,14 @@ class TestIntegrity(unittest.TestCase):
                 mock.patch.object(module, "_git", return_value="head"):
             self.assertEqual(module.main(["--base", "base", "--allow-all"]), 0)
 
-    def test_workflow_enforces_strict_pr_checks_without_label_overrides(self):
+    def test_workflow_scopes_approval_and_unrelated_label_events(self):
         workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
-        self.assertIn("types: [opened, synchronize, reopened]", workflow)
+        self.assertIn("types: [opened, synchronize, reopened, labeled, unlabeled]", workflow)
+        self.assertIn("github.run_id", workflow)
+        self.assertIn("deleted-or-weakened-tests-label-noop", workflow)
+        self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
         self.assertIn('args+=(--strict)', workflow)
-        self.assertNotIn('test-integrity-approved', workflow)
+        self.assertIn('args+=(--allow-all)', workflow)
 
 
 if __name__ == "__main__":
