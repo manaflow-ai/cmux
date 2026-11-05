@@ -259,8 +259,21 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let link: VNCPeerLink
         let video = ScreenVideoSource()
         let backend: any ScreenBackend
+        /// Under `lock`: the session's tasks, and whether it ended (a task
+        /// started after that is cancelled at once).
         var tasks: [Task<Void, Never>] = []
+        var ended = false
         let lock = NSLock()
+
+        /// Keeps `task` to cancel when the session ends; cancels it at once
+        /// when it already did (the viewer left while it started).
+        func add(_ task: Task<Void, Never>) {
+            let ended = lock.withLock { () -> Bool in
+                if !self.ended { tasks.append(task) }
+                return self.ended
+            }
+            if ended { task.cancel() }
+        }
         var last: (buffer: CVPixelBuffer, crop: CGRect)?
         var lastPush = DispatchTime.now()
         var displays: [CGSize] = []
@@ -432,7 +445,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let link = try VNCPeerLink(iceServers: try await signaling.iceServers(), preferStreamRelays: false)
         let session = Session(link: link, backend: makeBackend())
         lock.withLock { self.session = session }
-        session.tasks.append(Task { [weak self] in
+        session.add(Task { [weak self] in
             for await event in link.events {
                 switch event {
                 case let .candidate(message): try? await signaling.send(.candidate(ScreenICECandidate(message)))
@@ -461,7 +474,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
         sendCapabilities(session)
-        session.tasks.append(Task { [weak self] in
+        session.add(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
                     session.lock.withLock { session.captured += 1 }
@@ -482,7 +495,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         })
         // Every 3 s: what the encoder is doing (codec, hardware, fps, limits),
         // how many pictures the source delivered, and the rate the stream is set to.
-        session.tasks.append(Task { [weak self] in
+        session.add(Task { [weak self] in
             var since = DispatchTime.now().uptimeNanoseconds
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3)) // sampling period
@@ -500,7 +513,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         })
         // Idle refresh: capture sends nothing while the screen is still, but a
         // lost keyframe or a quality step needs a frame to encode.
-        session.tasks.append(Task { [weak self] in
+        session.add(Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500)) // idle refresh period
                 guard let self else { return }
@@ -563,7 +576,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// second, only when one moved, on the unordered `pointer` channel
     /// (latest wins; the ordered channel for a viewer without one).
     private func startTelepointers(_ session: Session) {
-        session.tasks.append(Task { [weak self] in
+        let task = Task { [weak self] in
             var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?)?
             var lastSent = DispatchTime.now()
             while !Task.isCancelled {
@@ -585,7 +598,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
                     if !session.link.sendText(text, on: "pointer") { _ = session.link.sendText(text) }
                 }
             }
-        })
+        }
+        session.add(task)
     }
 
     /// Whether a viewer message ends its session (the viewer left: `bye`).
@@ -684,7 +698,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return session
         }
         guard let ended else { return }
-        for task in ended.tasks { task.cancel() }
+        let tasks = ended.lock.withLock { () -> [Task<Void, Never>] in
+            ended.ended = true
+            defer { ended.tasks.removeAll() }
+            return ended.tasks
+        }
+        for task in tasks { task.cancel() }
         ended.backend.stop()
         ended.link.close()
         log("session ended")

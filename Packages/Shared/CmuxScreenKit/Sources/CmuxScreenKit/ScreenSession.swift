@@ -269,6 +269,8 @@ public final class ScreenSession {
 
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
+        // The last stream's pointers: a new host may send none (it draws its cursor).
+        onTelepointers?(nil, nil)
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -465,6 +467,7 @@ public final class ScreenSession {
         // deallocation can take seconds): never on the main actor.
         if let stream { Task.detached { stream.close() } }
         stream = nil
+        onTelepointers?(nil, nil)
         stats.targetFps = nil
         if !silently { phase = .ended }
     }

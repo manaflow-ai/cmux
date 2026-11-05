@@ -33,10 +33,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var drawsCursor = true
     /// The processes whose windows are left out of the picture, as last applied.
     private var excludedApplied: Set<pid_t> = []
-    /// Processes whose windows never appear in the picture: the Computer Use
-    /// agent's cursor overlay, which a viewer that draws pointers shows
-    /// itself. Read when a capture starts and every 2 s. Set by the app; nil
-    /// by default (nothing left out).
+    /// Processes whose windows stay out of the picture while the cursor does
+    /// (``setDrawsCursor(_:)`` false): the Computer Use agent's cursor
+    /// overlay, which a viewer that draws pointers shows itself. A viewer
+    /// that doesn't keeps both in the picture. Read when a capture starts and
+    /// every 2 s. Set by the app; nil by default (nothing left out).
     public var excludedProcessIDs: (@Sendable () -> [pid_t])? {
         get { lock.withLock { excludedSource } }
         set { lock.withLock { excludedSource = newValue } }
@@ -235,7 +236,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let (rate, cursor, excluded) = lock.withLock { (frameRate, drawsCursor, excludedSource) }
         let configuration = configuration(for: display, frameRate: rate, cursor: cursor)
         let size = pixelSize(display)
-        let pids = Set(excluded?() ?? [])
+        let pids = Self.excluded(excluded, drawsCursor: cursor)
         let filter = await Self.filter(display: display, excluding: pids)
         lock.withLock { excludedApplied = pids }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
@@ -263,6 +264,12 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         if latest != (rate, cursor) { reconfigure(generation: generation) }
     }
 
+    /// The processes to leave out: none while the cursor is in the picture
+    /// (the viewer draws no pointers, so the agent's overlay stays too).
+    static func excluded(_ source: (@Sendable () -> [pid_t])?, drawsCursor: Bool) -> Set<pid_t> {
+        drawsCursor ? [] : Set(source?() ?? [])
+    }
+
     /// The display, without the windows of `pids` (none: the whole display).
     private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> SCContentFilter {
         guard !pids.isEmpty,
@@ -280,11 +287,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
                 guard let self else { return }
-                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, applied: Set<pid_t>, generation: Int) in
-                    (stopped, excludedSource, excludedApplied, streamGeneration)
+                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
+                    (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
                 }
                 if state.stopped { return }
-                let pids = Set(state.source?() ?? [])
+                let pids = Self.excluded(state.source, drawsCursor: state.cursor)
                 guard pids != state.applied else { continue }
                 let running = lock.withLock { () -> (SCStream, SCDisplay)? in
                     guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }

@@ -44,4 +44,15 @@ struct TelepointerTests {
         let decoded = try JSONDecoder().decode(ScreenInput.self, from: JSONEncoder().encode(input))
         #expect(ScreenStreamHost.viewerDrawsPointers(decoded))
     }
+
+    #if os(macOS)
+    /// The agent's overlay leaves the picture only with the cursor: a viewer
+    /// that draws no pointers still sees both in the video.
+    @Test func theOverlayLeavesThePictureOnlyWithTheCursor() {
+        let helper: @Sendable () -> [pid_t] = { [4242] }
+        #expect(ScreenCaptureBackend.excluded(helper, drawsCursor: true).isEmpty, "an older viewer")
+        #expect(ScreenCaptureBackend.excluded(helper, drawsCursor: false) == [4242])
+        #expect(ScreenCaptureBackend.excluded(nil, drawsCursor: false).isEmpty, "no helper hook")
+    }
+    #endif
 }
