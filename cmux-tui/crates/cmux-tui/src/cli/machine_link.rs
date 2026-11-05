@@ -31,11 +31,20 @@ const VERBS: &[&str] = &["doctor"];
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
     let [noun, name, verb, rest @ ..] = words.as_slice() else { return None };
-    if noun != "machine" || !VERBS.contains(&verb.as_str()) || name.starts_with('-') || name == "doctor" {
+    if noun != "machine"
+        || !VERBS.contains(&verb.as_str())
+        || name.starts_with('-')
+        || name == "doctor"
+    {
         return None;
     }
     if !rest.is_empty() {
-        return Some(super::app::failure("usage.invalid", &format!("cmux: {USAGE}"), global.output, 2));
+        return Some(super::app::failure(
+            "usage.invalid",
+            &format!("cmux: {USAGE}"),
+            global.output,
+            2,
+        ));
     }
     Some(doctor(&global, name))
 }
@@ -65,7 +74,9 @@ impl Conversation {
         stream.set_read_timeout(Some(Duration::from_secs(180))).ok();
         let mut line = request.to_string().into_bytes();
         line.push(b'\n');
-        stream.write_all(&line).map_err(|e| ("machine.link_unavailable".to_owned(), e.to_string()))?;
+        stream
+            .write_all(&line)
+            .map_err(|e| ("machine.link_unavailable".to_owned(), e.to_string()))?;
         Ok(Self { reader: BufReader::new(stream) })
     }
 
@@ -73,7 +84,8 @@ impl Conversation {
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
             Ok(0) => Err(("machine.closed".to_owned(), "the link closed".to_owned())),
-            Ok(_) => serde_json::from_str(&line).map_err(|_| ("machine.bad_reply".to_owned(), line.clone())),
+            Ok(_) => serde_json::from_str(&line)
+                .map_err(|_| ("machine.bad_reply".to_owned(), line.clone())),
             Err(error) => Err(("machine.timeout".to_owned(), error.to_string())),
         }
     }
@@ -85,7 +97,10 @@ fn refused(answer: &Value) -> Option<(String, String)> {
     let text = match code {
         "denied" => "that Mac's person did not allow this Mac".to_owned(),
         "offline" => "that Mac is offline (asleep, or cmux is not running there)".to_owned(),
-        "timeout" => "nobody answered on that Mac; allow this Mac there or on your phone, then try again".to_owned(),
+        "timeout" => {
+            "nobody answered on that Mac; allow this Mac there or on your phone, then try again"
+                .to_owned()
+        }
         _ => message.to_owned(),
     };
     Some((format!("machine.{code}"), text))
@@ -93,7 +108,8 @@ fn refused(answer: &Value) -> Option<(String, String)> {
 
 /// The one Mac `name` picks from the hostd list, or why not.
 fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
-    let text = |m: &Value, key: &str| m.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let text =
+        |m: &Value, key: &str| m.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
     // Not this Mac: neither this build nor another build of the same computer.
     let mine: Vec<String> = machines
         .iter()
@@ -103,7 +119,10 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
         .collect();
     let others: Vec<&Value> = machines
         .iter()
-        .filter(|m| m.get("this").and_then(Value::as_bool) != Some(true) && !mine.contains(&text(m, "machine_id")))
+        .filter(|m| {
+            m.get("this").and_then(Value::as_bool) != Some(true)
+                && !mine.contains(&text(m, "machine_id"))
+        })
         .collect();
     let wanted = name.to_lowercase();
     let exact: Vec<&Value> = others
@@ -116,8 +135,11 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
         })
         .collect();
     // Several builds of one computer share its machine id: prefer the online one.
-    let online: Vec<&Value> =
-        exact.iter().copied().filter(|m| m.get("online").and_then(Value::as_bool) == Some(true)).collect();
+    let online: Vec<&Value> = exact
+        .iter()
+        .copied()
+        .filter(|m| m.get("online").and_then(Value::as_bool) == Some(true))
+        .collect();
     match (exact.as_slice(), online.as_slice()) {
         ([one], _) | (_, [one]) => Ok(*one),
         ([], _) => {
@@ -125,7 +147,10 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
             Err(format!("no Mac named {name}; your other Macs: {}", names.join(", ")))
         }
         (many, _) => {
-            let ids: Vec<String> = many.iter().map(|m| format!("{} ({})", text(m, "name"), text(m, "device_id"))).collect();
+            let ids: Vec<String> = many
+                .iter()
+                .map(|m| format!("{} ({})", text(m, "name"), text(m, "device_id")))
+                .collect();
             Err(format!("{name} names several Macs: {}; use a device id", ids.join(", ")))
         }
     }
@@ -133,13 +158,16 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
 
 fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     let output = global.output;
-    let fail = |(code, message): (String, String)| super::app::failure(&code, &format!("cmux: {message}"), output, 1);
+    let fail = |(code, message): (String, String)| {
+        super::app::failure(&code, &format!("cmux: {message}"), output, 1)
+    };
     let daemon = match super::wire::resolve_socket_or_report(global) {
         Ok((socket, _)) => socket,
         Err(code) => return code,
     };
     let socket = link_socket(&daemon);
-    let listed = Conversation::start(&socket, &json!({"op": "machines"})).and_then(|mut c| c.next());
+    let listed =
+        Conversation::start(&socket, &json!({"op": "machines"})).and_then(|mut c| c.next());
     let listed = match listed {
         Ok(answer) => answer,
         Err(error) => return fail(error),
@@ -165,7 +193,9 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
         match conversation.next() {
             Ok(answer) if answer.get("pending").and_then(Value::as_bool) == Some(true) => {
                 if !asked && output == OutputMode::Human {
-                    eprintln!("{label} is asking its person to allow this Mac (on that Mac, or on your phone)…");
+                    eprintln!(
+                        "{label} is asking its person to allow this Mac (on that Mac, or on your phone)…"
+                    );
                 }
                 asked = true;
             }
@@ -233,13 +263,22 @@ mod tests {
             mac("MacBook", "33333333-3333-3333-3333-333333333333", "bb", false, false),
         ];
         // Two builds of one computer: the online one.
-        assert_eq!(pick(&list, "macbook").unwrap()["device_id"], "22222222-2222-2222-2222-222222222222");
+        assert_eq!(
+            pick(&list, "macbook").unwrap()["device_id"],
+            "22222222-2222-2222-2222-222222222222"
+        );
         assert_eq!(pick(&list, "33333333-3333-3333-3333-333333333333").unwrap()["online"], false);
         // This Mac is never a target.
         assert!(pick(&list, "Studio").unwrap_err().contains("no Mac named Studio"));
         // Nor is another build of this same computer (same machine id).
         let mut with_sibling = list.clone();
-        with_sibling.push(mac("Studio DEV", "44444444-4444-4444-4444-444444444444", "aa", true, false));
+        with_sibling.push(mac(
+            "Studio DEV",
+            "44444444-4444-4444-4444-444444444444",
+            "aa",
+            true,
+            false,
+        ));
         assert!(pick(&with_sibling, "Studio DEV").is_err());
         assert!(!pick(&with_sibling, "nope").unwrap_err().contains("Studio DEV"));
         assert!(pick(&list, "nope").unwrap_err().contains("MacBook"));

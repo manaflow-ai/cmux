@@ -112,7 +112,9 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
     (&mut read).take(MAX_REQUEST as u64).read_until(b'\n', &mut line).await?;
     let request: Value = match serde_json::from_slice(&line) {
         Ok(value) => value,
-        Err(_) => return reply(&mut write, json!({"error": "bad_request", "message": "one JSON line"})).await,
+        Err(_) => {
+            return reply(&mut write, json!({"error": "bad_request", "message": "one JSON line"})).await;
+        }
     };
     match request.get("op").and_then(Value::as_str) {
         Some("machines") => {
@@ -159,8 +161,11 @@ async fn open(
     // comes only from the app's own control line.
     let origin = "agent";
     if uuid::Uuid::parse_str(&peer).is_err() || service.is_empty() || service == "auth" {
-        return reply(&mut write, json!({"error": "bad_request", "message": "peer is a device id; service is not auth"}))
-            .await;
+        return reply(
+            &mut write,
+            json!({"error": "bad_request", "message": "peer is a device id; service is not auth"}),
+        )
+        .await;
     }
     if peer.eq_ignore_ascii_case(&dialer.device_id) {
         return reply(&mut write, json!({"error": "bad_request", "message": "that is this Mac"})).await;
@@ -358,8 +363,11 @@ mod tests {
     #[test]
     fn the_link_socket_sits_beside_the_daemon_socket() {
         check_socket_path("/tmp/cmux-tui-501/main.sock", "/tmp/cmux-tui-501/main.link.sock").unwrap();
-        check_socket_path("/tmp/cmux-tui-501/cmux-next-dev.sock", "/tmp/cmux-tui-501/cmux-next-dev.link.sock")
-            .unwrap();
+        check_socket_path(
+            "/tmp/cmux-tui-501/cmux-next-dev.sock",
+            "/tmp/cmux-tui-501/cmux-next-dev.link.sock",
+        )
+        .unwrap();
     }
 
     #[test]

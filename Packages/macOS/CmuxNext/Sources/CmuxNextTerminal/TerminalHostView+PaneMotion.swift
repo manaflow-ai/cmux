@@ -1,6 +1,23 @@
 public import AppKit
 public import CmuxNextDesign
 
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`, cmux-ad m14) is told to the host, which outlives a
+/// surface swap: the surface it shows follows the drag, and so does one installed during the drag (a replay's
+/// `TerminalSession.swapSurface`: a surface joins its new host's drag, ``TerminalSurfaceView`` `viewWillMove(toSuperview:)`).
+extension TerminalHostView: PaneResizeGestureFollowing {
+    public func paneResizeGestureDidChange(active: Bool) {
+        guard followsResizeGesture != active else { return }
+        followsResizeGesture = active
+        current?.followResizeGesture(active)
+    }
+
+    /// Out of its window no drag's end may reach it (its layout root can go first): a surface it shows later follows none.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { followsResizeGesture = false }
+    }
+}
+
 /// FRAME OWNER REFACTOR S3: in a keyboard resize the terminal host is a container
 /// that follows its pane in every frame: the pane's content area gives it its bounds each frame, so the terminal's own
 /// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. With
