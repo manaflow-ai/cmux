@@ -576,6 +576,15 @@ class HostBuildRoot(unittest.TestCase):
         subprocess.run(['bash', str(script), str(log), 'fleet'], env=env, check=True)
         self.assertIn('- compile cache: 0 hits / 316 cacheable tasks (0%), 316 missed', summary.read_text())
 
+    def test_the_release_build_never_depends_on_the_summary_helper(self):
+        """The summary never fails the build, so its absence must not either: every harness that runs the Release
+        step (tests/test_nightly_next_arm64_only.py and others) copies only the helpers it knows about."""
+        text = (ROOT / 'scripts/ci/nightly-steps/app-build-release.sh').read_text()
+        runs = [line.strip() for line in text.splitlines()
+                if 'bash ' in line and 'release-build-summary.sh' in line and not line.lstrip().startswith('#')]
+        self.assertEqual(runs, ['[[ -f scripts/ci/nightly-steps/release-build-summary.sh ]] '
+                                '&& bash scripts/ci/nightly-steps/release-build-summary.sh "$@" || true'])
+
     def test_off_unless_the_slot_keeps_build_state(self):
         self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''
         self.assertIn('root=\n', self.build('1'))
