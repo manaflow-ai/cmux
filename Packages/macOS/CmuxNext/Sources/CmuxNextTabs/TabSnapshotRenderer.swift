@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// Renders tab or chip layers into the drag image the App's drag session shows.
@@ -24,9 +25,8 @@ struct TabSnapshotRenderer {
         context.scaleBy(x: scale, y: -scale)
         if let background {
             context.setFillColor(background)
-            let radius = metrics.cornerRadius
-            context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius,
-                                   transform: nil))
+            let pill = metrics.pillFrame(slotWidth: size.width, height: size.height)
+            context.addPath(CornerGeometry.pillPath(pill, radius: metrics.cornerRadius, rounded: metrics.roundedCorners))
             context.fillPath()
         }
         for layer in layers {

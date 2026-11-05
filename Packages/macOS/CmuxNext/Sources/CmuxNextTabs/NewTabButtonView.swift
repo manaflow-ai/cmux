@@ -76,6 +76,7 @@ final class NewTabButtonView: NSView {
         fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
         // The tabs' shape (`Metrics.tabCornerRadius`), so the + reads as one of the strip's pills.
         fillLayer.cornerRadius = Metrics.tabCornerRadius
+        fillLayer.maskedCorners = CornerGeometry.current.tabRoundedCorners
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2

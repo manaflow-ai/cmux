@@ -127,6 +127,8 @@ public struct Metrics {
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
+        // A framed corner geometry parts the sidebar by the shaded gap, not a straight line.
+        if CornerGeometry.current.drawsFrame { return 0 }
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
     public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }

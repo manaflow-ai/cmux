@@ -413,6 +413,7 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        backgroundLayer.maskedCorners = m.roundedCorners
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

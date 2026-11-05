@@ -40,6 +40,8 @@ extension Metrics {
     /// ``tabStripCardInset`` (``ConcentricCorners``), at most half the tab's height. The
     /// defaults (10 pt outer, 2 pt gap) keep Helium's 8 pt tab.
     public static var tabCornerRadius: CGFloat {
+        // A corner geometry variant (`chrome.cornerGeometry`) takes its step of the one radius scale.
+        if let radius = CornerGeometry.current.tabRadius { return radius }
         let corners = Metrics.corners
         let outer = tabStripCardRadius ?? corners.outer
         return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),
