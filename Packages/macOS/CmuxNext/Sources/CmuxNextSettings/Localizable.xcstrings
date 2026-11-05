@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.cloud.useMyCodexLogin": {
+      "comment": "Settings toggle: use the Codex sign-in on this Mac for the person's own Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Use My Codex Login on My Own Cloud Machines"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "استخدام تسجيل دخول Codex الخاص بي على أجهزة Cloud الخاصة بي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Koristi moju Codex prijavu na mojim Cloud mašinama"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug mit Codex-login på mine egne Cloud-maskiner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mein Codex-Login auf meinen eigenen Cloud-Maschinen verwenden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usar mi inicio de sesión de Codex en mis propias máquinas Cloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utiliser ma connexion Codex sur mes propres machines Cloud"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa il mio accesso Codex sulle mie macchine Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分の Cloud マシンで自分の Codex ログインを使用"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើការចូល Codex របស់ខ្ញុំលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 Cloud 머신에서 내 Codex 로그인 사용"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk Codex-påloggingen min på mine egne Cloud-maskiner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Używaj mojego logowania Codex na moich maszynach Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usar meu login do Codex nas minhas próprias máquinas Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использовать мой вход в Codex на моих машинах Cloud"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้การเข้าสู่ระบบ Codex ของฉันบนเครื่อง Cloud ของฉันเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kendi Cloud makinelerimde Codex oturumumu kullan"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовувати мій вхід у Codex на моїх машинах Cloud"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng đăng nhập Codex của tôi trên máy Cloud của riêng tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 机器上使用我的 Codex 登录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 機器上使用我的 Codex 登入"}}
+      }
+    },
+    "settings.cloud.useMyCodexLogin.help": {
+      "comment": "Help text for the Codex sign-in toggle for Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمنح أجهزة Cloud التي تملكها وصولاً قصير الأمد من تسجيل دخول Codex على هذا الـ Mac، فتبدأ محادثاتها مسجّلة الدخول. لا يحصل الجهاز أبداً على رمز التحديث الخاص بك، ولا يخزّنه cmux أبداً. عند الإيقاف: يطلب الجهاز تسجيل دخول Codex بدلاً من ذلك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Daje Cloud mašinama koje posjeduješ kratkotrajan pristup iz Codex prijave na ovom Macu, pa njihovi chatovi počinju prijavljeni. Mašina nikad ne dobija tvoj refresh token, a cmux ga nikad ne čuva. Isključeno: mašina umjesto toga traži Codex prijavu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Giver Cloud-maskiner, du ejer, kortvarig adgang fra Codex-loginet på denne Mac, så deres chats starter logget ind. Maskinen får aldrig dit refresh-token, og cmux gemmer det aldrig. Fra: en maskine beder i stedet om et Codex-login."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gibt Cloud-Maschinen, die dir gehören, kurzlebigen Zugriff aus dem Codex-Login dieses Macs, sodass ihre Chats angemeldet starten. Die Maschine erhält nie dein Refresh-Token, und cmux speichert es nie. Aus: Eine Maschine fragt stattdessen nach einer Codex-Anmeldung."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Da a las máquinas Cloud que te pertenecen acceso de corta duración desde el inicio de sesión de Codex de este Mac, para que sus chats empiecen con la sesión iniciada. La máquina nunca recibe tu token de actualización y cmux nunca lo guarda. Desactivado: la máquina pide iniciar sesión en Codex."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Donne aux machines Cloud qui vous appartiennent un accès de courte durée depuis la connexion Codex de ce Mac, pour que leurs chats démarrent connectés. La machine ne reçoit jamais votre jeton d’actualisation, et cmux ne le stocke jamais. Désactivé : une machine demande plutôt une connexion Codex."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dà alle macchine Cloud di tua proprietà un accesso di breve durata dall’accesso Codex di questo Mac, così le loro chat partono già connesse. La macchina non riceve mai il tuo refresh token e cmux non lo salva mai. Disattivato: la macchina chiede invece un accesso a Codex."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac の Codex サインインから、自分の Cloud マシンに短期間のアクセスを渡し、チャットがサインイン済みで始まるようにします。マシンがリフレッシュトークンを受け取ることはなく、cmux が保存することもありません。オフ: マシンは代わりに Codex へのサインインを求めます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្តល់ការចូលប្រើរយៈពេលខ្លីពីការចូល Codex លើ Mac នេះ ទៅម៉ាស៊ីន Cloud ដែលអ្នកជាម្ចាស់ ដូច្នេះការជជែករបស់វាចាប់ផ្តើមដោយបានចូលរួចហើយ។ ម៉ាស៊ីនមិនដែលទទួលបាន refresh token របស់អ្នកទេ ហើយ cmux មិនដែលរក្សាទុកវាទេ។ បិទ៖ ម៉ាស៊ីនស្នើឱ្យចូល Codex ជំនួសវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac의 Codex 로그인으로 내가 소유한 Cloud 머신에 단기 액세스를 제공해 채팅이 로그인된 상태로 시작되게 합니다. 머신은 새로 고침 토큰을 절대 받지 않으며 cmux도 저장하지 않습니다. 끄면: 머신이 대신 Codex 로그인을 요청합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gir Cloud-maskiner du eier kortvarig tilgang fra Codex-påloggingen på denne Macen, så chattene deres starter pålogget. Maskinen får aldri refresh-tokenet ditt, og cmux lagrer det aldri. Av: en maskin ber om Codex-pålogging i stedet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Daje maszynom Cloud, których jesteś właścicielem, krótkotrwały dostęp z logowania Codex na tym Macu, więc ich czaty startują zalogowane. Maszyna nigdy nie dostaje twojego tokenu odświeżania, a cmux nigdy go nie przechowuje. Wyłączone: maszyna prosi zamiast tego o logowanie do Codex."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dá às máquinas Cloud que você possui acesso de curta duração a partir do login do Codex neste Mac, para que os chats delas comecem conectados. A máquina nunca recebe seu token de atualização, e o cmux nunca o armazena. Desativado: a máquina pede um login do Codex."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Даёт вашим машинам Cloud краткосрочный доступ из входа в Codex на этом Mac, чтобы их чаты начинались с выполненным входом. Машина никогда не получает ваш refresh-токен, и cmux никогда его не хранит. Выкл.: машина вместо этого просит войти в Codex."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ให้เครื่อง Cloud ที่คุณเป็นเจ้าของได้รับสิทธิ์เข้าถึงระยะสั้นจากการเข้าสู่ระบบ Codex บน Mac เครื่องนี้ เพื่อให้แชทเริ่มต้นโดยเข้าสู่ระบบแล้ว เครื่องจะไม่ได้รับโทเค็นรีเฟรชของคุณ และ cmux ไม่เคยจัดเก็บโทเค็นนี้ ปิด: เครื่องจะขอให้เข้าสู่ระบบ Codex แทน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sahibi olduğun Cloud makinelerine bu Mac'teki Codex oturumundan kısa süreli erişim verir, böylece sohbetleri oturum açık başlar. Makine yenileme token'ını asla almaz ve cmux onu asla saklamaz. Kapalı: makine bunun yerine Codex oturumu ister."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надає вашим машинам Cloud короткочасний доступ із входу в Codex на цьому Mac, щоб їхні чати починалися з виконаним входом. Машина ніколи не отримує ваш refresh-токен, і cmux ніколи його не зберігає. Вимкнено: машина натомість просить увійти в Codex."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cấp cho máy Cloud bạn sở hữu quyền truy cập ngắn hạn từ đăng nhập Codex trên máy Mac này, để các cuộc trò chuyện của nó bắt đầu khi đã đăng nhập. Máy không bao giờ nhận refresh token của bạn và cmux không bao giờ lưu nó. Tắt: máy sẽ yêu cầu đăng nhập Codex."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "用这台 Mac 上的 Codex 登录，为你拥有的 Cloud 机器提供短期访问权限，让它们的聊天一开始就已登录。机器永远拿不到你的刷新令牌，cmux 也从不存储它。关闭：机器会改为要求登录 Codex。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "用這台 Mac 上的 Codex 登入，為你擁有的 Cloud 機器提供短期存取權，讓它們的聊天一開始就已登入。機器永遠拿不到你的重新整理權杖，cmux 也從不儲存它。關閉：機器會改為要求登入 Codex。"}}
+      }
+    },
     "settings.agentPane.display.commandLabels": {
       "comment": "Settings > Appearance > Agent Chat > Command Labels (cmux-next.json only): the title of the command label rules",
       "extractionState": "manual",
@@ -202253,6 +202307,268 @@
         }
       }
     },
+    "settings.labs.liveCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكود المباشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Code en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codice dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូដផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โค้ดสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı Kod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实时代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "即時程式碼"
+          }
+        }
+      }
+    },
+    "settings.labs.liveCode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في إصدار cmux المبني للكود المباشر، تُطبَّق تغييرات Swift التي تجمعها من نسختك الخاصة على التطبيق أثناء تشغيله دون انتظار إصدار جديد. أوقفه للعودة إلى الوضع العادي. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U cmux buildu za kod uživo, Swift izmjene koje kompajlirate iz svog checkouta primjenjuju se na pokrenutu aplikaciju bez čekanja novog builda. Isključite ga da se vratite na uobičajeno. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-build af cmux bliver Swift-ændringer, du kompilerer fra dit eget checkout, anvendt på den kørende app uden at vente på et nyt build. Slå det fra for at vende tilbage til normal. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Live-Code-Build von cmux werden Swift-Änderungen, die du aus deinem eigenen Checkout kompilierst, in der laufenden App übernommen, ohne auf einen neuen Build zu warten. Schalte es aus, um zum Normalzustand zurückzukehren. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En una compilación de cmux para código en vivo, los cambios de Swift que compilas desde tu propio checkout se aplican a la app en ejecución sin esperar una nueva compilación. Desactívalo para volver a la normalidad. Surte efecto al reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans une build de cmux pour le code en direct, les modifications Swift que vous compilez depuis votre propre checkout s’appliquent à l’app en cours d’exécution sans attendre une nouvelle build. Désactivez-le pour revenir à la normale. Prend effet au redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In una build di cmux per il codice dal vivo, le modifiche Swift che compili dal tuo checkout si applicano all’app in esecuzione senza attendere una nuova build. Disattivalo per tornare alla normalità. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード用にビルドされた cmux では、自分のチェックアウトからコンパイルした Swift の変更が、新しいビルドを待たずに実行中のアプリに反映されます。オフにすると通常に戻ります。cmux の再起動後に有効になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្នុង build កូដផ្ទាល់របស់ cmux ការផ្លាស់ប្ដូរ Swift ដែលអ្នក compile ពី checkout ផ្ទាល់ខ្លួន នឹងអនុវត្តលើកម្មវិធីដែលកំពុងដំណើរការ ដោយមិនចាំ build ថ្មី។ បិទវាដើម្បីត្រឡប់ទៅធម្មតាវិញ។ មានប្រសិទ្ធភាពបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드용 cmux 빌드에서는 자신의 체크아웃에서 컴파일한 Swift 변경 사항이 새 빌드를 기다리지 않고 실행 중인 앱에 적용됩니다. 끄면 원래대로 돌아갑니다. cmux를 다시 시작한 후 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-bygg av cmux blir Swift-endringer du kompilerer fra ditt eget checkout, brukt i appen som kjører, uten å vente på et nytt bygg. Slå det av for å gå tilbake til normalen. Trer i kraft når cmux starter på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W kompilacji cmux z kodem na żywo zmiany w Swift, które kompilujesz z własnego checkoutu, trafiają do działającej aplikacji bez czekania na nową kompilację. Wyłącz, aby wrócić do normalnego trybu. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em um build do cmux para código ao vivo, as alterações em Swift que você compila do seu próprio checkout são aplicadas ao app em execução sem esperar um novo build. Desative para voltar ao normal. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В сборке cmux для живого кода изменения Swift, которые вы компилируете из своего checkout, применяются к работающему приложению без ожидания новой сборки. Выключите, чтобы вернуться к обычному режиму. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใน build ของ cmux สำหรับโค้ดสด การเปลี่ยนแปลง Swift ที่คุณคอมไพล์จาก checkout ของคุณเองจะมีผลกับแอปที่กำลังทำงานโดยไม่ต้องรอ build ใหม่ ปิดเพื่อกลับสู่ปกติ มีผลหลังจากรีสตาร์ท cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un canlı kod derlemesinde, kendi checkout'unuzdan derlediğiniz Swift değişiklikleri yeni bir derleme beklemeden çalışan uygulamaya uygulanır. Normale dönmek için kapatın. cmux yeniden başladıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У збірці cmux для живого коду зміни Swift, які ви компілюєте зі свого checkout, застосовуються до запущеного застосунку без очікування нової збірки. Вимкніть, щоб повернутися до звичайного режиму. Діє після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong bản build mã trực tiếp của cmux, các thay đổi Swift bạn biên dịch từ checkout của mình được áp dụng vào ứng dụng đang chạy mà không cần chờ bản build mới. Tắt để trở lại bình thường. Có hiệu lực sau khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的实时代码构建中，你从自己的检出编译的 Swift 更改会直接应用到正在运行的应用，无需等待新构建。关闭即可恢复正常。cmux 重启后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的即時程式碼建置中，你從自己的檢出編譯的 Swift 變更會直接套用到執行中的 App，無需等待新建置。關閉即可恢復正常。cmux 重新啟動後生效。"
+          }
+        }
+      }
+    },
     "settings.labs.machineJoin": {
       "extractionState": "manual",
       "localizations": {
@@ -205054,6 +205370,924 @@
           "stringUnit": {
             "state": "translated",
             "value": "結束 cmux 時工作階段即結束"
+          }
+        }
+      }
+    }
+,
+    "settings.agentPane.display.statusVerbs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working Status Verbs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verben für den Arbeitsstatus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes du statut de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال حالة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos del estado de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作狀態動詞"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作状态动词"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 상태 동사"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業状態の動詞"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glagoli statusa rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verber for arbejdsstatus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi dello stato di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទស្ថានភាពការងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verb for arbeidsstatus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czasowniki stanu pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos do status de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глаголы статуса работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาสถานะการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma durumu fiilleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дієслова стану роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Động từ trạng thái làm việc"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Working Verbs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Arbeitsverben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes de travail personnalisés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال عمل مخصصة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos de trabajo personalizados"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂工作動詞"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义工作动词"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 작업 동사"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムの作業動詞"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođeni glagoli rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpassede arbejdsverber"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi di lavoro personalizzati"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទការងារផ្ទាល់ខ្លួន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinerte arbeidsverb"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własne czasowniki pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos de trabalho personalizados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои глаголы работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาการทำงานที่กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel çalışma fiilleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власні дієслова роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Động từ làm việc tùy chỉnh"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.custom.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comma-separated -ing verbs for the live status line."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durch Kommas getrennte Tätigkeitswörter für die Statuszeile."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes d’action séparés par des virgules pour la ligne de statut."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال عمل مفصولة بفواصل لسطر الحالة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos en gerundio separados por comas para la línea de estado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以逗號分隔的進行式動詞，用於狀態列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以逗号分隔的进行时动词，用于状态行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄에 사용할 진행형 동사를 쉼표로 구분하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス行に表示する動作の言葉をコンマで区切って入力します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glagoli radnje odvojeni zarezima za red statusa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingsverber adskilt af kommaer til statuslinjen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi al gerundio separati da virgole per la riga di stato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទសកម្មភាពដែលបំបែកដោយសញ្ញាក្បៀសសម្រាប់បន្ទាត់ស្ថានភាព។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingsverb atskilt med komma for statuslinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czasowniki czynności oddzielone przecinkami do wiersza stanu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos no gerúndio separados por vírgulas para a linha de status."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глаголы действий для строки состояния, разделённые запятыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาแสดงการกระทำที่คั่นด้วยจุลภาคสำหรับบรรทัดสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum satırı için virgülle ayrılmış şimdiki zaman fiilleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дієслова дій для рядка стану, розділені комами."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các động từ hành động phân cách bằng dấu phẩy cho dòng trạng thái."
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether the live status line rotates through verbs or stays on Thinking."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie, ob die Statuszeile wechselnde Verben oder immer „Nachdenken“ anzeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez si la ligne de statut alterne les verbes ou affiche toujours « Réflexion »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ما إذا كان سطر الحالة يتناوب بين الأفعال أو يعرض «يفكر» دائمًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige si la línea de estado alterna entre verbos o muestra siempre «Pensando»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇狀態列輪流顯示不同動詞，或始終顯示「思考中」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择状态行轮流显示不同动词，或始终显示“思考中”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄에 동사를 번갈아 표시할지, 항상 “생각 중”을 표시할지 선택합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス行の動詞を順に切り替えるか、「思考中」のみを表示するかを選びます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite da li se glagoli u statusu smjenjuju ili uvijek piše „Razmišljam“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg, om statuslinjen skifter mellem verber eller altid viser „Tænker“."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli se la riga di stato alterna i verbi o mostra sempre «Sto pensando»."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសថាតើបន្ទាត់ស្ថានភាពប្តូរកិរិយាសព្ទ ឬបង្ហាញ «កំពុងគិត» ជានិច្ច។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg om statuslinjen veksler mellom verb eller alltid viser «Tenker»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz, czy wiersz stanu zmienia czasowniki, czy zawsze pokazuje „Myślenie”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha se a linha de status alterna entre verbos ou sempre mostra “Pensando”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите, сменяются ли глаголы в строке состояния или всегда отображается «Думаю»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกว่าจะสลับคำกริยาในบรรทัดสถานะหรือแสดง “กำลังคิด” เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum satırının fiilleri dönüşümlü göstermesini veya hep “Düşünüyor” yazmasını seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть, чи змінюються дієслова в рядку стану, чи завжди відображається «Думаю»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn để dòng trạng thái luân phiên các động từ hoặc luôn hiển thị “Đang suy nghĩ”."
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخصص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasset"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ខ្លួន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsRotate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotate"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselnde Verben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تناوب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輪替"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轮换"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번갈아 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順に切り替え"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smjenjuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterna"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឆ្លាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmieniaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чередовать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับคำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dönüşümlü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чергувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luân phiên"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsThinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Nachdenken"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réflexion uniquement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفكر فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo Pensando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅思考中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅思考中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생각 중만 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考中のみ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo Razmišljam"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun Tænker"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo Sto pensando"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែកំពុងគិត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare Tenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas Pensando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только Думаю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังคิดเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Düşünüyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише Думаю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ Đang suy nghĩ"
           }
         }
       }

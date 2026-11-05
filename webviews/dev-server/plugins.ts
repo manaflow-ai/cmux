@@ -133,6 +133,9 @@ function appHostServer(): Plugin {
     config(config) {
       const port = config.server?.port;
       if (typeof port !== "number" || port === 0) return;
+      // A proxy in front of this server (scripts/ci/projection_check.py) names its own port, so the
+      // page's socket goes through it: the page's CSP allows only the server the app fetches from.
+      const clientPort = Number(process.env.CMUX_WEBVIEWS_HMR_CLIENT_PORT) || port;
       return {
         server: {
           // Vite 8 builds the client's socket address from `server.ws` (`server.hmr.host` and
@@ -141,7 +144,7 @@ function appHostServer(): Plugin {
           ws:
             config.server?.ws === false
               ? false
-              : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
+              : { protocol: "ws", host: "127.0.0.1", clientPort, ...config.server?.ws },
           fs: config.server?.fs?.allow
             ? undefined
             : {

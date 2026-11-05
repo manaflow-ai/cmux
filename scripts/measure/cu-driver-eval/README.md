@@ -2,16 +2,21 @@
 
 HQ#7146 G3a/G3b: how well each way of sending input, and each Cua Driver build, acts on an app
 without disturbing the person at the keyboard. `scripts/measure/cu-driver-eval.sh` runs it on one
-console Mac; `.github/workflows/cu-driver-eval.yml` runs it at the feat-cmux-next tip and writes a
-summary.md that compares each rate with the last successful run. Scheduled workflows run only from
-the default branch, so a dispatcher on main starts it once a day.
+console Mac whose processes hold Accessibility and event posting. No fleet worker's step does, so
+the fleet runs it inside the bench VM ([below](#bench-vm-scriptsmeasurecu-driver-benchsh)), where SIP
+is off and the A/B's own executables are granted. `.github/workflows/cu-driver-eval.yml` does that at
+the feat-cmux-next tip and writes a summary.md that compares each rate with the last successful run.
+Scheduled workflows run only from the default branch, so a dispatcher on main starts it once a day.
 
 ```
-cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
-  --script scripts/measure/cu-driver-eval.sh --ref SHA --artifact artifacts/cu-driver-eval.tgz \
-  [--target-worker W] [--arg=reps=3] [--arg=drivers=cmux-cua,cua-driver-0.38.0] [--arg=electron=0] --timeout 3600
+cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
+  --script scripts/measure/cu-driver-bench.sh --ref SHA --artifact artifacts/cu-driver-eval.tgz \
+  --arg=suite=input-ab [--target-worker W] [--arg=reps=3] [--arg=drivers=cmux-cua,cua-driver-0.38.0] --timeout 7200
 cmux-ci artifact STEP_ID cu-driver-eval.tgz
 ```
+
+On a console Mac that has the grants, `cu-driver-eval.sh [reps=3] [drivers=...] [electron=0]` runs
+the same A/B directly.
 
 ## Input A/B (suite `input_ab`)
 
@@ -70,7 +75,15 @@ The first stage of the bench: the pinned Lume (`pins.json` `lume`) clones the pi
 `trycua/macos-tahoe-cua:26.5.2` image (`image`; a moved tag is refused) for one run, sets 6 CPUs,
 12 GB and 1920x1080, boots it headless, records what the guest has (`vm.json`: macOS, display,
 SIP, Xcode tools, Homebrew, Python, Node, and whether the Claude route answers), then deletes the
-clone. Lume's image cache stays on the worker, so the 23 GB pull happens once.
+clone. Lume's image cache stays on the worker, so the 23 GB pull happens once. Lume pulls by tag
+only, so the digest it logs for the manifest it fetched must equal the pin, or the base is deleted.
+
+With `suite=input-ab` it then copies the A/B into the guest over SSH (a key made for the run),
+gives the throwaway clone passwordless sudo, and starts `cu-driver-eval.sh` as a LaunchAgent in the
+guest user's login session (`guest-start.sh`), so its windows are real windows. Once the A/B has
+built its tools and fetched the drivers, `tcc-grant.sh` writes Accessibility, event posting and
+screen capture for each of its executables into the guest's TCC databases and restarts tccd. The
+step's artifact is the guest's `cu-driver-eval.tgz` with `vm.json` and `eval.log` added.
 
 ```
 cmux-ci run --class exclusive --measurement --label measure --label macos-26 \

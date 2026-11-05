@@ -5,9 +5,10 @@
 # file there hot-reloads that window (Vite HMR, React Fast Refresh keeps component state); your other
 # windows keep their pages, and web-dev.json is not touched.
 #
-#   projection.sh open [WORKTREE] [--port N] [--test CMD]
+#   projection.sh open [WORKTREE] [--port N] [--test CMD] [--page ID]
 #                        # start WORKTREE's dev server (default: this checkout) and open the window;
-#                        # --test names the one test Debug > Run Projection Test runs there
+#                        # --test names the one test Debug > Run Projection Test runs there;
+#                        # --page opens a web page there (settings, history, ...); New Tab is native
 #   projection.sh test [CMD]          # run the projection's test (or CMD) in its window
 #   projection.sh stop [WORKTREE]     # stop the dev server this script started for WORKTREE
 #   projection.sh status [WORKTREE]
@@ -79,11 +80,12 @@ start_server() {
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
   open)
-    tree="$ROOT" port="" test=""
+    tree="$ROOT" port="" test="" page=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --port) port="${2:?--port needs a value}"; shift 2 ;;
         --test) test="${2:?--test needs a value}"; shift 2 ;;
+        --page) page="${2:?--page needs a value}"; shift 2 ;;
         -h|--help) usage ;;
         -*) usage 1 ;;
         *) tree="$(cd "$1" && pwd)"; shift ;;
@@ -94,6 +96,7 @@ case "$cmd" in
     start_server "$tree" "$port" "$state"
     args=(action run debug.projection --server "http://127.0.0.1:$port/" --worktree "$tree")
     [[ -n "$test" ]] && args+=(--test "$test")
+    [[ -n "$page" ]] && args+=(--page "$page")
     "$cli" "${args[@]}"
     ;;
   test)
