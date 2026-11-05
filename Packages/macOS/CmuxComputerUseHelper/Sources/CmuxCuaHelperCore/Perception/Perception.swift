@@ -50,14 +50,27 @@ public final class PerceptionSession: Sendable {
     }
 
     /// The agent was shown a screenshot this layer did not see (or not of a
-    /// known window): no earlier one may be called "unchanged" any more.
+    /// known window): no earlier one may be called "unchanged" any more, nor
+    /// measure a zoom region.
     func forgetScreens(window id: UInt32?) {
         state.withLock { all in
             if let id {
-                all.windows[id]?.signature = nil
+                all.windows[id] = nil
             } else {
-                for key in all.windows.keys { all.windows[key]?.signature = nil }
+                all.windows = [:]
             }
+        }
+    }
+
+    /// Records the frame of a new screenshot of window `id`. A window id
+    /// macOS gave to another process starts with no baseline.
+    func observe(_ id: UInt32, frame: ScreenshotFrame, pid: Int32?) {
+        state.withLock { all in
+            var window = all.windows[id] ?? Window()
+            if let pid, let known = window.pid, known != pid { window.signature = nil }
+            window.frame = frame
+            window.pid = pid ?? window.pid
+            all.windows[id] = window
         }
     }
 
@@ -77,14 +90,6 @@ public final class PerceptionSession: Sendable {
     var zoom: Zoom? { state.withLock { $0.zoom } }
 
     func setZoom(_ zoom: Zoom?) { state.withLock { $0.zoom = zoom } }
-
-    /// A new read of a target ends its zoom, as the driver's new snapshot does.
-    func endZoom(windowID: UInt32?, pid: Int32?) {
-        state.withLock { all in
-            guard let zoom = all.zoom else { return }
-            if windowID.map({ $0 == zoom.windowID }) == true || (pid != nil && pid == zoom.pid) { all.zoom = nil }
-        }
-    }
 }
 
 /// Captures a zoom region again at native resolution; ScreenCaptureKit in
@@ -142,10 +147,12 @@ struct Perception: Sendable {
         }
         let bypass = (args.removeValue(forKey: "perception") as? Bool) == false
         if Self.readTools.contains(name) {
+            // Any read ends the connection's one zoom, of whatever window: a
+            // later from_zoom is the driver's to answer.
+            session.setZoom(nil)
             guard !bypass else {
                 // The agent sees an image this layer never compared.
                 session.forgetScreens(window: Self.windowID(args))
-                session.endZoom(windowID: Self.windowID(args), pid: Self.pid(args))
                 Self.stripOwnArguments(name: name, &args)
                 return try await tools.invoke(name: name, arguments: HelperWire.json(args))
             }
@@ -197,7 +204,6 @@ struct Perception: Sendable {
         var structured = reply["structuredContent"] as? [String: Any] ?? [:]
         let windowID = (structured["window_id"] as? NSNumber)?.uint32Value ?? Self.windowID(args)
         let pid = (structured["pid"] as? NSNumber)?.int32Value ?? Self.pid(args)
-        session.endZoom(windowID: windowID, pid: pid)
         guard let imageIndex = content.firstIndex(where: { $0["type"] as? String == "image" }) else { return result }
         guard let encoded = content[imageIndex]["data"] as? String, let image = PerceptionImage.decode(base64: encoded) else {
             // Passed on as is: the agent sees an image this layer could not compare.
@@ -214,7 +220,7 @@ struct Perception: Sendable {
             let frame = ScreenshotFrame(width: image.width, height: image.height,
                                         windowWidth: (bounds?["width"] as? NSNumber)?.doubleValue ?? Double(image.width),
                                         windowHeight: (bounds?["height"] as? NSNumber)?.doubleValue ?? Double(image.height))
-            session.update(windowID) { $0.frame = frame; $0.pid = pid }
+            session.observe(windowID, frame: frame, pid: pid)
         }
 
         if wantsOCR {
@@ -245,7 +251,12 @@ struct Perception: Sendable {
                 return (.full, signature)
             }
         } else {
-            if let windowID { session.forgetScreens(window: windowID) }
+            if let windowID {
+                session.update(windowID) { $0.signature = nil }
+            } else {
+                // Not known which window this was: none may be called "unchanged" now.
+                session.forgetScreens(window: nil)
+            }
             shown = .full
         }
         var imageBytes = 0

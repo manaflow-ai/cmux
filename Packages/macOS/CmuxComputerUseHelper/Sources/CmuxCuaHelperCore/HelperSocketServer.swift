@@ -150,6 +150,10 @@ public final class HelperSocketServer: Sendable {
         guard let config else { return connection.refuse(.notConfigured) }
         // What this connection's agent has been shown (unchanged screenshots, zoom).
         let perception = PerceptionSession()
+        // Tool calls run and reply in the order they came: each reply is
+        // measured against the one before it (an "unchanged" screenshot
+        // assumes the agent has the last one), so none may overtake another.
+        var lastCall: Task<Void, Never>?
         var buffer = HelperWire.LineBuffer()
         var admitted = false
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
@@ -168,7 +172,9 @@ public final class HelperSocketServer: Sendable {
                     connection.write(Self.admittedReply)
                     continue
                 }
-                handle(line, connection: connection, perception: perception)
+                if let call = handle(line, connection: connection, perception: perception, after: lastCall) {
+                    lastCall = call
+                }
             }
         }
         connection.close()
@@ -185,9 +191,13 @@ public final class HelperSocketServer: Sendable {
         return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
-    private func handle(_ line: Data, connection: Connection, perception: PerceptionSession) {
+    /// Runs one request; a `tools/call` waits for `after` (the connection's
+    /// previous call) and is returned, so the next one waits for it.
+    private func handle(_ line: Data, connection: Connection, perception: PerceptionSession,
+                        after previous: Task<Void, Never>?) -> Task<Void, Never>? {
         guard let request = HelperWire.object(line) else {
-            return connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
+            connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
+            return nil
         }
         let id = HelperWire.json(request["id"] ?? NSNull())
         let method = request["method"] as? String ?? ""
@@ -196,7 +206,9 @@ public final class HelperSocketServer: Sendable {
         let tools = self.tools
         let consent = self.consent
         let view = Perception(tools: tools, session: perception)
-        Task.detached {
+        let ordered = method == "tools/call"
+        let task = Task.detached {
+            if ordered { await previous?.value }
             do {
                 let result: Data
                 switch method {
@@ -218,6 +230,7 @@ public final class HelperSocketServer: Sendable {
                                                  raw: ["id": id]))
             }
         }
+        return ordered ? task : nil
     }
 
     /// One client socket; writes are serialized, close happens once.
