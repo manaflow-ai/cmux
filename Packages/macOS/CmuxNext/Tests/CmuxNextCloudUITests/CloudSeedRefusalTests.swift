@@ -69,5 +69,40 @@ struct CloudSeedRefusalTests {
         #expect(answer.fallbackCode == "not_git")
         #expect(CloudSeedRefusal(answer, machine: "vm")?.fallbackCode == "not_git")
     }
+
+    /// A private repository the machine can't read without the cmux GitHub App: the dialog offers
+    /// Connect GitHub, which opens the App's install page and ends the start with its reason (so
+    /// Retry seeds again once it is installed), and nothing is copied.
+    @Test func aPrivateRepoOffersConnectGitHubWhichOpensTheInstallPageAndCopiesNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-seed-github-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let binary = dir.appendingPathComponent("cmux")
+        let install = "https://github.com/apps/cmux/installations/new"
+        let line = #"{"ok":false,"error_code":"seed_refused","error":"needs the cmux GitHub App","fallback_code":"seed.needs_github","install_url":"\#(install)"}"#
+        try "#!/bin/sh\necho '\(line)'\nexit 1\n".write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let cli = CloudMoveCLI(binary: binary, timeout: .seconds(20))
+
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        var opened: [URL] = []
+        var buttons: [String] = []
+        await #expect(throws: Declined(reason: "needs the cmux GitHub App")) {
+            _ = try await CloudSeedRefusal.copying(machine: "vm", ask: { refused in
+                buttons = refused.spec.buttons.map(\.id)
+                return .connectGitHub
+            }, open: { opened.append($0) }, declined: { Declined(reason: $0) }) { refusal in
+                asked.append(refusal)
+                return try await cli.startChatCopy(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "",
+                                                   workRoots: ["/w"], acpmuxHome: nil, onSeedRefusal: refusal)
+            }
+        }
+        #expect(buttons == ["cancel", CloudSeedRefusal.copyButton, CloudSeedRefusal.connectGitHubButton])
+        #expect(opened == [try #require(URL(string: install))])
+        #expect(asked == [.ask], "Connect GitHub copied the folder")
+
+        let notGit = try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "not_git"), machine: "vm"))
+        #expect(notGit.spec.buttons.map(\.id) == ["cancel", CloudSeedRefusal.copyButton], "only a private repo offers Connect GitHub")
+    }
 }
 
