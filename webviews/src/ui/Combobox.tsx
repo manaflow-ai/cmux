@@ -572,12 +572,11 @@ function VirtualRows({
     },
     [rowHeight, virtualizer],
   );
-  // A DOM with no layout (jsdom, in tests) measures every box as zero: list every row, as an
-  // unvirtualized list would; nothing is painted there to cost a frame.
-  const rows =
-    NO_LAYOUT && virtualizer.scrollRect?.height === 0
-      ? Array.from({ length: count }, (_, index) => ({ index, start: index * estimate }))
-      : virtualizer.getVirtualItems();
+  // A DOM with no layout (jsdom, in tests) has no viewport to measure, nor a resize to wait for:
+  // list every row, as an unvirtualized list would; nothing is painted there to cost a frame.
+  const rows = noLayout()
+    ? Array.from({ length: count }, (_, index) => ({ index, start: index * estimate }))
+    : virtualizer.getVirtualItems();
   return (
     <div
       ref={spacer}
@@ -592,4 +591,5 @@ function VirtualRows({
   );
 }
 
-const NO_LAYOUT = typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");
+/// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.
+const noLayout = () => typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");
