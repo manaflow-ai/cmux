@@ -34,6 +34,20 @@ struct FrameMissSplitTests {
         #expect(miss.map { abs($0.nextTickAfterTargetMs - (1.025 - 1.0 - Self.refresh) * 1_000) < 0.001 } == true)
     }
 
+    /// Review of #36242: the display-link tick runs inside a main turn, so a turn that woke before the deadline and still
+    /// runs when the next frame ticks has not reported its end yet. It crossed the deadline with its main work running.
+    @Test func aTurnStillOpenAcrossTheDeadlineIsMainLate() {
+        var split = FrameMissSplit()
+        split.tick(timestamp: 1.0, target: 1.0 + Self.refresh, refresh: Self.refresh, openTurnWoke: nil)
+        split.tick(timestamp: 1.025, target: 1.025 + Self.refresh, refresh: Self.refresh, openTurnWoke: 1.002)
+        #expect(split.counts == [.mainLate: 1])
+        // A turn that woke after the deadline did not cross it: the frame was late with the main thread idle at it.
+        var idle = FrameMissSplit()
+        idle.tick(timestamp: 1.0, target: 1.0 + Self.refresh, refresh: Self.refresh, openTurnWoke: nil)
+        idle.tick(timestamp: 1.025, target: 1.025 + Self.refresh, refresh: Self.refresh, openTurnWoke: 1.012)
+        #expect(idle.counts == [.presentedLate: 1])
+    }
+
     @Test func aFrameOnTimeIsNoMiss() {
         let found = Self.split([(1.0005, 1.0200, 1.0210)], next: 1.0 + Self.refresh)
         #expect(found.counts.isEmpty && found.misses.isEmpty)
