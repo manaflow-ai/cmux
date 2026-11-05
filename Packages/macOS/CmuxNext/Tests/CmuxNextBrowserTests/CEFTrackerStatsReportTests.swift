@@ -15,9 +15,10 @@ import Testing
         stats.hostedPages = 7
         stats.hostingRefused = 8
         stats.geometrySkips = 9
+        stats.geometryPostsHeld = 10
         #expect(stats.reportFields == [
             "clip_reads": 1, "occlusion_reads": 2, "clip_builds": 3, "clip_hits": 4, "clip_ms": 125,
-            "geometry_posts": 6, "hosted_pages": 7, "hosting_refused": 8, "geometry_skips": 9,
+            "geometry_posts": 6, "hosted_pages": 7, "hosting_refused": 8, "geometry_skips": 9, "geometry_posts_held": 10,
         ])
     }
 }

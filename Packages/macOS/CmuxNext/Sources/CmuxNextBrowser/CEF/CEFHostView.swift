@@ -138,6 +138,8 @@ final class CEFHostView: NSView {
     /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
         Self.trackerStats.occlusionReads += 1
+        // The fork works this page out now: a post a window step holds has nothing left to tell it.
+        geometryPostHeld = false
         // The fork reads these first on every update of a shown page.
         let geometry = CEFHostGeometry(of: self)
         readGeometry = geometry
@@ -313,8 +315,8 @@ final class CEFHostView: NSView {
             return
         }
         postGeometryChange()
-        // The fork updates inside the post; a hidden or not yet created page reads nothing
-        // there, so what it was told is recorded here (a still hidden page has nothing new).
+        // The fork updates inside the post (or after the window step that holds it); a hidden or not yet created
+        // page reads nothing there, so what it was told is recorded here (a still hidden page has nothing new).
         readGeometry = now
         readPlacement = key
     }
@@ -352,11 +354,32 @@ final class CEFHostView: NSView {
     private var readPlacement: PlacementKey?
 
     /// Tells the tracker about moves AppKit does not report (layer
-    /// transforms, manual frame animation in an ancestor).
+    /// transforms, manual frame animation in an ancestor). In a window step
+    /// whose followed views hold their notices (a live resize on the frame
+    /// tick, `FollowedViews`), the post waits for the end of the step: the
+    /// step's layout posts from in-between places, and the fork works the page
+    /// out after the layout anyway (the window's didResize). It goes then only
+    /// if the fork has not read this view since (FRAME OWNER REFACTOR S7).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         invalidateOcclusionMemo()
         // Something the key does not see may have changed (an own occlusion, a direct post): the next frame builds in full.
         readPlacement = nil
+        if let window, FollowedViews.of(window).holdsGeometryPost(of: self, { [weak self] in self?.postHeldGeometryChange() }) {
+            geometryPostHeld = true
+            Self.trackerStats.geometryPostsHeld += 1
+            return
+        }
+        Self.trackerStats.geometryPosts += 1
+        NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
+    }
+
+    /// A post a window step held (``postGeometryChange()``) that no read of the fork has covered since.
+    private var geometryPostHeld = false
+
+    /// The end of the window step that held this view's post: it goes unless the fork read this view since.
+    private func postHeldGeometryChange() {
+        guard geometryPostHeld else { return }
+        geometryPostHeld = false
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }

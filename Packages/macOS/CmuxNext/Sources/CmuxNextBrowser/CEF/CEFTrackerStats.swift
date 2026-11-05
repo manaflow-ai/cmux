@@ -25,6 +25,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var occlusionSeconds: Double = 0
     /// `CmuxParentViewGeometryDidChange` posts (each makes the fork update one page).
     public var geometryPosts = 0
+    /// Geometry posts a window step held until its end (`FollowedViews`, a live resize on the frame tick): each went
+    /// then (one more in `geometryPosts`) only if the fork had not read the page since.
+    public var geometryPostsHeld = 0
     /// Hosted page views in a window now (`CEFHostedPageView`, fork API 26):
     /// pages that draw in a cmux window's layer tree. Live: a hosted view
     /// leaving its window (DevTools closed, a pane closed) is no longer counted.
@@ -46,6 +49,7 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var reportFields: [String: Double] {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
+         "geometry_posts_held": Double(geometryPostsHeld),
          "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips)]
     }
 
