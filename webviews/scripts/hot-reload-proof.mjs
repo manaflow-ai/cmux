@@ -42,10 +42,17 @@ const PROBES = [
 const files = new Map();
 // The edit being written, so a restore waits for it instead of racing it.
 let writing = Promise.resolve();
-async function write(file, text) {
+/// Applies `edit` to the file's text as it is right now and writes the result, so an edit
+/// someone saved earlier in the run is the base, never overwritten; stops if the edit no longer
+/// applies or someone changed the file since this script's last write.
+async function write(file, edit) {
   const absolute = path.join(webviews, file);
-  const original = files.get(absolute)?.original ?? (await fs.readFile(absolute, "utf8"));
-  files.set(absolute, { original, written: text });
+  const now = await fs.readFile(absolute, "utf8");
+  const earlier = files.get(absolute);
+  if (earlier && now !== earlier.written) throw new Error(`${file} changed during the run: left as it is`);
+  const text = edit(now);
+  if (text === now) throw new Error(`the edit no longer applies to ${file}`);
+  files.set(absolute, { original: earlier?.original ?? now, written: text });
   writing = fs.writeFile(absolute, text);
   await writing;
 }
@@ -153,9 +160,6 @@ try {
   let n = 0;
   for (const probe of PROBES) {
     n += 1;
-    const original = await fs.readFile(path.join(webviews, probe.file), "utf8");
-    const edited = probe.edit(original, n);
-    if (edited === original) throw new Error(`${probe.name}: the edit no longer applies to ${probe.file}`);
     const prompt = `${PROMPT} (${n})`;
     await editor().waitFor({ timeout: 60_000 });
     const repliesBefore = await repliesDone();
@@ -171,7 +175,7 @@ try {
     // This turn's last reply has not arrived yet: the edit lands mid-turn.
     const midTurn = (await repliesDone()) === repliesBefore;
     const started = performance.now();
-    await write(probe.file, edited);
+    await write(probe.file, (text) => probe.edit(text, n));
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
     const ms = Math.round(performance.now() - started);
@@ -230,8 +234,7 @@ try {
       await editor().waitFor({ timeout: 60_000 });
       await inPage(() => (window.__hotReloadProbe = "same page"));
       const before = reloads;
-      const original = await fs.readFile(id, "utf8");
-      await write(file, `${original}\n// hot-reload probe\n`);
+      await write(file, (text) => `${text}\n// hot-reload probe\n`);
       await settle();
       const reloaded = reloads > before || (await inPage(() => window.__hotReloadProbe !== "same page"));
       auditRows.push({ file, hot: !reloaded });
