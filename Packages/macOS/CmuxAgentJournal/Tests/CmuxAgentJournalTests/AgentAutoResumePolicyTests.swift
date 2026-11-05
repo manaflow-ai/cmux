@@ -197,6 +197,47 @@ struct AgentAutoResumePolicyTests {
         }
     }
 
+    @Test func thePanesSettlementAfterAFinalStopKeepsTheTurnEnded() {
+        // The Stop was still queued when the pane settled, so the synthetic
+        // completion lands after it. It is no sign of a new turn.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    }
+
+    @Test(arguments: [
+        AgentLifecyclePhase.idle,
+        .needsInput,
+        .backgroundWorkPending,
+        .error,
+        .unknown,
+    ])
+    func aStateChangeDeclaringANonRunningPhaseKeepsTheTurnEnded(phase: AgentLifecyclePhase) {
+        // Codex corrects a stale prompt-submit for a finished turn with a
+        // state change that names the stored, non-running phase.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(
+            kind: .stateChanged, surfaceId: surface, isSubagent: false, detail: nil, declaredPhase: phase
+        ) == .none)
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    }
+
+    @Test func aStateChangeDeclaringRunningReopensTheTurn() {
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(
+            kind: .stateChanged, surfaceId: surface, isSubagent: false, detail: nil, declaredPhase: .running
+        ) == .none)
+        guard case .schedule = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("tool activity after a completed turn should let an error schedule")
+            return
+        }
+    }
+
     @Test func aSubagentsCompletedTurnDoesNotHoldBackTheParentsError() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: true, detail: nil) == .none)
