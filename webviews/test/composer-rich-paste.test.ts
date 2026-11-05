@@ -213,6 +213,19 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       });
       await settled(page, "after");
       expect((await prompt(page)).plain).toContain("![chart](https://example.com/chart.png)");
+      // HTML alone with a picture is not drawn rich either: the list does not drop it.
+      await page.evaluate((field) => {
+        const handle = (document.querySelector(field)!.closest(".acpmux-md-field") as any).acpmuxMarkdownField;
+        handle.reset("");
+      }, FIELD);
+      await page.locator(FIELD).click();
+      await paste(page, {
+        "text/plain": "before\nafter",
+        "text/html":
+          "<ul><li>before</li></ul><img src='https://example.com/chart.png' alt='chart'><ul><li>after</li></ul>",
+      });
+      await settled(page, "after");
+      expect(await page.locator(`${FIELD} li`).count()).toBe(0);
       await page.close();
     });
 

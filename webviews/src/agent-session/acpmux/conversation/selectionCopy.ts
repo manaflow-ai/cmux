@@ -11,9 +11,10 @@ import { htmlMarkdown } from "../richClipboard";
 
 const MATH = "[data-tex]";
 /// Attributes the copy keeps; every other one (classes, styles, data, aria) is the transcript's own.
-const KEEP = new Set(["href", "start", "colspan", "rowspan"]);
-/// Elements the transcript draws around the text: buttons, icons, hidden labels.
-const CHROME = "button, svg, [aria-hidden='true'], [hidden], .sr-only";
+const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
+/// What the transcript draws around the text: icons and hidden labels. A button (a link chip, an
+/// image that opens) is unwrapped, its words and picture kept.
+const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only";
 
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
@@ -42,6 +43,7 @@ export function selectionHtml(range: Range): string | null {
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
+  for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
     for (const name of element.getAttributeNames()) if (!KEEP.has(name)) element.removeAttribute(name);
   return holder.innerHTML;

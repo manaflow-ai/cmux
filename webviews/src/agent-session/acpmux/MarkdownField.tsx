@@ -358,10 +358,11 @@ function withLineBreaks(fragment: Fragment, view: EditorView): Fragment {
  * Markdown, else plain text that is Markdown with a list or fenced code (Claude's and ChatGPT's
  * Copy). Anything else is undefined and goes in as its plain lines. */
 function richPasteMarkdown(data: DataTransfer): string | undefined {
-  // Image Markdown in the copy (a transcript message with a picture) goes in as written, through the
-  // plain path: the HTML's <img> has no place in the prompt, and dropping it would lose the picture.
-  if (/!\[[^\]\n]*\]\([^)\s]+[^)]*\)/.test(data.getData("text/plain"))) return undefined;
+  // A copy with a picture (image Markdown in its text, an <img> in its HTML) goes in as written,
+  // through the plain path and the image intake: the rich path has no place for the picture and
+  // would drop it.
   const html = data.getData("text/html");
+  if (/<img\b/i.test(html) || /!\[[^\]\n]*\]\([^)\s]+[^)]*\)/.test(data.getData("text/plain"))) return undefined;
   if (html && htmlHasBlocks(html)) return htmlMarkdown(html, { escape: true }) || undefined;
   const text = withoutBreakPlaceholders(data.getData("text/plain"));
   return looksLikeMarkdown(text) ? text : undefined;
