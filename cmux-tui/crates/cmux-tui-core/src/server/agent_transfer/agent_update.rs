@@ -467,6 +467,10 @@ fn update_timeout(ids: usize) -> Duration {
 }
 
 impl Mux {
+    pub(crate) fn acpmux_handoff(&self) -> Option<AcpmuxHandoff> {
+        self.agent_transfers.updates.handoff.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// How the machine's acpmux is handed off to the installed binary's
     /// build (`cmux acp daemon shutdown --keep-agents`, then `cmux acp daemon
     /// start`) when it does not know the update method. Without one such an

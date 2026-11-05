@@ -136,6 +136,11 @@ impl AcpmuxLink {
         let (sender, receiver) = sync_channel(1);
         {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            // Close publishes the flag before draining under this same lock. A waiter must
+            // never be inserted after the reader's final drain.
+            if self.closed.load(Ordering::Acquire) {
+                return Err(LinkError::Closed);
+            }
             if pending.len() >= MAX_IN_FLIGHT {
                 return Err(LinkError::Busy);
             }
@@ -245,6 +250,9 @@ impl AcpmuxLink {
     /// Ends the socket; the reader thread reports the close.
     pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        for (_, sender) in self.pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
+            let _ = sender.try_send(Err(LinkError::Closed));
+        }
         let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }

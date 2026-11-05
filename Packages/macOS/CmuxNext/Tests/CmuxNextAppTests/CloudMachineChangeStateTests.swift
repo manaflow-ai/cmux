@@ -118,6 +118,19 @@ struct CloudMachineChangeStateTests {
         func close(_ key: CloudLinkKey) async {}
     }
 
+    /// Turn capture follows the session's own transport, not the build's link setting: a
+    /// legacy-link session keeps its plain prompts even where the app link is the default.
+    @Test func onlyAnAppLinkSessionCapturesCloudTurns() {
+        let services = MachineIconTests.services()
+        let legacy = MachineIconTests.cloudMachine(services, id: "vm-turn-legacy")
+        #expect(!AgentTabStore.capturesCloudTurns(legacy))
+        let app = CloudMachineSession(machine: CloudMachine(id: "vm-turn-app", status: .running),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "vm-turn-app"), resolver: StartingLinkResolver()),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        #expect(AgentTabStore.capturesCloudTurns(app))
+        #expect(!AgentTabStore.capturesCloudTurns(nil))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func runningRetriesAnAppLinkThatFailedWhileStarting() async throws {
         let services = MachineIconTests.services()

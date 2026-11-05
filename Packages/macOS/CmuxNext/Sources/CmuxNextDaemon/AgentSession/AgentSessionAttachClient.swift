@@ -77,6 +77,7 @@ public actor AgentSessionAttachClient {
     /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
     /// replaced only together with it.
     private var served = Served()
+    private var cloudTurnsSupported: Bool?
     /// Counts the connections this client began to make (``connect(quiet:)``).
     private var connectsBegun = 0
     /// The newest connection made: its number in ``connectsBegun`` and whether its close tells
@@ -145,11 +146,23 @@ public actor AgentSessionAttachClient {
             // A caller that cancelled while this attach waited gets nothing sent and keeps no
             // handler: the earlier attach's pushes still go to its own.
             try Task.checkCancellation()
+            cloudTurnsSupported = nil
             self.handler.set(events)
-            return try await self.call(command, params)
+            let result = try await self.call(command, params)
+            cloudTurnsSupported = ((try? JSONSerialization.jsonObject(with: result)) as? [String: Any])?["cloud_turn_supported"] as? Bool == true
+            return result
         }
         attachTail = Task { _ = await task.result }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
+    public func supportsCloudTurns() async throws -> Bool {
+        _ = try await liveConnection()
+        await attachTail?.value
+        guard let cloudTurnsSupported else {
+            throw AgentSessionAttachError(code: "agent_session.unavailable", message: "The attachment has not verified Cloud turn support.")
+        }
+        return cloudTurnsSupported
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -309,9 +322,43 @@ public actor AgentSessionAttachClient {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
     }
 
+    /// Reserves the prompt's immutable turn identity without dispatching the harness. The owning
+    /// daemon answers when the queued turn can capture; closing this attachment ends the wait.
+    public func prepareCloudTurn(id: String, scope: Data) async throws -> Data {
+        try await turnRequest("agent-session-turn-prepare", id: id, scope: scope, wait: true)
+    }
+
+    public func abandonCloudTurn(id: String, scope: Data) async throws {
+        _ = try await turnRequest("agent-session-turn-abandon", id: id, scope: scope, wait: false)
+    }
+
+    private func turnRequest(_ command: String, id: String, scope data: Data, wait: Bool) async throws -> Data {
+        struct Scope: Decodable { let workspace: String; let machine: String; let generation: Int; let attemptId: String }
+        let scope = try JSONDecoder().decode(Scope.self, from: data)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let authorization = object["authorization"] else {
+            throw AgentSessionAttachError(code: "agent_session.bad_request", message: "A scoped preparation capability is required.")
+        }
+        let proof = try JSONSerialization.data(withJSONObject: authorization)
+        return try await call(command, ["prompt_id": id, "workspace": scope.workspace,
+            "machine": scope.machine, "generation": scope.generation, "attempt_id": scope.attemptId],
+            json: ["authorization": proof], waitForTurn: wait)
+    }
+
     /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
     public func prompt(id: String, content: Data) async throws -> Data {
+        try await prompt(id: id, content: content, cloudTurn: nil)
+    }
+
+    /// A capability is ephemeral request data only: no reconnect or retry after submission.
+    public func prompt(id: String, content: Data, cloudTurn: Data) async throws -> Data {
+        try await prompt(id: id, content: content, cloudTurn: Optional(cloudTurn))
+    }
+
+    private func prompt(id: String, content: Data, cloudTurn: Data?) async throws -> Data {
         let (transport, served) = try await liveConnection()
+        var json: [String: Data?] = [:]
+        if let cloudTurn { json["cloud_turn"] = cloudTurn }
         guard served.content else {
             // Older daemons still accept pasted text as plain text. Never discard media to
             // make a prompt fit the legacy contract, and never send a field they would refuse.
@@ -320,9 +367,10 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
             }
             let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
-            return try await call("agent-session-prompt", ["prompt_id": id, "text": text], on: transport)
+            return try await call("agent-session-prompt", ["prompt_id": id, "text": text], json: json, on: transport)
         }
-        return try await call("agent-session-prompt", ["prompt_id": id], json: ["content": content], on: transport)
+        json["content"] = content
+        return try await call("agent-session-prompt", ["prompt_id": id], json: json, on: transport)
     }
 
     public func cancel() async throws {
@@ -498,7 +546,7 @@ public actor AgentSessionAttachClient {
     /// (a question's answers and annotations, as JSON) goes in the request as it is.
     /// `on`: that connection only (no reconnect), else the live one.
     private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:],
-                      timeout: Duration? = nil, on pinned: LineTransport? = nil) async throws -> Data {
+                      timeout: Duration? = nil, on pinned: LineTransport? = nil, waitForTurn: Bool = false) async throws -> Data {
         let transport: LineTransport
         if let pinned { transport = pinned } else { transport = try await liveTransport() }
         var object: [String: Any] = params
@@ -511,7 +559,7 @@ public actor AgentSessionAttachClient {
         let fields = try JSONSerialization.data(withJSONObject: object)
         let response: LineTransport.Response
         do {
-            response = try await transport.request(cmd: cmd, timeout: timeout ?? requestTimeout) { id in
+            response = try await transport.request(cmd: cmd, timeout: waitForTurn ? nil : (timeout ?? requestTimeout)) { id in
                 Data(#"{"id":\#(id),"#.utf8) + fields.dropFirst()
             }
         } catch DaemonError.command(_, let message, let code, let details, _) {
@@ -580,6 +628,7 @@ public actor AgentSessionAttachClient {
     }
 
     private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
+        cloudTurnsSupported = nil
         connectsBegun += 1
         let number = connectsBegun
         let transport: LineTransport

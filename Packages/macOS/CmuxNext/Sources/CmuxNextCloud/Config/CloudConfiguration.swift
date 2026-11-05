@@ -203,6 +203,14 @@ public struct CloudConfiguration: Sendable, Equatable {
         runtimeSelection?.apiOrigin ?? apiBaseURL
     }
 
+    /// The selected backend's platform origin for turn capture and rewind (cmux-platform
+    /// `TurnRewind`), where the owner token goes. Only the runtime selection names it: with none,
+    /// or on the legacy link, no origin is chosen and no bearer is sent.
+    public func turnAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        guard linkSource == .appServer, let selection = runtimeSelection else { return Self.inertURL }
+        return selection.platformOrigin
+    }
+
     /// The selected backend's platform origin for relay-first chat. Runtime
     /// client configuration is authoritative; the API origin is the safe
     /// fallback for legacy fixtures without a runtime selection.

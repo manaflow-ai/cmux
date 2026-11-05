@@ -27,6 +27,9 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_turn.rs"]
+pub(super) mod turn;
+pub use turn::CloudTurnConfig;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
@@ -102,6 +105,11 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The daemon's acpmux socket and every live attachment.
 #[derive(Default)]
 pub(crate) struct AgentSessions {
+    cloud_turn: RwLock<Option<CloudTurnConfig>>,
+    /// The machine-wide capture admission epoch (agent_session_turn.rs): while one prepared
+    /// turn's capture is pending, no other prompt on this machine is dispatched.
+    capture: Mutex<Option<turn::CaptureEpoch>>,
+    cloud_scope_handoff_attempted: AtomicBool,
     socket: RwLock<inventory_socket::SocketState>,
     #[cfg(test)]
     inventory_socket_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -249,6 +257,7 @@ impl AgentSessions {
 
 /// One attached tab: its acpmux link and the client stream it feeds.
 struct Attachment {
+    cloud_turn_supported: bool,
     author: Option<Value>,
     client: u64,
     surface: SurfaceId,
@@ -354,6 +363,8 @@ impl Attachment {
             return;
         }
         self.link.close();
+        // A capture this attachment held can no longer dispatch: free the machine.
+        turn::release_attachment(self);
         if let Some(reason) = reason {
             // The stream may be full; the close notice is a control message.
             self.outbound.close();
@@ -392,6 +403,8 @@ enum AgentSessionCommand {
     Attach(PageParams),
     Events(PageParams),
     Prompt(PromptParams),
+    PrepareTurn(turn::Prepare),
+    AbandonTurn(turn::Abandon),
     Cancel(SurfaceParams),
     Permission(PermissionParams),
     Detach(SurfaceParams),
@@ -415,6 +428,8 @@ impl AgentSessionCommand {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
             "agent-session-prompt" => Self::Prompt(from_value(params).ok()?),
+            "agent-session-turn-prepare" => Self::PrepareTurn(from_value(params).ok()?),
+            "agent-session-turn-abandon" => Self::AbandonTurn(from_value(params).ok()?),
             "agent-session-cancel" => Self::Cancel(from_value(params).ok()?),
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
@@ -573,6 +588,8 @@ struct PromptParams {
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
+    #[serde(default, deserialize_with = "turn::envelope")]
+    cloud_turn: Option<turn::Capability>,
 }
 
 #[derive(Deserialize)]
@@ -664,6 +681,8 @@ pub(crate) enum Refusal {
     ScopeNotGranted,
     /// A link guest whose share expired or was revoked, or who was removed.
     ShareEnded,
+    /// Another prepared Cloud turn is capturing this machine; send again once it starts.
+    CapturePending,
 }
 
 impl Refusal {
@@ -693,6 +712,7 @@ impl Refusal {
             Self::NotShared => "agent_session.not_shared",
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
+            Self::CapturePending => "agent_session.capture_pending",
         }
     }
 
@@ -732,6 +752,9 @@ impl Refusal {
             Self::NotShared => "the surface does not show the chat that was shared",
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
+            Self::CapturePending => {
+                "a Cloud turn is capturing this machine; send again once it has started"
+            }
         }
     }
 
@@ -905,6 +928,8 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
     match command {
         AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
         AgentSessionCommand::Prompt(params) => params.surface,
+        AgentSessionCommand::PrepareTurn(params) => params.surface,
+        AgentSessionCommand::AbandonTurn(params) => params.surface,
         AgentSessionCommand::Permission(params) => params.surface,
         AgentSessionCommand::Cancel(params)
         | AgentSessionCommand::Detach(params)
@@ -1150,6 +1175,8 @@ fn run_on_worker(
         && matches!(
             &command,
             AgentSessionCommand::Prompt(_)
+                | AgentSessionCommand::PrepareTurn(_)
+                | AgentSessionCommand::AbandonTurn(_)
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
@@ -1168,6 +1195,8 @@ fn run_on_worker(
         && matches!(
             &command,
             AgentSessionCommand::SetModel(_)
+                | AgentSessionCommand::PrepareTurn(_)
+                | AgentSessionCommand::AbandonTurn(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
@@ -1251,6 +1280,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
+                .map(|mut page| {
+                    page["cloud_turn_supported"] = json!(attachment.cloud_turn_supported);
+                    page
+                })
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
@@ -1263,9 +1296,16 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
-            prompt(attachment, prompt_id, text, content)
+        AgentSessionCommand::Prompt(PromptParams {
+            prompt_id, text, content, cloud_turn, ..
+        }) => {
+            let envelope = turn::prompt_envelope(attachment, cloud_turn)?;
+            // Held until acpmux recorded the prompt, so the prepared turn is queued first.
+            let _admission = turn::admit(attachment, &prompt_id, envelope.is_some())?;
+            prompt(attachment, prompt_id, text, content, envelope)
         }
+        AgentSessionCommand::PrepareTurn(params) => turn::prepare(attachment, params),
+        AgentSessionCommand::AbandonTurn(params) => turn::abandon(attachment, params),
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
@@ -1417,6 +1457,11 @@ fn valid_prompt_block(block: &Value) -> bool {
         && block.get("name").is_none_or(Value::is_string)
 }
 
+fn valid_prompt_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// Sends one prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
@@ -1425,10 +1470,9 @@ fn prompt(
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
+    cloud_turn: Option<Value>,
 ) -> Result<Value, Refusal> {
-    let valid_id = (1..=128).contains(&prompt_id.len())
-        && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id {
+    if !valid_prompt_id(&prompt_id) {
         return Err(Refusal::BadRequest);
     }
     let blocks = match (text, content) {
@@ -1462,6 +1506,9 @@ fn prompt(
         "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
+    if let Some(cloud_turn) = cloud_turn {
+        params.insert("cloud_turn", cloud_turn);
+    }
     // The native daemon connection is Local, but the authenticated Cloud
     // mobile carrier must retain the Web asking policy for this prompt. This
     // marker is inserted by the typed agent-session path, never accepted from

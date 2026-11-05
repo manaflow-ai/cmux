@@ -16,6 +16,13 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func prompt(id: String, text: String) async throws -> Data
     /// Sends ordered ACP content, including images and file links, to the owning session.
     func prompt(id: String, content: Data) async throws -> Data
+    /// Proven by this attachment's actual acpmux, not just a configured socket path.
+    func supportsCloudTurns() async throws -> Bool
+    /// Allocates the immutable turn id before the native owner captures this machine.
+    func prepareCloudTurn(id: String, scope: Data) async throws -> Data
+    func abandonCloudTurn(id: String, scope: Data) async throws
+    /// Sends a prepared turn's ordered ACP content with its short-lived capability, never an owner token.
+    func prompt(id: String, content: Data, cloudTurn: Data) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -56,6 +63,13 @@ extension AgentSessionRemoteClient {
             throw AgentSessionRemoteError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
         }
         return try await prompt(id: id, text: text)
+    }
+    public func supportsCloudTurns() async throws -> Bool { false }
+    public func prepareCloudTurn(id: String, scope: Data) async throws -> Data { throw Self.turnUnsupported }
+    public func abandonCloudTurn(id: String, scope: Data) async throws { throw Self.turnUnsupported }
+    public func prompt(id: String, content: Data, cloudTurn: Data) async throws -> Data { throw Self.turnUnsupported }
+    private static var turnUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.turn_unsupported", message: "Update cmux on this machine to capture Cloud turns.")
     }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }

@@ -419,6 +419,15 @@ extension AgentTabStore {
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
+            // The session's own transport decides, not the build's link setting: a legacy-link
+            // session (tests, a machine opened before the switch) keeps its plain prompt path.
+            if host.cloudMachineID != nil, Self.capturesCloudTurns(services.machines.session(daemon.machineID)) {
+                host.cloudTurn = Self.turnForwarder(tab: key, services: services)
+                host.prepareCloudTurns = { [weak services] in
+                    guard let services else { throw CancellationError() }
+                    try await Self.enrollTurnWorkspace(tab: key, services: services, reconnect: reconnect)
+                }
+            }
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -560,5 +569,78 @@ extension AgentTabStore {
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
                                                    passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
         isSignedIn && passesLogin
+    }
+}
+
+extension AgentTabStore {
+    /// Only a session on the app link captures turns: enrollment and the owner ticket need it.
+    @MainActor static func capturesCloudTurns(_ machine: CloudMachineSession?) -> Bool {
+        machine?.appLink != nil
+    }
+
+    /// Enrolls the tab's workspace machine. A dropped link has no owner answer: it reconnects
+    /// first (as the attachment's own reconnect would), and the fresh link's owner is checked
+    /// before enrollment.
+    @MainActor private static func enrollTurnWorkspace(tab key: String, services: AppServices,
+                                                       reconnect: AgentSessionAttachClient.Reconnect?) async throws {
+        var scope = await ownedTurnScope(tab: key, services: services)
+        if scope == nil, let reconnect, await reconnect() {
+            scope = await ownedTurnScope(tab: key, services: services)
+        }
+        guard let (workspace, machine) = scope else { throw CloudTurnOwnerClient.Failure.scope }
+        try await services.cloud.enrollTurnWorkspace(workspace: workspace, machine: machine)
+    }
+
+    /// The tab's workspace and Cloud machine, read now, when that machine's link answers its owner.
+    @MainActor private static func ownedTurnScope(tab key: String, services: AppServices) async -> (String, CloudMachineSession)? {
+        guard let (tab, pane) = services.locateTabOnAnyMachine(key),
+              let daemon = try? services.machines.agentDaemon(forTab: tab),
+              let machine = services.machines.session(daemon.machineID), machine.appLink != nil,
+              let workspace = daemon.store.workspace(containing: pane.handle)?.resourceID,
+              await CloudMachineLinks(appLink: machine.appLink, link: nil).ownerLink() != nil
+        else { return nil }
+        return (workspace.rawValue, machine)
+    }
+
+    /// Resolves the pane's current machine and workspace on every send. Neither value is supplied
+    /// by the webview or the guest's prepared-turn reply; the platform verifies their binding.
+    static func turnForwarder(tab key: String, services: AppServices) -> RemoteAcpmuxWire.CloudTurn {
+        let identity = services.cloud.installIdentity, auth = services.cloud.auth, origin = services.cloud.configuration.turnAPIBaseURL()
+        let owner = CloudTurnOwnerClient(baseURL: origin) {
+            try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
+        }
+        return .init(state: { [weak services] session, prompt in
+            let scope = await MainActor.run { () -> (String, String, CloudLinkSession)? in
+                guard let services, services.cloud.isSignedIn,
+                      let (tab, pane) = services.locateTabOnAnyMachine(key),
+                      let daemon = try? services.machines.agentDaemon(forTab: tab),
+                      let machine = services.machines.session(daemon.machineID), let link = machine.appLink,
+                      let workspace = daemon.store.workspace(containing: pane.handle), let resource = workspace.resourceID,
+                      let enrolled = try? services.cloud.turnWorkspace(machine: machine.machineID, proposed: resource.rawValue) else { return nil }
+                return (enrolled, machine.machineID, link)
+            }
+            guard let (workspace, machine, link) = scope, await link.ownerLink != nil else {
+                throw CloudTurnOwnerClient.Failure.scope
+            }
+            guard let account = await services?.cloud.workspaceBindingScope else { throw CloudTurnOwnerClient.Failure.scope }
+            let state = try await owner.authorizePreparation(workspace: workspace, machine: machine, session: session, prompt: prompt)
+            let generation = try JSONDecoder().decode(CloudTurnOwnerClient.Scope.self, from: state).generation
+            let connection = CloudTurnRewindClient(origin: origin) {
+                try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
+            }
+            let target = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: await connection.connection(workspace: workspace)).checked(machine: machine)
+            guard target.generation == generation,
+                  await link.isConnected(machine: target.connectionMachine, generation: generation)
+            else { throw AgentSessionRemoteError(code: "cloud.turn.connection", message: "The Cloud machine changed. Reconnecting this chat.") }
+            try await MainActor.run {
+                guard let services else { throw CancellationError() }
+                try services.cloud.rememberTurnWorkspace(workspace: workspace, machine: machine, scope: account)
+            }
+            return state
+        }, capture: { session, prompt, prepared, state in
+            let scope = try JSONDecoder().decode(CloudTurnOwnerClient.Scope.self, from: state)
+            return try await owner.prepare(workspace: scope.workspace, machine: scope.machine, session: session,
+                                           prompt: prompt, prepared: prepared, ownerState: state)
+        })
     }
 }

@@ -1,6 +1,8 @@
 //! Exercise production admission, connection dispatch and operation policy.
 use super::*;
-use crate::server::agent_session_attach_tests::{FakeAcpmux, Fixture, SESSION};
+use crate::server::agent_session_attach_tests::{
+    FakeAcpmux, Fixture, SESSION, configure_turns, turn_command,
+};
 
 fn call(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, mut frame: Value) -> Value {
     frame["id"] = json!(71);
@@ -208,3 +210,43 @@ fn native_owner_transfer_uses_existing_guard() {
 
 #[path = "remote_entry_native_terminal_tests.rs"]
 mod terminal;
+
+#[test]
+fn native_owner_prepares_and_abandons_cloud_turns_over_real_entry() {
+    let fake = FakeAcpmux::start_with(
+        "native-turn",
+        Fixture { start_folder_trusted: Some(true), ..Default::default() },
+    );
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    configure_turns(&entry.mux);
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let surface = provision(&entry, &mut stream, &mut reader);
+    let cwd = entry._directory.path().to_string_lossy().into_owned();
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-trust", "surface":surface, "cwd":cwd}),
+    );
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-start", "surface":surface,
+        "cwd":cwd, "harness":"claude"}),
+    );
+    ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+    // Cloud prompts are prepared first: the signed owner entry must reach the turn handlers.
+    let prepared =
+        call(&mut stream, &mut reader, turn_command("agent-session-turn-prepare", surface));
+    assert_ne!(prepared["error_code"], json!(REMOTE_DENIED), "{prepared}");
+    assert_eq!(
+        prepared["data"],
+        json!({"session":SESSION,"turn":"p1","generation":3,"attempt_id":"attempt_1"}),
+        "{prepared}"
+    );
+    let abandoned =
+        call(&mut stream, &mut reader, turn_command("agent-session-turn-abandon", surface));
+    assert_ne!(abandoned["error_code"], json!(REMOTE_DENIED), "{abandoned}");
+}
