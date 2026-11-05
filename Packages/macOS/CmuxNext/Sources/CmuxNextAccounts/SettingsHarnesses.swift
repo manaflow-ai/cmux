@@ -35,6 +35,9 @@ public final class SettingsHarnesses {
     var accountUsage: [String: JSONValue] = [:]
     /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
     @ObservationIgnored var usageReading: Set<String> = []
+    /// Accounts whose sign-in or sign-out was typed into a terminal tab: Settings coming forward reads
+    /// them back (`focus`), as Accounts does for its logins.
+    @ObservationIgnored var pendingLogins: Set<String> = []
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
@@ -171,6 +174,8 @@ public final class SettingsHarnesses {
         switch action {
         case "refresh":
             await refresh(recheck: params["recheck"]?.boolValue ?? false)
+        case "focus":
+            await refocused()
         case "update", "updateAll", "resumeUpdate", "dismissUpdate":
             guard action != "update" || rows.contains(where: { $0.id == params["id"]?.stringValue }) else { throw PageError.invalidParams("id must be a listed harness") }
             guard let runUpdate, let context else { throw PageError.unavailable(unsupported?() ?? "") }
