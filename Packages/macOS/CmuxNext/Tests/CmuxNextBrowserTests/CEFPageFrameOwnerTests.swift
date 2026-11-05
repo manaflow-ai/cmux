@@ -226,6 +226,36 @@ import Testing
         #expect(host.hostView.layerHosting.page == nil)
     }
 
+    /// Lead (cmux-ad m14, STATUS 13849): with DevTools docked, S5 ON made the held-key film's main thread miss 40 frames
+    /// (p50 2.92 -> 8.64 ms, 9-15 -> 21-28 view layouts per frame), because the page then followed its pane in every frame:
+    /// the chrome's whole subtree laid out and both page windows (the page's and DevTools') resized per frame. OFF holds
+    /// that chrome whole (a page that places itself cannot hold). Until a profile shows that per-frame cost inside the
+    /// budget, S5 keeps OFF's whole hold for such a page: it does not follow, and a key resize gives its page windows no
+    /// page sync share.
+    @Test func aPageWithDockedDevToolsKeepsTheWholeChromeHeldInAKeyResize() throws {
+        Self.set(pages: true)
+        defer { Self.set(pages: nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.devToolsController.layout.dock = .bottom
+        first.devToolsController.willOpen()
+        first.devToolsController.opened(browser: 20, docked: true)
+        first.container.layoutSubtreeIfNeeded()
+        try #require(first.devToolsController.reservesRoom, "SETUP: DevTools takes no room")
+
+        #expect(!first.container.holdsPageInPaneMotion, "a page with docked DevTools follows its pane in every frame")
+        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+        #expect(!host.hostView.layerHosting.inPaneDrag, "the page window took a page sync share for a key resize")
+        #expect(first.devToolsController.views?.host.layerHosting.inPaneDrag != true, "DevTools took a page sync share")
+        first.container.holdPage(for: nil)
+    }
+
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
     @Test func theSwitchOffKeepsTodaysKeyResizeHold() throws {
         Self.set(pages: false)
