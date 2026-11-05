@@ -219,3 +219,136 @@ fn keys_keep_their_order_between_the_inline_write_and_the_ports_writer() {
         "the keys and the write reached the host in another order, more than once, or \"3\" did not go inline"
     );
 }
+
+/// Never merge: the lane's write call under CPU load on macOS (#35413 s17ga, STATUS 13254, 13302). Spinning threads
+/// on every core, the measuring thread at user-interactive QoS (as server/input_qos.rs raises a person's key
+/// threads). The same key on the same kind of host connection, through the old path (lane off) and the inline
+/// write (lane on), and the room checks alone. Fails on purpose so the step log shows the report.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn rds_cost_loaded_bench_write_call() {
+    use std::os::fd::AsRawFd as _;
+    use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+    const N: usize = 20_000;
+    fn percentiles(mut ns: Vec<u128>) -> String {
+        ns.sort_unstable();
+        let at = |p: usize| ns.get((ns.len() * p / 100).min(ns.len() - 1)).copied().unwrap_or(0);
+        format!(
+            "p50 {} p95 {} p99 {} max {} ns",
+            at(50),
+            at(95),
+            at(99),
+            ns.last().copied().unwrap_or(0)
+        )
+    }
+    fn reader(mut host: std::os::unix::net::UnixStream) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut sink = [0u8; 65536];
+            host.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            while matches!(host.read(&mut sink), Ok(n) if n > 0) {}
+        })
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(8, |n| n.get());
+    let spinners: Vec<_> = (0..cores)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut x = 0u64;
+                while !stop.load(AtomicOrdering::Relaxed) {
+                    x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    // SAFETY: changes only this thread's QoS class.
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    let mut report =
+        format!("\nrds-cost LOADED bench (macOS, {cores} spinning threads, ns per call):\n");
+    for (name, lane) in [
+        ("old path write_bytes_replying (lane off)", false),
+        ("inline write_bytes_replying (lane on)", true),
+    ] {
+        let (_mux, surface, host) = hosted_typing_surface(&format!("rds-cost-loaded-{lane}"), lane);
+        let drain = reader(host);
+        let mut ns = Vec::with_capacity(N);
+        for _ in 0..N {
+            let started = Instant::now();
+            surface.write_bytes_replying(b"k", InputReply::Accepted).unwrap();
+            ns.push(started.elapsed().as_nanos());
+        }
+        report.push_str(&format!("  {name}: {}\n", percentiles(ns)));
+        drop(surface);
+        drop(_mux);
+        let _ = drain.join();
+    }
+    let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let drain = reader(b);
+    let fd = a.as_raw_fd();
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let started = Instant::now();
+        let _ = unsafe { libc::poll(&mut ready, 1, 0) };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  poll(POLLOUT, 0): {}\n", percentiles(ns)));
+    let kq = unsafe { libc::kqueue() };
+    let change = libc::kevent64_s {
+        ident: fd as u64,
+        filter: libc::EVFILT_WRITE,
+        flags: libc::EV_ADD | libc::EV_ENABLE,
+        fflags: 0,
+        data: 0,
+        udata: 0,
+        ext: [0; 2],
+    };
+    let _ = unsafe { libc::kevent64(kq, &change, 1, std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+        let started = Instant::now();
+        let _ = unsafe {
+            libc::kevent64(
+                kq,
+                std::ptr::null(),
+                0,
+                event.as_mut_ptr(),
+                1,
+                libc::KEVENT_FLAG_IMMEDIATE,
+                std::ptr::null(),
+            )
+        };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  kevent64 IMMEDIATE (registered once): {}\n", percentiles(ns)));
+    let frame =
+        crate::terminal_host_protocol::encode_frame(&Frame::new(MessageKind::Input, b"k".to_vec()))
+            .unwrap();
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let started = Instant::now();
+        let _ = unsafe { libc::send(fd, frame.as_ptr().cast(), frame.len(), libc::MSG_DONTWAIT) };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  send 33 bytes: {}\n", percentiles(ns)));
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let started = Instant::now();
+        let _ = unsafe { libc::write(fd, frame.as_ptr().cast(), 32) };
+        let _ = unsafe { libc::write(fd, frame.as_ptr().add(32).cast(), 1) };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  two writes 32+1 bytes (old path): {}\n", percentiles(ns)));
+    unsafe { libc::close(kq) };
+    drop(a);
+    let _ = drain.join();
+    stop.store(true, AtomicOrdering::Relaxed);
+    for spinner in spinners {
+        let _ = spinner.join();
+    }
+    panic!("{report}");
+}
