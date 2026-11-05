@@ -335,3 +335,36 @@ fn the_github_status_server_reaches_every_harness_kind() {
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The Chief's engine file reaches only the `cmux` server (its `cloud_computer` default machine),
+/// and a daemon's own value never does.
+#[test]
+fn the_chief_engine_file_reaches_only_the_cmux_server() {
+    let server = |name: &str, env: Vec<(String, String)>| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env,
+    };
+    let stale = vec![(super::CHIEF_ENGINE_ENV.to_owned(), "/stale/engine.json".to_owned())];
+    let tools = super::AgentTools {
+        servers: vec![server("cmux", stale.clone()), server("cmux-cua", stale)],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([(
+        super::CHIEF_ENGINE_ENV.to_owned(),
+        "/chief/optchat/engine.json".to_owned(),
+    )]);
+    let scoped = tools.clone().scoped(&env);
+    let engine = |s: &super::McpServer| {
+        s.env
+            .iter()
+            .filter(|(k, _)| k == super::CHIEF_ENGINE_ENV)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(engine(&scoped.servers[0]), ["/chief/optchat/engine.json"]);
+    assert!(engine(&scoped.servers[1]).is_empty());
+    let unset = tools.scoped(&std::collections::BTreeMap::new());
+    assert!(unset.servers.iter().all(|s| engine(s).is_empty()));
+}

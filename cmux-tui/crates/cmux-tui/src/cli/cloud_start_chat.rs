@@ -291,13 +291,23 @@ impl Runner for SelfRunner {
     }
 
     fn fresh_name(&mut self) -> String {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("chat-{}", id.chars().take(8).collect::<String>())
+        fresh_machine_name()
     }
 
     fn prompt_id(&mut self) -> String {
-        format!("start-chat-{}", uuid::Uuid::new_v4().simple())
+        new_prompt_id()
     }
+}
+
+/// A new machine's name for [`Runner::fresh_name`].
+pub(super) fn fresh_machine_name() -> String {
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    format!("chat-{}", id.chars().take(8).collect::<String>())
+}
+
+/// A new prompt id for [`Runner::prompt_id`].
+pub(super) fn new_prompt_id() -> String {
+    format!("start-chat-{}", uuid::Uuid::new_v4().simple())
 }
 
 /// The globals a step needs to reach the same app.
@@ -588,7 +598,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             1,
         );
     };
-    let mut answer = json!({
+    let answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),
         "target": format!("machine:{machine_id}"),
@@ -600,65 +610,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         "follow_up": follow_ups(machine_id, session),
     });
 
-    // 4. The prompt: inside the command when it fits there, else from a file on the machine.
-    let quoted = shell_quote(&request.prompt);
-    // The uploaded prompt's file words, when the prompt went to a file.
-    let mut uploaded = None;
-    let send = if quoted.len() <= INLINE_PROMPT_BYTES {
-        format!(
-            "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
-             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
-            sid = shell_quote(session),
-        )
-    } else {
-        let file = match upload_prompt(runner, machine_id, session, request.prompt.as_bytes()) {
-            Ok(file) => file,
-            Err(error) => {
-                return failed(
-                    "chat.send_failed",
-                    format!(
-                        "the chat started, but the prompt did not reach its machine: {}",
-                        at(&error, "message").as_str().unwrap_or("cloud exec failed")
-                    ),
-                    json!({"answer": answer, "app": error}),
-                    1,
-                );
-            }
-        };
-        uploaded = Some(file.clone());
-        format!(
-            "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
-             rm -f \"$f\"",
-            sid = shell_quote(session),
-        )
+    // 4. The prompt.
+    let (answer, baseline) = match deliver(runner, machine_id, session, &request.prompt, answer) {
+        Ok(delivered) => delivered,
+        Err(outcome) => return outcome,
     };
-    let sent = match exec(runner, machine_id, &send) {
-        Ok(stdout) => stdout,
-        Err(error) => {
-            // Refused before it started: the uploaded prompt does not stay on the machine. Any other
-            // failure (no answer) may be a send still reading the file, so the file stays.
-            if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
-                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
-            }
-            return sent_failure(error, answer);
-        }
-    };
-    let reported = sections(&sent);
-    let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
-    if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
-        let output = reported.get("send").cloned().unwrap_or_default();
-        return failed(
-            "chat.send_failed",
-            format!("the chat started, but the prompt did not reach it: {}", output.trim()),
-            json!({"answer": answer}),
-            1,
-        );
-    }
-    answer.set("sent", json!(true));
-    if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
-        answer.set("delivery", json!(delivery));
-    }
     if !request.wait {
         return Outcome::Done(answer);
     }
@@ -745,10 +701,11 @@ fn wait_turn(
             return failed(
                 "chat.wait_timeout",
                 format!(
-                    "the turn is still running after {}s; wait on with: cmux cloud exec \
-                     --target machine:{machine_id} --command '{GUEST_CMUX} acp wait {session} \
-                     --timeout {WAIT_SLICE_SECONDS}'",
-                    request.timeout.as_secs()
+                    "the turn is still running after {}s; wait on with: cmux cloud chat status \
+                     --target machine:{machine_id} --session {} --after {baseline} --wait \
+                     {WAIT_SLICE_SECONDS}",
+                    request.timeout.as_secs(),
+                    shell_quote(session)
                 ),
                 json!({"answer": answer}),
                 3,
@@ -758,6 +715,173 @@ fn wait_turn(
             runner.pause(NOT_STARTED_PAUSE);
         }
     }
+}
+
+/// Sends `prompt` to `session` on `machine`: inside the command when it fits there, else from a
+/// file on the machine. Answers `answer` marked `sent` (with the machine's `delivery` line) and the
+/// newest turn before the send (the baseline its turn comes after), or the failure.
+fn deliver(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    prompt: &str,
+    mut answer: Value,
+) -> Result<(Value, u64), Outcome> {
+    let quoted = shell_quote(prompt);
+    // The uploaded prompt's file words, when the prompt went to a file.
+    let mut uploaded = None;
+    let send = if quoted.len() <= INLINE_PROMPT_BYTES {
+        format!(
+            "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
+            sid = shell_quote(session),
+        )
+    } else {
+        let file = match upload_prompt(runner, machine_id, session, prompt.as_bytes()) {
+            Ok(file) => file,
+            Err(error) => {
+                return Err(failed(
+                    "chat.send_failed",
+                    format!(
+                        "the chat started, but the prompt did not reach its machine: {}",
+                        at(&error, "message").as_str().unwrap_or("cloud exec failed")
+                    ),
+                    json!({"answer": answer, "app": error}),
+                    1,
+                ));
+            }
+        };
+        uploaded = Some(file.clone());
+        format!(
+            "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
+             rm -f \"$f\"",
+            sid = shell_quote(session),
+        )
+    };
+    let sent = match exec(runner, machine_id, &send) {
+        Ok(stdout) => stdout,
+        Err(error) => {
+            // Refused before it started: the uploaded prompt does not stay on the machine. Any other
+            // failure (no answer) may be a send still reading the file, so the file stays.
+            if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
+                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            }
+            return Err(sent_failure(error, answer));
+        }
+    };
+    let reported = sections(&sent);
+    let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
+    if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
+        let output = reported.get("send").cloned().unwrap_or_default();
+        return Err(failed(
+            "chat.send_failed",
+            format!("the chat started, but the prompt did not reach it: {}", output.trim()),
+            json!({"answer": answer}),
+            1,
+        ));
+    }
+    answer.set("sent", json!(true));
+    if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
+        answer.set("delivery", json!(delivery));
+    }
+    Ok((answer, baseline))
+}
+
+/// The ids every follow-up answer carries.
+fn chat_ids(machine_id: &str, session: &str) -> Value {
+    json!({
+        "machine_id": machine_id,
+        "target": format!("machine:{machine_id}"),
+        "session_id": session,
+        "follow_up": follow_ups(machine_id, session),
+    })
+}
+
+/// `cloud chat send` / `cloud_chat_send`: the next prompt of a running chat. Answers `after`, the
+/// newest turn before this one, for [`status`] to tell this prompt's turn from an older one.
+pub(super) fn send(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    prompt: &str,
+) -> Outcome {
+    match deliver(runner, machine_id, session, prompt, chat_ids(machine_id, session)) {
+        Ok((mut answer, baseline)) => {
+            answer.set("after", json!(baseline));
+            Outcome::Done(answer)
+        }
+        Err(outcome) => outcome,
+    }
+}
+
+/// The longest one [`status`] waits on the machine (`acp wait` inside one `cloud exec`).
+pub(super) const MAX_STATUS_WAIT_SECONDS: u64 = WAIT_SLICE_SECONDS;
+
+/// `cloud chat status|last` / `cloud_chat_status`: the chat's newest turn after `after` (any turn
+/// without it), waiting on the machine up to `wait_seconds` for it to end. `state` is `starting`
+/// (no turn after `after` yet), `running`, `permission_waiting` (the agent asks the person in the
+/// chat's tab), `ended` (with `reply`) or `failed`.
+pub(super) fn status(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    after: Option<u64>,
+    wait_seconds: u64,
+) -> Outcome {
+    let sid = shell_quote(session);
+    let wait = match wait_seconds.min(MAX_STATUS_WAIT_SECONDS) {
+        0 => String::new(),
+        slice => {
+            format!("\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; echo \"@@wait $?\"; ")
+        }
+    };
+    let script = format!(
+        "{GUEST_PRELUDE}{wait}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+         echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\""
+    );
+    let mut answer = chat_ids(machine_id, session);
+    let polled = match exec(runner, machine_id, &script) {
+        Ok(stdout) => sections(&stdout),
+        Err(error) => {
+            let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
+            return failed(
+                "chat.unreachable",
+                format!("the chat's machine did not answer: {message}"),
+                json!({"answer": answer, "app": error}),
+                1,
+            );
+        }
+    };
+    let newest = last_turn(polled.get("history"));
+    if newest.is_none() && !polled.get("history").is_some_and(|text| text.contains("\"turns\"")) {
+        return failed(
+            "chat.lost",
+            "the chat's session on the machine does not answer",
+            json!({"answer": answer, "history": polled.get("history")}),
+            1,
+        );
+    }
+    let turn = newest.filter(|turn| after.is_none_or(|after| turn.seq > after));
+    let waited = polled.get("wait").map(|code| code.trim().to_owned()).unwrap_or_default();
+    let state = match &turn {
+        Some(turn) if turn.ended && turn.failed() => "failed",
+        Some(turn) if turn.ended => "ended",
+        _ if waited == "2" => "permission_waiting",
+        Some(_) => "running",
+        None => "starting",
+    };
+    answer.set("state", json!(state));
+    if let Some(turn) = &turn {
+        answer.set("turn", turn.value.clone());
+        if turn.ended
+            && polled.get("lastexit").map(|code| code.trim()) == Some("0")
+            && let Some(text) = reply(polled.get("last"))
+        {
+            answer.set("reply", json!(text));
+        }
+    }
+    Outcome::Done(answer)
 }
 
 /// What the relay-first chat came to.
@@ -930,13 +1054,16 @@ fn words(list: &[&str]) -> Vec<String> {
 
 /// The commands that go on with this chat.
 fn follow_ups(machine: &str, session: &str) -> Value {
-    let on = |command: String| {
-        format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
+    let on = |verb: &str| {
+        format!(
+            "cmux cloud chat {verb} --target machine:{machine} --session {}",
+            shell_quote(session)
+        )
     };
     json!({
-        "send": on(format!("{GUEST_CMUX} acp send --no-wait {session} 'PROMPT'")),
-        "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
-        "last": on(format!("{GUEST_CMUX} acp last {session}")),
+        "send": format!("{} --prompt 'PROMPT'", on("send")),
+        "status": format!("{} --wait {WAIT_SLICE_SECONDS}", on("status")),
+        "last": on("last"),
     })
 }
 

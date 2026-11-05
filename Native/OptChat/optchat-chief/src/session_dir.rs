@@ -276,7 +276,12 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
-pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
+/// The `cloud_*` tools reach the user's Cloud machines through the app: list
+/// them, start and follow agent chats there, and use the attached computer's
+/// desktop (`cloud_computer`, refused while the person has taken over). Like
+/// the `acpmux_*` tools they are not in `approval::turn_allowed_tools`, so an
+/// ask turn refuses them.
+pub const CHIEF_CMUX_TOOLS: [&str; 28] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -299,6 +304,12 @@ pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
+    "cloud_machines",
+    "cloud_chat_start",
+    "cloud_chat_send",
+    "cloud_chat_status",
+    "cloud_computer",
+    "cloud_computer_control",
 ];
 
 /// The turn presets' env that keeps `cmux` and its folded `acpmux` server
@@ -316,6 +327,11 @@ pub const TURN_TOOL_SERVERS: (&str, &str) =
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
 pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The turn presets' env that names the Chief's engine.json to acpmux's
+/// `cmux` MCP server (acpmux `agent_tools::CHIEF_ENGINE_ENV`): its `computer`
+/// is `cloud_computer`'s default machine.
+pub const CHIEF_ENGINE_ENV: &str = "CMUX_CHIEF_ENGINE";
 
 /// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
 /// tool, so a turn always denies them, even when the server did not get

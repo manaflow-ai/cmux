@@ -437,9 +437,9 @@ QUICK START
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  cmux cloud chat send --target machine:MACHINE_ID --session SESSION_ID --prompt 'next prompt'
+  cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID --wait 20
+  cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
 
   Machines:
   cmux cloud list-machines --json
@@ -448,6 +448,10 @@ QUICK START
   cmux cloud pause-machine --target machine:MACHINE_ID
   cmux cloud resume-machine --target machine:MACHINE_ID
   cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+
+  A machine's desktop (`cmux cloud computer --help`):
+  cmux cloud computer screenshot --target machine:MACHINE_ID --out screen.png
+  cmux cloud computer click --target machine:MACHINE_ID --x 200 --y 120
 ";
 
 const INTRO_JA: &str = "\
@@ -468,9 +472,9 @@ const INTRO_JA: &str = "\
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  cmux cloud chat send --target machine:MACHINE_ID --session SESSION_ID --prompt 'next prompt'
+  cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID --wait 20
+  cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
 
   マシン:
   cmux cloud list-machines --json
@@ -479,6 +483,10 @@ const INTRO_JA: &str = "\
   cmux cloud pause-machine --target machine:MACHINE_ID
   cmux cloud resume-machine --target machine:MACHINE_ID
   cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+
+  マシンのデスクトップ（`cmux cloud computer --help`）:
+  cmux cloud computer screenshot --target machine:MACHINE_ID --out screen.png
+  cmux cloud computer click --target machine:MACHINE_ID --x 200 --y 120
 ";
 
 const OUTRO_EN: &str = "\
@@ -550,14 +558,57 @@ EXAMPLES
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  cmux cloud chat send --target machine:MACHINE_ID --session SESSION_ID --prompt 'next prompt'
+  cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID --wait 20
+  cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
 app ask first with a card in that chat (Start, Not now); `cmux agents dialog
 list` lists it.
+";
+
+/// `cmux cloud chat --help` (cloud_agent.rs runs it; the `cloud_chat_*` MCP tools share its code).
+pub(super) const CHAT_USAGE: &str = "\
+usage: cmux cloud chat send --target machine:MACHINE_ID --session SESSION_ID --prompt TEXT
+       cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID
+                              [--after TURN] [--wait SECONDS]
+       cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
+
+Goes on with an agent chat that `cmux cloud start-chat` started (MACHINE_ID and
+SESSION_ID from its answer).
+
+  send     Send the next prompt (`--prompt -` reads it from stdin); answers after,
+           the turn before this prompt's
+  status   The newest turn after --after: state starting, running,
+           permission_waiting, ended (with reply) or failed; --wait (up to 20)
+           waits on the machine for it to end
+  last     The newest reply
+";
+
+/// `cmux cloud computer --help` (cloud_agent.rs; the `cloud_computer*` MCP tools share its code).
+pub(super) const COMPUTER_USAGE: &str = "\
+usage: cmux cloud computer OP [--target machine:MACHINE_ID] [flags]
+       cmux cloud computer control status|request|release [--target machine:MACHINE_ID]
+                                   [--reason TEXT]
+
+Uses a Cloud machine's desktop (1440x900) with its cua-driver. Without
+--target it uses the machine attached to the Chief (its engine `computer`).
+
+  screenshot [--out FILE]                     Save the screen as a PNG
+  list-windows                                The desktop's windows
+  click --x N --y N [--button left|right|middle]
+  move --x N --y N
+  drag --x N --y N --to-x N --to-y N
+  scroll --x N --y N --direction up|down|left|right [--amount N]
+  type --text TEXT
+  key --keys KEYS                             Return, ctrl+l, shift+Tab
+  open-url --url URL                          Open it in a new Chrome window
+
+While the person has taken over the desktop, input is refused with
+computer.human_has_control; screenshot and list-windows still work.
+control status says who drives, control request asks the person to take
+over (--reason: a sign-in, a payment), control release hands it back.
 ";
 
 /// The new spelling of a hidden old verb.
@@ -613,6 +664,12 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == START_CHAT {
         return Some(START_CHAT_USAGE.to_owned());
+    }
+    if name == "chat" {
+        return Some(CHAT_USAGE.to_owned());
+    }
+    if name == "computer" {
+        return Some(COMPUTER_USAGE.to_owned());
     }
     let verb = find(name)?;
     let usage = usage_line(verb);

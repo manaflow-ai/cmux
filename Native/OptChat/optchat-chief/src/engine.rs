@@ -454,7 +454,7 @@ pub fn computer_line(choice: &EngineChoice) -> Option<String> {
     // so the line can only ever carry a Cloud machine id.
     let target = parse_computer(choice.computer.as_deref()?).ok()??;
     Some(format!(
-        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the chief-cloud-machines skill (--target {target}), not on this Mac, unless the owner asks for this Mac."
+        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default machine; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input is refused until they hand it back."
     ))
 }
 

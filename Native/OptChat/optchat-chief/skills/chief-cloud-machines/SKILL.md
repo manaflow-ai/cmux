@@ -1,6 +1,6 @@
 ---
 name: chief-cloud-machines
-description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), hand a task to an agent chat there and read its reply (`cmux cloud start-chat`), run commands, use the machine's own cmux, and drive its Linux desktop with cua-driver (open apps, click, type, screenshots). Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
+description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), hand a task to an agent chat there and read its reply (`cmux cloud start-chat`), run commands, use the machine's own cmux, and drive its Linux desktop (open pages, click, type, screenshots) with the cloud_computer tool. Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
 cmux-managed: true
 ---
 
@@ -11,6 +11,12 @@ The user's cmux Cloud machines are Linux VMs with a 1440x900 desktop
 machine's own `cmux`. You reach them from the Mac through the cmux app's
 Cloud actions; the app holds the sign-in and asks the user before anything
 that costs money.
+
+The cmux MCP server has tools for the common steps; load them with
+ToolSearch `cloud_`: `cloud_machines` (list), `cloud_chat_start`,
+`cloud_chat_send`, `cloud_chat_status` (agent chats there), `cloud_computer`
+(the desktop) and `cloud_computer_control` (who drives it). Each runs the same
+code as its command below; use whichever you have.
 
 Every machine action takes `--target machine:<id>`; without it the app
 refuses the run. `cmux action describe "cloud <verb>"` shows a verb's
@@ -95,19 +101,18 @@ on the machine>` picks the folder; `--timeout <seconds>` bounds the wait
 (default 900). The app first asks the user with a card (Start, Not now);
 nothing starts until they click Start, and a refusal says so.
 
-The answer's `.follow_up` holds the `cloud exec` commands for that chat:
-`send` (the next prompt, in place of `PROMPT`), `wait` (20 s at a time) and
-`last` (the newest reply). Run them with `cmux --json` and read the remote
-command's `exit_code` in the answer, since `cloud exec` itself succeeds
-either way: for `wait`, 0 means the turn ended (then run `last`), 2 means
-the agent asks the user for a permission, and 3 means still working (run it
-again). On an error, read
-`.code`: `cloud.signed_out` (tell the user to sign in to cmux),
-`cloud.start_pending` (the machine is still starting: run
-`.details.again` later), `chat.permission_waiting` (the agent asks the user
-for a permission in the chat's tab: tell them), `chat.wait_timeout` (still
-working: wait on with `.details.answer.follow_up.wait`, the
-answer so far).
+The answer's `.follow_up` holds the commands for that chat (the tools take
+the same `machine` and `session`): `send` (`cmux cloud chat send --target
+machine:<id> --session <session_id> --prompt '<next prompt>'`, or
+`cloud_chat_send`; it answers `after`), `status` (`cmux cloud chat status ...
+--after <after> --wait 20`, or `cloud_chat_status` with `wait_s`: `.state` is
+`starting`, `running`, `permission_waiting` (the agent asks the user in the
+chat's tab: tell them), `ended` with `.reply`, or `failed`) and `last` (the
+newest reply). Run `status` again while it is `starting` or `running`. On an
+error, read `.code`: `cloud.signed_out` (tell the user to sign in to cmux),
+`cloud.start_pending` (the machine is still starting: run `.details.again`
+later), `chat.permission_waiting` (tell the user), `chat.wait_timeout` (still
+working: wait on with `.details.answer.follow_up.status`).
 
 ## 2. Run commands
 
@@ -136,55 +141,33 @@ and `cmux terminal term_… screen read`. A new terminal there:
 
 ## 3. Drive the desktop (computer use)
 
-Install the step helper once per machine. It starts `cua-driver`'s daemon
-when it is not running, runs one tool, then saves a fresh screenshot, and
-fails when no screenshot was saved (`cua-driver` exits 0 even then). Make its
-folder with exec, which runs as the machine's `cmux` user like the daemon:
-`cloud file-mkdir` makes a root-owned folder the daemon cannot write to.
+Use `cloud_computer` (or `cmux cloud computer <op> --target machine:<id>`;
+`cmux cloud computer --help` lists the flags). Without `machine` it uses the
+machine attached to you as your computer. One op per call:
 
-```sh
-cmux cloud exec --target machine:<id> --command 'mkdir -p /home/cmux/.cache/chief'
-cmux cloud file-write --target machine:<id> --path /home/cmux/.cache/chief/cua.sh --contents "$(cat <<'EOF'
-export HOME=/home/cmux
-. /etc/cmux/desktop-env.sh
-if ! cua-driver status >/dev/null 2>&1; then
-  setsid -f cua-driver serve >/dev/null 2>&1 </dev/null
-  i=0; while [ "$i" -lt 20 ] && ! cua-driver status >/dev/null 2>&1; do i=$((i+1)); sleep 0.5; done
-fi
-cua-driver call "$1" "$2" || exit $?
-rm -f /home/cmux/.cache/chief/screen.png
-cua-driver call get_desktop_state '{"screenshot_out_file": "/home/cmux/.cache/chief/screen.png"}' >/dev/null
-test -s /home/cmux/.cache/chief/screen.png || { echo "no screenshot saved: run cua-driver doctor" >&2; exit 1; }
-EOF
-)"
-```
-
-Then one step per exec. Put the command in a quoted heredoc so its JSON needs
-no escaping:
-
-```sh
-step=$(cat <<'EOF'
-sh /home/cmux/.cache/chief/cua.sh launch_app '{"name": "google-chrome-stable", "additional_arguments": ["--new-window", "--start-maximized", "--no-first-run", "--hide-crash-restore-bubble", "https://example.com"]}'
-EOF
-)
-cmux --json cloud exec --target machine:<id> --command "$step"
-```
-
-- Tools: `list_windows` (`{}`: pid, `window_id`, title, bounds),
-  `launch_app`, `get_window_state` (a window's accessibility elements; click
-  by `element_index`), `click`, `type_text`, `press_key`, `hotkey`, `scroll`,
-  `zoom`. Before a tool's first use, read its arguments:
-  `cua-driver describe <tool>` (after `. /etc/cmux/desktop-env.sh`).
-  `cua-driver doctor` explains a failure; a machine without `cua-driver`
-  (`command -v cua-driver` fails) is too old: say so.
-- A `click` or `type_text` result can say `"effect": "unverifiable"`: the
-  input was sent, so check what changed (a window title, or the screenshot).
-- Look before you claim. Text results (`list_windows`, `get_window_state`)
-  confirm a window or title. To see the screen, bring the screenshot here and
-  look at it, and send it to the user when it shows what they asked for:
-  `cmux --json cloud file-read --target machine:<id> --path /home/cmux/.cache/chief/screen.png | jq -r '.result.data_base64' | base64 -d > "${TMPDIR:-/tmp}/chief-<id>.png"`.
-  Never say something happened on the desktop until a result or a screenshot
-  shows it.
+- `screenshot`: the screen as an image (the command saves a PNG, `--out FILE`).
+  Look at it before and after you act, and send it to the user when it shows
+  what they asked for.
+- `list_windows`: the desktop's windows (pid, `window_id`, title, bounds).
+- `open_url` with `url`: opens it in a new Chrome window.
+- `click` (`x`, `y`, `button`), `move`, `drag` (`x`, `y`, `to_x`, `to_y`),
+  `scroll` (`x`, `y`, `direction`, `amount`), `type` (`text`), `key`
+  (`keys`: `Return`, `ctrl+l`, `shift+Tab`). Coordinates are screen pixels of
+  the 1440x900 screenshot.
+- Never say something happened on the desktop until a result or a
+  screenshot shows it. A `"effect": "unverifiable"` result means the input
+  was sent: check the screenshot.
+- The user can take over the desktop from your profile's Computer tab. While
+  they hold it, input ops fail with `computer.human_has_control` (screenshots
+  still work): stop, say you are waiting for them, and continue after they
+  give it back (`cloud_computer_control` `status`). When a step needs the
+  user (a sign-in, a password, a payment, a captcha), call
+  `cloud_computer_control` `request_human` with a short `reason` and tell
+  them; never type a password or card number yourself.
+- `computer.failed` says what `cua-driver` reported; a machine without
+  `cua-driver` is too old: say so. For anything the ops do not cover, run
+  `cua-driver` through `cloud exec` after `. /etc/cmux/desktop-env.sh`
+  (`cua-driver describe <tool>` lists a tool's arguments).
 - A long desktop task (many steps, a whole flow to test) goes to a coding
   agent on the machine instead: its Codex, Claude Code and OpenCode get
   `cua-driver mcp` as a tool on first launch. Check its sign-in first
