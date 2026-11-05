@@ -2755,11 +2755,6 @@ const SEND_RISE_MS = 1000;
 /// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
 /// streaming fills it, and a turn in a tool call or thinking brings nothing to fill it with.
 const WITHDRAWN_HOLD_MS = 250;
-/// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
-/// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
-/// else the chat opens at its latest message.
-const OPEN_AT_PAGE_MS = 1500;
-const OPEN_AT_SEEK_MS = 8000;
 /// How soon the transcript asks again for an older page after an ask that brought nothing.
 const OLDER_RECHECK_MS = 500;
 /// How near the first loaded row, in viewports, the view asks for the next older page: far enough
@@ -3785,28 +3780,14 @@ export function VirtualTranscript({
     });
   }, [chatLook.minimal]);
   const didOpenAtLatest = useRef(false);
-  /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
-  const [seeking, setSeeking] = useState(false);
-  const [seekExpired, setSeekExpired] = useState(false);
   /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
   const seenSends = useRef(sends);
-  /// A prompt was sent before the chat opened (while it seeks `openAt`'s row, or while its tail still
-  /// fits): it opens at the latest message, not at the reader's old place.
+  /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
+  /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
-  const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /// When the walk began, and the first row it had then: a new first row is a page landed.
-  const seekStart = useRef<number | undefined>(undefined);
-  const seekFirstRow = useRef<string | undefined>(undefined);
-  const endSeek = () => {
-    clearTimeout(seekTimer.current);
-    seekTimer.current = undefined;
-    seekStart.current = undefined;
-    seekFirstRow.current = undefined;
-  };
-  useEffect(() => () => clearTimeout(seekTimer.current), []);
   // Under the opt-in fade (Debug Settings agentPane.debug.scrollerFade), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
@@ -4583,9 +4564,6 @@ export function VirtualTranscript({
       seenSends.current = sends;
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
-      endSeek();
-      setSeeking(false);
-      setSeekExpired(false);
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
@@ -4807,26 +4785,15 @@ export function VirtualTranscript({
     if (!didOpenAtLatest.current && node) {
       const latest = Math.max(0, layout.totalHeight - height);
       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message, as it is
-      // once the reader sent a prompt into it.
+      // once the reader sent a prompt into it. Only a row the pane already holds counts: a chat opens
+      // on its tail and shows what it has at once (Leo 2026-11-05: "you don't need to load the entire
+      // thing ... Just load the recent bits and render, like, what you already have"). A row older
+      // than the tail used to hold the chat unseen while older pages were read back to it (cx-odzaz):
+      // on a long chat under load that was seconds of a blank pane, each page replaying the whole
+      // transcript, and it often gave up and opened at the latest message anyway.
       const at = openAt && !sentBeforeOpen.current ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
-      // That row is older than the pages loaded so far (a chat opens on its tail): page back to it
-      // unseen, one older page after another: each page that lands changes `rows` and looks again
-      // (cx-odzaz).
-      if (openAt && at < 0 && canLoadOlder && onLoadOlder && !seekExpired) {
-        const now = performance.now();
-        seekStart.current ??= now;
-        if (seekFirstRow.current !== rows[0]?.id || seekTimer.current === undefined) {
-          seekFirstRow.current = rows[0]?.id;
-          clearTimeout(seekTimer.current);
-          const left = Math.min(OPEN_AT_PAGE_MS, OPEN_AT_SEEK_MS - (now - seekStart.current));
-          seekTimer.current = setTimeout(() => setSeekExpired(true), Math.max(0, left));
-        }
-        setSeeking(true);
-        onLoadOlder().catch(() => {});
-      } else if (layout.totalHeight <= height) {
+      if (layout.totalHeight <= height) {
         // A tail that fits shows from the top, as before; it opens once it overflows.
-        endSeek();
-        setSeeking(false);
       } else if (folding) {
         // A disclosure the reader clicked in a tail that fit made it overflow: the chat opens where
         // the reader is, the clicked line held (above), not at the latest row. Jumping there put the
@@ -4835,8 +4802,6 @@ export function VirtualTranscript({
         followTrace.set(node.scrollTop);
         follow(node.scrollTop >= latest - 1);
         didOpenAtLatest.current = true;
-        endSeek();
-        setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
@@ -4855,8 +4820,6 @@ export function VirtualTranscript({
         setScrollAt(node.scrollTop, 0);
         follow(top >= latest - 1);
         didOpenAtLatest.current = true;
-        endSeek();
-        setSeeking(false);
       }
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
@@ -4895,20 +4858,7 @@ export function VirtualTranscript({
     // The minimap's band reads the offset this pass settled on.
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [
-    layout,
-    rows,
-    range.first,
-    height,
-    width,
-    dockSpace,
-    room,
-    lift,
-    sessionId,
-    seekExpired,
-    canLoadOlder,
-    followResume,
-  ]);
+  }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
@@ -5073,8 +5023,6 @@ export function VirtualTranscript({
       // instead of running the unopened-chat path to the latest row.
       if (!didOpenAtLatest.current) {
         didOpenAtLatest.current = true;
-        endSeek();
-        setSeeking(false);
       }
       scrolledTo.current = { top, atLatest: false };
       seenAnchor.current = restingAnchor(top, false, placed, shown);
@@ -5307,13 +5255,12 @@ export function VirtualTranscript({
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
-      // The chat has not opened yet: it stops paging back to the reader's old place and opens at
-      // the latest message (the placement pass, which `seekExpired` runs again).
+      // The chat has not opened yet (its tail still fits): it opens at the latest message once it
+      // overflows, not at the reader's old place (the placement pass).
       sentBeforeOpen.current = true;
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
-      setSeekExpired(true);
       return;
     }
     revealing.current = undefined;
@@ -5932,7 +5879,7 @@ export function VirtualTranscript({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
-  if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
+  if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
@@ -5985,8 +5932,6 @@ export function VirtualTranscript({
           // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
           // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
           // 2026-10-23: "that little bit above composer can flicker").
-          data-seeking={seeking || undefined}
-          aria-busy={seeking || undefined}
           data-fade-top={renderScroll.top - origin > 0.5 || undefined}
           data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
           // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
