@@ -466,11 +466,7 @@ impl TokenVerifier for NativeTokenVerifier {
         if c.exp <= now.unix_ms / 1000 {
             return Err(no(Expired, "token_expired"));
         }
-        if c.svc.is_empty()
-            || c.svc.len() > 2
-            || c.svc.iter().any(|s| !matches!(s, Service::Daemon | Service::Ssh))
-            || matches!(c.svc.as_slice(), [first, second] if first == second)
-        {
+        if !policy::cloud_services(&c.svc) {
             return Err(no(Invalid, "services"));
         }
         let peer = policy
@@ -484,6 +480,11 @@ impl TokenVerifier for NativeTokenVerifier {
             .ok_or(no(Invalid, "peer_not_in_policy"))?;
         if !c.svc.contains(&expected.service) || !peer.services.contains(&expected.service) {
             return Err(no(TokenRefused::ServiceNotAllowed, "service_not_allowed"));
+        }
+        // The desktop is the creator's alone: besides the policy listing it
+        // only for the creator's peers, the token itself must say owner.
+        if expected.service == Service::Desktop && c.vmk != Some(crate::token::VmKind::Owner) {
+            return Err(no(TokenRefused::ServiceNotAllowed, "desktop_not_owner"));
         }
         let deadline = stream_deadline(policy, now).ok_or(no(Expired, "policy_expired"))?;
         let elapsed = elapsed_deadline(&state, policy).ok_or(no(Expired, "policy_expired"))?;

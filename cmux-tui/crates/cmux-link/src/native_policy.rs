@@ -7,6 +7,16 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::collections::HashSet;
 use std::time::Duration;
 
+/// The services a Cloud token or receiving-policy peer may name: one to
+/// three of `daemon`, `ssh` and `desktop`, each once. `owner_session` is a
+/// paired server's, never a Cloud host's.
+pub(super) fn cloud_services(services: &[Service]) -> bool {
+    !services.is_empty()
+        && services.len() <= 3
+        && services.iter().all(|s| matches!(s, Service::Daemon | Service::Ssh | Service::Desktop))
+        && services.iter().enumerate().all(|(i, s)| !services[..i].contains(s))
+}
+
 impl NativeBinding {
     pub(super) fn key(&self) -> Option<[u8; 32]> {
         let bytes = STANDARD.decode(&self.wg_public_key).ok()?;
@@ -79,9 +89,7 @@ impl NativePolicy {
                 && p.binding.valid()
                 && Some((&p.binding.tenant, &p.binding.mesh, p.binding.acl_version)) == locator
                 && !p.services.is_empty()
-                && p.services.len() <= 2
-                && p.services.iter().all(|s| matches!(s, Service::Daemon | Service::Ssh))
-                && !matches!(p.services.as_slice(), [first, second] if first == second)
+                && cloud_services(&p.services)
                 && installs.insert(&p.install)
                 && hosts.insert(&p.binding.host)
                 && devices.insert(&p.binding.device)

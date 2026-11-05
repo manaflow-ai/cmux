@@ -178,9 +178,9 @@ impl ConnectInfoSource for BrokerSource {
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
         if !host_valid(host)
             || services.is_empty()
-            || services.len() > 2
+            || services.len() > 3
             || services.contains(&Service::OwnerSession)
-            || matches!(services, [first, second] if first == second)
+            || services.iter().enumerate().any(|(i, s)| services[..i].contains(s))
         {
             return Err(ConnectInfoError::Forbidden);
         }

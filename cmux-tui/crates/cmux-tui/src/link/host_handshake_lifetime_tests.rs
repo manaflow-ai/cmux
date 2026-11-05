@@ -51,6 +51,7 @@ async fn pending_hello(case: &str) {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut client, stream) = tokio::io::duplex(65536);
     // A partial frame must be covered too; it is not a token admission.
@@ -108,6 +109,7 @@ async fn receiver_handshake_unsigned_complete_hello_still_fails() {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut client, stream) = tokio::io::duplex(65536);
     client.write_all(b"{\"service\":\"ssh\",\"epoch\":4}\n").await.unwrap();
@@ -132,6 +134,7 @@ async fn receiver_handshake_repeated_failures_release_slots_before_signed_ssh_co
         epoch: 4,
         session_socket: &session,
         sshd: sshd.local_addr().unwrap(),
+        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let source = SocketAddr::new(IpAddr::V6(overlay_address("inst_00000000000000000001")), 40000);
     // More than the verifier's simultaneous-stream capacity, within one policy

@@ -6,7 +6,9 @@
 //!
 //! `daemon` goes to the session's remote entry, stamped with the peer the
 //! token names; `ssh` goes to the host's sshd on loopback (scp, sftp and
-//! rsync with `cmux link` as ProxyCommand).
+//! rsync with `cmux link` as ProxyCommand); `desktop` goes to the agent
+//! display's `cmux.rd/1` host on its root-only Unix socket
+//! ([`DESKTOP_SOCKET`], socket-activated by the image's `cmux-agent-rd.socket`).
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
@@ -28,7 +30,14 @@ pub(super) struct HostIdentity<'a> {
     pub session_socket: &'a Path,
     /// The host's sshd (127.0.0.1:22 on a Cloud VM).
     pub sshd: SocketAddr,
+    /// The desktop host's socket ([`DESKTOP_SOCKET`] on a Cloud VM).
+    pub desktop: &'a Path,
 }
+
+/// The `desktop` service's socket on a Cloud VM: `cmux-agent-rd.socket`
+/// listens here (`SocketUser=root`, `SocketMode=0600`, in a 0700 root
+/// directory), so only this root receiver can connect, never the agent.
+pub(super) const DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
 
 /// Why a host refused a stream (beyond [`InboundRefused`]).
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +52,9 @@ pub(super) enum HostRefused {
     AddressMismatch,
     /// The host's sshd did not accept the connection.
     SshUnavailable,
+    /// The machine serves no desktop: its socket is missing or refused the
+    /// connection (`check: desktop_unavailable` on the refusal line).
+    DesktopUnavailable,
     /// The authority owner revoked this stream, vanished, or its lease expired.
     Authority,
 }
@@ -76,7 +88,9 @@ pub(super) fn refusal_line(why: &HostRefused, trace: &StreamTrace) -> Option<Str
     line.insert("type".into(), "refused".into());
     line.insert("code".into(), super::refusal_watch::REFUSED_CODE.into());
     line.insert("reason".into(), format!("{why:?}").into());
-    if let Some(check) = &trace.check {
+    if matches!(why, HostRefused::DesktopUnavailable) {
+        line.insert("check".into(), "desktop_unavailable".into());
+    } else if let Some(check) = &trace.check {
         line.insert("check".into(), check.reason.into());
         if let Some(detail) = &check.detail {
             line.insert("detail".into(), detail.as_str().into());
@@ -219,6 +233,15 @@ where
                     .map_err(|_| HostRefused::SshUnavailable)?;
                 trace.spliced =
                     Some(Spliced::of(tokio::io::copy_bidirectional(&mut *stream, &mut sshd).await));
+                Ok(())
+            }
+            Service::Desktop => {
+                let mut desktop = tokio::net::UnixStream::connect(me.desktop)
+                    .await
+                    .map_err(|_| HostRefused::DesktopUnavailable)?;
+                trace.spliced = Some(Spliced::of(
+                    tokio::io::copy_bidirectional(&mut *stream, &mut desktop).await,
+                ));
                 Ok(())
             }
             // A Cloud host has no owner session: its owner reaches it through the

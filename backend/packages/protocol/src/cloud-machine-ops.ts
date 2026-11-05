@@ -232,8 +232,15 @@ export const CloudMachineConnectInfo = cloudRead(
   "cloud machine connect-info"
 )
 
-const LinkService = Schema.Literals(["daemon", "ssh"])
-const LinkServices = Schema.Array(LinkService).check(Schema.isMinLength(1), Schema.isMaxLength(2), Schema.isUnique())
+/**
+ * `desktop` is the person's view of the machine's agent display (`cmux.rd/1`, carried over the link). Only the
+ * machine's creator may mint it, and only on a machine whose daemon block advertises CLOUD_DESKTOP_CAPABILITY.
+ * connect_info never lists it: clients before it read that list strictly, so the mint is its only authority.
+ */
+const LinkService = Schema.Literals(["daemon", "ssh", "desktop"])
+const LinkServices = Schema.Array(LinkService).check(Schema.isMinLength(1), Schema.isMaxLength(3), Schema.isUnique())
+/** The bind/status daemon capability of a machine whose image serves the `desktop` link service. */
+export const CLOUD_DESKTOP_CAPABILITY = "link-desktop-v1"
 
 export const CloudMachineLinkToken = def({
   name: "cloud.machine.link_token",
@@ -257,7 +264,7 @@ export const CloudMachineLinkToken = def({
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
   errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
