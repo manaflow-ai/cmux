@@ -61,7 +61,7 @@ struct AllThemesPlaygroundRow: View {
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: entry.background.withAlpha(1).nsColor)))
+        .background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius).fill(Color(nsColor: entry.background.withAlpha(1).nsColor)))
     }
 }
 
@@ -80,8 +80,8 @@ struct AllThemesPlaygroundChip: View {
             Text(verbatim: String(format: "%.1f", sample.contrast)).font(.system(size: TypeScale.caption).monospacedDigit()).foregroundStyle(ink)
         }
         .frame(width: 44, height: 34)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: sample.surface.nsColor)))
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(nsColor: StatusDotHue.error.hue(isDark: false).nsColor),
+        .background(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).fill(Color(nsColor: sample.surface.nsColor)))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).strokeBorder(Color(nsColor: StatusDotHue.error.hue(isDark: false).nsColor),
                                                                 lineWidth: sample.passes ? 0 : 2))
         .themedHelp(AllThemesPlaygroundStrings.sampleHelp(sample))
     }

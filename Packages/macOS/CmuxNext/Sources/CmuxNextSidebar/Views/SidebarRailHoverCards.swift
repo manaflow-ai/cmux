@@ -89,7 +89,7 @@ final class SidebarRailCardView: NSView, HoverCardTextReporting {
         title.lineBreakMode = .byTruncatingTail
         key.font = Typography.caption
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = 3
+        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: 6, height: 6))
         let stack = NSStackView(views: [dot, title, key])
         stack.orientation = .horizontal
         stack.alignment = .centerY

@@ -7,10 +7,14 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
         public var id: String?
         public var message: String?
         public var isTellEnvelope = false
+        /// A `spawn`'s tasks, in order; nil for any other tool.
+        public var tasks: [String]?
+        /// A Codex `mcp_tool_call` to optchat's `spawn`.
+        public var isSpawnEnvelope = false
         /// The prompt's `_meta.cmux.sender` (`human:<participant>`, `chief:<id>`); nil when it has none.
         public var sender: String?
 
-        private enum CodingKeys: String, CodingKey { case id, message, arguments, server, tool, meta = "_meta" }
+        private enum CodingKeys: String, CodingKey { case id, message, tasks, arguments, server, tool, meta = "_meta" }
         private enum MetaKeys: String, CodingKey { case cmux }
         private enum CmuxKeys: String, CodingKey { case sender }
 
@@ -23,10 +27,13 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
                 let server = try? fields.decode(String.self, forKey: .server)
                 let tool = try? fields.decode(String.self, forKey: .tool)
                 isTellEnvelope = server == "optchat" && tool == "tell"
+                isSpawnEnvelope = server == "optchat" && tool == "spawn"
+                tasks = try? arguments.decode([String].self, forKey: .tasks)
                 sender = Self.sender(in: arguments) ?? Self.sender(in: fields)
             } else {
                 id = try? fields.decode(String.self, forKey: .id)
                 message = try? fields.decode(String.self, forKey: .message)
+                tasks = try? fields.decode([String].self, forKey: .tasks)
                 sender = Self.sender(in: fields)
             }
         }

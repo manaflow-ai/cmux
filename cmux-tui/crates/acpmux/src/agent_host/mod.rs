@@ -37,8 +37,8 @@ pub(crate) mod tree;
 pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
-    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
-    within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, host_dead_now, wait_dead_async,
+    wait_dead_within, within, within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};

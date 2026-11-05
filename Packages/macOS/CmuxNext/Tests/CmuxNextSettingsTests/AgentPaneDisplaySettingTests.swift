@@ -50,6 +50,10 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
             accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("thinking"),
+            accepted: [.string("thinking"), .string("custom")], refused: [.string("random"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.custom", fallback: nil,
+            accepted: [.string("Reading, Planning")], refused: [.number(3)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -161,10 +165,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
     }
 
+    @Test func statusVerbsReachThePageThroughDisplaySettings() {
+        let root: JSONValue = ["agentPane": ["display": ["statusVerbs": [
+            "mode": "custom", "custom": "Reading, Planning",
+        ]]]]
+        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        #expect(values["agentPane.display.statusVerbs.mode"] == .string("custom"))
+        #expect(values["agentPane.display.statusVerbs.custom"] == .string("Reading, Planning"))
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
         "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

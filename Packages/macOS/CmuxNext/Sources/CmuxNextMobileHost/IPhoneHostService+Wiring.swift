@@ -87,7 +87,11 @@ extension IPhoneHostService {
             },
             daemonSocket: { [weak daemon] in
                 guard let daemon else { throw DaemonError.notConnected }
-                return try await daemon.endpoint().socketPath
+                do {
+                    return try await daemon.endpoint().socketPath
+                } catch DaemonError.endpointBlocked(let reason) {
+                    throw DaemonSocketBlocked(reason: reason)
+                }
             },
             acpmux: {
                 guard let host = await acpmuxHost(),

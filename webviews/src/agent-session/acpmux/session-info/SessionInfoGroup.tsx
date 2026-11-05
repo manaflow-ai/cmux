@@ -19,6 +19,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
+import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { isAppId, moveTo, sectionGroup, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
@@ -48,9 +49,6 @@ type Drag = {
   /// The order when the drag began, for Escape.
   before: SessionInfoSectionId[];
 };
-
-/// How far below its top the held section looks for its place (at most its middle).
-const PROBE = 24;
 
 function motionOn(): boolean {
   if (isAgentMotionOff()) return false;
@@ -225,8 +223,7 @@ export function SessionInfoSectionList({
       [...list.current!.querySelectorAll<HTMLElement>(":scope > [data-slot]")].map(
         (node) => node.dataset.slot as SessionInfoSectionId,
       );
-    // Where the held section belongs now. It probes near its top, where the handle is, not at its
-    // middle: a section taller than the panel could never carry its middle above the first one.
+    // Where the held section belongs now (heldPlace).
     const place = () => {
       const held = drag.current;
       const root = list.current;
@@ -235,13 +232,18 @@ export function SessionInfoSectionList({
       const node = slot(held.id);
       if (!node) return;
       const scrolled = (held.scroller?.scrollTop ?? 0) - held.startScroll;
-      const probe = held.grabTop + (held.y - held.startY) + scrolled + Math.min(node.offsetHeight / 2, PROBE);
-      const others = shownNow().filter((id) => id !== held.id);
-      const at = others.filter((id) => {
+      const order = shownNow();
+      const boxes = order.map((id) => {
         const other = slot(id)!;
-        return other.offsetTop + other.offsetHeight / 2 < probe;
-      }).length;
-      const next = moveTo(others, held.id, at);
+        return { top: other.offsetTop, height: other.offsetHeight };
+      });
+      const gap = Number.parseFloat(getComputedStyle(root).rowGap) || 0;
+      const at = heldPlace(boxes, order.indexOf(held.id), held.grabTop + (held.y - held.startY) + scrolled, gap);
+      const next = moveTo(
+        order.filter((id) => id !== held.id),
+        held.id,
+        at,
+      );
       setDraft((current) => (current && current.join(" ") === next.join(" ") ? current : next));
     };
     const move = (event: PointerEvent) => {
