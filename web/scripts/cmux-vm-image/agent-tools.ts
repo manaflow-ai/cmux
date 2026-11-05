@@ -386,6 +386,8 @@ export const RD_STATE_DIR = "/var/lib/cmux-rd";
 /** Written after the first successful `cmux-rd openh264-install`, so later starts skip the download. */
 export const RD_OPENH264_MARKER = `${RD_STATE_DIR}/openh264-installed`;
 export const RD_TMPFILES = "/etc/tmpfiles.d/cmux-rd.conf";
+/** The host unit's ExecStart (rdStartScript): checks the host's preconditions, then execs the host or closes the queued connection. */
+export const RD_START_SCRIPT = `${AGENT_TOOLS_DIR}/cmux-rd-start`;
 const RD_PROGRAM = "cmux-rd";
 const DESKTOP_ROLE = "desktop";
 
@@ -516,26 +518,91 @@ export function rdOpenh264Unit(hostBin: string): string {
 }
 
 /**
- * `cmux-rd host` on the agent display, socket-activated (an fd from systemd; each connection's
- * SO_PEERCRED uid must be RD_PEER_UID, the work user the link receiver runs as), as RD_USER, with no capabilities and Unix
- * sockets only. OpenH264 comes from RD_OPENH264_UNIT, ordered before. ProtectHome keeps
- * /home out of reach (the cookie copy above runs outside the sandbox); /tmp is private but for the
- * X11 socket dir.
+ * RD_START_SCRIPT, the host unit's ExecStart, as RD_USER. With `Accept=no` systemd starts the
+ * host for a connection the host has not accepted yet; a start that fails before the accept would
+ * leave it queued, and systemd would start the host again for it at once (fast failures run into
+ * the socket's trigger limit and leave the socket failed; slow ones, a failed OpenH264 download or
+ * a display that does not start, retry forever). So every start takes its connection: the script
+ * checks what the host needs (the display's X socket, the cookie copy, OpenH264) and, if one is
+ * missing, accepts every queued connection on the passed socket, closes it, logs why and exits 1;
+ * otherwise it execs the host, which keeps the pid systemd passed the socket to (LISTEN_PID).
+ * Each connection then costs at most one attempt, an OpenH264 download included.
  */
-export function rdUnit(hostBin: string): string {
+export function rdStartScript(
+  hostBin: string,
+  paths: { x11Socket?: string; xauthority?: string; openh264Marker?: string } = {},
+): string {
+  const x11 = paths.x11Socket ?? `/tmp/.X11-unix/X${AGENT_DISPLAY_NUMBER}`;
+  const xauthority = paths.xauthority ?? RD_XAUTHORITY;
+  const marker = paths.openh264Marker ?? RD_OPENH264_MARKER;
+  const drainPy = [
+    "import socket, sys",
+    "s = socket.socket(fileno=3)",
+    "s.setblocking(False)",
+    "n = 0",
+    "while True:",
+    "    try:",
+    "        c, _ = s.accept()",
+    // Any accept error ends the drain (EAGAIN: none queued; EMFILE and the like: nothing more can be taken).
+    "    except OSError:",
+    "        break",
+    "    c.close()",
+    "    n += 1",
+    "s.detach()",
+    "print(n)",
+  ].join("\n");
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit): starts the cmux-rd host for a",
+    `# connection to ${RD_SOCKET}, or closes the connection when the host cannot start.`,
+    "set -u",
+    'if [ "${LISTEN_FDS:-0}" != 1 ] || [ "${LISTEN_PID:-}" != "$$" ]; then echo "cmux-rd-start: no socket from systemd" >&2; exit 1; fi',
+    "drain() {",
+    `  n=$(/usr/bin/python3 -I -c ${sq(drainPy)})`,
+    '  echo "cmux-rd-start: $1; closed ${n:-0} queued desktop connection(s)" >&2',
+    "  exit 1",
+    "}",
+    `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
+    `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
+    `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
+    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * The cmux-rd host's unit, started by a connection to RD_SOCKET (an fd from systemd; each
+ * connection's SO_PEERCRED uid must be RD_PEER_UID, the work user the link receiver runs as), as
+ * RD_USER, with no capabilities and Unix sockets only. ProtectHome keeps /home out of reach (the
+ * cookie copy runs outside the sandbox); /tmp is private but for the X11 socket dir.
+ *
+ * Nothing before RD_START_SCRIPT may fail the start, or the connection stays queued (see there):
+ * no unit the host depends on is ordered before it with a requirement (a failed dependency would
+ * fail the start job before RD_START_SCRIPT runs), and the cookie copy's failure is ignored (`-`);
+ * RD_START_SCRIPT finds what is missing and closes the connection.
+ *
+ * The display is BindsTo without After. BindsTo pulls it in at start and stops the host whenever
+ * the display goes inactive or failed, for any reason: a stop, a restart, or a crash (systemd's
+ * default RestartMode=normal takes a crashed Xvfb through failed before its Restart=on-failure
+ * brings it back). The host never outlives the cookie it copied; the next connection starts it
+ * again with a fresh copy. Without After, a display that fails to start does not fail the host's
+ * start job; the cookie copy waits (bounded) for the display's X socket, which orders a normal
+ * start, and RD_START_SCRIPT closes the connection when the display never came up.
+ */
+export function rdUnit(): string {
   return [
     "[Unit]",
     `Description=cmux remote desktop host (cmux-rd, cmux.rd/1) on the agent display ${AGENT_DISPLAY}, started by a connection to its socket`,
-    // BindsTo, not only Requires: a restarted display has a new cookie, so the host restarts with it.
+    // No After= on the display (see above): BindsTo for the lifetime, not for the start.
     `BindsTo=${DISPLAY_UNIT}`,
-    `After=${DISPLAY_UNIT} ${RD_SOCKET_UNIT}`,
+    // OpenH264 first, but its failure does not fail the start (the marker check in RD_START_SCRIPT).
+    `Wants=${RD_OPENH264_UNIT}`,
+    `After=${RD_OPENH264_UNIT} ${RD_SOCKET_UNIT}`,
     `Requires=${RD_SOCKET_UNIT}`,
-    // A skipped install (the marker exists) is not a failure; a failed first download is.
-    `Requires=${RD_OPENH264_UNIT}`,
-    `After=${RD_OPENH264_UNIT}`,
-    // No start rate limit: a host that hits one puts its socket in failed (service-start-limit-hit),
-    // and the desktop stays off until a reset-failed. Each start is one admitted owner connection;
-    // a failing host just fails that connection, and the next one tries again.
+    // Every start takes its connection (RD_START_SCRIPT), so systemd never starts the host again
+    // for a queued one, and a run of failed starts must not trip a start limit that would leave
+    // the socket failed (service-start-limit-hit). Starts are bounded by the connections the link
+    // admits.
     "StartLimitIntervalSec=0",
     "",
     "[Service]",
@@ -550,8 +617,9 @@ export function rdUnit(hostBin: string): string {
     "StateDirectoryMode=0700",
     `RuntimeDirectory=${RD_HOST_DIR.slice("/run/".length)}`,
     "RuntimeDirectoryMode=0700",
-    `ExecStartPre=+/bin/sh -c '${rdCookieCopy()}'`,
-    `ExecStart=${hostBin} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    // `-`: a failed copy leaves no cookie, and RD_START_SCRIPT closes the connection.
+    `ExecStartPre=-+/bin/sh -c '${rdCookieCopy()}'`,
+    `ExecStart=${RD_START_SCRIPT}`,
     ...RD_SANDBOX,
     "BindReadOnlyPaths=/tmp/.X11-unix",
     // The activated socket and the X display are Unix sockets; the host opens nothing else.
@@ -576,6 +644,8 @@ export function rdSetupCommand(): string {
     `systemd-tmpfiles --create ${RD_TMPFILES}`,
     `test "$(stat -c '%a %U %G' ${RD_RUN_DIR})" = '711 root root'`,
     `test "$(id -u ${DEVBOX_WORK_USER})" = ${RD_PEER_UID}`,
+    // The start script's drain runs python3; without it a failed start could not close its connection.
+    `sh -n ${RD_START_SCRIPT} && test -x ${RD_START_SCRIPT} && test -x /usr/bin/python3`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
     `command -v setpriv >/dev/null`,
@@ -625,7 +695,8 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
     { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
-    { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(rd), mode: 0o644 },
+    { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 },
+    { path: RD_START_SCRIPT, text: rdStartScript(rd), mode: 0o755 },
     { path: `/etc/systemd/system/${RD_OPENH264_UNIT}`, text: rdOpenh264Unit(rd), mode: 0o644 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];

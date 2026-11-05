@@ -34,7 +34,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { CURRENT_BIN, sq } from "./lock";
 
@@ -372,7 +372,8 @@ export function rdStaticCheckCommand(): string {
     `echo "rd-socket-unit=$(systemctl is-active ${RD_SOCKET_UNIT})"`,
     `echo "rd-socket-enabled=$(systemctl is-enabled ${RD_SOCKET_UNIT})"`,
     `echo "rd-unit=$(systemctl is-active ${RD_UNIT})"`,
-    `echo "rd-peer-uid=$(systemctl show -p ExecStart --value ${RD_UNIT} | grep -o -- '--peer-uid [0-9]*' | cut -d' ' -f2)"`,
+    `echo "rd-peer-uid=$(grep -o -- '--peer-uid [0-9]*' ${RD_START_SCRIPT} | cut -d' ' -f2)"`,
+    `echo "rd-exec-start=$(systemctl show -p ExecStart --value ${RD_UNIT} | grep -o 'path=[^ ;]*' | head -1)"`,
     `echo "rd-work-uid=$(id -u ${DEVBOX_WORK_USER})"`,
     `echo "rd-families=$(systemctl show -p RestrictAddressFamilies --value ${RD_UNIT})"`,
   ].join("; ");
@@ -428,7 +429,7 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
   check("rd-user", s["rd-user"] === "/usr/sbin/nologin" && s["rd-groups"] === RD_USER, `shell ${s["rd-user"]}, groups ${s["rd-groups"]} (not ${DEVBOX_WORK_USER}, no sudo)`);
   check("rd-run-dir-and-socket", s["rd-run-dir"] === "711:root:root" && s["rd-socket"] === `socket:660:root:${DEVBOX_WORK_USER}`, `${RD_RUN_DIR} ${s["rd-run-dir"]}, ${RD_SOCKET} ${s["rd-socket"]}`);
   check("rd-socket-enabled-host-off", s["rd-socket-unit"] === "active" && s["rd-socket-enabled"] === "enabled" && s["rd-unit"] === "inactive", `socket ${s["rd-socket-unit"]}/${s["rd-socket-enabled"]}, host ${s["rd-unit"]}`);
-  check("rd-peer-uid-is-work-user", s["rd-peer-uid"] === String(RD_PEER_UID) && s["rd-work-uid"] === String(RD_PEER_UID), `--peer-uid ${s["rd-peer-uid"]}, ${DEVBOX_WORK_USER} uid ${s["rd-work-uid"]}`);
+  check("rd-peer-uid-is-work-user", s["rd-peer-uid"] === String(RD_PEER_UID) && s["rd-work-uid"] === String(RD_PEER_UID) && s["rd-exec-start"] === `path=${RD_START_SCRIPT}`, `--peer-uid ${s["rd-peer-uid"]}, ${DEVBOX_WORK_USER} uid ${s["rd-work-uid"]}, ${s["rd-exec-start"]}`);
   check("rd-host-unix-only", s["rd-families"] === "AF_UNIX", `RestrictAddressFamilies=${s["rd-families"]}`);
   const other = kv((await run(vm, rdOtherUserCommand(), 30_000)).stdout);
   check("rd-other-user-refused", other["other-connect"] === "EACCES", `connect as nobody: ${other["other-connect"]}`);

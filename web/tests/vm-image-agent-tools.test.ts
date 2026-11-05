@@ -37,6 +37,7 @@ import {
   RD_RUN_DIR,
   RD_SOCKET,
   RD_SOCKET_UNIT,
+  RD_START_SCRIPT,
   RD_TMPFILES,
   RD_UNIT,
   RD_USER,
@@ -46,6 +47,7 @@ import {
   rdOpenh264Unit,
   rdSetupCommand,
   rdSocketUnit,
+  rdStartScript,
   rdTmpfiles,
   rdUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
@@ -387,10 +389,12 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     });
 
     test("the host runs as cmux-rd on :99, socket-activated, accepting only the work user's uid, with no TCP or token", () => {
-      const unit = rdUnit(hostBin);
+      const unit = rdUnit();
       expect(RD_UNIT).toBe("cmux-agent-rd.service");
       expect(RD_PEER_UID).toBe(DEVBOX_WORK_UID);
-      expect(unit).toContain(`ExecStart=${hostBin} host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
+      // ExecStart is the start script, which execs exactly this host command (rdStartScript).
+      expect(unit).toContain(`\nExecStart=${RD_START_SCRIPT}\n`);
+      expect(rdStartScript(hostBin)).toContain(`exec '${hostBin}' host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
       // The cookie copy lives in the host's own runtime dir, not in the socket dir the work user can traverse.
       expect(RD_HOST_DIR).toBe("/run/cmux-rd-host");
       expect(RD_XAUTHORITY).toBe("/run/cmux-rd-host/Xauthority-99");
@@ -398,15 +402,23 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(unit).toContain("User=cmux-rd\n");
       expect(unit).toContain("Group=cmux-rd\n");
       expect(unit).not.toContain("User=cmux\n");
-      expect(unit).toContain(`BindsTo=${DISPLAY_UNIT}\n`);
-      expect(unit).toContain(`After=${DISPLAY_UNIT} ${RD_SOCKET_UNIT}\n`);
+      // The dependency lines, pinned. BindsTo the display for its lifetime (a stop, restart or crash of
+      // Xvfb stops the host, which would otherwise keep a stale cookie), with no After= on it, so a
+      // display that fails to start never fails the start job before the start script can close the
+      // connection. OpenH264 is wanted and ordered first; nothing else is required but the socket.
+      const deps = unit.split("\n").filter((l) => /^(Wants|Requires|BindsTo|PartOf|Requisite|After|Before)=/.test(l));
+      expect(deps).toEqual([
+        `BindsTo=${DISPLAY_UNIT}`,
+        `Wants=${RD_OPENH264_UNIT}`,
+        `After=${RD_OPENH264_UNIT} ${RD_SOCKET_UNIT}`,
+        `Requires=${RD_SOCKET_UNIT}`,
+      ]);
+      expect(deps.filter((l) => l.startsWith("After=")).join(" ")).not.toContain(DISPLAY_UNIT);
       expect(unit).toContain("StateDirectory=cmux-rd\n");
       expect(unit).toContain("Environment=XDG_DATA_HOME=/var/lib/cmux-rd\n");
       for (const line of ["NoNewPrivileges=yes", "CapabilityBoundingSet=", "AmbientCapabilities=", "ProtectHome=yes", "ProtectSystem=strict", "PrivateTmp=yes", "BindReadOnlyPaths=/tmp/.X11-unix", "PrivateDevices=yes", "RestrictSUIDSGID=yes"]) expect(unit).toContain(`\n${line}\n`);
       // The activated socket and the X display are Unix sockets: no network family at all.
       expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX\n");
-      expect(unit).toContain(`Requires=${RD_OPENH264_UNIT}\n`);
-      expect(unit).toContain(`After=${RD_OPENH264_UNIT}\n`);
       // A run of failed starts never leaves the socket failed.
       expect(unit).toContain("\nStartLimitIntervalSec=0\n");
       expect(unit).not.toContain("StartLimitBurst");
@@ -414,6 +426,102 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       // Only the socket starts it; nothing listens on TCP and no token reaches it.
       expect(unit).not.toContain("[Install]");
       for (const word of ["--port", "--bind", "--token-fd", "--owner", "start-rd.sh", "token"]) expect(unit).not.toContain(word);
+    });
+
+    /**
+     * Runs the start script as systemd would (the listening socket as fd 3, LISTEN_FDS=1,
+     * LISTEN_PID its own pid) with `queued` client connections already waiting, and reports what
+     * each client sees and what the stub host recorded.
+     */
+    const START_HARNESS = String.raw`import json, os, socket, subprocess, sys
+script, sock, queued, record = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+l = socket.socket(socket.AF_UNIX); l.bind(sock); l.listen(8)
+clients = []
+for _ in range(queued):
+    c = socket.socket(socket.AF_UNIX); c.connect(sock); c.settimeout(1); clients.append(c)
+fd = l.fileno()
+p = subprocess.Popen(["/bin/sh", "-c", 'exec 3<&%d; LISTEN_FDS=1 LISTEN_PID=$$ exec "$0"' % fd, script], pass_fds=[fd], stderr=subprocess.PIPE, text=True)
+_, err = p.communicate(timeout=20)
+seen = []
+for c in clients:
+    try:
+        seen.append("closed" if c.recv(1) == b"" else "data")
+    except ConnectionResetError:
+        seen.append("closed")
+    except socket.timeout:
+        seen.append("open")
+recorded = open(record).read().strip() if os.path.exists(record) else ""
+print(json.dumps({"status": p.returncode, "pid": p.pid, "stderr": err.strip(), "clients": seen, "recorded": recorded}))
+`;
+
+    async function runStart(setup: { x11?: boolean; cookie?: boolean; openh264?: boolean }, queued = 2) {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-start-"));
+      try {
+        const x11 = path.join(dir, "X99");
+        const xauthority = path.join(dir, "Xauthority-99");
+        const marker = path.join(dir, "openh264-installed");
+        const record = path.join(dir, "host-args");
+        if (setup.x11) {
+          const server = await runChild("python3", ["-I", "-c", "import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])", x11]);
+          expect(server.status).toBe(0);
+        }
+        if (setup.cookie) writeFileSync(xauthority, "cookie");
+        if (setup.openh264) writeFileSync(marker, "");
+        // The stub host records its pid, LISTEN_PID, LISTEN_FDS and argv, then exits without accepting.
+        const host = path.join(dir, "cmux-rd");
+        writeFileSync(host, `#!/bin/sh\necho "$$ $LISTEN_PID $LISTEN_FDS $*" > ${record}\n`);
+        chmodSync(host, 0o755);
+        const script = path.join(dir, "cmux-rd-start");
+        writeFileSync(script, rdStartScript(host, { x11Socket: x11, xauthority, openh264Marker: marker }));
+        chmodSync(script, 0o755);
+        const r = await runChild("python3", ["-I", "-c", START_HARNESS, script, path.join(dir, "rd.sock"), String(queued), record], { timeout: 60_000 });
+        expect(r.stderr).toBe("");
+        return JSON.parse(r.stdout) as { status: number; pid: number; stderr: string; clients: string[]; recorded: string };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+
+    test("start script: with the display, the cookie copy and OpenH264 it execs the host in its own pid, so LISTEN_PID still matches", async () => {
+      await bashSyntax(rdStartScript(hostBin));
+      const r = await runStart({ x11: true, cookie: true, openh264: true }, 1);
+      expect(r.status).toBe(0);
+      const [pid, listenPid, listenFds, ...argv] = r.recorded.split(" ");
+      expect(pid).toBe(String(r.pid));
+      expect(listenPid).toBe(String(r.pid));
+      expect(listenFds).toBe("1");
+      expect(argv.join(" ")).toBe(`host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264`);
+      // The stub never accepted: the connection is still open (the real host would serve it).
+      expect(r.clients).toEqual(["open"]);
+    });
+
+    for (const [missing, setup, reason] of [
+      ["the display", { cookie: true, openh264: true }, "display :99 is not running"],
+      ["the cookie copy", { x11: true, openh264: true }, "no copy of the display cookie"],
+      ["OpenH264", { x11: true, cookie: true }, "OpenH264 is not installed"],
+    ] as const) {
+      test(`start script: without ${missing} it closes every queued connection, says why and exits 1, so systemd never starts the host again for it`, async () => {
+        const r = await runStart(setup, 2);
+        expect(r.status).toBe(1);
+        expect(r.recorded).toBe("");
+        expect(r.clients).toEqual(["closed", "closed"]);
+        expect(r.stderr).toContain(reason);
+        expect(r.stderr).toContain("closed 2 queued desktop connection(s)");
+      });
+    }
+
+    test("start script: run by hand (no socket from systemd) it refuses and never execs the host", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-start-hand-"));
+      try {
+        const script = path.join(dir, "s");
+        writeFileSync(script, rdStartScript("/nonexistent/cmux-rd"));
+        chmodSync(script, 0o755);
+        const r = await runChild(script, [], { timeout: 20_000, env: { ...process.env, LISTEN_FDS: "1", LISTEN_PID: "1" } });
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("no socket from systemd");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("OpenH264 is its own oneshot unit as cmux-rd, first start only, the only cmux-rd unit with network families", () => {
@@ -430,9 +538,10 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     });
 
     test("ExecStartPre: root never opens the agent's cookie; it is read as cmux (no groups, no caps), regular files only, size-capped", async () => {
-      const unit = rdUnit(hostBin);
+      const unit = rdUnit();
       const pre = unit.split("\n").filter((l) => l.startsWith("ExecStartPre="));
-      expect(pre).toEqual([`ExecStartPre=+/bin/sh -c '${rdCookieCopy()}'`]);
+      // `-`: a failed copy does not fail the start; the start script finds no cookie and closes the connection.
+      expect(pre).toEqual([`ExecStartPre=-+/bin/sh -c '${rdCookieCopy()}'`]);
       const copy = rdCookieCopy();
       expect(copy).toContain(`timeout 5 setpriv --reuid=cmux --regid=cmux --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs /bin/sh -c "test -f ${AGENT_XAUTHORITY} && test ! -L ${AGENT_XAUTHORITY} && head -c 4097 ${AGENT_XAUTHORITY}" > ${RD_XAUTHORITY}.new`);
       expect(copy).toContain(`test "$(wc -c < ${RD_XAUTHORITY}.new)" -le 4096`);
@@ -511,7 +620,12 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       await bashSyntax(setup);
       const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
       expect(files.get(`/etc/systemd/system/${RD_SOCKET_UNIT}`)).toEqual({ path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 });
-      expect(files.get(`/etc/systemd/system/${RD_UNIT}`)).toEqual({ path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(hostBin), mode: 0o644 });
+      expect(files.get(`/etc/systemd/system/${RD_UNIT}`)).toEqual({ path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 });
+      expect(files.get(RD_START_SCRIPT)).toEqual({ path: RD_START_SCRIPT, text: rdStartScript(hostBin), mode: 0o755 });
+      expect(setup).toContain(`sh -n ${RD_START_SCRIPT}`);
+      expect(setup).toContain("test -x /usr/bin/python3");
+      // Any accept error ends the drain rather than raising and leaving the connection queued.
+      expect(rdStartScript(hostBin)).toContain("except OSError:");
       expect(files.get(RD_TMPFILES)?.text).toBe(rdTmpfiles());
       expect(files.get(`/etc/systemd/system/${RD_OPENH264_UNIT}`)?.text).toBe(rdOpenh264Unit(hostBin));
       expect(setup).toContain(`/etc/systemd/system/${RD_OPENH264_UNIT}`);
