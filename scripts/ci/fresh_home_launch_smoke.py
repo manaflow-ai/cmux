@@ -31,7 +31,9 @@ Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
 (/tmp/cmux-fresh-*): cleanup stops the app, then each process of this user
-whose command line names that root, by exact PID, and deletes the root. --out
+whose command line names that root, and each terminal host whose record under
+it names its pid (a host's command line never names the root), by exact PID,
+and deletes the root. --out
 keeps the evidence: report.json (verdict, launch marks, snapshot), the app's
 output, its crash files (run.exception, the .ips) and a screenshot when the
 runner may take one (evidence only, never the verdict).
@@ -386,6 +388,38 @@ def pids_under(root: Path) -> list[int]:
     return pids
 
 
+# Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid.
+HOST_RECORDS = "h/Library/Application Support/cmux/tags/*/tui/terminal-hosts-*/*.json"
+
+
+def terminal_host_pids(root: Path) -> list[int]:
+    """The terminal hosts this run's app started, by the host_pid their records under ROOT name. A host's command
+    line is `cmux-tui __terminal-host ...`, which never names the root, so pids_under misses it, and it outlives
+    the app on purpose (cmux#36625: 17 of them ran for days on a CI Mac). A recorded pid counts only while it
+    still runs as a __terminal-host of this user, so a reused pid is never stopped."""
+    pids = []
+    for record in sorted(root.glob(HOST_RECORDS)):
+        try:
+            pid = json.loads(record.read_text()).get("host_pid")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not isinstance(pid, int) or pid <= 1 or pid == os.getpid() or pid in pids:
+            continue
+        try:
+            args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid), "-U", str(os.getuid())],
+                                  capture_output=True, text=True, timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if "__terminal-host" in args:
+            pids.append(pid)
+    return pids
+
+
+def own_pids(root: Path) -> list[int]:
+    """Everything this run started that may still run: processes naming its root, and its terminal hosts."""
+    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)))
+
+
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -530,7 +564,7 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
         if AFTER_RENDER is not None and seen["exit"] is None and seen["rendered_at"] is not None:
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
-        stop(pids_under(root))
+        stop(own_pids(root))
     # ReportCrash writes the .ips a few seconds after the process died.
     wait = float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS", 10))
     deadline = time.monotonic() + (wait if seen["exit"] is not None else 0)
@@ -611,13 +645,13 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if report.get("pid"):
             stop([report["pid"]])
-        stop(pids_under(root))
+        stop(own_pids(root))
         if args.out:
             if (root / "app.log").exists():
                 shutil.copyfile(root / "app.log", Path(args.out) / "app.log")
             with open(Path(args.out) / "report.json", "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=2, sort_keys=True)
-        left = pids_under(root)
+        left = own_pids(root)
         if left:
             log(f"warning: processes still under {root}: {left}")
         shutil.rmtree(root, ignore_errors=True)
