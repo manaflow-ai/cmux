@@ -39,12 +39,12 @@ struct SidebarWorkspaceItems {
     /// How each open workspace a layout item names draws; a ref with no
     /// entry is closed or another device's (drawn dimmed by the fallback).
     /// `favicon` gives a page tab's favicon (`AppServices.sidebarPageFavicon`), so a site's item shows it once it loads.
-    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs,
+    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true,
                                favicon: (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> [LayoutItemRef: SidebarItemInfo] {
         var infos: [LayoutItemRef: SidebarItemInfo] = [:]
         for item in layout.sections.lazy.flatMap(\.items) where item.ref.kind == LayoutItemRef.workspaceKind && infos[item.ref] == nil {
             if let (workspace, daemon) = refs.workspace(for: item.ref) {
-                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID), favicon: favicon)
+                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID), autoNames: autoNames, favicon: favicon)
             }
         }
         return infos
@@ -52,11 +52,11 @@ struct SidebarWorkspaceItems {
 
     /// A workspace's band item (`SidebarItemInfo(workspaceRow:color:)`) with the row's status; the selection marks it
     /// active (SidebarModel.selectedItem).
-    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID,
+    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID, autoNames: Bool = true,
                               favicon: (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> SidebarItemInfo {
         // The page face's favicon only: the item keeps its own title rule (the row's name, not the page's).
         let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false, pageFace: { workspace, tab, _ in .init(favicon: favicon(workspace, tab)) },
-                                            homeShellTitle: MachineRegistry.isCloudMachineID(machine.rawValue) ? Strings.untitledTerminal : nil)
+                                            homeShellTitle: autoNames && MachineRegistry.isCloudMachineID(machine.rawValue) ? Strings.untitledTerminal : nil, foldersLabel: true)
         var info = SidebarItemInfo(workspaceRow: row, color: SidebarMapping.shared.color(workspace.color))
         info.activity = row.activity
         info.activityStyle = row.activityStyle

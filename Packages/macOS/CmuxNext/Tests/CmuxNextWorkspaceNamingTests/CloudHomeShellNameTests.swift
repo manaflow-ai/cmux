@@ -20,16 +20,16 @@ struct CloudHomeShellNameTests {
     }
 
     /// The real reader; `cloud` gives it the title a Cloud machine's home shell takes, as the app's wiring does.
-    private static func reader(cloud: Bool) -> WorkspaceAutoNameReader {
+    private static func reader(cloud: Bool, autoNames: Bool = true) -> WorkspaceAutoNameReader {
         WorkspaceAutoNameReader(
-            enabled: { true }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
+            enabled: { autoNames }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
             terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.title, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
             turns: AgentTurnStateStore(), hold: WorkspaceAutoNameHold(), homeShellTitle: { _ in cloud ? "Terminal" : nil })
     }
 
     /// The sidebar row's title and the titlebar's name of one workspace, read through the same reader.
-    private static func names(_ workspace: WorkspaceModel, cloud: Bool) -> (row: String, titlebar: String) {
-        let reader = Self.reader(cloud: cloud)
+    private static func names(_ workspace: WorkspaceModel, cloud: Bool, autoNames: Bool = true) -> (row: String, titlebar: String) {
+        let reader = Self.reader(cloud: cloud, autoNames: autoNames)
         let row = SidebarMapping.shared.row(workspace, machine: MachineID(cloud ? "vm-1" : "ssh-mini"),
                                             pageFace: { workspace, tab, work in .init(title: reader.label(workspace, front: tab, work: work)) },
                                             homeShellTitle: cloud ? "Terminal" : nil)
@@ -50,6 +50,14 @@ struct CloudHomeShellNameTests {
             #expect(names.row == expected)
             #expect(names.titlebar == expected)
         }
+    }
+
+    /// With `workspaces.autoName` off, nothing names the workspace for its tab: it keeps the daemon's name everywhere
+    /// (review of #36680 at 799fc1c2).
+    @Test func withAutoNameOffACloudHomeShellKeepsTheDaemonsNameEverywhere() throws {
+        let names = Self.names(try Self.workspace(cwd: "/home/cmux"), cloud: true, autoNames: false)
+        #expect(names.row == "workspace-1")
+        #expect(names.titlebar == "workspace-1")
     }
 
     @Test func anSSHShellAtHomeKeepsItsFolderEverywhere() throws {

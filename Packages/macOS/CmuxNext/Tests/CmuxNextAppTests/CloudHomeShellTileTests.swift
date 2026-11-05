@@ -21,6 +21,12 @@ struct CloudHomeShellTileTests {
         #expect(info.title == "Terminal")
     }
 
+    /// With `workspaces.autoName` off the tile keeps the daemon's name, as the titlebar does (review of #36680 at 799fc1c2).
+    @Test func withAutoNameOffACloudHomeShellTileKeepsTheDaemonsName() throws {
+        let info = SidebarWorkspaceItems.workspaceInfo(try Self.workspace(cwd: "/home/cmux"), machine: MachineID("vm-1"), autoNames: false)
+        #expect(info.title == "workspace-1")
+    }
+
     @Test func anSSHHomeShellTileIsUnchanged() throws {
         let workspace = try Self.workspace(cwd: "/home/dev")
         let info = SidebarWorkspaceItems.workspaceInfo(workspace, machine: MachineID("ssh-mini"))
