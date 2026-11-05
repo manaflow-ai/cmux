@@ -226,22 +226,36 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
+    /// What a start copy does when the machine can't clone the folder from its git remote
+    /// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+    /// would send, and copies nothing; `copy` copies the folder instead.
+    public enum SeedRefusal: String, Sendable {
+        case ask, copy
+    }
+
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil, onSeedRefusal: SeedRefusal = .copy,
                               stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
-        let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
-        // With the cmux `access` token (on stdin), the copy goes through the content-addressed store
-        // (`--store`, cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
-        let store = access == nil ? [] : ["--store", "default"]
-        let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
-                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots + store,
-                                   stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
+        let arguments = Self.startChatCopyArguments(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                                    workRoots: workRoots, acpmuxHome: acpmuxHome, store: access != nil, onSeedRefusal: onSeedRefusal)
+        let run = try await parsed(arguments, stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
         let folder = run.object?["folder"] as? String ?? ""
         guard !run.answer.ok || (folder.hasPrefix("/") && (chat == folder || chat.hasPrefix(folder + "/"))) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, folder, false, false))
         }
         return (run.answer, (chat, folder, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
+    }
+
+    /// `link start-chat copy`'s arguments. With the cmux access token (on stdin, `store`), the copy goes
+    /// through the content-addressed store (`--store`, cmux-tui `link/sync_cli/store.rs`); the link copy
+    /// stays its fallback.
+    public static func startChatCopyArguments(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
+                                              workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
+        let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
+        return ["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
+                "--socket", socket, "--local", local, "--subpath", subpath] + roots
+            + (store ? ["--store", "default"] : []) + ["--on-seed-refusal", onSeedRefusal.rawValue]
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.

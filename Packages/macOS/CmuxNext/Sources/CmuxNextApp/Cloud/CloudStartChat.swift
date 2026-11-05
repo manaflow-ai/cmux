@@ -145,19 +145,29 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)), storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
-        do {
-            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
-            // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
-            copy = try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
-                                                       link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
-                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
-                    try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, access: storeAccess, stderrLine: line)
-                }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
-            } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
-        } catch {
-            // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
-            throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
+        let storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
+        func copyFolder(_ refusal: CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
+            do {
+                // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
+                // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
+                return try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
+                                                           link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
+                                                           notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, refusal, key = start.key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
+                        try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, access: storeAccess, onSeedRefusal: refusal, stderrLine: line)
+                    }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
+                } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
+            } catch {
+                // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
+                throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
+            }
+        }
+        var copy = try await copyFolder(.ask)
+        // The machine can't clone the folder from its git remote: the whole folder goes only on the
+        // person's Copy, never silently (a 12.8 GB copy ran a 16 GB machine's disk out). Cancel ends
+        // the start with cmux-tui's reason, and its Retry asks again.
+        if let refused = CloudSeedRefusal(copy.0, machine: name) {
+            guard await refused.confirmed(in: services.windows.active?.window) else { throw CloudMove.Failure(message: refused.message, retry: again) }
+            copy = try await copyFolder(.copy)
         }
         report(.init(name: "folder", folder: folderName, machine: name, size: size,
                      cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
