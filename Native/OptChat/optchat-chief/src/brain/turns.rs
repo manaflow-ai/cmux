@@ -1671,9 +1671,10 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
 /// its messages: never the start's diagnostics.
 const UNSTARTED_TEXT: &str = "I could not start an agent just now; the machine may be busy. I will pick this up with the next message.";
 
-/// A turn whose prompt never reached a harness because its start stalled or
-/// broke off: rerun, and past its cuts never posted (its message waits in the
-/// reply ledger). A usage limit is not cured by a retry and stays a failure.
+/// A turn whose prompt never reached a harness because its start stalled, broke
+/// off or hung (acpmux ended a harness that did no work): rerun, and past its
+/// cuts never posted (its message waits in the reply ledger). A usage limit is
+/// not cured by a retry and stays a failure.
 fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     let Some(error) = outcome.error.as_deref().map(crate::turn::error_head) else {
         return false;
@@ -1681,7 +1682,7 @@ fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     outcome.unstarted
         && !outcome.refused
         && outcome.reply.is_none()
-        && crate::turn::is_start_stall(error)
+        && (crate::turn::is_start_stall(error) || crate::turn::is_hung_start(error))
         && !matches!(
             crate::auto_resume::classify_error(error),
             crate::auto_resume::StopKind::UsageLimit(_)
@@ -1706,8 +1707,10 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     // posted as the Chief's reply three times, because only Chief's own "no
     // answer within" wording was matched here. A start refused for a reason
     // (a setup error) still fails at once and shows.
+    // A hung start (`turn::is_hung_start`) is no cut: its harness took minutes
+    // to be called hung, so only the reply ledger's few tries run it again.
     if unstarted_stall(outcome) {
-        return Some(Cut::Upstream);
+        return (!crate::turn::is_hung_start(error)).then_some(Cut::Upstream);
     }
     if outcome.reply.is_none()
         && [

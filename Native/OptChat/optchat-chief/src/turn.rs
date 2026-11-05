@@ -336,6 +336,15 @@ pub fn is_start_stall(error: &str) -> bool {
     crate::host::start_stall(error) || crate::subagents::is_transient_start_failure(error)
 }
 
+/// Whether a turn's start error is acpmux's for a harness that did no work for
+/// its whole wait (`hub/lifecycle.rs` `start_hung`): a Chief start waits on its
+/// harness (`waitStart`), so this, not a deadline, is how a start that stays
+/// stuck ends (#36028). acpmux ended that harness; a fresh one may start. Such a
+/// turn is rerun by the reply ledger alone, never cut: each try took minutes.
+pub fn is_hung_start(error: &str) -> bool {
+    error_head(error).contains("its agent did no work for")
+}
+
 /// An error's words before acpmux's process detail ("; its agent process
 /// (pid 15023) ... ran 502 s ..."), whose numbers read as HTTP statuses.
 pub fn error_head(error: &str) -> &str {
