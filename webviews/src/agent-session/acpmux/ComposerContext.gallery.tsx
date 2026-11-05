@@ -376,7 +376,7 @@ const stripMachines = {
   peers: ["studio-mini", "gpu-box", "Cloud machine"],
   peerKinds: { "studio-mini": "ssh", "gpu-box": "ssh", "Cloud machine": "cloud" } as Record<string, "ssh" | "cloud">,
   peerConnected: { "studio-mini": true, "gpu-box": true, "Cloud machine": false },
-  // Signed in, so Where shows its three rows (signed out adds Sign in for Cloud under Cloud).
+  // Signed in, so Where shows its three rows (signed out, Sign in for Cloud takes Cloud's place).
   cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
@@ -1020,6 +1020,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
+    // One Cloud row, whatever the account state: Cloud while signed in or before the app's Cloud
+    // reply, Sign in for Cloud in its place once the app said signed out (never both).
+    "strip-where-signed-out": {
+      note: "Where open with the app saying Cloud is signed out (`cloudMachine.list` signedIn false): the one Cloud row reads Sign in for Cloud, in Cloud's place, and signs in only.",
+      props: { ...stripMachines, stripLayout: "where-machine" as const, cloudSignedIn: false },
+      play: openWhere,
+    },
+    "strip-where-account-unknown": {
+      note: "Where open before the app's Cloud account reply: the row reads Cloud, never Sign in for Cloud, since nothing says the person is signed out yet.",
+      props: { ...stripMachines, stripLayout: "where-machine" as const, cloudSignedIn: undefined },
+      play: openWhere,
+    },
     ...sleepVariants,
     "strip-cloud-works-on": {
       note: "ChatGPT Work's model, for comparison only (not built in cmux: a Cloud chat's agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT's \"In the cloud\" chat whose files and shell are on the Mac.",
