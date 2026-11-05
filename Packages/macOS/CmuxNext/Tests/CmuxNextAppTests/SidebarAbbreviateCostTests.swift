@@ -42,7 +42,8 @@ import Testing
         }
         let fastest = fast.min()!
         let preFixFastest = slow.min()!
-        let ratio = preFixFastest / fastest
+        func seconds(_ d: Duration) -> Double { Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18 }
+        let ratio = seconds(preFixFastest) / seconds(fastest)
         print("abbreviate x20000: min \(fastest), p50 \(fast.sorted()[fast.count / 2]); pre-fix min \(preFixFastest); ratio \(ratio), checksum \(total)")
         #expect(ratio >= 3, "abbreviate min \(fastest) against pre-fix min \(preFixFastest) (ratio \(ratio)) for 20,000 paths")
     }
