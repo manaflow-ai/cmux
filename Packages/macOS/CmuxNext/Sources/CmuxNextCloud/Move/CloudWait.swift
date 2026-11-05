@@ -79,3 +79,34 @@ public struct CloudWait {
         return false
     }
 }
+
+extension CloudWait {
+    /// Waits while `status` reads `starting` (the machine's Resume Machine runs, from this Mac or another), up to
+    /// `limit`: a start or attach waits out a resume instead of refusing it. `read` reads the record again, at
+    /// once and then after each of ``startRedial``'s delays, so a resume this Mac did not send is seen too.
+    /// Returns at once for any other status.
+    public static func outwaitResume(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                     read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .starting, limit < .zero else { return } // RED
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .starting }
+    }
+
+    /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
+    /// may still run. False only when `wait` answered false (nothing to wait on).
+    public static func ended(within limit: Duration, _ wait: @escaping @Sendable () async -> Bool) async -> Bool {
+        // concurrency-allow: `wait` exits on cancellation; this bounds a start's wait on its machine's update
+        await withTaskGroup(of: Bool?.self) { group -> Bool in
+            group.addTask { await wait() }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a machine update a start waits on
+                try? await Task.sleep(for: limit)
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next().flatMap { $0 } ?? true
+        }
+    }
+}
