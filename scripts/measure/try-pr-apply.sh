@@ -41,8 +41,10 @@
 #              passed at launch (`open -n --env`: CMUX_NEXT_CONFIG_FILE, CMUX_NEXT_DEBUG_TUNABLES_FILE,
 #              CMUX_WEB_OVERLAY_DIR), one set per instance; a person turns the overlay on in Debug
 #              Settings instead.
-#   lab        a tagged side instance (#35544's mechanics): Info.plist edited (bundle id
-#              <id>.side-try.t<pid>, unique per run) and re-signed ad hoc. Evidence about the lab path
+#   lab        tagged side instances (#35544's mechanics): each instance runs its own copy of the app,
+#              its Info.plist edited (bundle id <id>.side-try.t<pid>.<instance>, unique per run and
+#              instance) and re-signed ad hoc, so no two share a defaults domain; cleanup deletes
+#              those domains. Evidence about the lab path
 #              only (`lab-<kind>`), never about an installed app. A lab
 #              DEV copy has a changed id, which WebDevOverride.isAvailable refuses in a Release DEV.
 #
@@ -82,6 +84,13 @@
 #                shipped bundle id next to an already running app with that same id would share its
 #                bundle-id state under the account's real home: a fallback (unsupported), and that app
 #                is left alone; --mode=lab runs a tagged copy (its own bundle id, re-signed: LAB).
+#   defaults     cfprefsd keeps an app's defaults under the account's real home whatever HOME says, so
+#                a private HOME does not isolate them. isolated in installed mode would run base and PR
+#                under the one shipped id, sharing one domain: a fallback (unsupported; use --mode=lab).
+#                An installed run's one instance gets the shipped domain set aside for the run and put
+#                back after it (DefaultsAside in scripts/ci/fresh_home_launch_smoke.py): the copy lives
+#                beside a lock in /tmp (TRY_PR_APPLY_LOCK_DIR), so a killed run's copy is put back by
+#                the next run first, and a failed export, delete or import stops the run.
 #   isolation    both experiences: other cmux processes (pid, start time), the cmux sockets and the cmux
 #                state under the account's real home (Application Support, ~/.cmux, Preferences, four
 #                levels deep: path, inode, size, mtime) are listed before the first launch and after
@@ -130,9 +139,19 @@ use_instance() { # NAME
   export CMUX_NEXT_DEBUG_TUNABLES_FILE="$work/config-$1/debug-tunables.json"
   mkdir -p "$work/config-$1" "$CMUX_WEB_OVERLAY_DIR"
   printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
+  inst_app="$app"; [[ "$mode" != lab ]] || inst_app="$work/app-$1/$(basename "$app")"
 }
-pid="" pid_start="" sock="" socks=() mine=() survived="" coexisting=""
-cleanup() { local p; for p in "${mine[@]}"; do signal_ours "${p%%|*}" "${p#*|}"; done; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
+pid="" pid_start="" sock="" socks=() mine=() survived="" coexisting="" inst_app="" lab_ids=() aside_held=""
+defaults_tool="${TRY_PR_APPLY_DEFAULTS:-defaults}"  # the override is for its tests
+lock_dir="${TRY_PR_APPLY_LOCK_DIR:-/tmp}" aside_lock="" aside=""
+cleanup() {
+  local p id; for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}"; done
+  # Defaults go back only once the instances are gone, so none writes after the put-back.
+  for p in ${mine[@]+"${mine[@]}"}; do for _ in $(seq 1 100); do [[ "$(started "${p%%|*}")" == "${p#*|}" ]] || break; sleep 0.1; done; done
+  if [[ "$aside_held" == copy ]]; then put_back || echo "try-pr-apply: could not put back the $bundle_id defaults; the copy stays in $aside" >&2; fi
+  [[ -z "$aside_held" ]] || rm -rf "$aside_lock"
+  for id in ${lab_ids[@]+"${lab_ids[@]}"}; do "$defaults_tool" delete "$id" >/dev/null 2>&1 || true; done
+  rm -f ${socks[@]+"${socks[@]}"}; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 t_json="$work/times.json"; echo '{}' > "$t_json"
@@ -237,13 +256,21 @@ if [[ "$mode" == installed ]]; then
   shipped="com.cmuxterm.app.nightly"; [[ "$kind" == dev ]] && shipped="com.cmuxterm.app.debug.next"
   [[ "$bundle_id" == "$shipped" ]] || eligible_why="${eligible_why:-bundle id $bundle_id is not the shipped $shipped}"
 else
-  # lab: a side instance with its own id, re-signed ad hoc; evidence about this path only.
-  note shipped_bundle_id "$bundle_id"; bundle_id="$bundle_id.side-try.t$$"; $buddy -c "Set :CFBundleIdentifier $bundle_id" "$plist"
-  note bundle_id "$bundle_id"
-  codesign --force --sign - --deep "$app" >/dev/null 2>&1
+  # lab: each instance its own copy under its own id, re-signed ad hoc; evidence about this path only.
+  note shipped_bundle_id "$bundle_id"; shipped_id="$bundle_id"
+  case "$experience" in isolated) names="base pr" ;; full-build) names=full ;; *) names=base ;; esac
+  for n in $names; do
+    mkdir -p "$work/app-$n"; cp -Rp "$app" "$work/app-$n/"; a="$work/app-$n/$(basename "$app")"
+    lab_ids+=("$shipped_id.side-try.t$$.$n"); $buddy -c "Set :CFBundleIdentifier $shipped_id.side-try.t$$.$n" "$a/Contents/Info.plist"
+    codesign --force --sign - --deep "$a" >/dev/null 2>&1
+    note "bundle_id_$n" "$shipped_id.side-try.t$$.$n"
+    if [[ -n "$exe" && -f "$a/Contents/MacOS/$exe" ]]; then note "launched_exe_sha256_$n" "$(shasum -a 256 "$a/Contents/MacOS/$exe" | cut -d' ' -f1)"; fi
+  done
+  bundle_id="$shipped_id.side-try.t$$.${names%% *}"; note bundle_id "$bundle_id"
   note signature "ad hoc (lab)"
 fi
-if [[ -n "$exe" && -f "$app/Contents/MacOS/$exe" ]]; then note launched_exe_sha256 "$(shasum -a 256 "$app/Contents/MacOS/$exe" | cut -d' ' -f1)"; else note launched_exe_sha256 missing; fi
+first="$app"; [[ "$mode" != lab ]] || first="$work/app-${names%% *}/$(basename "$app")"
+if [[ -n "$exe" && -f "$first/Contents/MacOS/$exe" ]]; then note launched_exe_sha256 "$(shasum -a 256 "$first/Contents/MacOS/$exe" | cut -d' ' -f1)"; else note launched_exe_sha256 missing; fi
 mark prepared
 if [[ -n "$eligible_why" ]]; then note path "not-eligible-$kind"; result fallback not_run "not production-equivalent: $eligible_why"; exit 0; fi
 [[ -z "$provenance_bad" ]] || { result fallback not_run "base identity: $provenance_bad"; exit 0; }
@@ -273,7 +300,36 @@ esac
 # person's Mac. It signals only the processes it launched.
 [[ -n "${CMUX_CI_STEP_KEY:-}" && "${CMUX_CI_STEP_CLASS:-}" == exclusive ]] \
   || { result fail not_run "refused: launches an app only inside a fleet step of class exclusive"; exit 2; }
-ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$app/Contents/MacOS/"* ]] && echo "$p"; done; }
+if [[ "$mode" == installed && "$experience" == isolated ]]; then
+  note coexistence "unsupported: base and PR would both run under the shipped bundle id $bundle_id and share its one defaults domain"
+  result fallback not_run "isolated, installed: two instances under the shipped bundle id $bundle_id share one defaults domain (cfprefsd ignores HOME), so a side instance of the installed app is unsupported; --mode=lab runs each instance under its own id"
+  exit 0
+fi
+# The shipped defaults domain, set aside for an installed run and put back after it (see "defaults").
+domain_empty() { local rc=0; "$defaults_tool" export "$bundle_id" "$aside.probe" >/dev/null 2>&1 \
+  && python3 -c 'import plistlib, sys; sys.exit(1 if plistlib.load(open(sys.argv[1], "rb")) else 0)' "$aside.probe" || rc=1; rm -f "$aside.probe"; return $rc; }
+put_back() { "$defaults_tool" delete "$bundle_id" >/dev/null 2>&1 || true; "$defaults_tool" import "$bundle_id" "$aside" >/dev/null 2>&1 && rm -f "$aside"; }
+if [[ "$mode" == installed ]]; then
+  aside_lock="$lock_dir/try-pr-apply-$bundle_id.lock" aside="$lock_dir/try-pr-apply-$bundle_id.aside.plist"
+  if ! mkdir "$aside_lock" 2>/dev/null; then
+    holder="$(cat "$aside_lock/pid" 2>/dev/null || true)"
+    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then result fail not_run "run $holder holds the $bundle_id defaults ($aside_lock)"; exit 1; fi
+  fi
+  echo $$ >"$aside_lock/pid"; aside_held=lock
+  if [[ -f "$aside" ]]; then
+    put_back || { result fail not_run "could not put back the $bundle_id defaults a killed run set aside ($aside stays)"; exit 1; }
+    note defaults_recovered "put back the copy a killed run left"
+  fi
+  "$defaults_tool" export "$bundle_id" "$aside" >/dev/null 2>&1 && [[ -f "$aside" ]] \
+    || { rm -f "$aside"; result fail not_run "could not set aside the $bundle_id defaults"; exit 1; }
+  aside_held=copy
+  "$defaults_tool" delete "$bundle_id" >/dev/null 2>&1 || true
+  domain_empty || { result fail not_run "could not clear the $bundle_id defaults (they are put back)"; exit 1; }
+  note defaults "the $bundle_id domain was set aside for the run and is put back after it"
+else
+  note defaults "each instance its own domain (${lab_ids[*]}), deleted after the run"
+fi
+ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$work/"*"/Contents/MacOS/"* ]] && echo "$p"; done; }
 # Other running apps with cmux in their path: "PID BUNDLE_ID" (unknown when the Info.plist is unreadable).
 other_apps() { python3 - "$work" <<'PY'
 import plistlib, subprocess, sys
@@ -330,7 +386,7 @@ launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
   open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
     --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" --env CMUX_NEXT_SOCKET_PATH="$sock" \
-    --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$app"
+    --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$inst_app"
   pid=""; for _ in $(seq 1 300); do
     pid="$(ours_running | while read -r p; do [[ "$before" == *" $p "* ]] || echo "$p"; done | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1
   done
@@ -375,12 +431,12 @@ started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
 # PID START: SIGTERM only while PID is still the process this run launched (same start time, its
 # executable inside this run's app copy), so a reused pid is never signalled.
 signal_ours() {
-  [[ -n "$1" && -n "$2" && "$(started "$1")" == "$2" && "$(ps -o comm= -p "$1" 2>/dev/null)" == "$app/Contents/MacOS/"* ]] || return 0
+  [[ -n "$1" && -n "$2" && "$(started "$1")" == "$2" && "$(ps -o comm= -p "$1" 2>/dev/null)" == "$work/"*"/Contents/MacOS/"* ]] || return 0
   kill "$1" 2>/dev/null || true
 }
 quit_app() { signal_ours "$pid" "$pid_start"; for _ in $(seq 1 100); do [[ "$(started "$pid")" == "$pid_start" ]] || break; sleep 0.1; done; pid=""; }
 probe_in() { # STATE: 0 the PR's behaviour is there, 1 it is not, other: the app is not ready
-  CMUX_TRY_STATE="$1" CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$probe" >"$out/probe-$1.log" 2>&1
+  CMUX_TRY_STATE="$1" CMUX_TRY_PID="$pid" CMUX_TRY_APP="$inst_app" CMUX_TRY_SOCKET="$sock" bash -c "$probe" >"$out/probe-$1.log" 2>&1
 }
 probe_answer() { # STATE UNTIL: pass, fail or timeout; UNTIL=pass keeps asking through a 1 as well
   local rc
@@ -393,7 +449,7 @@ probe_answer() { # STATE UNTIL: pass, fail or timeout; UNTIL=pass keeps asking t
   echo timeout
 }
 state_json() { [[ -n "$state_probe" ]] || { echo '{}'; return; }
-  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$state_probe" 2>/dev/null || echo '{}'; }
+  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$inst_app" CMUX_TRY_SOCKET="$sock" bash -c "$state_probe" 2>/dev/null || echo '{}'; }
 # BEFORE AFTER (state_json output): "ok" or why the seeded state is not proven to survive.
 state_verdict() { python3 - "$1" "$2" <<'PY'
 import json, os, sys
@@ -432,10 +488,10 @@ fi
 # Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
 use_instance base; build_web "$work/base-tree"; install_web base "$base" "$work/base-tree"
-launch base; base_pid="$pid" base_sock="$sock"; note base_pid "$base_pid"
+launch base; base_pid="$pid" base_sock="$sock" base_app="$inst_app"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
 if [[ "$experience" == in-place && -n "$seed" ]]; then
-  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$seed" >"$out/seed.log" 2>&1 \
+  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$inst_app" CMUX_TRY_SOCKET="$sock" bash -c "$seed" >"$out/seed.log" 2>&1 \
     || { result fail fail "the --seed command failed (seed.log)"; exit 0; }
   settle seeded || { result fail fail "the seeded app never settled"; exit 1; }; mv "$work/seeded.bmp" "$work/base.bmp"
 fi
@@ -484,8 +540,8 @@ if [[ "$experience" == isolated ]]; then
   # still without the PR's behaviour.
   base_same="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$(started "$base_pid")" == "$start_before" && -S "$base_sock" \
     && "$(ls -i "$base_sock" | awk '{print $1}')" == "$base_inode" ]] && base_same=yes
-  base_after=""; if [[ -n "$probe" ]]; then pr_pid="$pid" pr_sock="$sock"; pid="$base_pid" sock="$base_sock"
-    base_after="$(probe_answer base answer)"; pid="$pr_pid" sock="$pr_sock"; note probe_base_after "$base_after"; fi
+  base_after=""; if [[ -n "$probe" ]]; then pr_pid="$pid" pr_sock="$sock" pr_app="$inst_app"; pid="$base_pid" sock="$base_sock" inst_app="$base_app"
+    base_after="$(probe_answer base answer)"; pid="$pr_pid" sock="$pr_sock" inst_app="$pr_app"; note probe_base_after "$base_after"; fi
   note integrity "PR instance $pid started beside base instance $base_pid; base same process and socket: $base_same; base probe after: ${base_after:-not run}"
   [[ "$base_same" == yes ]] || { result fail fail "isolated: the base instance exited, restarted or lost its socket while the PR instance ran"; exit 0; }
   [[ "$base_after" != pass ]] || { result fail fail "isolated: the base instance took the PR's behaviour (no isolation)"; exit 0; }
