@@ -274,7 +274,7 @@ extension AgentPaneHostError {
         if let refusal = error as? any AgentPaneHostRefusal { return refusal.userMessage }
         return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            // The folders it looked in stay in the log (`AcpmuxEnvironment.installDirectories`).
+            // The folders it looked in go to the app log (AgentPaneHost `endpoint`), not this line.
             String(localized: "agentPane.error.notInstalled", defaultValue: "cmux couldn't find its agent service. Reinstall cmux to fix this.", bundle: .module)
         // The daemon's log path is for a bug report, not the chat's line: it stays in the failure log.
         case .daemonFailed(_, let cause):
