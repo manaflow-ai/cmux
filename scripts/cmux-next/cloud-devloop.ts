@@ -10,7 +10,7 @@
  *   bun scripts/cmux-next/cloud-devloop.ts --credentials F --snapshot                             # the dev machine as an image
  *
  * Flags: --machine NAME|vm_ID (default cloud-devloop; made on first use), --backend prod|staging|... (default prod),
- * --build-host HOST (default gcp-agent-lane-2: ssh name with cargo, zig at /opt/zig-*, bun), --no-build, --no-push,
+ * --build-host HOST (or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, zig at /opt/zig-*, bun, zstd), --no-build, --no-push,
  * --no-journey, --units host,acpmux (what to restart; default both), --restore, --snapshot.
  *
  * What runs where:
@@ -250,7 +250,8 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
   const own = dash >= 0 ? argv.slice(0, dash) : argv;
   const journeyArgs = dash >= 0 ? argv.slice(dash + 1) : [];
   const backend = resolveBackend(argValue("--backend", own) ?? "prod");
-  const buildHost = argValue("--build-host", own) ?? "gcp-agent-lane-2";
+  const buildHost = argValue("--build-host", own) ?? process.env.CLOUD_DEVLOOP_BUILD_HOST ?? "";
+  if (!buildHost && !own.includes("--no-build")) throw new Error("--build-host HOST or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, zig under /opt/zig-*, bun and zstd");
   const machineArg = argValue("--machine", own) ?? "cloud-devloop";
   const units = (argValue("--units", own) ?? "host,acpmux").split(",").filter(Boolean);
   const credFile = argValue("--credentials", own);
