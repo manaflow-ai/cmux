@@ -42,8 +42,8 @@ import Observation
     /// asynchronously, but new requests and in-flight writes observe this flag
     /// through the scope callback before they can commit a VM file.
     public private(set) var available = true
-    /// The Mac's own Codex access (``CloudCodexLocalAccess``), read only once the person allowed it (the
-    /// app's ``CloudMacSignInConsent``); nil when it must not be read. Every holder asks it first.
+    /// The Mac's own Codex access (``CloudCodexLocalAccess``), read only once the person allowed it
+    /// (`cloud.useMyCodexLoginOnMyCloudMachines`); nil when it must not be read. Every holder asks it first.
     @ObservationIgnored public var localSignIn: (@Sendable () async -> CloudCodexAccessGrant?)?
 
     /// Dependencies are injected; creating the adapter does not read credentials,

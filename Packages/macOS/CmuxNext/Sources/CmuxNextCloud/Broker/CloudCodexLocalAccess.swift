@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 /// The access token the Mac's own Codex CLI keeps in its `auth.json` (Leo, 2026-11-05: "claude/codex/
