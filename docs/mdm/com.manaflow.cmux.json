@@ -391,12 +391,6 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
-    "agents.messages.claudeWake" : {
-      "default" : true,
-      "description" : "When another agent or a person sends a message to Claude Code in a terminal, an idle session starts a turn to read it. Nothing is typed into the terminal. Off: the message waits for the next prompt in that session.",
-      "title" : "Wake Idle Claude for Messages",
-      "type" : "boolean"
-    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -2830,12 +2824,6 @@
       "default" : false,
       "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
       "title" : "Connect iMessage",
-      "type" : "boolean"
-    },
-    "labs.classicHome" : {
-      "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
       "type" : "boolean"
     },
     "labs.liveCode" : {

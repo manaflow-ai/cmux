@@ -144,13 +144,11 @@ describe("Freestyle key by path", () => {
 // still exited 0 (warnings only), apt-cache then knew none of the pins, and the bake failed on the first
 // pin alphabetically ("no size for acl=..."), which read like a bad lock.
 describe("cmux VM image apt index", () => {
-  test("an index outage gets one bounded retry with backoff before failing", async () => {
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=180");
-    expect(bake.APT_UPDATE_COMMAND).toContain("apt_update_ok=1; break;");
+  test("an index outage falls back to the archive on the first failed snapshot update", async () => {
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 90s apt-get update -q --error-on=any");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=30");
-    expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("for attempt");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("sleep 5");
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];

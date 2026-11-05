@@ -318,6 +318,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // cmux's guidance for the agents it runs and the person's own skills.
+            group("settings.group.agentGuidance"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             group("settings.group.agentRetry"),
             // Whether an idle terminal Claude is woken for its agent messages (issue 36496).

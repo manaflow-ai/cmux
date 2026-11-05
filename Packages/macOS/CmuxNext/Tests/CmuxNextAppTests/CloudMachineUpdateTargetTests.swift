@@ -52,6 +52,78 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
     }
 
+    /// A chat start brings the machine up (prod, 2026-11-05: the app's update of a just-resumed machine restarted
+    /// its daemon mid-start, and the start failed "started but its agent didn't (cmux-tui connection closed:
+    /// EOF)"): the update answers busy and runs after the policy's backoff, once the start is done. Before, it ran
+    /// at once, under the start.
+    @Test func aMachineAStartBringsUpIsUpdatedAfterTheStart() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)], starts: 1)
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1, "the update runs once, after the start")
+        #expect(fixture.clock.sleeps == [.seconds(120)], "the start held the update for one backoff")
+        #expect(fixture.states == [.updating, .retrying, .updating, .updated(build: Self.bundled)])
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A machine whose daemon the app refused cannot take a start until it is updated: a start waits for that
+    /// update, so it is never held (review of #36555).
+    @Test func aRefusedMachineAStartWaitsOnIsUpdatedAtOnce() async throws {
+        let machine = FakeCloudMachine(build: nil, level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)], starts: 1)
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1)
+        #expect(fixture.clock.sleeps.isEmpty, "the start did not hold the update it waits for")
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+    }
+
+    /// An update already running when a start comes: the start waits until that turn ended
+    /// (``DaemonUpdatePolicy/turnRunning(_:)``), so its agent starts on the new daemon, not the one being replaced.
+    @Test func aStartWaitsOutAnUpdateThatRunsNow() async throws {
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let (began, beganNow) = AsyncStream<Void>.makeStream()
+        let (release, releaseNow) = AsyncStream<Void>.makeStream()
+        let source = CloudMachineUpdateTarget.Source(
+            daemon: { CloudMachineUpdateTarget.Daemon(build: Self.older, level: .limited) },
+            update: {
+                beganNow.yield()
+                for await _ in release { break }
+                return CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)
+            },
+            reconnect: { _ in })
+        let target = CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.bundled }, targets: { [target] }, enabled: { true }, report: { _ in },
+            directory: fixture.directory, clock: fixture.clock))
+        #expect(await policy.turnRunning(target.id) == false, "no update runs: a start does not wait")
+        await policy.offer(target)
+        for await _ in began { break }
+        let waiter = Task { await policy.turnRunning(target.id) }
+        while !(await policy.awaitsTurn(target.id)) { await Task.yield() }
+        releaseNow.yield()
+        #expect(await waiter.value, "the start waited for the running update")
+        await policy.drained()
+        #expect(await policy.turnRunning(target.id) == false)
+    }
+
+    @Test func theStartGateCountsEachStartOfAMachine() {
+        let gate = CloudStartGate()
+        gate.enter("vm-1")
+        gate.enter("vm-1")
+        gate.leave("vm-1")
+        #expect(gate.contains("vm-1"), "one start of two still brings it up")
+        #expect(!gate.contains("vm-2"))
+        gate.leave("vm-1")
+        #expect(!gate.contains("vm-1"))
+    }
+
     /// A refused daemon can't connect, so nothing on it is in use through the app: it goes first,
     /// though its build is unknown.
     @Test func anIncompatibleMachineUpdatesRightAway() async throws {
@@ -329,10 +401,13 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var counts = (updates: 0, reconnects: 0, legacy: 0)
     private var judgedBuilds: [String] = []
     private var restarts: [Bool] = []
+    /// The first this many updates find a chat start bringing the machine up (``CloudStartGate``).
+    private var startsLeft: Int
 
     init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
-         legacy: [CloudMoveCLI.Answer]? = nil) {
+         legacy: [CloudMoveCLI.Answer]? = nil, starts: Int = 0) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
+        startsLeft = starts
         self.timeouts = timeouts
         self.answers = answers
         legacyAnswers = legacy
@@ -388,6 +463,13 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     self.legacyAnswers = answers
                     if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
                     return answer
+                }
+            },
+            starting: {
+                self.lock.withLock {
+                    guard self.startsLeft > 0 else { return false }
+                    self.startsLeft -= 1
+                    return true
                 }
             })
     }

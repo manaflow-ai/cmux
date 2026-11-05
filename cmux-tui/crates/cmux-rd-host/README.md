@@ -8,7 +8,7 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120]   (Cloud machines; below)
+cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
 cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
@@ -100,34 +100,39 @@ sent frame was recorded whole and in order and the default host refused with `ca
 ## Security: Cloud machines (production)
 
 ```
-cmux-rd host --listen-systemd --peer-uid 0 --display :99 --xauthority /run/cmux-rd/Xauthority-99 --codec openh264 [--idle-exit-s 120]
+cmux-rd host --listen-systemd --peer-uid 1000 --display :99 --xauthority /run/cmux-rd/Xauthority-99 --codec openh264 [--idle-exit-s 120]
 ```
 
 This is the production mode on NEXT Cloud machines. The viewer is the machine owner's Mac app;
 its rd pane dials the owner's Native link with service `desktop`, and the machine's root link
-receiver admits it exactly as it admits `ssh` and `daemon`: a platform-minted, one-time,
+receiver (the session daemon's `__receive-vm`, running as the work user `cmux`, uid 1000) admits it
+exactly as it admits `ssh` and `daemon`: a platform-minted, one-time,
 owner-only link token naming service `desktop`, verified locally (`NativeTokenVerifier`, replay
 history, the receiving policy's peer services). Only then does the receiver connect to the host.
 
 - No network listener. The host takes its one listening socket from systemd
-  (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`, `SocketUser=root`, `SocketMode=0600`,
-  `/run/cmux-rd` mode 0710 `root:cmux-rd`), as fd 3 with `LISTEN_FDS=1` and `LISTEN_PID` set to the
+  (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`, `SocketUser=root`, `SocketGroup=cmux`,
+  `SocketMode=0660`, `/run/cmux-rd` mode 0711), as fd 3 with `LISTEN_FDS=1` and `LISTEN_PID` set to the
   host's pid. Without them it refuses to start, and it refuses any passed fd that is not a
   listening Unix stream socket. There is no TCP or UDP port; `--token-fd`, `--bind`, `--port`,
   `--single-tenant-overlay`, `--upstream-record` and `--browser` are refused in this mode.
-- Only the receiver connects. `--peer-uid N` is required; every accepted connection's
-  `SO_PEERCRED` uid must equal it (0, the root receiver), or the connection is closed before any
-  byte is read. A non-root process, the agent's user `cmux` included, can neither open the socket
-  (root only, 0600) nor pass the uid check.
-- What this does not hold against: on Cloud machines the agent user `cmux` has passwordless sudo
-  (`web/services/vms/images/workUser.ts`), so an agent that uses sudo is root and can reach the
-  socket. The uid-0 check keeps out non-root processes only. The boundary that holds against
+- Only the receiver's uid connects. `--peer-uid N` is required; every accepted connection's
+  `SO_PEERCRED` uid must equal it (1000, the work user the link receiver runs as), or the
+  connection is closed before any byte is read. Other users can neither open the socket (root,
+  group `cmux`, 0660) nor pass the uid check.
+- What this does not hold against: the agent runs as that same user `cmux` (and has passwordless
+  sudo, `web/services/vms/images/workUser.ts`), so it can reach the socket; the uid check keeps
+  out other users only. The boundary that holds against
   other people is the link admission (the owner's one-time token). Taking sudo away from agent
   sessions is a separate decision.
 - The principal is the machine owner. The link already admitted the owner, so the hello's token
   and its user, class and interactive claims are not used: the session's principal is the owner,
   a person at the app (`--owner`, default `owner`). The hello's `start` mode chooses `view` or
-  `control`; `control` sends XTest input to `:99`'s core pointer and keyboard.
+  `control`; `control` sends XTest input through the XI2 master `cmux person` (made on first
+  input, and made again when a crashed host left one), so the agent's computer use keeps `:99`'s
+  core pointer and keyboard. A person's press waits (at most 2 s) while the core pointer holds a
+  button, and the root property `_CMUX_RD_PERSON` names the window under the person's pointer
+  (see `src/inject.rs`).
 - The stream carrier only. A hello that asks for UDP is refused (`StreamCarrierOnly`).
 - The service runs as its own system user (`cmux-agent-rd.service`, `User=cmux-rd`, not in group
   `cmux`), reads the X cookie from `--xauthority` (set as `XAUTHORITY`), and exits after

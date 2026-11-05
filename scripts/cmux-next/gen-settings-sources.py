@@ -197,6 +197,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/agent-guidance.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentGuidance.generated.swift",
+        "type": "AgentGuidanceSettingsSchema",
+        "lists": {"agentGuidance": ("descriptors", "AgentGuidanceSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/trust.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Trust.generated.swift",
         "type": "TrustSettingsSchema",

@@ -1262,18 +1262,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>When another agent or a person sends a message to Claude Code in a terminal, an idle session starts a turn to read it. Nothing is typed into the terminal. Off: the message waits for the next prompt in that session.</string>
-			<key>pfm_name</key>
-			<string>agents.messages.claudeWake</string>
-			<key>pfm_title</key>
-			<string>Wake Idle Claude for Messages</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>
@@ -8608,18 +8596,6 @@
 			<string>labs.previewFeatures</string>
 			<key>pfm_title</key>
 			<string>Show Preview Features</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.</string>
-			<key>pfm_name</key>
-			<string>labs.classicHome</string>
-			<key>pfm_title</key>
-			<string>Classic Home</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
