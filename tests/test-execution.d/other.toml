@@ -292,6 +292,11 @@ path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_live_code_switch.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/switch.sh (no new CI tests): python3 tests/test_live_code_switch.py; needs only bash and python3."
+
+[[test]]
 path = "tests/test_local_build_cache_policy.py"
 lane = "linux-guard"
 
