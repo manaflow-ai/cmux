@@ -270,8 +270,20 @@ fn regressions(
     // spin call then runs out of fuel (stale), and the next call traps in `trap`. The slot must
     // end on native code, not back on the refused `spin`.
     {
+        // Fuel for a spin call of about 1.5 s on this machine, timed from a short one, so the
+        // stale call is still running when the publish (40 to 140 ms of compile) lands.
         place(spin, live);
-        let options = Options { fuel_per_call: Some(4_000_000_000), ..Options::default() };
+        let probe_fuel = 1_000_000_000u64;
+        let probe =
+            HotModule::new(live, Options { fuel_per_call: Some(probe_fuel), ..Options::default() })
+                .expect("probe slot");
+        probe.reload().expect("load spin");
+        let t = Instant::now();
+        let _ = probe.is_pure_read("ls");
+        let per_s = probe_fuel as f64 / t.elapsed().as_secs_f64().max(1e-6);
+        report.num("regression.stale_trap.fuel_per_s", per_s);
+        let fuel = (per_s * 1.5) as u64;
+        let options = Options { fuel_per_call: Some(fuel), ..Options::default() };
         let slot = HotModule::new(live, options).expect("slot");
         slot.reload().expect("load spin");
         let caller = {
