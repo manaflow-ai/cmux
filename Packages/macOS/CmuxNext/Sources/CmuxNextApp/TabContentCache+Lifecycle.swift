@@ -150,7 +150,8 @@ extension TabContentCache {
 
     /// Installs the page that replaces a tab's page (`swapPage`, `replacePage`). The
     /// tab's lifecycle does not change, so no reveal or conceal follows: the new page
-    /// takes the tab's visibility here. A tab on screen shows it at once (a remote view
+    /// takes the tab's visibility here (`shownPages`, which reveal and conceal keep
+    /// whether or not the tab had a page then). A tab on screen shows it at once (a remote view
     /// tab's Connect starts its stream here; before, the replacement never learned it
     /// was visible), and a hidden tab's is hidden: a new Chromium page starts visible,
     /// and one put into a page area already hidden never gets the hide that conceals
@@ -171,10 +172,10 @@ extension TabContentCache {
             // parsed its content while hidden draws it now: no hold).
             lastFrames.show(key, on: entry.session)
         }
-        if let entry = browsers[key] {
-            entry.tab.setContentVisible(true)
-            shownPages.insert(key)
-        }
+        // Whether or not a page is in yet: a page put in later (`installReplacement`, a `reroute`
+        // between pages) takes the tab's visibility from here.
+        shownPages.insert(key)
+        if let entry = browsers[key] { entry.tab.setContentVisible(true) }
         hibernation?.tabDidShow(key)
     }
 
@@ -184,11 +185,12 @@ extension TabContentCache {
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
         }
+        let wasShown = shownPages.remove(key) != nil
         if let entry = browsers[key] {
             // Only a page that was on screen (one created or restored hidden has nothing worth a
             // thumbnail), and only when it navigated or loaded since its last picture: the engine
             // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
-            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+            if wasShown, !pagePictureIsCurrent(entry, key: key) {
                 capturePagePreview(entry, key: key, token: token)
             }
             entry.tab.setContentVisible(false)

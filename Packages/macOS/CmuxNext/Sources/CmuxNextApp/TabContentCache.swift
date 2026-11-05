@@ -360,7 +360,7 @@ final class TabContentCache {
         Task {
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
-            install(page, for: key)
+            installReplacement(page, for: key)
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
         }
