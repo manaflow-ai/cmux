@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1311,
+    "entries": 1313,
     "shortcuts": 189
   },
   "sections": [
@@ -5168,6 +5168,18 @@
           "title": "Mark Checklist Item In Progress",
           "shortcut": null,
           "command": "cmux sidebar mark-checklist-item-in-progress"
+        },
+        {
+          "id": "sidebar.priority.moveEarlier",
+          "title": "Move Chat Earlier in Priority…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.priority.moveLater",
+          "title": "Move Chat Later in Priority…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "sidebar.section.moveToScrolling",

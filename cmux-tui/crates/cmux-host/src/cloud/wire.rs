@@ -35,6 +35,14 @@ pub const DAEMON_SOCKET_FILE: &str = "/etc/cmux/daemon-socket";
 /// only these travel, plus the agent's own.
 pub const CLOUD_GATED_DAEMON_CAPABILITIES: [&str; 2] = ["fs-v1", "loopback-forward-v1"];
 pub const AGENT_CAPABILITY: &str = "vm-agent-v1";
+/// Advertised when the image serves link service `desktop`: its
+/// [`DESKTOP_SOCKET_UNIT`] is installed, and this receiver build knows the
+/// service. The platform grants `desktop` (to the machine's creator only)
+/// only to a machine whose daemon block carries it.
+pub const DESKTOP_CAPABILITY: &str = "link-desktop-v1";
+/// The image's socket unit of the agent display's `cmux.rd/1` host
+/// (`/run/cmux-rd/desktop.sock`, root 0600).
+pub const DESKTOP_SOCKET_UNIT: &str = "/etc/systemd/system/cmux-agent-rd.socket";
 /// Advertised only while the activity stream to the daemon is live.
 pub const ACTIVITY_CAPABILITY: &str = "activity";
 /// Advertised with `activity` while acpmux's `acp_activity` lines arrive (each within

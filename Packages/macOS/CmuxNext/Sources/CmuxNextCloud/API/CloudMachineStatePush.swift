@@ -24,6 +24,8 @@ public final class CloudMachineStatePush {
     public var onRecord: @MainActor (CloudMachine) -> Void = { _ in }
     /// A machine's live push closed: until a socket delivers again it is not pushed, and reads cover it.
     public var onLost: @MainActor (String) -> Void = { _ in }
+    /// A machine's push became live (a frame reached the Cloud app server): its reads are no longer needed.
+    public var onLive: @MainActor (String) -> Void = { _ in }
     private var last: [String: CloudMachine] = [:]
     /// Raised by ``stop()``: a frame received before it is never sent to the daemon after it.
     private var generation = 0
@@ -33,10 +35,16 @@ public final class CloudMachineStatePush {
     private struct Watch {
         var task: URLSessionWebSocketTask?
         var runner: Task<Void, Never>?
-        /// A frame came on the open socket: pushes are live for this machine.
+        /// A frame of the open socket reached the Cloud app server: pushes are live for this machine. A failed hand-off
+        /// clears it until the next frame gets through.
         var live = false
+        /// The open socket's id (``nextSocket``): a hand-off that finishes after its socket closed changes nothing.
+        var socket = 0
     }
     private var watches: [String: Watch] = [:]
+    /// The last socket id handed out. It only grows, across every machine and every recreated watch, so a hand-off
+    /// queued on an old socket can never match a new one.
+    private var lastSocket = 0
 
     /// The first reconnect waits this long; each failure doubles it up to ``maxBackoff``.
     static let firstBackoff: Duration = .milliseconds(500)
@@ -52,7 +60,7 @@ public final class CloudMachineStatePush {
         self.session = session ?? CloudOwnerAPIClient.transport
     }
 
-    /// Whether `machine`'s state is pushed now (its socket is open and sent its first frame).
+    /// Whether `machine`'s state is pushed now (its socket is open and its last frame reached the Cloud app server).
     public func isLive(_ machine: String) -> Bool { watches[machine]?.live == true }
 
     /// Watches exactly `machines` (a list's records): opens a socket for each new one and closes the ones no longer
@@ -127,6 +135,7 @@ public final class CloudMachineStatePush {
         guard watches[machine] != nil, !Task.isCancelled else { return false }
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task
+        watches[machine]?.socket = nextSocket()
         task.resume()
         let ping = Task {
             // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
@@ -145,7 +154,6 @@ public final class CloudMachineStatePush {
             @unknown default: data = Data()
             }
             delivered = true
-            watches[machine]?.live = true
             received(machine, data)
         }
         task.cancel(with: .normalClosure, reason: nil)
@@ -163,12 +171,15 @@ public final class CloudMachineStatePush {
             if let known = last[machine], CloudMachineChanges.newerRevision(known.serverRevision, than: shown.serverRevision) {
                 return
             }
-            forward(value)
+            forward(machine, value)
             last[machine] = shown
             onRecord(shown)
         case "removed":
-            forward(value)
-            guard var gone = last.removeValue(forKey: machine) else { return }
+            forward(machine, value)
+            let gone = last[machine]
+            // The machine is gone for good: its socket closes now, not at the next list.
+            end(machine)
+            guard var gone else { return }
             gone.status = .destroyed
             onRecord(gone)
         default:
@@ -176,15 +187,44 @@ public final class CloudMachineStatePush {
         }
     }
 
-    /// Sends one frame to the Cloud app server after the frames before it, unless ``stop()`` came first.
-    private func forward(_ value: JSONValue) {
-        let connection = connection(), previous = delivery, sent = generation
-        // task-owner: kept in `delivery` and cancelled by stop(); a failed send leaves the server its fallback read
+    /// Sends one frame to the Cloud app server after the frames before it, unless ``stop()`` came first. A frame that
+    /// gets there makes the machine live; one that does not (no daemon connection, a refused request) takes it off, so
+    /// its reads come back until a later frame gets through.
+    private func forward(_ machine: String, _ value: JSONValue) {
+        let connection = connection(), previous = delivery, sent = generation, socket = watches[machine]?.socket
+        // task-owner: kept in `delivery` and cancelled by stop()
         delivery = Task { [weak self] in
             await previous?.value
             guard !Task.isCancelled, self?.generation == sent else { return }
-            _ = try? await connection?.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value))
+            let ok: Bool
+            if let connection {
+                ok = Self.handedOff(try? await connection.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value)))
+            } else {
+                ok = false
+            }
+            guard !Task.isCancelled, let self, self.generation == sent else { return }
+            self.delivered(machine, socket: socket, ok)
         }
+    }
+
+    /// A new socket id, larger than every one before it.
+    func nextSocket() -> Int {
+        lastSocket += 1
+        return lastSocket
+    }
+
+    /// Whether `apps-team-event` answered that a Cloud app server took the frame (`{servers: N}`, N > 0). A reply
+    /// with no server (none running, or none holding the Cloud scope) is not a hand-off: the machine stays on reads.
+    static func handedOff(_ reply: JSONValue?) -> Bool {
+        guard let servers = reply?["servers"]?.doubleValue else { return false }
+        return servers > 0
+    }
+
+    private func delivered(_ machine: String, socket: Int?, _ ok: Bool) {
+        // Only the socket the frame came on, still open: one that closed already handed its machine back to reads.
+        guard let watch = watches[machine], watch.task != nil, watch.socket == socket, watch.live != ok else { return }
+        watches[machine]?.live = ok
+        if ok { onLive(machine) } else { onLost(machine) }
     }
 }
 

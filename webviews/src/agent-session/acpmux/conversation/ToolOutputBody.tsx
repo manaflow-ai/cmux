@@ -66,10 +66,13 @@ export const ToolOutput = memo(function ToolOutput({
   id,
   result,
   reveal = 0,
+  ownCopy = true,
 }: {
   id?: string;
   result: ToolResult;
   reveal?: number;
+  /// Whether the card draws its own copy button; false where its heading already has one (ToolDetail.tsx).
+  ownCopy?: boolean;
 }) {
   const t = useT();
   const generated = useId();
@@ -95,7 +98,7 @@ export const ToolOutput = memo(function ToolOutput({
       <div className="cv-tool-output__box" id={bodyId}>
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
-          {experimentArm(hoverActions) === "all" && (
+          {ownCopy && experimentArm(hoverActions) === "all" && (
             <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
           )}
         </span>

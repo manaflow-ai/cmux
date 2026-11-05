@@ -20,18 +20,19 @@ import { sq } from "./lock";
 const NODE_DEPS = ["react", "react-dom", "vite", "typescript", "@types/react", "@types/node", "eslint", "prettier", "zod", "vitest"];
 const PY_DEPS = ["fastapi", "pydantic", "requests", "pytest", "numpy", "httpx"];
 
-// corepack would otherwise ask before downloading a package manager.
+// The work user's login shell has no corepack on PATH (run 42082074422), so pnpm and yarn come through npx, as a
+// person's first `npx pnpm` would; corepack would otherwise ask before downloading a package manager.
 const asUser = (script: string) => `runuser -u ${DEVBOX_WORK_USER} -- env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash -lc ${sq(`cd ${DEVBOX_WORK_HOME} && ${script}`)}`;
 const project = (dir: string) =>
   `rm -rf ${dir} && mkdir -p ${dir} && cd ${dir} && printf '%s' '{"name":"first-session","private":true}' > package.json`;
 
 /** One first session's installs, each timed alone, in a fresh dir. */
 export const FIRST_SESSION_WORKLOADS: Record<string, string> = {
-  "corepack-pnpm": "corepack pnpm --version",
-  "corepack-yarn": "corepack yarn --version",
+  "npx-pnpm": "npx --yes pnpm@10 --version",
+  "npx-yarn": "npx --yes yarn@1 --version",
   "npm-install": `${project("/tmp/fs-npm")} && npm install --no-audit --no-fund --loglevel=error ${NODE_DEPS.join(" ")}`,
   "bun-install": `${project("/tmp/fs-bun")} && bun add ${NODE_DEPS.join(" ")} >/dev/null`,
-  "pnpm-install": `${project("/tmp/fs-pnpm")} && corepack pnpm add ${NODE_DEPS.join(" ")} >/dev/null`,
+  "pnpm-install": `${project("/tmp/fs-pnpm")} && npx --yes pnpm@10 add ${NODE_DEPS.join(" ")} >/dev/null`,
   "uv-install": `rm -rf /tmp/fs-uv && mkdir -p /tmp/fs-uv && cd /tmp/fs-uv && uv venv -q && uv pip install -q ${PY_DEPS.join(" ")}`,
 };
 
@@ -76,7 +77,11 @@ export async function main(argv = process.argv): Promise<number> {
   };
   try {
     // Cold and the prewarm at once: separate machines of the same image.
-    const [cold, seed] = await Promise.all([boot(`cmuxnp-dev-vmimg-${tag}-fs-cold`, snapshotId), boot(`cmuxnp-dev-vmimg-${tag}-fs-seed`, snapshotId)]);
+    // Both boots settle before anything throws, so a machine that comes up after the other failed is still in `live`.
+    const boots = await Promise.allSettled([boot(`cmuxnp-dev-vmimg-${tag}-fs-cold`, snapshotId), boot(`cmuxnp-dev-vmimg-${tag}-fs-seed`, snapshotId)]);
+    const bootFailure = boots.find((b) => b.status === "rejected");
+    if (bootFailure) throw bootFailure.reason;
+    const [cold, seed] = boots.map((b) => (b as PromiseFulfilledResult<Awaited<ReturnType<typeof boot>>>).value);
     const [coldTimes, prewarm] = await Promise.all([
       timeWorkloads(cold.vm),
       (async () => {
@@ -98,6 +103,9 @@ export async function main(argv = process.argv): Promise<number> {
     ledger.record(warmSnapshot, "snapshot", `cmuxnp-dev-vmimg-${tag}-fs-warm`);
     const warm = await boot(`cmuxnp-dev-vmimg-${tag}-fs-warm-1`, warmSnapshot);
     report.warm = { vmId: warm.vmId, firstExecMs: warm.firstExecMs, ...(await timeWorkloads(warm.vm)) } satisfies Side;
+    // A failed install's time is not a measurement: the probe fails rather than report it.
+    const failures = [...Object.keys(coldTimes.failed).map((w) => `cold ${w}`), ...Object.keys((report.warm as Side).failed).map((w) => `warm ${w}`)];
+    if (failures.length) throw new Error(`workloads failed: ${failures.join(", ")}`);
   } catch (error) {
     report.error = String(error);
   } finally {
@@ -115,8 +123,8 @@ export async function main(argv = process.argv): Promise<number> {
   }
   const cold = report.cold as Side | undefined;
   const warm = report.warm as Side | undefined;
-  if (cold && warm) {
-    report.table = Object.keys(FIRST_SESSION_WORKLOADS).map((w) => ({ workload: w, coldMs: cold.workloadsMs[w], warmMs: warm.workloadsMs[w], savedMs: (cold.workloadsMs[w] ?? 0) - (warm.workloadsMs[w] ?? 0) }));
+  if (cold && warm && !report.error) {
+    report.table = Object.keys(FIRST_SESSION_WORKLOADS).map((w) => ({ workload: w, coldMs: cold.workloadsMs[w], warmMs: warm.workloadsMs[w], savedMs: cold.workloadsMs[w] - warm.workloadsMs[w] }));
     for (const row of report.table as Array<Record<string, unknown>>) console.log(`FIRST_SESSION ${row.workload} cold=${row.coldMs} warm=${row.warmMs} saved=${row.savedMs}`);
   }
   writeFileSync(path.join(outDir, `first-session-${tag}.json`), `${JSON.stringify(report, null, 2)}\n`);

@@ -42,6 +42,17 @@ open(os.path.join(home, "stub-report.json"), "w").write(json.dumps(report))
 helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", os.path.abspath(__file__)],
                           start_new_session=True)
 open(os.path.join(home, "helper.pid"), "w").write(str(helper.pid))
+# A terminal host, as the real app's are: detached, its command line never names the root, its cwd is /. Only its
+# record under HOME names it, so cleanup must stop it by that record's host_pid.
+host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "__terminal-host"], cwd="/",
+                        start_new_session=True)
+records = os.path.join(home, "Library", "Application Support", "cmux", "tags", "stub", "tui", "terminal-hosts-0")
+os.makedirs(records, exist_ok=True)
+open(os.path.join(records, "abc.json"), "w").write(json.dumps({"terminal_id": "abc", "host_pid": host.pid}))
+# Outside the run's root, so the test can read it after cleanup removed the root.
+pid_path = os.path.join(here, "..", "Resources", "host_pid_path")
+if os.path.exists(pid_path):
+    open(open(pid_path).read().strip(), "w").write(str(host.pid))
 if mode == "crash":
     time.sleep(0.5)
     os.abort()
@@ -149,6 +160,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         caller script as scripts/cmux-next/idle_cpu.py sets it; empty runs the smoke itself."""
         self.runs = getattr(self, "runs", 0) + 1
         app = make_app(self.dir / f"run-{self.runs}", mode)
+        if getattr(self, "host_pid_path", None):
+            (app / "Contents" / "Resources" / "host_pid_path").write_text(str(self.host_pid_path))
         out = self.dir / f"out-{mode}-{self.runs}"
         argv = [str(SCRIPT), "--app", str(app), "--out", str(out), *extra]
         if ready:
@@ -295,6 +308,33 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(status, smoke.PASS, output)
         time.sleep(0.2)
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
+
+    def test_the_apps_terminal_host_is_stopped_by_its_record(self):
+        # cmux#36625: a host's command line never names the run's root, so only its record ties it to the run
+        self.host_pid_path = self.dir / "host.pid"
+        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        self.assertEqual(status, smoke.PASS, output)
+        host = int(self.host_pid_path.read_text())
+        time.sleep(0.2)
+        self.assertFalse(smoke.alive(host), "the app's terminal host outlived the run")
+        self.assert_cleaned_up(report)
+
+    def test_a_recorded_pid_that_is_not_a_terminal_host_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            records = Path(d) / "h/Library/Application Support/cmux/tags/x/tui/terminal-hosts-0"
+            records.mkdir(parents=True)
+            other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            self.addCleanup(other.wait)
+            self.addCleanup(other.kill)
+            (records / "a.json").write_text(json.dumps({"host_pid": other.pid}))
+            (records / "b.json").write_text("not json")
+            self.assertEqual(smoke.terminal_host_pids(Path(d)), [])
+            # A live host elsewhere doesn't make the recorded non-host pid count.
+            host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "__terminal-host"])
+            self.addCleanup(host.wait)
+            self.addCleanup(host.kill)
+            (records / "c.json").write_text(json.dumps({"host_pid": host.pid}))
+            self.assertEqual(smoke.terminal_host_pids(Path(d)), [host.pid])
 
     def test_a_signing_keychain_in_the_job_means_it_cannot_run(self):
         state = self.dir / "keychain-state"

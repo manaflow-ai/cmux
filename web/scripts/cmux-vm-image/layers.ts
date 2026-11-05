@@ -47,12 +47,42 @@ export const BASE_INPUT_PATHS = [
   "web/services/coderouter/vmGuestEnv.ts",
 ] as const;
 
-/** Files in BASE_INPUT_PATHS that are not inputs: the lock is keyed by its parts, and docs and tests change nothing. */
-export function isBaseInput(file: string): boolean {
+const SCRIPTS_DIR = "web/scripts/cmux-vm-image";
+
+/**
+ * Files in BASE_INPUT_PATHS that are not inputs: the lock is keyed by its parts, and docs and tests change
+ * nothing. Neither do the image scripts the bake does not run: an image script (a .ts file in SCRIPTS_DIR, or an
+ * images/cmux-vm entry point) is an input only when it is in `bakeScripts`, bake.ts and what it imports
+ * (bakeScriptClosure). The smoke, GC, inventory and probes run on the CI runner against the finished image, so
+ * changing them no longer rebuilds the system layer. Without `bakeScripts` every script counts.
+ */
+export function isBaseInput(file: string, bakeScripts?: ReadonlySet<string>): boolean {
   if (file === "images/cmux-vm/inputs.lock.json") return false;
   if (file.startsWith("images/cmux-vm/channels/")) return false;
   if (file.endsWith(".md") || file.includes("/tests/") || /\.test\.ts$/.test(file)) return false;
+  if (bakeScripts && isImageScript(file)) return bakeScripts.has(file);
   return true;
+}
+
+const isImageScript = (file: string) =>
+  (file.startsWith(`${SCRIPTS_DIR}/`) && /^[\w.-]+\.ts$/.test(file.slice(SCRIPTS_DIR.length + 1))) || /^images\/cmux-vm\/[\w.-]+\.ts$/.test(file);
+
+/**
+ * bake.ts's entry point and every image script it imports, transitively (static, side-effect, re-export and dynamic
+ * imports of ./x, with or without a .ts or .js extension), read at `rev` through `read` (path -> text, or undefined when the file is absent).
+ */
+export function bakeScriptClosure(read: (file: string) => string | undefined): Set<string> {
+  const seen = new Set<string>(["images/cmux-vm/bake.ts"]);
+  const queue = [`${SCRIPTS_DIR}/bake.ts`];
+  for (let file = queue.pop(); file; file = queue.pop()) {
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const text = read(file);
+    if (text === undefined) continue;
+    // `from "./x"`, `import "./x"` (side effect only), `import("./x")`; a .ts or .js extension names the same file.
+    for (const m of text.matchAll(/(?:\bfrom|\bimport\s*\(?)\s*["']\.\/([\w.-]+?)(?:\.[cm]?[jt]s)?["']/g)) queue.push(`${SCRIPTS_DIR}/${m[1]}.ts`);
+  }
+  return seen;
 }
 
 const canon = (v: unknown): unknown =>
@@ -79,7 +109,12 @@ export function agentProgramsText(lockText: string): string {
 export function baseInputTree(root: string, rev = "HEAD"): string {
   const r = spawnSync("git", ["-C", root, "ls-tree", "-r", rev, "--", ...BASE_INPUT_PATHS], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`git ls-tree for the layer inputs failed: ${r.stderr}`);
-  return r.stdout.split("\n").filter((l) => l && isBaseInput(l.slice(l.indexOf("\t") + 1))).sort().join("\n");
+  const read = (file: string) => {
+    const shown = spawnSync("git", ["-C", root, "show", `${rev}:${file}`], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    return shown.status === 0 ? shown.stdout : undefined;
+  };
+  const bakeScripts = bakeScriptClosure(read);
+  return r.stdout.split("\n").filter((l) => l && isBaseInput(l.slice(l.indexOf("\t") + 1), bakeScripts)).sort().join("\n");
 }
 
 const sha = (...parts: string[]) => {

@@ -55599,6 +55599,18 @@
         }
       }
     },
+    "turn.timeline.show": {"comment":"Agent pane: a turn footer's clock button that opens the turn's Timeline, each tool call's time as a bar","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show timeline"}},"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المخطط الزمني"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži vremensku liniju"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis tidslinje"}},"de":{"stringUnit":{"state":"needs_review","value":"Zeitleiste anzeigen"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar cronología"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher la chronologie"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra cronologia"}},"ja":{"stringUnit":{"state":"needs_review","value":"タイムラインを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ទាត់ពេលវេលា"}},"ko":{"stringUnit":{"state":"needs_review","value":"타임라인 표시"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis tidslinje"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż oś czasu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar linha do tempo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать хронологию"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงไทม์ไลน์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaman çizelgesini göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати хронологію"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện dòng thời gian"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示时间线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示時間軸"}}}},
+    "turn.timeline.hide": {"comment":"Agent pane: the same button while the turn's Timeline is open","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide timeline"}},"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء المخطط الزمني"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij vremensku liniju"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul tidslinje"}},"de":{"stringUnit":{"state":"needs_review","value":"Zeitleiste ausblenden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar cronología"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer la chronologie"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi cronologia"}},"ja":{"stringUnit":{"state":"needs_review","value":"タイムラインを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់បន្ទាត់ពេលវេលា"}},"ko":{"stringUnit":{"state":"needs_review","value":"타임라인 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul tidslinje"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj oś czasu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar linha do tempo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть хронологию"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนไทม์ไลน์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaman çizelgesini gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати хронологію"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn dòng thời gian"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏时间线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏時間軸"}}}},
+    "turn.timeline.label": {"comment":"Agent pane: accessible name of a turn's Timeline, its tool calls as bars on one time axis","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tool calls over time"}},"ar":{"stringUnit":{"state":"needs_review","value":"استدعاءات الأدوات عبر الزمن"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pozivi alata kroz vrijeme"}},"da":{"stringUnit":{"state":"needs_review","value":"Værktøjskald over tid"}},"de":{"stringUnit":{"state":"needs_review","value":"Tool-Aufrufe im Zeitverlauf"}},"es":{"stringUnit":{"state":"needs_review","value":"Llamadas a herramientas en el tiempo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Appels d’outils dans le temps"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiamate agli strumenti nel tempo"}},"ja":{"stringUnit":{"state":"needs_review","value":"時系列のツール呼び出し"}},"km":{"stringUnit":{"state":"needs_review","value":"ការហៅឧបករណ៍តាមពេលវេលា"}},"ko":{"stringUnit":{"state":"needs_review","value":"시간별 도구 호출"}},"nb":{"stringUnit":{"state":"needs_review","value":"Verktøykall over tid"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wywołania narzędzi w czasie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chamadas de ferramentas ao longo do tempo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вызовы инструментов во времени"}},"th":{"stringUnit":{"state":"needs_review","value":"การเรียกใช้เครื่องมือตามเวลา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaman içinde araç çağrıları"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виклики інструментів у часі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lệnh gọi công cụ theo thời gian"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"工具调用时间线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"工具呼叫時間軸"}}}},
+    "turn.timeline.thought": {"comment":"Agent pane: a Timeline bar for a stretch the agent spent thinking","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Thinking"}},"ar":{"stringUnit":{"state":"needs_review","value":"تفكير"}},"bs":{"stringUnit":{"state":"needs_review","value":"Razmišljanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Tænker"}},"de":{"stringUnit":{"state":"needs_review","value":"Denken"}},"es":{"stringUnit":{"state":"needs_review","value":"Pensando"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réflexion"}},"it":{"stringUnit":{"state":"needs_review","value":"Ragionamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"思考"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងគិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"생각 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tenker"}},"pl":{"stringUnit":{"state":"needs_review","value":"Myślenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pensando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Размышление"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Düşünme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Міркування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Suy nghĩ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"思考"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"思考"}}}},
+    "turn.timeline.failed": {"comment":"Agent pane: a tag on a Timeline row whose tool call failed","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"فشل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Neuspješno"}},"da":{"stringUnit":{"state":"needs_review","value":"Mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"Fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"Falló"}},"fr":{"stringUnit":{"state":"needs_review","value":"Échec"}},"it":{"stringUnit":{"state":"needs_review","value":"Non riuscito"}},"ja":{"stringUnit":{"state":"needs_review","value":"失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Niepowodzenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Falhou"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ошибка"}},"th":{"stringUnit":{"state":"needs_review","value":"ล้มเหลว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Помилка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thất bại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"失敗"}}}},
+    "turn.timeline.slowest": {"comment":"Agent pane: a tag on the Timeline row of the call that took longest","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Slowest"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأبطأ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Najsporiji"}},"da":{"stringUnit":{"state":"needs_review","value":"Langsomst"}},"de":{"stringUnit":{"state":"needs_review","value":"Am langsamsten"}},"es":{"stringUnit":{"state":"needs_review","value":"Más lento"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le plus lent"}},"it":{"stringUnit":{"state":"needs_review","value":"Il più lento"}},"ja":{"stringUnit":{"state":"needs_review","value":"最も遅い"}},"km":{"stringUnit":{"state":"needs_review","value":"យឺតបំផុត"}},"ko":{"stringUnit":{"state":"needs_review","value":"가장 느림"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tregest"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najwolniejsze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mais lento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Самый долгий"}},"th":{"stringUnit":{"state":"needs_review","value":"ช้าที่สุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"En yavaş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Найдовший"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chậm nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"最慢"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"最慢"}}}},
+    "turn.timeline.more": {"comment":"Agent pane: the button under a long Timeline that draws its remaining {n} rows","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show {n} more"}},"ar":{"stringUnit":{"state":"needs_review","value":"إظهار {n} أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži još {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis {n} mere"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} weitere anzeigen"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar {n} más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher {n} de plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altri {n}"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに {n} 件を表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញ {n} ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}개 더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis {n} til"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż jeszcze {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais {n}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать ещё {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงอีก {n} รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} tane daha göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати ще {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm {n}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"再显示 {n} 个"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"再顯示 {n} 個"}}}},
+    "turn.timeline.kind.shell": {"comment":"Agent pane: a Timeline lane of the turn's shell commands","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Commands"}},"ar":{"stringUnit":{"state":"needs_review","value":"الأوامر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Naredbe"}},"da":{"stringUnit":{"state":"needs_review","value":"Kommandoer"}},"de":{"stringUnit":{"state":"needs_review","value":"Befehle"}},"es":{"stringUnit":{"state":"needs_review","value":"Comandos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commandes"}},"it":{"stringUnit":{"state":"needs_review","value":"Comandi"}},"ja":{"stringUnit":{"state":"needs_review","value":"コマンド"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជា"}},"ko":{"stringUnit":{"state":"needs_review","value":"명령"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kommandoer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Polecenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Comandos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Команды"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Komutlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Команди"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lệnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"命令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"命令"}}}},
+    "turn.timeline.kind.read": {"comment":"Agent pane: a Timeline lane of the turn's file reads and searches","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reads and searches"}},"ar":{"stringUnit":{"state":"needs_review","value":"القراءة والبحث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čitanja i pretrage"}},"da":{"stringUnit":{"state":"needs_review","value":"Læsninger og søgninger"}},"de":{"stringUnit":{"state":"needs_review","value":"Lesen und Suchen"}},"es":{"stringUnit":{"state":"needs_review","value":"Lecturas y búsquedas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Lectures et recherches"}},"it":{"stringUnit":{"state":"needs_review","value":"Letture e ricerche"}},"ja":{"stringUnit":{"state":"needs_review","value":"読み取りと検索"}},"km":{"stringUnit":{"state":"needs_review","value":"ការអាន និងការស្វែងរក"}},"ko":{"stringUnit":{"state":"needs_review","value":"읽기 및 검색"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lesing og søk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odczyty i wyszukiwania"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Leituras e pesquisas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Чтение и поиск"}},"th":{"stringUnit":{"state":"needs_review","value":"การอ่านและการค้นหา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Okumalar ve aramalar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Читання та пошук"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đọc và tìm kiếm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"读取和搜索"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"讀取與搜尋"}}}},
+    "turn.timeline.kind.edit": {"comment":"Agent pane: a Timeline lane of the turn's file edits","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Edits"}},"ar":{"stringUnit":{"state":"needs_review","value":"التعديلات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izmjene"}},"da":{"stringUnit":{"state":"needs_review","value":"Redigeringer"}},"de":{"stringUnit":{"state":"needs_review","value":"Änderungen"}},"es":{"stringUnit":{"state":"needs_review","value":"Ediciones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modifications"}},"it":{"stringUnit":{"state":"needs_review","value":"Modifiche"}},"ja":{"stringUnit":{"state":"needs_review","value":"編集"}},"km":{"stringUnit":{"state":"needs_review","value":"ការកែសម្រួល"}},"ko":{"stringUnit":{"state":"needs_review","value":"편집"}},"nb":{"stringUnit":{"state":"needs_review","value":"Endringer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Edycje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Edições"}},"ru":{"stringUnit":{"state":"needs_review","value":"Правки"}},"th":{"stringUnit":{"state":"needs_review","value":"การแก้ไข"}},"tr":{"stringUnit":{"state":"needs_review","value":"Düzenlemeler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Редагування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chỉnh sửa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"编辑"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"編輯"}}}},
+    "turn.timeline.kind.web": {"comment":"Agent pane: a Timeline lane of the turn's web fetches","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Web"}},"ar":{"stringUnit":{"state":"needs_review","value":"الويب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Web"}},"da":{"stringUnit":{"state":"needs_review","value":"Web"}},"de":{"stringUnit":{"state":"needs_review","value":"Web"}},"es":{"stringUnit":{"state":"needs_review","value":"Web"}},"fr":{"stringUnit":{"state":"needs_review","value":"Web"}},"it":{"stringUnit":{"state":"needs_review","value":"Web"}},"ja":{"stringUnit":{"state":"needs_review","value":"Web"}},"km":{"stringUnit":{"state":"needs_review","value":"វេប"}},"ko":{"stringUnit":{"state":"needs_review","value":"웹"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nett"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sieć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Web"}},"ru":{"stringUnit":{"state":"needs_review","value":"Веб"}},"th":{"stringUnit":{"state":"needs_review","value":"เว็บ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Web"}},"uk":{"stringUnit":{"state":"needs_review","value":"Веб"}},"vi":{"stringUnit":{"state":"needs_review","value":"Web"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"网页"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"網頁"}}}},
+    "turn.timeline.kind.other": {"comment":"Agent pane: a Timeline lane of the turn's other tool calls (MCP and the rest)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Other tools"}},"ar":{"stringUnit":{"state":"needs_review","value":"أدوات أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ostali alati"}},"da":{"stringUnit":{"state":"needs_review","value":"Andre værktøjer"}},"de":{"stringUnit":{"state":"needs_review","value":"Andere Tools"}},"es":{"stringUnit":{"state":"needs_review","value":"Otras herramientas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Autres outils"}},"it":{"stringUnit":{"state":"needs_review","value":"Altri strumenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"その他のツール"}},"km":{"stringUnit":{"state":"needs_review","value":"ឧបករណ៍ផ្សេងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"기타 도구"}},"nb":{"stringUnit":{"state":"needs_review","value":"Andre verktøy"}},"pl":{"stringUnit":{"state":"needs_review","value":"Inne narzędzia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Outras ferramentas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другие инструменты"}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องมืออื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Diğer araçlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інші інструменти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Công cụ khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"其他工具"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"其他工具"}}}},
     "turn.retryChangedFiles": {
       "comment": "Agent pane: Retry warns when the response turn changed files, so retrying is visible alongside the reply (ChatGPT parity).",
       "extractionState": "manual",
@@ -157543,6 +157555,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已刪除 {target}"
+          }
+        }
+      }
+    },
+    "tools.detail.input": {
+      "comment": "Agent pane: heading over an opened tool call's input fields (one labeled field per argument)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإدخال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ulaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inndata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wejście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อินพุต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Girdi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вхід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入"
+          }
+        }
+      }
+    },
+    "tools.detail.output": {
+      "comment": "Agent pane: heading over an opened tool call's result, beside its copy button",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإخراج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izlaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sortie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "出力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utdata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyjście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saída"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вывод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıktı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вихід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu ra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸出"
+          }
+        }
+      }
+    },
+    "tools.detail.copyOutput": {
+      "comment": "Agent pane: the copy button on an opened tool call's Output heading; its name is also its tooltip",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ الإخراج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj izlaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér output"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgabe kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy output"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar salida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier la sortie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "出力をコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងលទ្ធផល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier utdata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj wyjście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar saída"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать вывод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกเอาต์พุต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıktıyı kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати вихід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép đầu ra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制输出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製輸出"
           }
         }
       }
