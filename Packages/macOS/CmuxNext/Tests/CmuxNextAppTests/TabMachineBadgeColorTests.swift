@@ -5,11 +5,12 @@ import CmuxNextTestSupport
 import Testing
 
 /// A remote tab's machine badge keeps today's quiet look (textTertiary) until the person picks a
-/// color for that machine (`appearance.machineColors`); then it draws the pick. Read from the strip
-/// as drawn (the badge layer's text color).
+/// color for that machine (`appearance.machineColors`); then it draws the pick as text that reads on the
+/// tab (MachineColor.pickedRowTextColor: its hue, raised to 4.5:1 on every row state since 3cd55d9ca425).
+/// Read from the strip as drawn (the badge layer's text color).
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabMachineBadgeColorTests {
-    /// The badge's color and textTertiary, both in the cell's theme scope, sRGB.
-    static func badge(picks: MachineColorOverrides) throws -> (badge: NSColor, tertiary: NSColor) {
+    /// The badge's color, textTertiary and the pick as row text, all in the cell's theme scope, sRGB.
+    static func badge(picks: MachineColorOverrides) throws -> (badge: NSColor, tertiary: NSColor, pickText: NSColor?) {
         ThemeScope.app.store.setMachineColors(picks)
         defer { ThemeScope.app.store.setMachineColors(.none) }
         let item = TabItem(id: TabID("remote"), title: "Remote", machineBadge: "big-red")
@@ -23,7 +24,8 @@ import Testing
         let cell = try #require(strip.cells[item.id])
         let drawn = try #require(cell.machineLayer?.foregroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
         let tertiary = try #require(NSColor(cgColor: cell.themeScope.perform { Palette.textTertiary.cgColor })?.usingColorSpace(.sRGB))
-        return (drawn, tertiary)
+        let pickText = cell.themeScope.perform { MachineColor(name: "big-red").pickedRowTextColor }?.usingColorSpace(.sRGB)
+        return (drawn, tertiary, pickText)
     }
 
     static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
@@ -32,18 +34,19 @@ import Testing
     }
 
     @Test func withNoPickTheBadgeStaysTertiary() throws {
-        let (badge, tertiary) = try Self.badge(picks: .none)
+        let (badge, tertiary, _) = try Self.badge(picks: .none)
         #expect(Self.same(badge, tertiary), "badge \(badge), textTertiary \(tertiary)")
     }
 
     @Test func aPickForAnotherMachineLeavesItTertiary() throws {
-        let (badge, tertiary) = try Self.badge(picks: MachineColorOverrides(["build-mac": "#12ab34"]))
+        let (badge, tertiary, _) = try Self.badge(picks: MachineColorOverrides(["build-mac": "#12ab34"]))
         #expect(Self.same(badge, tertiary), "badge \(badge), textTertiary \(tertiary)")
     }
 
     @Test func withAPickTheBadgeDrawsIt() throws {
-        let (badge, _) = try Self.badge(picks: MachineColorOverrides(["Big-Red": "#12ab34"]))
-        let picked = try #require(ThemeRGB(cssHex: "#12ab34")?.nsColor.usingColorSpace(.sRGB))
-        #expect(Self.same(badge, picked), "badge \(badge), pick \(picked)")
+        let (badge, tertiary, pickText) = try Self.badge(picks: MachineColorOverrides(["Big-Red": "#12ab34"]))
+        let picked = try #require(pickText)
+        #expect(Self.same(badge, picked), "badge \(badge), pick as row text \(picked)")
+        #expect(!Self.same(badge, tertiary), "the pick changed nothing: badge \(badge)")
     }
 }

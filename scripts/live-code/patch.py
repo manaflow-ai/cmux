@@ -8,6 +8,11 @@ compiled. Links their objects alone into a dylib, signs it ad hoc and moves it i
 the app watches (CMUX_LIVE_CODE_DIR). The app repoints its functions to the patch's and redraws.
 
   scripts/live-code/patch.py --log /tmp/cmux-reload-TAG.log --module CmuxNextApp --live DIR FILE.swift...
+  scripts/live-code/patch.py --log LOG --live DIR --tree TREE Packages/.../FILE.swift...
+
+--tree reads the module's sources from TREE instead of the build's checkout (try-pr.sh: the build's
+commit with a pull request applied); FILE is then a path relative to the checkout's root, and the
+build's generated sources (outside the checkout) stay as built.
 
 Prints `patch.py: DIR/patch-....dylib compile_s=... link_s=...`.
 """
@@ -85,6 +90,29 @@ def source_commit(edited):
     return head + ("+dirty" if dirty else "") if head else None
 
 
+def checkout_root(files, module):
+    """The build's checkout: the folder its module sources sit under (.../Packages/.../<module>/)."""
+    for path in files:
+        at = path.find("/Packages/")
+        if at > 0 and f"/{module}/" in path[at:]:
+            return path[:at]
+    return None
+
+
+def from_tree(files, tree, root):
+    """The build's file list with every file of the checkout read from TREE at the same path."""
+    moved = []
+    for path in files:
+        if path.startswith(root + "/"):
+            rel = path[len(root) + 1:]
+            if not os.path.exists(os.path.join(tree, rel)):
+                sys.exit(f"patch.py: {rel} is in the build but not in {tree} (a deleted file needs a rebuild)")
+            moved.append(os.path.join(tree, rel))
+        else:
+            moved.append(path)
+    return moved
+
+
 def patch_argv(frontend, files, edited, work):
     """The build's command, rewritten to compile `edited` (inside `files`) into one object each."""
     argv, skip = [], False
@@ -116,6 +144,7 @@ def main():
     parser.add_argument("--log", required=True, help="reload.sh's xcodebuild log of the running build")
     parser.add_argument("--module", default="CmuxNextApp")
     parser.add_argument("--live", required=True, help="the live folder the app watches")
+    parser.add_argument("--tree", help="read the module's sources from this tree; FILE is relative to its root")
     parser.add_argument("files", nargs="+")
     opts = parser.parse_args()
     started = time.time()
@@ -125,8 +154,16 @@ def main():
     if not filelist or not os.path.exists(filelist):
         sys.exit(f"patch.py: the {opts.module} driver's file list is missing ({filelist})")
     files = read_filelist(filelist)
-    edited = [os.path.realpath(path) for path in opts.files]
-    real = {os.path.realpath(path): path for path in files}
+    if opts.tree:
+        root = checkout_root(files, opts.module)
+        if not root:
+            sys.exit(f"patch.py: no checkout folder in {opts.module}'s file list")
+        tree = os.path.realpath(opts.tree)
+        files = from_tree(files, tree, root)
+        edited = [os.path.join(tree, path) for path in opts.files]
+    else:
+        edited = [os.path.realpath(path) for path in opts.files]
+    real = {path if opts.tree else os.path.realpath(path): path for path in files}
     missing = [path for path in edited if path not in real]
     if missing:
         sys.exit(f"patch.py: not in {opts.module}'s build: {', '.join(missing)} (a new file needs a rebuild for now)")
