@@ -33,7 +33,7 @@ nonisolated enum PaletteStrings {
     }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
     static var create: String { String(localized: "palette.command.create", defaultValue: "Create", bundle: .module) }
-    static var sectionNoMatch: String { String(localized: "palette.section.noMatch", defaultValue: "No Matching Results", bundle: .module) }
+    static var sectionNoMatch: String { String(localized: "palette.section.noMatch", defaultValue: "Use What You Typed", bundle: .module) }
     static func noMatchAskAgent(_ text: String) -> String {
         String(localized: "palette.noMatch.askAgent", defaultValue: "Ask Agent “\(text)”", bundle: .module)
     }

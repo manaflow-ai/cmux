@@ -77,6 +77,7 @@ struct PaletteArgumentFlow {
                     return await loaded.providers.first?.items() ?? []
                 }]
             }
+            page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected)
             return .push(page)
         }
     }

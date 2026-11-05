@@ -38,6 +38,8 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = true
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows(NoMatchPaletteRows.Kind.allCases)
+        page.noMatchItemsTrailResults = true
         return previewingActions(page)
     }
 
@@ -119,6 +121,8 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = sources.navigation != nil
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows([.newWorkspace, .askAgent])
+        page.noMatchItemsTrailResults = true
         return page
     }
 

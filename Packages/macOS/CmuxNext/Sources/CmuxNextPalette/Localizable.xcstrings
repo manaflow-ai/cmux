@@ -23065,127 +23065,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Matching Results"
+            "value": "Use What You Typed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一致する結果はありません"
+            "value": "入力した内容を使う"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد نتائج مطابقة"
+            "value": "استخدام ما كتبته"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema odgovarajućih rezultata"
+            "value": "Koristi ono što ste upisali"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen matchende resultater"
+            "value": "Brug det, du skrev"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine passenden Ergebnisse"
+            "value": "Eingabe verwenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay resultados coincidentes"
+            "value": "Usar lo que escribiste"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun résultat correspondant"
+            "value": "Utiliser votre saisie"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun risultato corrispondente"
+            "value": "Usa ciò che hai digitato"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានលទ្ធផលត្រូវគ្នា"
+            "value": "ប្រើអ្វីដែលអ្នកបានវាយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일치하는 결과 없음"
+            "value": "입력한 내용 사용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen samsvarende resultater"
+            "value": "Bruk det du skrev"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak pasujących wyników"
+            "value": "Użyj wpisanego tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum resultado correspondente"
+            "value": "Usar o que você digitou"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет совпадений"
+            "value": "Использовать введённый текст"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีผลลัพธ์ที่ตรงกัน"
+            "value": "ใช้สิ่งที่คุณพิมพ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eşleşen sonuç yok"
+            "value": "Yazdığını kullan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає збігів"
+            "value": "Використати введений текст"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có kết quả phù hợp"
+            "value": "Dùng nội dung bạn đã nhập"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有匹配的结果"
+            "value": "使用你输入的内容"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有符合的結果"
+            "value": "使用你輸入的內容"
           }
         }
       }

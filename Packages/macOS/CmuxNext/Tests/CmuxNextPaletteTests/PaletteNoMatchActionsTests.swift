@@ -172,14 +172,14 @@ struct PaletteNoMatchActionsTests {
         #expect(log.runs.first?["name"]?.stringValue == "qzxjvkw")
     }
 
-    @Test func aMatchingQueryShowsItsResultsNotTheFallbacks() async {
+    @Test func aMatchingQueryListsItsResultsFirstAndTheFallbacksAfter() async {
         var sources = PaletteSources(workspaces: Workspaces())
         sources.goTo = GoTo(Log())
         let palette = Self.palette(sources: sources)
         defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ids = await Self.ids(palette, after: "api")
-        #expect(ids.contains("workspace:w1"))
-        #expect(!ids.contains { $0.hasPrefix("noMatch:") })
+        #expect(ids.first == "workspace:w1", "Return opens the match: \(ids)")
+        #expect(Array(ids.suffix(2)) == ["noMatch:newWorkspace", "noMatch:askAgent"], "\(ids)")
     }
 }
