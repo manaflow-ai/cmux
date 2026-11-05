@@ -63,7 +63,28 @@ git clone -q --shared -b feat-cmux-next "$fx/origin.git" "$fx/checkout"
 export CMUX_SIDE_ROOT="$out/side"
 try="$fx/checkout/scripts/cmux-next/try-pr.sh"
 side="$fx/checkout/scripts/cmux-next/side-instance.sh"
-capture() { screencapture -x "$out/$1.png"; }
+# The copy draws its own main window (debug.window_snapshot, as live-code-app.py does): a fleet Mac's step
+# has no Screen Recording grant, so screencapture fails there with "could not create image from display".
+# The copy's control socket is among the sockets its recorded pid has open.
+capture() {
+  python3 - "$CMUX_SIDE_ROOT/pr-1/pid" "$out/$1.png" <<'PY'
+import os, subprocess, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "cmux-next"))
+from bench_launch import rpc_at
+pid, png = open(sys.argv[1]).read().strip(), sys.argv[2]
+names = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout.split("\n")
+socks = [n[1:] for n in names if n.startswith("n") and n.endswith(".sock") and "cmux" in os.path.basename(n)]
+if not socks:
+    sys.exit(f"try-pr-live-code: the copy (pid {pid}) has no cmux socket open")
+# It also holds client sockets (its daemon's): the control socket is the one that answers.
+replies = {}
+for sock in dict.fromkeys(socks):
+    replies[sock] = rpc_at(sock, "debug.window_snapshot", {"kind": "main", "path": png}, timeout=60)
+    if os.path.exists(png):
+        sys.exit(0)
+sys.exit(f"try-pr-live-code: no snapshot from the copy's sockets: {replies}")
+PY
+}
 cleanup() { "$try" 1 --stop >"$out/stop.log" 2>&1 || true; }
 trap cleanup EXIT
 # The copy as try-pr.sh makes it (same app, label and --live-code), open in front, then captured.
