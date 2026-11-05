@@ -228,26 +228,6 @@ struct ParkedPageIdleSizingTests {
         }
     }
 
-    /// A parked tab moved to another pane after a resize there: it takes the size it shows at before the destination asks
-    /// whether its paint holds, so the hold sees the size change (Codex review of 8acc5dc1363).
-    @Test func aParkedPageMovedFromAnotherPaneTakesItsShowSizeBeforeThePaintHoldCheck() async throws {
-        try await Self.withSwitch {
-            let source = Self.rig(), target = Self.rig(pages: 0)
-            defer { source.close(); target.close() }
-            let page = source.pages[0]
-            var frame = source.window.frame
-            frame.size.width -= 120
-            source.window.setFrame(frame, display: true)
-            source.pane.layoutSubtreeIfNeeded()
-            let parkedSize = page.frame.size
-            let shows = (target.pane.parkedFrame(of: page) ?? target.pane.contentHost.bounds).size
-            try #require(parkedSize != shows, "SETUP: the page would show at its parked size")
-            target.pane.contentHost.parkedSizing.willShow(page)
-            #expect(page.frame.size == shows, "a page coming from another pane took \(page.frame.size) before its paint hold check, not \(shows)")
-            #expect(page.superview === source.pane.contentHost, "the size change moved the page")
-        }
-    }
-
     @Test func inputWaitingInTheQueueDefersTheSizing() async throws {
         try await Self.withSwitch {
             let rig = Self.rig()

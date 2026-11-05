@@ -83,7 +83,7 @@ public final class PaneContentAreaView: NSView {
     /// The motions the parked subviews wait out: a live resize, a spring, a hold, a drag. Not a full screen transition:
     /// AppKit sets its final size at once (and ends no live resize after it), so that one resize sizes them at idle.
     private var isInParkedSizingMotion: Bool {
-        followsResizeGesture || isHolding || Motion.isInLiveResize(window) || isInPaneMotion
+        followsResizeGesture || isHolding || (Motion.liveResizeOverride ?? (window?.inLiveResize ?? false)) || isInPaneMotion
     }
 
     /// The window's live resize ended.
