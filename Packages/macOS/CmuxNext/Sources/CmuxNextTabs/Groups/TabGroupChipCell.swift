@@ -158,7 +158,9 @@ final class TabGroupChipCell {
         let side = isDot ? m.groupChipDotSize : height
         let width = min(TabGroupChipLayout.pillWidth(content, metrics: m), max(0, bounds.width - 2 * m.groupChipOuterInset))
         pill.frame = pixel(CGRect(x: m.groupChipOuterInset, y: (bounds.height - side) / 2, width: width, height: side))
-        pill.cornerRadius = isDot ? side / 2 : max(0, m.cornerRadius - Metrics.space1)
+        // The chip sits on the tab pills' line: concentric with a tab pill there.
+        let tabRow = CGRect(x: 0, y: (bounds.height - m.tabHeight) / 2, width: bounds.width, height: m.tabHeight)
+        pill.cornerRadius = isDot ? side / 2 : m.nestedCornerRadius(pill.frame, in: tabRow)
         pill.opacity = width > 0 ? 1 : 0
 
         let lineHeight = ceil(font.ascender - font.descender + font.leading)

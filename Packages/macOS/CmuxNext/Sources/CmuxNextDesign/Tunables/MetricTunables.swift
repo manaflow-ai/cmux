@@ -115,15 +115,11 @@ public nonisolated enum MetricTunables {
         "dividerHitWidth", .panes, "Divider drag width", help: "Draggable width centered on a split divider.",
         compact: 7, comfortable: 7, key: .dividerHitWidth, range: 1...24)
     public static let densityPaneCornerRadius = MetricTunable.make(
-        "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",
-        compact: 6, comfortable: 8)
+        "densityPaneCornerRadius", .panes, "Corner radius", help: "The one outer radius of panes, the main pane and tabs (tabs: less the corner padding) when layout.paneCornerRadius is unset.",
+        compact: 10, comfortable: 11)
 
     // MARK: Shape, icons, focus
 
-    public static let panelCornerRadius = MetricTunable.make("panelCornerRadius", .shape, "Panel corner radius", help: "Floating glass panels and the floating drop highlight.",
-                                                             compact: 10, comfortable: 12, key: .panelCornerRadius)
-    public static let itemCornerRadius = MetricTunable.make("itemCornerRadius", .shape, "Item corner radius", help: "Tabs, rows and buttons.",
-                                                            compact: 6, comfortable: 7)
     public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16, glyph: true)
     public static let smallIconSize = MetricTunable.make("smallIconSize", .shape, "Small icon size", help: "Secondary glyphs and trailing buttons.",
                                                          compact: 12, comfortable: 14, glyph: true)
@@ -134,6 +130,6 @@ public nonisolated enum MetricTunables {
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

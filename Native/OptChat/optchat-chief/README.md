@@ -1415,6 +1415,9 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   them); the next turn reads their summaries. A node the compactor cannot
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
+  turn; a transient failure (a session that does not answer under load)
+  is stuck after `COMPACT_TRIES` and retried quietly, and a request the API
+  refuses as too large keeps its input, cut to the room, as the line. Neither holds a
   turn; the Chief status says why. The class rule: a user message never
   waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the
@@ -1426,6 +1429,13 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
   13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
   not measured.
+- **A slow session start.** The Chief's own sessions (its turns and the
+  compactor's) ask acpmux to wait on the harness (`waitStart`) instead of a
+  wall clock: a loaded machine slows a start down, and killing it there loses
+  the start and the turn. acpmux ends the start once the harness has used no
+  CPU, with no thread ready, for 5 minutes. A turn's wait still ends on a stop
+  or the turn's limit, and past 30 s `settle.json` has `startingSecs`: the app
+  says the machine is busy and the Chief is still starting. Nothing reruns.
 - **Turns paragraph.** The spec says "do the user's tasks yourself ... use
   subagents only when the user asks". The Chief's base prompt replaces that
   paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,

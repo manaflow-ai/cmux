@@ -123,6 +123,10 @@ final class CloudMoveAsks {
         show(tab, .working, text, ask.always ? [.askFirst] : [], services: services)
     }
 
+    /// Whether chat tab `tab` has this move's card: the card then says the move's progress and its
+    /// failure, and the move shows no toast for them (one message, in one place).
+    func hasCard(_ tab: String) -> Bool { asks[tab] != nil }
+
     /// The move of chat tab `tab` ended: its card goes when it moved, and says why when it stopped.
     func moveEnded(_ tab: String, failure: String?, services: AppServices) {
         guard asks[tab] != nil else { return }

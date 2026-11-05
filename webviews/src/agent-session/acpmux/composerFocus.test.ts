@@ -113,10 +113,13 @@ describe("composer click-away focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
     const layer = document.createElement("div");
-    layer.className = "acpmux-picker-layer acpmux-composer-plus";
+    layer.className = "ui-positioner";
+    const popup = document.createElement("div");
+    popup.className = "ui-popup acpmux-menu acpmux-composer-plus";
     const row = document.createElement("div");
-    row.className = "acpmux-menu-item";
-    layer.append(row);
+    row.className = "ui-menu-item";
+    popup.append(row);
+    layer.append(popup);
     document.body.append(layer);
     expect(shouldBlurComposerOnPress(row, editor)).toBe(false);
   });

@@ -303,9 +303,9 @@
   background: none;
 }
 /* The six-dot handle that moves a section (SessionInfoGroup.tsx): left of the section's title, in the
-   head's leading padding before its icon column and one base step into the body's left inset, so it
-   sits by the title and far from the scrollbar's thumb (Leo, 2026-11-03: "the grabber is too close to
-   the thumb scroll thing in fact why dont we have the drag grabber to the left of the title"). It
+   head's leading padding before its icon column, so it sits by the title and far from the scrollbar's
+   thumb (Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have
+   the drag grabber to the left of the title"). It
    overlaps no icon or title, and the title keeps the text column it has with no handle. It shows only
    while its head (a bare section's first row) or the handle itself is hovered, on keyboard focus, or
    while it drags, as the native panel's grip does (#32674): no glyph at rest, and not for a pointer
@@ -317,13 +317,17 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* Centred on the head's left edge, where its hover pill starts, and on the head's middle line, so the
-     grip sits on one line with the row instead of half on, half off its pill (Leo, 2026-11-03: "this is
-     an uglily placed thing. just align the draggable"). Two base steps wide: the panel's resize edge
-     (3px in) stays clear on the left, the icon or title (one grid gap in) on the right. The gallery
-     compares other centres through --acpmux-session-info-grip-center. */
-  left: calc(var(--acpmux-session-info-grip-center, 0px) - var(--grid-base));
-  width: calc(2 * var(--grid-base));
+  /* Wholly inside the head's hover pill, in its leading padding before the icon column, and on the
+     head's middle line (Leo, 2026-11-04: "this is off", of the grip centred on the pill's edge, half in
+     and half out). The dots centre on the room left of a row icon's ink (the padding and the 14px icon's
+     margin in its 16px box), so they have about the same gap to the pill's edge as to the icon. The
+     handle is the padding's width and ends where the icon box starts, so it takes no click from the
+     icon. The gallery compares other centres through --acpmux-session-info-grip-center. */
+  --acpmux-session-info-grip-room: calc(var(--grid-gap) + var(--grid-base) / 4);
+  left: calc(
+    var(--acpmux-session-info-grip-center, calc(var(--acpmux-session-info-grip-room) / 2)) - var(--grid-gap) / 2
+  );
+  width: var(--grid-gap);
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -369,7 +373,7 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  /* The grid's side inset each side; a section's drag handle takes one base step of the left one. */
+  /* The grid's side inset each side. */
   padding-right: var(--grid-sidebar-highlight-inset);
   padding-left: var(--grid-sidebar-highlight-inset);
 }
@@ -474,8 +478,11 @@
   display: none;
 }
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
-   carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
-   the rows it passes. At rest no section is a box (session-panel.md). */
+   carries no hairline, and only while held does it take a shadow and its head's hover tint, so it reads
+   as picked up. At rest no section is a box (session-panel.md). It stands on the panel's glass as the
+   sidebar's picked-up row stands on the window's (#32330): a tint over the glass, never the page color,
+   which drew a near-opaque slab (Leo, 2026-11-05: "it becomes opaque"). Its neighbours make way before it
+   covers half of one (heldPlace.ts). */
 .acpmux-session-info-sections[data-dragging] {
   cursor: grabbing;
   user-select: none;
@@ -490,10 +497,8 @@
   visibility: hidden;
 }
 .acpmux-session-info-slot[data-lifted] > .acpmux-session-info-section {
-  background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
-  box-shadow:
-    var(--elevation-2),
-    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+  background: var(--acpmux-session-info-row-hover);
+  box-shadow: var(--elevation-2);
 }
 /* Gallery alternative (rules): a hairline over every section but the first. */
 .acpmux-session-info__body:is([data-layout="rules"], [data-layout="groups"]) .acpmux-session-info-sections {
@@ -1479,4 +1484,70 @@ button.acpmux-session-info-scope__parent:focus-visible {
   padding: 4px 8px;
   color: var(--accent-color);
   font-size: var(--text-detail);
+}
+/* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
+   in the icon column, centred on the step's first line; the words start on the text column and wrap,
+   so a long step reads whole. The marks are the transcript todo list's (conversation.css .cv-plan):
+   a filled check is done, the shared spinner runs, a dashed ring waits, a plain ring was left in
+   progress when the turn ended. A done step mutes; nothing is struck through or bold. */
+.acpmux-session-info-progress__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  /* One 16px line centred in the 28px row; a wrapped step grows by whole lines. */
+  padding: calc((var(--grid-row) - var(--grid-icon-box)) / 2) var(--grid-gap);
+  box-sizing: border-box;
+  line-height: var(--grid-icon-box);
+}
+.acpmux-session-info-progress__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
+  box-sizing: border-box;
+  border: 1.5px solid var(--agent-muted);
+  border-radius: 50%;
+}
+.acpmux-session-info-progress__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-session-info-progress__step[data-status="pending"] .acpmux-session-info-progress__ring {
+  border-style: dashed;
+}
+.acpmux-session-info-progress__step[data-status="in_progress"] .acpmux-session-info-progress__mark {
+  color: var(--agent-text);
+}
+.acpmux-session-info-progress__step[data-status="completed"] {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
+  border-color: transparent;
+  background: var(--agent-muted);
+  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
+     reads on the muted disc in light and dark alike. */
+  color: var(--acpmux-base, Canvas);
+}
+/* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info-progress__step,
+  .acpmux-session-info-progress__ring {
+    transition:
+      color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
 }

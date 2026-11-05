@@ -10,15 +10,15 @@ extension CloudHandlers {
         let cloud = context.services.cloud
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
             let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }
+            runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
         }
         bind("cloudTunnelDetach", registry, reason: reason) { invocation in
             let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }
+            runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
             guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.tunnelKeyRequired) }
-            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.localDeviceID(), publicKey: key) }
+            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.installIDs.backend.loadNow(), publicKey: key) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {
@@ -59,8 +59,7 @@ extension CloudHandlers {
         }
         bind("cloudEnrollMachine", registry, reason: reason) { invocation in try enrollMachine(invocation, context) }
         bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
-            try CloudNetworkAccessActions.set(invocation, context, read: { try await cloud.api.networkPolicy($0) },
-                                                write: { try await cloud.api.setNetworkPolicy($0, $1) })
+            try CloudNetworkAccessActions.set(invocation, context)
         }
     }
 
