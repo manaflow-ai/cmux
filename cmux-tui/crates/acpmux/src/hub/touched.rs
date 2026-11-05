@@ -235,16 +235,17 @@ impl Hub {
     /// The query `params` ask (`_acpmux/who_else`). `local`: the caller is the local socket, the
     /// only one whose raw `files` and `cwd` are read from disk.
     fn who_else_query(&self, params: &Value, local: bool) -> Result<Query, RpcError> {
-        if let Some(q) = params.get("query").filter(|q| q.is_object()) {
-            return serde_json::from_value(q.clone())
-                .map_err(|e| RpcError::invalid_params(format!("query: {e}")));
-        }
         // A path is read from this machine's disk: only the local socket's mean anything here. A
-        // remote caller names keys, and hears so rather than an answer about other files.
+        // remote caller names keys, and hears so rather than an answer about other files, a
+        // `query` beside them included (a peer's forward carries only the query).
         if !local && ["files", "cwd"].iter().any(|k| params.get(*k).is_some()) {
             return Err(RpcError::invalid_params(
                 "files and cwd are read only from this machine; name keys ([{repo, path}]) instead",
             ));
+        }
+        if let Some(q) = params.get("query").filter(|q| q.is_object()) {
+            return serde_json::from_value(q.clone())
+                .map_err(|e| RpcError::invalid_params(format!("query: {e}")));
         }
         let now = crate::store::now_ms();
         let since_ms =
