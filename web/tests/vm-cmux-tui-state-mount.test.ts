@@ -266,6 +266,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
     readonly loopMountFails?: boolean;
     /** The reservation marker is present but the state image is missing. */
     readonly noImage?: boolean;
+    /** The flush of the reserved copy fails. */
+    readonly syncFails?: boolean;
   };
 
   function writeTree(dir: string, files: Record<string, string>): void {
@@ -278,7 +280,7 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
 
   async function withEnsure(
     scenario: Scenario,
-    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string; pgrepPattern: string; chowned: string }) => void,
+    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string; pgrepPattern: string; chowned: string; synced: string }) => void,
   ): Promise<void> {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-remote-state-"));
     try {
@@ -312,6 +314,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       stub(bin, "mount", `if [ "$1" = --bind ]; then ${bindMount}; else ${loopMount}; fi`);
       const pgrepArgs = path.join(root, "pgrep-args");
       stub(bin, "pgrep", `echo "$*" > ${JSON.stringify(pgrepArgs)}\n${scenario.daemonRunning ? "exit 0" : "exit 1"}`);
+      const syncArgs = path.join(root, "sync-args");
+      stub(bin, "sync", `echo "$*" >> ${JSON.stringify(syncArgs)}\n${scenario.syncFails ? "exit 1" : "exit 0"}`);
       const chownArgs = path.join(root, "chown-args");
       stub(bin, "chown", `echo "$*" >> ${JSON.stringify(chownArgs)}`);
       stub(bin, "flock", "exit 0");
@@ -334,7 +338,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       if (result.error) throw result.error;
       const pgrepPattern = existsSync(pgrepArgs) ? readFileSync(pgrepArgs, "utf8") : "";
       const chowned = existsSync(chownArgs) ? readFileSync(chownArgs, "utf8") : "";
-      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp, pgrepPattern, chowned });
+      const synced = existsSync(syncArgs) ? readFileSync(syncArgs, "utf8") : "";
+      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp, pgrepPattern, chowned, synced });
       if (existsSync(bound) && !scenario.alreadyBound) {
         expect(readFileSync(bound, "utf8").trim()).toBe(`${reserved} ${remote}`);
       }
@@ -521,6 +526,32 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
   test("only the supervised daemon holds the move back, not a daemon the user runs in a pane", async () => {
     await withEnsure({ daemonRunning: true, onRoot: { [`${SESSION}/runtime.json`]: "{}" } }, ({ pgrepPattern }) => {
       expect(pgrepPattern).toContain("--session cloud");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("the root copy stays until the reserved copy is flushed, so a power cut cannot leave only an empty identity", async () => {
+    await withEnsure({ syncFails: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, remote, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(true);
+      expect(read(remote, `${SESSION}/auth/identity.json`)).toBe("identity");
+      expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("identity");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a root copy left by a crash or a rollback is removed at the next bind", async () => {
+    await withEnsure(
+      { onRoot: { [`${SESSION}/auth/identity.json`]: "stale" }, reserved: { [`${SESSION}/auth/identity.json`]: "current" } },
+      ({ remote, reserved, synced }) => {
+        expect(existsSync(path.join(remote, "sessions"))).toBe(false);
+        expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("current");
+        expect(synced).toContain(reserved);
+      },
+    );
+  }, TEST_TIMEOUT_MS);
+
+  test("a machine with nothing on the root path skips the flush, which New Machine would wait for", async () => {
+    await withEnsure({}, ({ synced }) => {
+      expect(synced).toBe("");
     });
   }, TEST_TIMEOUT_MS);
 
