@@ -79,13 +79,14 @@ def slug(tag):
 
 
 def cache_root(tag_slug, home=None):
-    home = Path(home or os.environ.get("HOME") or Path.home())
+    home = Path(home or account_home())
     return home / "Library/Caches/cmux-next/live-mode" / tag_slug
 
 
 def live_folder(home=None):
-    """The folder Labs > Live Code watches (LiveCode.labsSwitch)."""
-    home = Path(home or os.environ.get("HOME") or Path.home())
+    """The folder Labs > Live Code watches (LiveCode.labsSwitch, LiveFolder.standard): under the
+    account home, as the app resolves it, not $HOME."""
+    home = Path(home or account_home())
     return home / "Library/Caches/cmux-next/live-code"
 
 

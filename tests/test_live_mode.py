@@ -70,11 +70,14 @@ class LiveModeTests(unittest.TestCase):
         self.home.mkdir()
         self.old_home = os.environ.get("HOME")
         os.environ["HOME"] = str(self.home)
+        self.old_account_home = live_mode.account_home
+        live_mode.account_home = lambda: str(self.home)  # the live folder and cache follow the account home
         self.apps = []
 
     def tearDown(self):
         for app in self.apps:
             app.close()
+        live_mode.account_home = self.old_account_home
         if self.old_home is not None:
             os.environ["HOME"] = self.old_home
 
@@ -206,6 +209,11 @@ class LiveModeTests(unittest.TestCase):
         live_mode.write_state(root, {"mode": "live", "binary": "b"})
         self.assertEqual(live_mode.read_state(root), {"mode": "live", "binary": "b"})
         self.assertEqual(sorted(p.name for p in root.iterdir()), ["state.json"])
+
+    def test_the_live_folder_and_cache_follow_the_account_home_not_home(self):
+        os.environ["HOME"] = str(Path(self.dir) / "step")
+        self.assertEqual(live_mode.live_folder(), self.home / "Library/Caches/cmux-next/live-code")
+        self.assertEqual(live_mode.cache_root("mine"), self.home / "Library/Caches/cmux-next/live-mode/mine")
 
     def test_a_scan_hashes_only_files_whose_mtime_moved(self):
         tree = Path(self.dir) / "tree"

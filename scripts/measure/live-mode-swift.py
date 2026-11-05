@@ -25,14 +25,14 @@ import time
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "measure"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
-from bench_launch import rpc_at, socket_candidates  # noqa: E402
+from bench_launch import account_home, rpc_at, socket_candidates  # noqa: E402
 
 LIVE_MODE = os.path.join(ROOT, "scripts/live-code/live-mode.py")
 VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
 RED = "layer?.backgroundColor = NSColor.systemRed.cgColor"
 BLUE = "layer?.backgroundColor = NSColor.systemBlue.cgColor"
-LIVE_LOG = os.path.expanduser("~/Library/Caches/cmux-next/live-code/live-code.log")
+LIVE_LOG = os.path.join(account_home(), "Library/Caches/cmux-next/live-code/live-code.log")  # the app's home, not the step's $HOME
 
 
 def socket(tag):
@@ -202,7 +202,7 @@ def main():
             pass
     if os.path.exists(LIVE_LOG):
         subprocess.run(["cp", LIVE_LOG, os.path.join(opts.out, "live-code.log")])
-    mode_log = os.path.expanduser(f"~/Library/Caches/cmux-next/live-mode/{opts.tag}/live-mode.log")
+    mode_log = os.path.join(account_home(), f"Library/Caches/cmux-next/live-mode/{opts.tag}/live-mode.log")
     if os.path.exists(mode_log):
         subprocess.run(["cp", mode_log, os.path.join(opts.out, "live-mode.log")])
     start, stop = result.get("start", {}), result.get("stop", {})
