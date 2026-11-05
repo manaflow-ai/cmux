@@ -185,8 +185,10 @@ class Graph:
 
 def ssh_options(state: Path) -> list[str]:
     # One connection kept open: each step after the first costs one round trip.
+    # CMUX_RUST_LIVE_SSH_OPTS: more ssh options (a port, a jump host, a known-hosts file).
+    extra = shlex.split(os.environ.get("CMUX_RUST_LIVE_SSH_OPTS", ""))
     return ["-o", "BatchMode=yes", "-o", "ControlMaster=auto",
-            "-o", f"ControlPath={state}/ssh-%C", "-o", "ControlPersist=900"]
+            "-o", f"ControlPath={state}/ssh-%C", "-o", "ControlPersist=900", *extra]
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -653,6 +655,15 @@ def command_measure(args) -> int:
         time.sleep(1.0)  # the loop's first scan
         for run_index in range(args.runs):
             token = f"r{run_index}-{os.getpid()}"
+            # A marker per run, written just before the save: the swap must keep the screen it is on
+            # (the first run's marker scrolls off the visible screen after a few runs).
+            for t_ in terms:
+                t_["marker"] = f"before-{token}-{t_['surface']}"
+                request(sock, {"cmd": "send", "surface": t_["surface"], "text": f"clear; echo {t_['marker']}\n"})
+            for t_ in terms:
+                wait_until("marker", time.monotonic() + 15, lambda t_=t_: t_["marker"] in (
+                    request(sock, {"cmd": "read-screen", "surface": t_["surface"]}).get("text") or "").replace(
+                    f"echo {t_['marker']}", ""))
             seen = len(swaps)
             edit_path.write_text(original.replace(EDIT_ANCHOR, EDIT_ANCHOR + f'        "live_probe": "{token}",\n', 1))
             saved_at = edit_path.stat().st_mtime_ns / 1e9
