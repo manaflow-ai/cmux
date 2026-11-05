@@ -61,6 +61,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -241,7 +242,9 @@ def write_json(path, value):
 
 def put_content(folder, value):
     """Writes VALUE as canonical JSON to FOLDER/<its sha256>.json, read-only (content-addressed: never rewritten).
-    Returns the sha256."""
+    Returns the sha256. Each write has a part file of its own (pid and clock, as copy_folder): two writes of one result
+    at once never share one, and the read-only part file a killed write leaves is never written again (a leftover dot
+    file; no reader reads it)."""
     text = canonical(value)
     sha = hashlib.sha256(text.encode()).hexdigest()
     folder = Path(folder)
@@ -251,7 +254,7 @@ def put_content(folder, value):
         if hashlib.sha256(target.read_bytes()).hexdigest() != sha:
             raise ValueError(f"{target} does not hash to its name: the store changed (never kept as this result)")
         return sha
-    tmp = folder / f".{sha}.part"
+    tmp = folder / f".{sha}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.part"
     tmp.write_text(text)
     os.chmod(tmp, 0o444)
     os.replace(tmp, target)
@@ -367,8 +370,11 @@ def plan_folder(source, folder, recorded, names):
                 keep[path.name] = entry
             continue
         if recorded and not any(path.name.startswith(n + ".") for n in new_films):
-            problems.append(f"{folder}/{path.name}: a new input of the folder's recorded films; the store is immutable "
-                            "(a changed film needs a new folder name)")
+            film = path.name.split(".", 1)[0]
+            stored = sorted(f for f in recorded if f.startswith(film + "."))
+            what = (f"a new input of the stored film {film} (stored as {', '.join(stored[:3])}"
+                    f"{', ...' if len(stored) > 3 else ''})" if stored else "a new input of the folder's recorded films")
+            problems.append(f"{folder}/{path.name}: {what}; the store is immutable (a changed film needs a new folder name)")
             continue
         take[path.name] = entry
     return take, keep, problems
@@ -426,28 +432,39 @@ def copy_folder(source, store, folder, take):
 
 
 def store_pins(store):
-    """{folder: {file names}} that some files table in <store>/tables pins: every manifest's snapshot writes its table
-    there when it completes, so a file of the store that no table pins is the leftover of a snapshot that did not
-    complete (a SIGTERM or SIGKILL inside the link loop runs no clean-up)."""
-    pins = collections.defaultdict(set)
+    """{folder: {file name: [size, sha256]}} that the files tables in <store>/tables pin: every manifest's snapshot
+    writes its table there when it completes, so a file of the store that no table pins is the leftover of a snapshot
+    that did not complete (a SIGTERM or SIGKILL inside the link loop runs no clean-up). A table that does not hash to its
+    name, or two tables that pin one file with other bytes, refuse (ValueError): the store changed by hand."""
+    pins = collections.defaultdict(dict)
     tables = Path(store) / "tables"
     for path in sorted(tables.glob("*.json")) if tables.is_dir() else []:
         for folder, files in (get_content(tables, path.stem).get("folders") or {}).items():
-            pins[folder] |= set(files)
+            for name, entry in files.items():
+                held = pins[folder].setdefault(name, list(entry))
+                if held != list(entry):
+                    raise ValueError(f"two files tables pin {folder}/{name} with other bytes ({held} and {list(entry)}): "
+                                     "the store changed by hand")
     return pins
 
 
 def stored_folder(store, folder, recorded, pins):
-    """What the store holds in FOLDER, whatever manifest stored it: RECORDED (this manifest's table entry) and each other
-    file of the store's folder that a table pins (PINS, store_pins), with its size and sha256 (one store serves every
-    manifest). A file no table pins is no stored film's: its film is planned as new, and the copy's link takes the same
+    """(held, problems): what the store holds in FOLDER, whatever manifest stored it: RECORDED (this manifest's table
+    entry) and each other file of the store's folder that a table pins (PINS, store_pins), with the size and sha256 that
+    the table pins (one store serves every manifest; the bytes on disk never decide what a new manifest records). A
+    pinned file whose bytes on disk differ from its pin changed after it was stored: a problem, and the folder is
+    refused. A file no table pins is no stored film's: its film is planned as new, and the copy's link takes the same
     bytes as this folder's file or refuses other bytes."""
-    held = dict(recorded or {})
+    held, problems = dict(recorded or {}), []
     folder_dir = Path(store) / "films" / folder
+    pinned = pins.get(folder, {})
     for path in sorted(folder_dir.iterdir()) if folder_dir.is_dir() else []:
-        if path.is_file() and not path.name.startswith(".") and path.name not in held and path.name in pins.get(folder, ()):
-            held[path.name] = [path.stat().st_size, sha256_file(path)]
-    return held
+        if path.is_file() and not path.name.startswith(".") and path.name not in held and path.name in pinned:
+            held[path.name] = list(pinned[path.name])
+            if [path.stat().st_size, sha256_file(path)] != held[path.name]:
+                problems.append(f"{folder}/{path.name}: the stored file changed after a table pinned it; the store is "
+                                "immutable (it was changed by hand)")
+    return held, problems
 
 
 STORE_LOCK = ".snapshot.lock"
@@ -500,10 +517,12 @@ def _cmd_snapshot(opts):
         found.pop(f)
     problems = []
     pins = store_pins(store)  # read once, under the store's lock: no other snapshot writes a table meanwhile
+    held = {folder: stored_folder(store, folder, table.get(folder), pins) for folder in found}
     with concurrent.futures.ThreadPoolExecutor(max(1, opts.jobs)) as pool:
-        plans = {folder: pool.submit(plan_folder, opts.source, folder, stored_folder(store, folder, table.get(folder), pins),
-                                     names) for folder, names in found.items()}
+        plans = {folder: pool.submit(plan_folder, opts.source, folder, held[folder][0], names)
+                 for folder, names in found.items() if not held[folder][1]}
         plans = {folder: job.result() for folder, job in plans.items()}
+    plans.update({folder: ({}, {}, held[folder][1]) for folder in found if held[folder][1]})
     for folder, names in found.items():
         take, keep, issues = plans[folder]
         if not issues and take:
