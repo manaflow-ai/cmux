@@ -193,24 +193,37 @@ OWNED_ROUTE_VARIABLES = frozenset({
 # Rule 7a's second half: the claim script, which refuses an owned Mac without the claim and clears a keychain a
 # killed job left, runs before the first step that names a secret.
 CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
-# The script has to be *run*, not merely named: a `#` comment, an `echo` of the path, a quoted assignment or a
-# longer file name that starts with it would otherwise satisfy the claim for a job that never makes it. So the
-# path must be the command word of a simple command on its own line: optional environment assignments, an
-# optional interpreter, an optional directory prefix (the sparse-checkout copies at
-# `.nightly-signing-control/` and `.publish-tooling/`, and `./`), then the path, then end of word.
-CLAIM_INVOCATION = re.compile(
-    r"""^[ \t]*
-        (?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*
-        (?:(?:bash|sh|zsh|source|\.)[ \t]+)?
-        (?:[.\w/-]+/)?""" + re.escape(CLAIM_SCRIPT) + r"""
-        (?=[ \t]|[ \t]*$)""",
-    re.MULTILINE | re.VERBOSE,
-)
+# The script has to be *run*, unconditionally, from a trusted path, and its failure has to fail the job.  No
+# pattern over shell text can say that: `if false; then bash <path>; fi` and `bash <path> || true` both hold a
+# plausible-looking invocation while skipping the stale-keychain cleanup or swallowing a refused claim, and an
+# optional directory prefix takes `evil/scripts/ci/signing-runner-claim.sh` as readily as the real thing.  So
+# this takes the shape CLAIM_GATE already has, which test_ci_signing_owned_mac.py compares word for word: the
+# step's whole `run:` must be one of these exact commands.  Nothing else is accepted, so every control-flow,
+# chaining, redirection, quoting and path trick fails by construction instead of by a sharper pattern.  A new
+# call site adds its exact line here, a reviewed act.  Each form is the real path and nothing else: bare (a
+# path with a slash is run directly, never looked up on PATH), `./`, or bash on the path or on one of the two
+# sparse-checkout copies (`.nightly-signing-control/` and `.publish-tooling/`) two nightly jobs run it from.
+CLAIM_COMMANDS = frozenset({
+    CLAIM_SCRIPT,
+    f"./{CLAIM_SCRIPT}",
+    f"bash {CLAIM_SCRIPT}",
+    f"bash .nightly-signing-control/{CLAIM_SCRIPT}",
+    f"bash .publish-tooling/{CLAIM_SCRIPT}",
+})
 
 
 def runs_the_claim_script(step: dict) -> bool:
-    """Whether this step runs the claim script, rather than only naming it (CLAIM_INVOCATION)."""
-    return bool(CLAIM_INVOCATION.search(str(step.get("run", ""))))
+    """Whether this step's whole `run:` is one of CLAIM_COMMANDS, run by bash.
+
+    Detection only: a step found here may still carry an `if:`, because test_ci_signing_owned_mac.py allows one
+    (cmux-next-dev-daily's sign skips its whole body with no source artifact) and relies on the unconditional
+    first-step gate instead.  owned_route_failures() is what refuses a conditional or failure-swallowing claim
+    on an owned route."""
+    if str(step.get("shell", "bash")) != "bash":
+        return False
+    return str(step.get("run", "")).strip() in CLAIM_COMMANDS
+
+
 # These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
 # jobs may use them as their pool-backed fallback; the hosted pools are excluded.
 EPHEMERAL_POOL_KEYS = frozenset({
@@ -251,9 +264,10 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
     """Rule 7a: what keeps a claim-gated job's owned route from being proven, beyond the first-step gate.
 
     The gate itself fails the job on an owned Mac without glaeda's exclusive claim, so these are the rules that
-    keep a credential out of reach until the claim is re-checked by the script: a step *runs* the claim script
-    (CLAIM_INVOCATION, not the path appearing in a comment or an echo) before the first step that names a
-    secret, and the job's `env:` names none (every step, the gate included, holds it).
+    keep a credential out of reach until the claim is re-checked by the script: one step's whole `run:` is a
+    verbatim CLAIM_COMMANDS line (so no comment, echo, conditional, chained, backgrounded or redirected form
+    stands in for it), it is unconditional and its failure fails the job, it comes before the first step that
+    names a secret, and the job's `env:` names none (every step, the gate included, holds it).
     tests/test_ci_signing_owned_mac.py holds the same order for the jobs it covers (every keychain and Sparkle-key
     job); this holds it here for the rest of the exclusive class, which makes no keychain."""
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
@@ -262,9 +276,19 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
     first_secret = next((index for index, step in enumerate(steps)
                          if SIGNING_SECRET_REFERENCE.search(json.dumps(step))), None)
     if claim is None:
-        failures.append(f"{name}: takes an owned route without a step that runs {CLAIM_SCRIPT}")
-    elif first_secret is not None and first_secret < claim:
-        failures.append(f"{name}: step {first_secret} names a signing secret before the claim step ({claim})")
+        failures.append(f"{name}: takes an owned route without a step whose whole run: is one of "
+                        f"{', '.join(sorted(CLAIM_COMMANDS))}")
+    else:
+        if first_secret is not None and first_secret < claim:
+            failures.append(f"{name}: step {first_secret} names a signing secret before the claim step ({claim})")
+        # The claim must be neither skippable nor survivable: an `if:` could leave the stale-keychain cleanup
+        # and the claim re-check unrun, and continue-on-error would let a refused claim reach the key steps.
+        if str(steps[claim].get("if", "")).strip():
+            failures.append(f"{name}: the claim step ({claim}) is conditional (if: {steps[claim]['if']}); "
+                            "on an owned route it runs unconditionally")
+        if str(steps[claim].get("continue-on-error", "false")).strip().lower() != "false":
+            failures.append(f"{name}: the claim step ({claim}) has continue-on-error, so a refused claim "
+                            "would not fail the job")
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
         failures.append(f"{name}: job-level env names a signing secret, which every step (the gate's too) holds")
     return failures

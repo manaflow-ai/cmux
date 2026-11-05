@@ -407,8 +407,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif gate_index != 0:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
-            # The script has to be run, not only named: keychain_guard.CLAIM_INVOCATION, the same anchored
-            # matcher rule 7a uses, so a comment or an echo of the path never stands in for the claim.
+            # The script has to be run, not only named: keychain_guard.CLAIM_COMMANDS, the same verbatim
+            # command set rule 7a uses, so no comment, echo, conditional or chained form stands in for it.
             claim = next((index for index, step in enumerate(steps)
                           if keychain_guard.runs_the_claim_script(step)), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
@@ -1062,57 +1062,121 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID, "the first step must be the claim gate")
                 self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for(workflow).strip())
                 self.assertEqual(set(gate) - {"name", "run", "shell", "id"}, set())
-                self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
                 self.assertNotIn("secrets.", json.dumps(document.get("env") or {}))
                 self.assertTrue(keychain_guard.claim_gated(label, job), "rule 7a must hold for this job")
+                claim = [index for index, step in enumerate(steps)
+                         if keychain_guard.runs_the_claim_script(step)]
+                self.assertTrue(claim, f"{label}: no step's run: is a CLAIM_COMMANDS line")
+                # owned_route_failures() also refuses a conditional claim, which rule 7a's jobs must not have.
+                # cmux-next-dev-daily's sign is in the class but takes no owned route through
+                # OWNED_ROUTE_VARIABLES, and its claim carries the `if` that skips its whole body with no
+                # source artifact (the unconditional first-step gate is what fails it); so it is held only to
+                # the rules above, as check() above already holds it.
+                runs_on = keychain_guard.strip_literal_selectors(str(job.get("runs-on", "")))
+                owned = any((m.group(1) or m.group(2)).upper() in keychain_guard.OWNED_ROUTE_VARIABLES
+                            for m in keychain_guard.RUNNER_VARIABLE.finditer(runs_on))
+                if owned:
+                    self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
+                    self.assertFalse(str(steps[claim[0]].get("if", "")).strip(),
+                                     f"{label}: takes an owned route, so its claim runs unconditionally")
 
 
 class ClaimInvocationTests(unittest.TestCase):
-    """The claim requirement is satisfied only by running the script, never by the path appearing in text.
+    """The claim is proven only by a verbatim CLAIM_COMMANDS line, never by text that resembles one.
 
-    A matcher that took any step whose text contained the path would let a `#` comment, an `echo` of it, a
-    quoted assignment or a longer file name stand in for the claim on an owned Mac, with a signing secret in
-    the next step. Every real call site in the workflows is here too, so the anchoring stays usable."""
+    A regex over shell text cannot tell that the script runs, runs unconditionally, runs the real script, and
+    fails the job when it fails. Two review rounds found bypasses of exactly that kind, so detection is now
+    whole-text equality against a small reviewed set, as CLAIM_GATE already is. FAKE is the adversarial list:
+    every way a line can look like it runs the script without unconditionally running that script."""
 
+    # Each real call site in the tree, and the only forms accepted.
     REAL = (
+        CLAIM,
         f"./{CLAIM}",
         f"bash {CLAIM}",
-        CLAIM,
         f"bash .nightly-signing-control/{CLAIM}",
         f"bash .publish-tooling/{CLAIM}",
-        f"set -euo pipefail\nbash {CLAIM}\n",
-        f"bash {CLAIM}  # hold the mini",
-        f"CMUX_SIGNING_KEYCHAIN=cmux-signing bash {CLAIM}",
+        f"  bash {CLAIM}  ",            # surrounding whitespace only
+        f"bash {CLAIM}\n",              # YAML block scalar's trailing newline
     )
-    FAKE = (
-        f"# bash {CLAIM}",
-        f"echo 'the first step checks that claim ({CLAIM})'",
-        f"  #   {CLAIM}",
-        f"echo {CLAIM}",
-        f"printf '%s\\n' {CLAIM}",
-        f'CLAIM_SCRIPT="{CLAIM}"',
-        f"echo \"ran {CLAIM}\" >> \"$GITHUB_STEP_SUMMARY\"",
-        f"bash {CLAIM}.bak",
-        f"bash {CLAIM}im",
-        f"grep -q claim {CLAIM} || exit 1",
-    )
+    FAKE = {
+        # Round 2: the path present as text, never as a command.
+        "a comment": f"# bash {CLAIM}",
+        "an indented comment": f"  #   {CLAIM}",
+        "an echo argument": f"echo {CLAIM}",
+        "a printf argument": f"printf '%s\\n' {CLAIM}",
+        "inside a quoted string": f"echo 'the first step checks that claim ({CLAIM})'",
+        "a quoted assignment": f'CLAIM_SCRIPT="{CLAIM}"',
+        "a step-summary line": f'echo "ran {CLAIM}" >> "$GITHUB_STEP_SUMMARY"',
+        "read, not run": f"grep -q claim {CLAIM} || exit 1",
+        # Round 3, F1: control flow, so the claim may not run or its failure is swallowed.
+        "an if that is never taken": f"if false; then bash {CLAIM}; fi",
+        "a conditional claim": f'if [ -n "${{OWNED:-}}" ]; then bash {CLAIM}; fi',
+        "a swallowed failure": f"bash {CLAIM} || true",
+        "a swallowed failure, exiting 0": f"bash {CLAIM} || exit 0",
+        "a swallowed failure, echoing": f'bash {CLAIM} || echo "no claim"',
+        "errexit turned off first": f"set +e\nbash {CLAIM}",
+        "backgrounded, never waited on": f"bash {CLAIM} &",
+        "negated": f"! bash {CLAIM}",
+        "in a subshell whose failure is dropped": f"( bash {CLAIM} ) || true",
+        "sequenced after a true": f"bash {CLAIM}; true",
+        "right-hand side of &&": f'[ -d /Users/Shared/cmux-build-fleet ] && bash {CLAIM}',
+        "in a loop that may not run": f"for _ in $NOTHING; do bash {CLAIM}; done",
+        "in a while that may not run": f"while [ -n \"$FLAG\" ]; do bash {CLAIM}; done",
+        "in a case arm": f"case \"$RUNNER_NAME\" in *-glaeda) bash {CLAIM} ;; esac",
+        "deferred to a trap": f"trap 'bash {CLAIM}' EXIT\necho held",
+        "defined but never called": f"claim() {{ bash {CLAIM}; }}\necho held",
+        "written to a file by a heredoc": f"cat <<'EOF' > /tmp/c\nbash {CLAIM}\nEOF",
+        "piped into another shell's stdin": f"echo 'held' | bash {CLAIM}",
+        # Round 3, F2: a different script that merely ends with the same name.
+        "a fake directory prefix": f"bash evil/{CLAIM}",
+        "a nested fake prefix": f"bash tools/vendor/{CLAIM}",
+        "an absolute path": f"bash /tmp/{CLAIM}",
+        "a parent-directory escape": f"bash ../../../{CLAIM}",
+        "a dot-slash fake prefix": f"./evil/{CLAIM}",
+        # Round 2: a longer file name that starts with the real one.
+        "a backup copy": f"bash {CLAIM}.bak",
+        "no separator before a suffix": f"bash {CLAIM}im",
+        # The bare form is accepted, so every trick above is re-checked without an interpreter in front.
+        "a bare fake prefix": f"evil/{CLAIM}",
+        "a bare nested fake prefix": f"tools/vendor/{CLAIM}",
+        "a bare absolute path": f"/tmp/{CLAIM}",
+        "a bare parent-directory escape": f"../../../{CLAIM}",
+        "a bare sibling of the same name": f"a/{CLAIM}",
+        "a bare call with an argument": f"{CLAIM} --skip",
+        "a bare swallowed failure": f"{CLAIM} || true",
+        "a bare backgrounded call": f"{CLAIM} &",
+        "a bare call inside an if": f"if false; then {CLAIM}; fi",
+        "a bare chained call": f"true && {CLAIM}",
+        "a bare sequenced call": f"{CLAIM}; true",
+        "a bare backup copy": f"{CLAIM}.bak",
+        # Other interpreters: the text would not run as shell at all.
+        "run by a non-bash shell": None,
+    }
 
-    def test_a_real_invocation_counts(self) -> None:
+    def test_every_real_invocation_counts(self) -> None:
         for run in self.REAL:
             with self.subTest(run=run):
                 self.assertTrue(keychain_guard.runs_the_claim_script({"run": run}))
 
-    def test_the_path_in_text_does_not_count(self) -> None:
-        for run in self.FAKE:
-            with self.subTest(run=run):
-                self.assertFalse(keychain_guard.runs_the_claim_script({"run": run}))
+    def test_no_lookalike_counts(self) -> None:
+        for why, run in self.FAKE.items():
+            if run is None:
+                continue
+            with self.subTest(faked_as=why):
+                self.assertFalse(keychain_guard.runs_the_claim_script({"run": run}),
+                                 f"{why} satisfied the claim requirement")
 
-    def test_every_workflow_call_site_is_a_real_invocation(self) -> None:
-        """Every `run:` in the tree that names the script actually runs it, so the anchoring breaks no call site.
+    def test_a_non_bash_shell_does_not_count(self) -> None:
+        self.assertFalse(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "shell": "python"}))
+        self.assertTrue(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "shell": "bash"}))
 
-        No step names it without running it today (nightly.yml's one prose mention is a YAML comment, not step
-        text); should one appear, it must be a `#` comment line, which the matcher rightly ignores."""
-        ran = commented = 0
+    def test_every_workflow_call_site_is_accepted(self) -> None:
+        """Every `run:` in the tree that names the script is one of the accepted commands.
+
+        So the exact-text contract breaks no call site, and a new one is a reviewed addition to
+        CLAIM_COMMANDS rather than something a looser pattern would wave through."""
+        sites = 0
         for workflow, document in workflows().items():
             for name, job in ((document.get("jobs") or {})).items():
                 if not isinstance(job, dict):
@@ -1120,26 +1184,42 @@ class ClaimInvocationTests(unittest.TestCase):
                 for step in keychain_guard.inline_step_scripts(job).get("steps") or []:
                     if not isinstance(step, dict) or CLAIM not in str(step.get("run", "")):
                         continue
-                    if keychain_guard.runs_the_claim_script(step):
-                        ran += 1
-                    else:
-                        commented += 1
-                        for line in str(step.get("run", "")).splitlines():
-                            if CLAIM in line:
-                                self.assertRegex(line.strip(), r"^#", f"{workflow} {name}: names {CLAIM} "
-                                                 "without running it, and not in a comment")
-        self.assertGreaterEqual(ran, 5, "no workflow runs the claim script: is this the right tree?")
-        self.assertEqual(commented, 0, "a step names the claim script without running it")
+                    sites += 1
+                    with self.subTest(job=f"{workflow} {name}"):
+                        self.assertTrue(keychain_guard.runs_the_claim_script(step),
+                                        f"{workflow} {name} names {CLAIM} in a form CLAIM_COMMANDS rejects: "
+                                        f"{str(step.get('run', '')).strip()!r}")
+        self.assertGreaterEqual(sites, 11, "no workflow runs the claim script: is this the right tree?")
 
-    def test_a_gated_job_whose_claim_is_only_a_comment_fails_rule_7a(self) -> None:
-        job = {"runs-on": OwnedRouteVariableTests.RUNS_ON,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"# bash {CLAIM}\necho held"},
-                         OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any(f"without a step that runs {CLAIM}" in why for why in found), found)
+    def test_the_command_set_stays_small_and_trusted(self) -> None:
+        """Every accepted command runs the real path, bare or from `./` or a sparse-checkout copy, nothing else.
+
+        No absolute path, no `..`, no other directory, and no trailing arguments or operators: the set cannot
+        grow a form that runs something else without this failing."""
+        for command in keychain_guard.CLAIM_COMMANDS:
+            with self.subTest(command=command):
+                self.assertRegex(command, r"^(?:\./|bash (?:\.nightly-signing-control/|\.publish-tooling/)?)?"
+                                 + re.escape(CLAIM) + r"$")
+        self.assertLessEqual(len(keychain_guard.CLAIM_COMMANDS), 5)
+
+    def test_rule_7a_refuses_a_claim_that_may_not_run_or_may_fail_quietly(self) -> None:
+        gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                "run": claim_gate_for("nightly.yml")}
+        real = {"run": f"bash {CLAIM}"}
+        label = "nightly.yml generate-nightly-deltas"
+        cases = {
+            "without a step whose whole run: is one of": [gate, {"run": f"# bash {CLAIM}"},
+                                                          OwnedRouteVariableTests.SPARKLE],
+            "is conditional": [gate, {**real, "if": "runner.os == 'macOS'"}, OwnedRouteVariableTests.SPARKLE],
+            "has continue-on-error": [gate, {**real, "continue-on-error": True},
+                                      OwnedRouteVariableTests.SPARKLE],
+        }
+        for needle, steps in cases.items():
+            with self.subTest(needle=needle):
+                found: list[str] = []
+                keychain_guard.check_job(label, {"runs-on": OwnedRouteVariableTests.RUNS_ON, "steps": steps},
+                                         found)
+                self.assertTrue(any(needle in why for why in found), found)
 
 
 class OwnedRouteVariableTests(unittest.TestCase):
@@ -1175,7 +1255,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
         self.assertTrue(any("names a signing secret before the claim step" in why for why in found), found)
         job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE]}
         found = self.failures("nightly.yml generate-nightly-deltas", job)
-        self.assertTrue(any(f"without a step that runs {CLAIM}" in why for why in found), found)
+        self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
 
     def test_a_gated_job_may_not_hold_the_secret_in_its_job_env(self) -> None:
         job = {"runs-on": self.RUNS_ON, "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"},
