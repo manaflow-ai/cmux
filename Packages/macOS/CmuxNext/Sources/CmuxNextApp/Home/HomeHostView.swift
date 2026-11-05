@@ -114,7 +114,7 @@ final class HomeHostView: NSView {
         computerPopup.isSuppressed = { [weak self] in
             guard let self, let window = window.flatMap({ services.windows.owner(of: $0) }),
                   let page = services.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
-            return page.isShown(in: window)
+            return page.shows(conversation, in: window)
         }
         computerPopup.onOpen = { [weak services] in
             _ = services?.registry.perform(ChiefComputerPageService.toggleActionID,

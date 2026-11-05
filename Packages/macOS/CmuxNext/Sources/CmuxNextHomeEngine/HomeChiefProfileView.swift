@@ -130,8 +130,19 @@ public final class HomeChiefProfileView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { computer.open() }
+        if window != nil, !isHiddenOrHasHiddenAncestor { computer.open() }
         applyGateFill()
+    }
+
+    /// A parked pane tab stays in the window, hidden: it reads nothing until it shows again.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        computer.close()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if window != nil { computer.open() }
     }
 
     public override func viewDidChangeEffectiveAppearance() {

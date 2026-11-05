@@ -59,7 +59,7 @@ public final class HomeChiefComputerSection: NSStackView {
 
     /// Runs when the section shows or hides.
     public var onResize: () -> Void = {}
-    /// Runs after each status read is shown (the popup follows ``HomeChiefComputer/acting``).
+    /// Runs after each read is shown (the popup follows ``HomeChiefComputer/acting`` and its page opening).
     public var onStatus: () -> Void = {}
 
     /// What the section shows now; nil hides it.
@@ -187,6 +187,8 @@ public final class HomeChiefComputerSection: NSStackView {
                 let image = await source.screen()
                 guard self.isOpen, !Task.isCancelled else { return }
                 if self.shown?.state == .live { self.frame(image) }
+                self.onStatus()
+                guard !Task.isCancelled else { return }
                 wait = Self.frameInterval
             }
             let after = since + wait

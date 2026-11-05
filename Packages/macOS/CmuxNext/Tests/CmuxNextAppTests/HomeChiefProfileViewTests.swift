@@ -80,6 +80,11 @@ import Testing
         defer { window.close() }
         popup.follow(working: true)
         await until { popup.isShowing }
+        // The ✕ is what a click there reaches, and nothing on the popup takes it first.
+        popup.layoutSubtreeIfNeeded()
+        let onX = popup.convert(CGPoint(x: popup.dismissButton.bounds.midX, y: popup.dismissButton.bounds.midY), from: popup.dismissButton)
+        #expect(popup.hitTest(popup.convert(onX, to: popup.superview))?.isDescendant(of: popup.dismissButton) == true)
+        #expect(popup.gestureRecognizers.isEmpty)
         popup.dismissButton.performClick(nil)
         #expect(!popup.isShowing)
         popup.follow(working: false)

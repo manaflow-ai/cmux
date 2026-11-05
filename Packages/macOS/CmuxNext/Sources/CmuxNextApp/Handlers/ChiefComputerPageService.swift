@@ -1,6 +1,8 @@
 import AppKit
 import typealias CmuxNextBridge.StripTabID
+import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextHomeEngine
 
 extension InternalPageID {
@@ -34,7 +36,8 @@ final class ChiefComputerPageService: InternalPageProvider {
         registry.bindEffect(toggleActionID, requires: nil, effect: { invocation in
             guard let window = context.services.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
             if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return .done }
-            guard let conversation = invocation.arguments["conversation"]?.stringValue, !conversation.isEmpty,
+            // The palette names no conversation: the Chief Home shows first.
+            guard let conversation = invocation.arguments["conversation"]?.stringValue ?? context.services.home.defaultChiefConversation, !conversation.isEmpty,
                   service.open(conversation, in: window, focus: invocation.allowsViewChange) != nil else {
                 return .refused(RefusalStrings.noWindowOpen)
             }
@@ -76,6 +79,15 @@ final class ChiefComputerPageService: InternalPageProvider {
         defer { nextRoute = nil }
         guard services.pages.openNew(.chiefComputer, in: window, focus: focus) != nil else { return nil }
         return routes.first { $0.value == conversation }?.key
+    }
+
+    /// Whether the workspace `window` names shows this Chief's page: the chat's popup then stays away.
+    func shows(_ conversation: String, in window: WindowController) -> Bool {
+        guard let content = window.workspaceContent, let services else { return false }
+        return content.modelPanes.contains { model in
+            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            return keys.contains { routes[$0] == conversation }
+        }
     }
 
     /// Whether the workspace `window` names shows a profile tab: an observable read.
@@ -128,7 +140,7 @@ final class ChiefComputerPageService: InternalPageProvider {
             Task { await services?.paidPlanUpgrade().start(plan: "pro", source: .cloudRefusal, fallback: nil) }
         }
         view.onMoveToCloud = { [weak services] in
-            _ = services?.registry.perform(ChiefMoveHandlers.actionID, invocation: ActionInvocation(arguments: [:], origin: .user))
+            _ = services?.registry.perform(ChiefMoveHandlers.actionID, invocation: ActionInvocation(arguments: ["target": .string(ChiefMoveTargets.cloudID)], origin: .user))
         }
         view.onSettings = { [weak services] in
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")

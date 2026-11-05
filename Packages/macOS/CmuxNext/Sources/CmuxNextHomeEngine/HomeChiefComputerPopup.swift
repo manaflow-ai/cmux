@@ -47,7 +47,6 @@ public final class HomeChiefComputerPopup: NSView {
             dismissButton.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
         ])
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(open)))
         setAccessibilityIdentifier("cmux.home.chief.computer.popup")
         isHidden = true
     }
@@ -57,7 +56,11 @@ public final class HomeChiefComputerPopup: NSView {
 
     /// A Chief turn started or ended. A new turn clears the ✕.
     public func follow(working: Bool) {
-        if working, !self.working { dismissed = false }
+        if working, !self.working {
+            dismissed = false
+            // The last turn's status says nothing about this one: no popup until it is read.
+            section.show(nil)
+        }
         self.working = working
         if working, window != nil {
             if !section.isOpen { section.open() }
@@ -83,7 +86,14 @@ public final class HomeChiefComputerPopup: NSView {
         if window != nil { follow(working: working) }
     }
 
-    @objc private func open() { onOpen() }
+    /// A click anywhere but the ✕, which takes its own (a recognizer here would take the ✕'s too).
+    public override func mouseDown(with event: NSEvent) {}
+
+    public override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        onOpen()
+        update()
+    }
 
     @objc private func dismiss() {
         dismissed = true
