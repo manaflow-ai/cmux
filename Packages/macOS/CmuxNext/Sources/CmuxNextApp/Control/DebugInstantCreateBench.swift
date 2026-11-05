@@ -80,7 +80,7 @@ enum DebugInstantCreateBench {
             }
             let placement = services.linkOpener.placement
             services.linkOpener.placement = { .splitRight }
-            githubShown.withLock { $0.append("opened:\(WebPageTab.openGitHub(url, from: pane, services: services).map(String.init) ?? "nil")") }
+            githubShown.withLock { [opened = WebPageTab.openGitHub(url, from: pane, services: services)] in $0.append("opened:\(opened.map(String.init) ?? "nil")") }
             services.linkOpener.placement = placement
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
