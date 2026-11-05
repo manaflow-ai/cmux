@@ -146,14 +146,11 @@ final class CloudMachineUpdates {
     }
 
     /// The machine daemon's socket as this Mac reaches it (what Update Machine passes). A refused
-    /// daemon left no connection: the legacy link's socket can be asked again; an app link's is
-    /// read without asking (its connection's second ask would end the link), and the carrier
-    /// dials the machine again for the CLI's own connection.
+    /// daemon left no connection: the app link's socket is read without asking (its connection's
+    /// second ask would end the link), and the carrier dials the machine again for the CLI's own connection.
     private static func socket(of session: CloudMachineSession?) async -> String? {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
-        if let appLink = session.appLink { return await appLink.currentSocket }
-        guard session.link != nil, let endpoint = session.daemon.remoteEndpoint else { return nil }
-        return try? await endpoint().socketPath
+        return await session.appLink?.currentSocket
     }
 }
