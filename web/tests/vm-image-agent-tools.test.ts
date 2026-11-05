@@ -444,13 +444,14 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
         // As the probe would on the machine, minus what needs root: the reader runs as this user, no chown.
         const local = rdCookieCopy()
           .replace(/setpriv [^/]*\/bin\/sh/, "/bin/sh")
-          .replace(/install -d -m 0710 -o root -g cmux-rd \S+/, `mkdir -p ${run}`)
-          .replace(/chown \S+ \S+ && /, "")
+          .replace(/install -d -m 0710 -o root -g cmux-rd [^;\s]+/, `mkdir -p ${run}`)
+          .replace(/chown [^;\s]+ [^;\s]+ && /, "")
           .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
           .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
           .replaceAll(AGENT_XAUTHORITY, src)
           .replaceAll(RD_RUN_DIR, run);
         expect(local).not.toContain("setpriv");
+        expect(local).toContain(`mkdir -p ${run}; for i in`);
         const copy = () => runChild("sh", ["-c", local], { timeout: 20_000 });
         const dest = path.join(run, "Xauthority-99");
         writeFileSync(src, "cookie-bytes");
