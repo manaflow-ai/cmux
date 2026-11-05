@@ -42,10 +42,20 @@ fi
 # the checkout, .gitignore'd build output included.
 # On disk, not /tmp: Linux /tmp is often tmpfs (RAM), and the variant targets are tens of GB.
 scratch="${CMUX_DEVLOOP_SCRATCH:-$HOME/.cache/cmux-rust-dev-loop}/run-$$"
+# Earlier runs' scratch whose shell is gone (a killed run skips its trap): run-PID, PID not alive.
+for old in "${scratch%/*}"/run-*; do
+  if [[ -d "$old" ]] && ! kill -0 "${old##*/run-}" 2>/dev/null; then rm -rf "$old"; fi
+done
 mkdir -p "$scratch"
 df -h "$scratch" | tail -1
-# This run's own scratch and blaze home only (named by this shell's pid).
-trap 'rm -rf "$scratch" "${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"' EXIT
+# Bound: each variant's target is ~10-20 GB and blaze's home about as much again; warn (never refuse)
+# under CMUX_DEVLOOP_MIN_FREE_GB free.
+free_gb=$(( $(df -Pk "$scratch" | awk 'NR==2 {print $4}') / 1048576 ))
+if (( free_gb < ${CMUX_DEVLOOP_MIN_FREE_GB:-60} )); then
+  echo "warning: $free_gb GB free at $scratch, under ${CMUX_DEVLOOP_MIN_FREE_GB:-60} GB; a variant may run out of disk"
+fi
+# This run's own scratch (blaze home included) only, named by this shell's pid.
+trap 'rm -rf "$scratch"' EXIT
 # Ghostty's zig packages download once, with retries, before any clock starts; every variant's
 # cold zig cache links to them (rust-dev-loop.py --zig-packages).
 zig_packages="$scratch/zig"
@@ -77,8 +87,9 @@ if [[ ",$variants," == *,blaze,* ]]; then
   esac
   blaze_dir="$scratch/blaze"
   # Outside the checkout: blaze's daemon watches the checkout and reads every file in it, its own
-  # socket included ("v2.sock changed and can't be read", 0.20261105.1).
-  export BLAZE_HOME="${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"
+  # socket included ("v2.sock changed and can't be read", 0.20261105.1). In the scratch, on disk:
+  # its build directory is as large as a cargo target, too large for a tmpfs /tmp.
+  export BLAZE_HOME="$scratch/cmux-rust-dev-loop-blaze-home-$$"
   mkdir -p "$blaze_dir/bin" "$BLAZE_HOME"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \
@@ -97,5 +108,9 @@ cd "$root/cmux-tui"
 rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
+status=0
 python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"}
+  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
+if [[ -d "${BLAZE_HOME:-}" ]]; then echo "blaze home: $(du -sh "$BLAZE_HOME" | cut -f1)"; fi
+du -sh "$scratch" | sed 's/^/scratch: /'
+exit "$status"
