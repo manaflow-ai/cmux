@@ -1549,6 +1549,12 @@ impl Hub {
             restored.push((prompt_id.clone(), turn_id.clone()));
             let display_parts = e.msg.get("displayParts").cloned();
             let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
+            // The person's prompt a hold kept for Resume waits for it again (`waits_for_resume`); an
+            // older daemon's hold names none that retry, and its agent messages and notices still do.
+            let waits_for_resume = held.contains(&prompt_id)
+                && !retrying.contains(&prompt_id)
+                && agent.is_none()
+                && !super::inbox::is_notice(provenance.as_ref());
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
                 turn_id,
@@ -1579,12 +1585,7 @@ impl Hub {
                 restored: true,
                 resume: true,
                 steer: false,
-                // The person's prompt a hold kept for Resume waits for it again (`waits_for_resume`).
-                retries: if held.contains(&prompt_id) && !retrying.contains(&prompt_id) {
-                    PERSON_RETRIES
-                } else {
-                    0
-                },
+                retries: if waits_for_resume { PERSON_RETRIES } else { 0 },
                 held: held.contains(&prompt_id),
                 awaiting_owner,
                 revision,
