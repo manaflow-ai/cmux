@@ -56,7 +56,7 @@ from typing import Callable, Iterable
 
 SOURCE = "feat-cmux-next"
 TARGET = "nightly-next"
-FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 VERDICTS = "https://files-next.cmux.com/nightly-next/next/verdicts"
 TRAILER = "Nightly-Train: v1"
 REVERT_TRAILER = "Nightly-Train-Revert:"

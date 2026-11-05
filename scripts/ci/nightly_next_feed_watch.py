@@ -31,7 +31,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
+FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed, cmux NIGHTLY (hq#7156)
 CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # The compatibility appcast is the feed installed cmux NIGHTLY clients poll.
 # It is written only by the legacy-identity jobs, so a queued or failed signer

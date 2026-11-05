@@ -6,6 +6,7 @@ import type { TeamVmState } from "./domains/team-vm.ts"
 import { DriverError, type TeamVmDriver } from "./team-vm-driver.ts"
 import type { SqlStore } from "@cmux/ownership"
 import { checkProof, commitCommand, enrollCommand, EXEC_TIMEOUT_MS, parseProof, TeamVmBinds, vmEnvName } from "./team-vm-bind.ts"
+import { declared } from "./do-stub.ts"
 
 /** What one bind pass needs from TeamVmDO (and what tests replace). */
 export interface BindDeps {
@@ -29,7 +30,7 @@ const log = (msg: string, fields: Record<string, unknown>) => console.log(JSON.s
 
 /** The team's owner: the user whose UserDO holds the team VM's install (stable while members come and go). */
 const teamOwner = async (env: Env, team: string): Promise<string | null> => {
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { teamVmInstallOwner(entity: string): Promise<string | null> }
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
   return stub.teamVmInstallOwner(team)
 }
 
@@ -40,14 +41,14 @@ const teamOwner = async (env: Env, team: string): Promise<string | null> => {
  * same install.
  */
 const registerInstall = async (env: Env, a: { owner: string; team: string; epoch: number; vm: string; jwk: Jwk }): Promise<{ ok: true; id: string } | { ok: false; code: string }> => {
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(a.owner)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
+  const stub = declared(env.USER_DO.get(env.USER_DO.idFromName(a.owner)))
   const server: Principal = { identity: `system:team-vm:${a.team}`, kind: "system", user: a.owner, team: a.team, sso_team: a.team }
   const frame = {
-    t: "op",
+    t: "op" as const,
     op: "install.register_server",
     params: { public_jwk: a.jwk, kind: "team-vm", name: "Team VM", device_name: a.vm.slice(0, 80), platform: "linux", bound_team: a.team },
     idempotency_key: `team-vm-install:${a.team}:${a.epoch}:${a.jwk.x}`,
-    origin: "user"
+    origin: "user" as const
   }
   const r = await stub.submit(a.owner, server, frame).catch(() => null)
   const f = r?.frames.find((x: OwnerFrame) => x.t === "result" || x.t === "reject") as { t: string; value?: { id: string }; code?: string } | undefined
@@ -56,7 +57,7 @@ const registerInstall = async (env: Env, a: { owner: string; team: string; epoch
 }
 
 const revokeInstall = async (env: Env, a: { owner: string; team: string; install: string; why: string }): Promise<boolean> => {
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(a.owner)) as unknown as { revokeByTeam(e: string, team: string, install: string, by: string, key: string): Promise<{ ok: boolean; code?: string }> }
+  const stub = declared(env.USER_DO.get(env.USER_DO.idFromName(a.owner)))
   const r = await stub.revokeByTeam(a.owner, a.team, a.install, a.owner, `team-vm-revoke:${a.install}`).catch(() => ({ ok: false, code: "owner.unreachable" }))
   if (!r.ok && r.code === "selector.not_found") return true
   if (!r.ok) log("team vm install revoke failed", { team: a.team, install: a.install, why: a.why, code: r.code })

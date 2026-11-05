@@ -89,7 +89,7 @@ public struct CloudWorkPick: Equatable, Sendable {
         let ref = remoteBranch.flatMap { pushed && CloudMachineRepo.isRef($0) ? $0 : nil }
         // A local path remote (`../paint`, even `octo/paint`) has no key and names no GitHub repo.
         let key = remote.flatMap(repoKey)
-        let github = key == nil ? nil : remote.flatMap { try? CloudMachineRepo.parse($0) }
+        let github = key == nil ? nil : remote.flatMap { try? CloudMachineRepo.parse($0) }.flatMap { $0.isGitHub ? $0 : nil }
         return CloudWorkPick(
             root: root, repoKey: key, repo: github.map { CloudMachineRepo(owner: $0.owner, name: $0.name, ref: ref) },
             branch: branch, pushed: pushed, sizeMb: objects.flatMap(objectsMb), rootFiles: listing?.files ?? [],

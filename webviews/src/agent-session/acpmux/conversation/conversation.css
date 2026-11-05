@@ -575,38 +575,92 @@
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-/* A pasted block: the composer's attachment chip (composerAttachments.css, #23100) without its ×,
-   on its own line in 4px above and below (PASTE_CHIP_HEIGHT), the paste under it once opened. */
+/* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
+   Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
+   the composer's label; open, the same text runs whole above that label. Closed it is
+   pasteChipHeight (promptCollapse.ts): 4px around the card, 8px and 4px inside, a 20px label 4px
+   under the lines. */
 .cv-user__paste-block {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   padding: 4px 0;
 }
+.cv-user__paste-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 12px 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.cv-user__paste-card:not([data-open]):hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+.cv-user__paste-text {
+  align-self: stretch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-user__paste-card:not([data-open]) .cv-user__paste-text {
+  max-height: calc(var(--cv-line-height) * 3);
+  overflow: hidden;
+  color: color-mix(in srgb, currentColor 82%, transparent);
+  user-select: none;
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+}
+/* While the card slides shut (fold.ts playResize marks it data-fold-clip), its preview fills the
+   height the card has left, so the label rides the card's bottom edge up instead of jumping to its
+   closed place over empty space. */
+.cv-user__paste-card[data-fold-clip] {
+  box-sizing: border-box;
+}
+.cv-user__paste-card[data-fold-clip]:not([data-open]) .cv-user__paste-text {
+  flex: 1 1 0;
+  max-height: none;
+}
 .cv-user__paste {
-  --acpmux-attach-radius: 8px;
+  display: flex;
   flex: none;
+  align-items: center;
+  gap: 4px;
   max-width: 100%;
-  padding-right: 10px;
-  font: inherit;
+  height: 20px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--cv-text-muted);
+  font-family: var(--cv-font);
   font-size: var(--text-detail);
-  text-align: start;
+  line-height: 20px;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  user-select: none;
 }
 .cv-user__paste:hover {
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--agent-control));
+  color: var(--cv-text);
 }
 .cv-user__paste:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-.cv-user__paste-name {
+.cv-user__paste-name,
+.cv-user__paste-lines {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.cv-user__paste-text {
-  align-self: stretch;
-  margin-top: 4px;
-  white-space: pre-wrap;
+.cv-user__paste-name::after {
+  content: " · ";
+}
+.cv-user__paste-chevron {
+  flex: none;
+}
+.cv-user__paste-card[data-open] .cv-user__paste-chevron {
+  transform: rotate(180deg);
 }
 
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
@@ -2639,9 +2693,8 @@ button.cv-worked:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX, Debug toggle
-   agentPane.debug.liveThoughtViewport): a fixed viewport of seven lines, Codex's 8.75rem, that
-   keeps its newest line at the bottom while older lines fade out at its top over 16px. */
+/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX): a fixed viewport of seven
+   lines, Codex's 8.75rem, that keeps its newest line at the bottom while older lines fade out at its top over 16px. */
 .cv-thought.is-live .cv-thought__text {
   display: flex;
   flex-direction: column-reverse;
@@ -2650,8 +2703,7 @@ button.cv-worked:focus-visible {
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
   mask-image: linear-gradient(to bottom, transparent, black 16px);
 }
-/* A finished thought folded (ThoughtRow.tsx; Debug toggle agentPane.debug.foldLongThoughts): "Thought
-   for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
+/* A finished thought folded (ThoughtRow.tsx): "Thought for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
    trailing chevron. Opened, the text sits flush under the label (above); the reader's toggle
    animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {

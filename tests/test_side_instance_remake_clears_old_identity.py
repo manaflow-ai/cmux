@@ -121,6 +121,18 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual([p for p in state if not p.exists()], [])
         self.assertIn(f"bundle={first['bundle']}", (self.tmp / "side/pr-1/.side-instance").read_text())
 
+    def test_live_code_points_the_copy_at_its_own_live_folder(self):
+        nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
+        subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--live-code"], env=self.env,
+                       check=True, capture_output=True, text=True)
+        ident = dict(line.split("=", 1) for line in (self.tmp / "side/pr-1/.side-instance").read_text().splitlines())
+        env = plistlib.load(open(Path(ident["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"]
+        live = self.tmp / "side/pr-1/live-code"
+        self.assertEqual(env["CMUX_LIVE_CODE_DIR"], str(live.resolve()))
+        self.assertTrue(live.is_dir())
+        self.assertEqual(ident["live"], "1")
+        self.assertNotIn("CMUX_LIVE_CODE_DIR", plistlib.load(open(Path(self.make(nightly)["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"])
+
     def test_remove_clears_the_current_identity(self):
         ident = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))
         state = self.state_of(ident)

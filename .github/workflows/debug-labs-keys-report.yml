@@ -1,0 +1,113 @@
+name: Debug and Labs keys report
+
+# Leo, 2026-11-05, on the ranked list whose move 10 is "Flip or delete Debug/Labs flags after 7 days
+# (flips need Leo's OK)": "i meant can you do all of htem". Once a day, one issue lists every Debug
+# Settings toggle or choice and every Labs key in cmux NEXT older than a week, who added it, and its
+# case from scripts/debug-labs-keys.json (flip, delete or keep, with a why). Report only: it changes
+# no default. Scheduled workflows run only from the default branch, so main's
+# debug-labs-keys-dispatch.yml starts this one on feat-cmux-next.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: debug-labs-keys-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A key's age is the first commit that added it, so the report reads the whole history.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: List Debug and Labs keys older than a week
+        run: python3 scripts/report-debug-labs-keys.py --json > debug-labs-keys.json || true
+      - name: Open or update the Debug and Labs keys issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'debug-labs-keys';
+            const title = 'Debug and Labs keys older than a week';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            const issue = open.data[0];
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync('debug-labs-keys.json', 'utf8'));
+              if (!Array.isArray(report?.keys)) throw new Error(report?.error || 'expected a keys array');
+            } catch (error) {
+              const body = `The Debug and Labs key report failed at ${process.env.HEAD_SHA} (${runUrl}): ${error.message}.`;
+              core.warning(body);
+              if (issue) await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+              return;
+            }
+            // The owner is whoever opened the PR that added the key: one read per commit.
+            const owners = new Map();
+            for (const row of report.keys) {
+              if (owners.has(row.commit)) continue;
+              let found = '';
+              try {
+                const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: row.commit });
+                const pr = data.find(item => item.merged_at) || data[0];
+                if (pr) found = `${pr.user.login} (#${pr.number}, \`${pr.head.ref}\`)`;
+              } catch (error) {
+                core.warning(`owner of ${row.commit}: ${error.message}`);
+              }
+              owners.set(row.commit, found || (row.pr ? `${row.author} (#${row.pr})` : `${row.author} (${row.commit.slice(0, 10)})`));
+            }
+            const cell = text => String(text).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+            const table = rows => [
+              '| Key | Kind | Default | Added | Age | Owner | Case | Why |',
+              '| --- | --- | --- | --- | ---: | --- | --- | --- |',
+              ...rows.map(row => `| \`${row.key}\` | ${row.kind} | \`${cell(row.default)}\` | ${row.beforeHistory ? 'by ' : ''}${row.added} | ${row.ageDays}d | ${owners.get(row.commit)} | ${row.case || '**no case**'} | ${cell(row.why)} |`),
+            ].join('\n');
+            const act = report.keys.filter(row => row.case !== 'keep');
+            const kept = report.keys.filter(row => row.case === 'keep');
+            const stale = report.staleCases.length
+              ? `\n\nCases whose key is gone from the code (remove them from \`scripts/debug-labs-keys.json\`): ${report.staleCases.map(key => `\`${key}\``).join(', ')}.`
+              : '';
+            let body = [
+              `${report.keys.length} Debug Settings and Labs keys in cmux NEXT are older than ${report.minAgeDays} days, as of ${process.env.HEAD_SHA} (${runUrl}).`,
+              '',
+              'Each one gets a case in `scripts/debug-labs-keys.json`: flip it on, delete its code, or keep it with a reason. Flipping a default or deleting a switch needs Leo\'s word on that key. This issue is rewritten daily.',
+              '',
+              `### To decide (${act.length})`,
+              '',
+              table(act),
+              '',
+              `<details><summary>Kept with a reason (${kept.length})</summary>`,
+              '',
+              table(kept),
+              '',
+              '</details>',
+            ].join('\n') + stale;
+            // An issue body holds 65,536 characters; past that the kept table goes to the run log.
+            if (body.length > 65000) {
+              core.info(table(kept));
+              body = body.replace(table(kept), `The kept table is too long for the issue; it is in the run log (${runUrl}).`);
+            }
+            if (issue) {
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, body });
+              return;
+            }
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'c5def5', description: 'Debug and Labs keys older than a week' });
+            }
+            await github.rest.issues.create({ owner, repo, title, labels: [label], body });

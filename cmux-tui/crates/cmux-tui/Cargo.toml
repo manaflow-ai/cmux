@@ -66,6 +66,7 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-cloud-client.workspace = true
 cmux-cloud-environment.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
