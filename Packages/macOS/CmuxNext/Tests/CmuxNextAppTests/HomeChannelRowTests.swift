@@ -18,7 +18,7 @@ struct HomeChannelRowTests {
                               parts: [.text("hi")], createdAt: date)
         let summary = ConversationSummary(id: ConversationID(id), title: "Launch", participants: [mine] + others, lastSeq: unread,
                                           createdAt: date, updatedAt: date, lastMessage: message, declaredKind: .group,
-                                          channelChief: channelChief.map(ParticipantID.init))
+                                          channelChief: channelChief.map(ParticipantID.init(rawValue:)))
         var mirror = HomeMirror()
         _ = mirror.apply(inbox: InboxSnapshot(me: mine, conversations: [summary], rev: 1))
         return mirror.inboxRows(log: IntentLog())[0]
