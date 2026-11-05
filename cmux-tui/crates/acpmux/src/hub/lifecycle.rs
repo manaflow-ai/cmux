@@ -240,9 +240,12 @@ impl Hub {
         // (`remote_cwd.rs`). Creation only: an existing session's respawn is never re-checked, and
         // the trigger bridge's fixed-id chats (`server/trigger_chat.rs`) keep their own folder rule.
         super::remote_cwd::admit_new(
-            super::remote_cwd::NewSession { remote, trigger: fixed_id.is_some(), kind: profile.kind },
+            super::remote_cwd::NewSession {
+                remote,
+                trigger: fixed_id.is_some(),
+                kind: profile.kind,
+            },
             &cwd,
-            dirs::home_dir().as_deref(),
             &std::env::temp_dir(),
         )?;
         let mut meta = draft_meta(Draft {
