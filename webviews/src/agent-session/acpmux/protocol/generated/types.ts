@@ -998,7 +998,8 @@ export type SessionDetail = {
   /**
    * Its agent is being started (a start, a wake or a mode change holds the session's spawn
    * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
-   * waits on it as on a turn. Absent otherwise, and from a peer on an older acpmux.
+   * waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+   * which an update reads by its row's age instead.
    */
   starting?: boolean;
   /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
@@ -1235,7 +1236,8 @@ export type SessionSummary = {
   /**
    * Its agent is being started (a start, a wake or a mode change holds the session's spawn
    * lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
-   * waits on it as on a turn. Absent otherwise, and from a peer on an older acpmux.
+   * waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+   * which an update reads by its row's age instead.
    */
   starting?: boolean;
   /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */

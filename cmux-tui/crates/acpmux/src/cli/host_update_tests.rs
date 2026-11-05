@@ -97,6 +97,14 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "started", "status": "ready", "turn": null, "starting": false},
     ]});
     assert_eq!(busy_sessions(&starting.to_string(), None), Some(vec!["starting".into()]));
+    // An older acpmux sends no `starting`: a session it just made may be starting; a long-idle one
+    // is not.
+    let now = crate::store::now_ms();
+    let older = json!({"sessions": [
+        {"name": "just-made", "status": "idle", "turn": null, "createdAt": now, "updatedAt": now},
+        {"name": "long-idle", "status": "ready", "turn": null, "createdAt": 1, "updatedAt": 1},
+    ]});
+    assert_eq!(busy_sessions(&older.to_string(), None), Some(vec!["just-made".into()]));
     assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
     assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(

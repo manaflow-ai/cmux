@@ -4553,7 +4553,8 @@
           ]
         },
         "starting": {
-          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Absent otherwise, and from a peer on an older acpmux.",
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
           "type": "boolean"
         },
         "state": {
@@ -5103,7 +5104,8 @@
           ]
         },
         "starting": {
-          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Absent otherwise, and from a peer on an older acpmux.",
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
           "type": "boolean"
         },
         "state": {
