@@ -106,8 +106,16 @@ pub struct Paired {
     /// machine credential a pasted join line gives (`acpmux host join`).
     /// Read from the paired frame only: never written to the identity file or
     /// any public output.
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing, deserialize_with = "lenient_machine_join")]
     pub machine_join: Option<MachineJoin>,
+}
+
+/// A `machine_join` of the wrong shape reads as none: it never fails the pairing.
+fn lenient_machine_join<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<MachineJoin>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| serde_json::from_value::<MachineJoin>(v).ok()))
 }
 
 /// A single-use `cmj_` join token minted for the approver (the backend's
@@ -133,7 +141,8 @@ impl MachineJoin {
     /// The platform's `cmj_` shape (MachineJoin.ts JoinToken).
     pub fn well_formed(&self) -> bool {
         self.token.strip_prefix("cmj_").is_some_and(|tail| {
-            (16..=4096).contains(&tail.len())
+            // acpmux's own cap is 512 bytes for the whole token (cloud_join.rs MAX_TOKEN_BYTES).
+            (16..=508).contains(&tail.len())
                 && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
     }

@@ -134,4 +134,16 @@ fn a_paired_frame_carries_the_machine_join_token_privately_and_drops_a_malformed
         panic!("not paired")
     };
     assert_eq!(paired.machine_join, None);
+    // A field of the wrong type, or a token past acpmux's 512-byte cap, reads as none too.
+    for join in [
+        r#"{"token":7,"expires_at":42}"#.to_owned(),
+        r#"{"token":"cmj_aaaaaaaaaaaaaaaaaaaa"}"#.to_owned(),
+        r#""nope""#.to_owned(),
+        format!(r#"{{"token":"cmj_{}","expires_at":42}}"#, "a".repeat(509)),
+    ] {
+        let Some(Waited::Paired(paired)) = read_frame(&frame(&join)).unwrap() else {
+            panic!("not paired: {join}")
+        };
+        assert_eq!(paired.machine_join, None, "{join}");
+    }
 }
