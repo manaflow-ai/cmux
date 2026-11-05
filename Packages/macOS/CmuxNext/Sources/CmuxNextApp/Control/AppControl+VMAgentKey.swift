@@ -16,50 +16,45 @@ extension AppControl {
         service?.router.register([
             ControlMethod.async("vm.agent_key.create") { call in
                 let issuer = try await Self.vmIssuer(services)
-                let body = try ControlMethod.vmAgentKeyRequest(call.params)
-                var request = URLRequest(url: issuer.baseURL.appendingPathComponent("v1/agent-keys"))
+                let planned = try Self.vmAgentKeyRequest(backend: issuer.backend, params: call.params)
+                // A runtime selection names its own VM API; else the one Rust names for the backend.
+                guard let baseURL = issuer.vmOrigin ?? URL(string: planned.baseUrl),
+                      let url = issuer.vmOrigin.map({ $0.appendingPathComponent(planned.path) }) ?? URL(string: planned.url)
+                else {
+                    throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
+                }
+                var request = URLRequest(url: url)
                 request.httpMethod = "POST"
-                request.timeoutInterval = 20
+                // timeout: a VM API that never answers; the CLI waits on this call (Rust's 20 s, as before).
+                request.timeoutInterval = TimeInterval(planned.timeoutSeconds)
                 request.setValue("application/json", forHTTPHeaderField: "content-type")
                 request.setValue("Bearer \(issuer.accessToken)", forHTTPHeaderField: "authorization")
                 request.setValue(issuer.teamID, forHTTPHeaderField: "x-cmux-team-id")
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                let data: Data
-                let response: URLResponse
-                do {
-                    (data, response) = try await URLSession.shared.data(for: request)
-                } catch {
-                    throw ControlError(code: "unavailable", message: Self.vmText(.unreachable))
-                }
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                let answer = try? JSONValue.parse(data)
-                guard (200..<300).contains(status), case .object(var fields)? = answer, fields["key"]?.stringValue != nil else {
-                    throw Self.vmAgentKeyError(status: status, answer: answer)
-                }
-                // Where the key works, so the CLI stores it with its own base URL and team.
-                fields["baseUrl"] = .string(issuer.baseURL.absoluteString)
-                fields["teamId"] = .string(issuer.teamID)
-                return .object(fields)
+                request.httpBody = try JSONEncoder().encode(planned.body)
+                // No answer at all is status 0, which Rust reads as unreachable.
+                let answer = try? await URLSession.shared.data(for: request)
+                let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+                return try Self.vmAgentKeyAnswer(status: status, body: answer?.0 ?? Data(), baseURL: baseURL, teamID: issuer.teamID)
             }.withDeadline(.fixed(.seconds(25))),
         ])
     }
 
     struct VMIssuer: Sendable {
-        var baseURL: URL
+        var backend: CloudConfiguration.Backend
+        /// The runtime selection's VM API, which wins over the backend's.
+        var vmOrigin: URL?
         var teamID: String
         var accessToken: String
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
-        let (cloud, baseURL) = try await MainActor.run { () throws -> (CloudService, URL) in
+        let (cloud, backend, vmOrigin) = try await MainActor.run { () throws -> (CloudService, CloudConfiguration.Backend, URL?) in
             if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
-            guard let baseURL = services.cloud.configuration.runtimeSelection?.vmOrigin ?? Self.vmBaseURL(services.cloud.configuration.backend) else {
-                throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
-            }
-            return (services.cloud, baseURL)
+            let configuration = services.cloud.configuration
+            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin)
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
@@ -70,29 +65,85 @@ extension AppControl {
         } catch {
             throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn))
         }
-        return VMIssuer(baseURL: baseURL, teamID: teamID, accessToken: access)
+        return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access)
     }
 
-    /// The cmux VM API for this build's Cloud: production's for production, staging's for a
-    /// development stack. There is no override: the app sends its Stack session only there.
-    nonisolated static func vmBaseURL(_ backend: CloudConfiguration.Backend) -> URL? {
-        switch backend {
-        case .production: return URL(string: "https://vm.cmux.dev")
-        case .development, .localOnly: return URL(string: "https://vm-staging.cmux.dev")
-        }
+    // The mint's rules are Rust's (cmux-cloud-config agent_key, the same ones `cmux vm token
+    // create` links), asked over the app FFI's JSON channel: the body and its limits, the VM API
+    // for the backend, and how the answer reads. The app only does the HTTP call.
+
+    struct VMAgentKeyPlan: Decodable {
+        var url: String
+        var baseUrl: String
+        var body: JSONValue
+        var timeoutSeconds: Int
+
+        /// The mint's path under a VM API: `url` past `baseUrl`.
+        var path: String { String(url.dropFirst(baseUrl.count + 1)) }
     }
 
-    /// A refusal from the cmux VM API as this socket's error. The key is never in it.
-    nonisolated static func vmAgentKeyError(status: Int, answer: JSONValue?) -> ControlError {
-        let message = answer?["message"]?.stringValue.map { String($0.prefix(300)) } ?? "HTTP \(status)"
-        switch status {
-        case 401: return ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn))
-        case 402: return ControlError(code: "plan_required", message: message)
-        case 403: return ControlError(code: "forbidden", message: message)
-        case 400: return ControlError(code: "invalid_params", message: message)
-        case 429: return ControlError(code: "rate_limited", message: message)
-        default: return ControlError(code: "unavailable", message: message, data: .object(["status": .number(Double(status))]))
+    struct VMAgentKeyRefusal: Decodable {
+        var code: String
+        var message: String
+        var status: Int?
+        var appText: String?
+    }
+
+    /// The request body and the VM API for `backend`, or the refusal of a bad limit.
+    nonisolated static func vmAgentKeyRequest(backend: CloudConfiguration.Backend, params: [String: JSONValue]) throws -> VMAgentKeyPlan {
+        struct Request: Encodable {
+            var backend: [String: String]
+            var params: [String: JSONValue]
         }
+        struct Reply: Decodable {
+            var request: VMAgentKeyPlan?
+            var refusal: VMAgentKeyRefusal?
+        }
+        let wire: [String: String] = switch backend {
+        case .production: ["kind": "production"]
+        case let .development(url): ["kind": "development", "url": url.absoluteString]
+        case let .localOnly(url): ["kind": "localOnly", "url": url.absoluteString]
+        }
+        let reply = CloudStartCore().call("cloud_vm_agent_key_request", Request(backend: wire, params: params), as: Reply.self)
+        if let plan = reply?.request { return plan }
+        throw reply?.refusal.map(vmAgentKeyError) ?? vmRulesUnavailable
+    }
+
+    /// The VM API's answer (`status` 0: none) as the socket's result: its fields plus `baseUrl`
+    /// and `teamId`, so the CLI stores the key with the service and team it works at.
+    nonisolated static func vmAgentKeyAnswer(status: Int, body: Data, baseURL: URL, teamID: String) throws -> JSONValue {
+        struct Request: Encodable {
+            var status: Int
+            var body: String
+            var baseUrl: String
+            var teamId: String
+        }
+        struct Reply: Decodable {
+            var result: JSONValue?
+            var refusal: VMAgentKeyRefusal?
+        }
+        let request = Request(status: status, body: String(decoding: body, as: UTF8.self), baseUrl: baseURL.absoluteString, teamId: teamID)
+        // A VM API answer is small; 64 KiB fits one without a retry.
+        guard let data = try? JSONEncoder().encode(request),
+              let replyData = CloudStartCore().callData("cloud_vm_agent_key_answer", data, startingCapacity: 1 << 16),
+              let reply = try? JSONDecoder().decode(Reply.self, from: replyData)
+        else { throw vmRulesUnavailable }
+        if let result = reply.result { return result }
+        throw reply.refusal.map(vmAgentKeyError) ?? vmRulesUnavailable
+    }
+
+    /// A refusal as this socket's error, in the app's own words where Rust names them. The key is never in it.
+    nonisolated static func vmAgentKeyError(_ refusal: VMAgentKeyRefusal) -> ControlError {
+        let message = switch refusal.appText {
+        case "notSignedIn": Self.vmText(.notSignedIn)
+        case "unreachable": Self.vmText(.unreachable)
+        default: refusal.message
+        }
+        return ControlError(code: refusal.code, message: message, data: refusal.status.map { .object(["status": JSONValue($0)]) })
+    }
+
+    nonisolated static var vmRulesUnavailable: ControlError {
+        ControlError(code: "internal", message: "the app's cmux VM rules did not answer")
     }
 
     enum VMText { case notSignedIn, noTeam, unreachable, cloudUnavailable }

@@ -5314,7 +5314,6 @@ CmuxNextControl	extension	ControlMethod	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextControl	extension	ControlMethod	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	from struct AuthTokenGrant:7: Auth token grant/refusal handling for control method
 CmuxNextControl	struct	AuthTokenGrant	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	Auth token grant/refusal handling for control method
 CmuxNextControl	struct	AuthTokenRefusal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+AuthToken.swift	from struct AuthTokenGrant:7: Auth token grant/refusal handling for control method
-CmuxNextControl	extension	ControlMethod	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod+VMAgentKey.swift	VM agent key request passthrough
 CmuxNextControl	enum	ControlReply	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	from struct ControlMethod:23: Control method table: lanes, bodies, deadline policy
 CmuxNextControl	struct	ControlCall	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	from struct ControlMethod:23: Control method table: lanes, bodies, deadline policy
 CmuxNextControl	struct	ControlMethod	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlMethod.swift	Control method table: lanes, bodies, deadline policy
