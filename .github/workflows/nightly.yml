@@ -3551,7 +3551,8 @@ jobs:
         run: bash .nightly-signing-control/scripts/ci/signing-runner-claim.sh
 
       # Before any secret: a newer nightly-next run whose sign job is already queued, running or
-      # signed takes this slot (cmuxterm-hq#7079); the newest never yields. scripts/ci/nightly_sign_yield.py.
+      # signed takes this slot (cmuxterm-hq#7079); the newest never yields, and neither does the newest landing that
+      # has waited 30 min unpublished (Leo, 2026-11-05). scripts/ci/nightly_sign_yield.py.
       - name: Yield the sign slot to a newer build
         id: sign-yield
         env:
