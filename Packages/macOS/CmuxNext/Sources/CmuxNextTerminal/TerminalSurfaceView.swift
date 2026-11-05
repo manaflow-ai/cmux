@@ -427,11 +427,14 @@ public final class TerminalSurfaceView: NSView {
     /// Turns the reflow preview on while the owner applies this view's grid.
     /// Until the owner announces the view's grid, Ghostty draws the locked
     /// grid reflowed to the view's grid (render only); a view whose grid the
-    /// owner does not apply draws the locked grid, cropped or padded.
+    /// owner does not apply draws the locked grid, cropped or padded. In a key
+    /// resize whose host follows its pane with `motion.frameOwner.terminals`
+    /// on, it stays on in every frame (``TerminalGridPolicy/previewsViewGrid(followingPane:)``).
     /// `reporting`: this call reports a new grid to the owner.
-    func updateReflowPreview(reporting: Bool = false) {
+    func updateReflowPreview(reporting: Bool = false) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         guard let surface else { return }
-        let enabled = geometry.ownsGeometry && geometry.previewsViewGrid
+        let followingPane = (superview as? TerminalHostView)?.surfaceFollowsArea ?? false
+        let enabled = geometry.ownsGeometry && geometry.previewsViewGrid(followingPane: followingPane)
             && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled

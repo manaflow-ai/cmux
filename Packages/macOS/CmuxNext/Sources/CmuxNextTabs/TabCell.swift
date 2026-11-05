@@ -344,7 +344,7 @@ final class TabCell {
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
-            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
+            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
         }
         applyCloseColors()

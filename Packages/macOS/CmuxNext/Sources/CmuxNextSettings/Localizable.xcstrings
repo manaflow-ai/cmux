@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.cloud.useMyCodexLogin": {
+      "comment": "Settings toggle: use the Codex sign-in on this Mac for the person's own Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Use My Codex Login on My Own Cloud Machines"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "استخدام تسجيل دخول Codex الخاص بي على أجهزة Cloud الخاصة بي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Koristi moju Codex prijavu na mojim Cloud mašinama"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug mit Codex-login på mine egne Cloud-maskiner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mein Codex-Login auf meinen eigenen Cloud-Maschinen verwenden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usar mi inicio de sesión de Codex en mis propias máquinas Cloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utiliser ma connexion Codex sur mes propres machines Cloud"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa il mio accesso Codex sulle mie macchine Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分の Cloud マシンで自分の Codex ログインを使用"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើការចូល Codex របស់ខ្ញុំលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 Cloud 머신에서 내 Codex 로그인 사용"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk Codex-påloggingen min på mine egne Cloud-maskiner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Używaj mojego logowania Codex na moich maszynach Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usar meu login do Codex nas minhas próprias máquinas Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использовать мой вход в Codex на моих машинах Cloud"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้การเข้าสู่ระบบ Codex ของฉันบนเครื่อง Cloud ของฉันเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kendi Cloud makinelerimde Codex oturumumu kullan"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовувати мій вхід у Codex на моїх машинах Cloud"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng đăng nhập Codex của tôi trên máy Cloud của riêng tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 机器上使用我的 Codex 登录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 機器上使用我的 Codex 登入"}}
+      }
+    },
+    "settings.cloud.useMyCodexLogin.help": {
+      "comment": "Help text for the Codex sign-in toggle for Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمنح أجهزة Cloud التي تملكها وصولاً قصير الأمد من تسجيل دخول Codex على هذا الـ Mac، فتبدأ محادثاتها مسجّلة الدخول. لا يحصل الجهاز أبداً على رمز التحديث الخاص بك، ولا يخزّنه cmux أبداً. عند الإيقاف: يطلب الجهاز تسجيل دخول Codex بدلاً من ذلك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Daje Cloud mašinama koje posjeduješ kratkotrajan pristup iz Codex prijave na ovom Macu, pa njihovi chatovi počinju prijavljeni. Mašina nikad ne dobija tvoj refresh token, a cmux ga nikad ne čuva. Isključeno: mašina umjesto toga traži Codex prijavu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Giver Cloud-maskiner, du ejer, kortvarig adgang fra Codex-loginet på denne Mac, så deres chats starter logget ind. Maskinen får aldrig dit refresh-token, og cmux gemmer det aldrig. Fra: en maskine beder i stedet om et Codex-login."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gibt Cloud-Maschinen, die dir gehören, kurzlebigen Zugriff aus dem Codex-Login dieses Macs, sodass ihre Chats angemeldet starten. Die Maschine erhält nie dein Refresh-Token, und cmux speichert es nie. Aus: Eine Maschine fragt stattdessen nach einer Codex-Anmeldung."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Da a las máquinas Cloud que te pertenecen acceso de corta duración desde el inicio de sesión de Codex de este Mac, para que sus chats empiecen con la sesión iniciada. La máquina nunca recibe tu token de actualización y cmux nunca lo guarda. Desactivado: la máquina pide iniciar sesión en Codex."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Donne aux machines Cloud qui vous appartiennent un accès de courte durée depuis la connexion Codex de ce Mac, pour que leurs chats démarrent connectés. La machine ne reçoit jamais votre jeton d’actualisation, et cmux ne le stocke jamais. Désactivé : une machine demande plutôt une connexion Codex."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dà alle macchine Cloud di tua proprietà un accesso di breve durata dall’accesso Codex di questo Mac, così le loro chat partono già connesse. La macchina non riceve mai il tuo refresh token e cmux non lo salva mai. Disattivato: la macchina chiede invece un accesso a Codex."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac の Codex サインインから、自分の Cloud マシンに短期間のアクセスを渡し、チャットがサインイン済みで始まるようにします。マシンがリフレッシュトークンを受け取ることはなく、cmux が保存することもありません。オフ: マシンは代わりに Codex へのサインインを求めます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្តល់ការចូលប្រើរយៈពេលខ្លីពីការចូល Codex លើ Mac នេះ ទៅម៉ាស៊ីន Cloud ដែលអ្នកជាម្ចាស់ ដូច្នេះការជជែករបស់វាចាប់ផ្តើមដោយបានចូលរួចហើយ។ ម៉ាស៊ីនមិនដែលទទួលបាន refresh token របស់អ្នកទេ ហើយ cmux មិនដែលរក្សាទុកវាទេ។ បិទ៖ ម៉ាស៊ីនស្នើឱ្យចូល Codex ជំនួសវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac의 Codex 로그인으로 내가 소유한 Cloud 머신에 단기 액세스를 제공해 채팅이 로그인된 상태로 시작되게 합니다. 머신은 새로 고침 토큰을 절대 받지 않으며 cmux도 저장하지 않습니다. 끄면: 머신이 대신 Codex 로그인을 요청합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gir Cloud-maskiner du eier kortvarig tilgang fra Codex-påloggingen på denne Macen, så chattene deres starter pålogget. Maskinen får aldri refresh-tokenet ditt, og cmux lagrer det aldri. Av: en maskin ber om Codex-pålogging i stedet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Daje maszynom Cloud, których jesteś właścicielem, krótkotrwały dostęp z logowania Codex na tym Macu, więc ich czaty startują zalogowane. Maszyna nigdy nie dostaje twojego tokenu odświeżania, a cmux nigdy go nie przechowuje. Wyłączone: maszyna prosi zamiast tego o logowanie do Codex."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dá às máquinas Cloud que você possui acesso de curta duração a partir do login do Codex neste Mac, para que os chats delas comecem conectados. A máquina nunca recebe seu token de atualização, e o cmux nunca o armazena. Desativado: a máquina pede um login do Codex."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Даёт вашим машинам Cloud краткосрочный доступ из входа в Codex на этом Mac, чтобы их чаты начинались с выполненным входом. Машина никогда не получает ваш refresh-токен, и cmux никогда его не хранит. Выкл.: машина вместо этого просит войти в Codex."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ให้เครื่อง Cloud ที่คุณเป็นเจ้าของได้รับสิทธิ์เข้าถึงระยะสั้นจากการเข้าสู่ระบบ Codex บน Mac เครื่องนี้ เพื่อให้แชทเริ่มต้นโดยเข้าสู่ระบบแล้ว เครื่องจะไม่ได้รับโทเค็นรีเฟรชของคุณ และ cmux ไม่เคยจัดเก็บโทเค็นนี้ ปิด: เครื่องจะขอให้เข้าสู่ระบบ Codex แทน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sahibi olduğun Cloud makinelerine bu Mac'teki Codex oturumundan kısa süreli erişim verir, böylece sohbetleri oturum açık başlar. Makine yenileme token'ını asla almaz ve cmux onu asla saklamaz. Kapalı: makine bunun yerine Codex oturumu ister."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надає вашим машинам Cloud короткочасний доступ із входу в Codex на цьому Mac, щоб їхні чати починалися з виконаним входом. Машина ніколи не отримує ваш refresh-токен, і cmux ніколи його не зберігає. Вимкнено: машина натомість просить увійти в Codex."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cấp cho máy Cloud bạn sở hữu quyền truy cập ngắn hạn từ đăng nhập Codex trên máy Mac này, để các cuộc trò chuyện của nó bắt đầu khi đã đăng nhập. Máy không bao giờ nhận refresh token của bạn và cmux không bao giờ lưu nó. Tắt: máy sẽ yêu cầu đăng nhập Codex."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "用这台 Mac 上的 Codex 登录，为你拥有的 Cloud 机器提供短期访问权限，让它们的聊天一开始就已登录。机器永远拿不到你的刷新令牌，cmux 也从不存储它。关闭：机器会改为要求登录 Codex。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "用這台 Mac 上的 Codex 登入，為你擁有的 Cloud 機器提供短期存取權，讓它們的聊天一開始就已登入。機器永遠拿不到你的重新整理權杖，cmux 也從不儲存它。關閉：機器會改為要求登入 Codex。"}}
+      }
+    },
     "settings.agentPane.display.commandLabels": {
       "comment": "Settings > Appearance > Agent Chat > Command Labels (cmux-next.json only): the title of the command label rules",
       "extractionState": "manual",
@@ -29123,27 +29177,27 @@
     "settings.layout.paneCornerRadius.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインとタブに共通の半径です。ペイン内の図形はこの半径から角のパディングを引いた値を使います。"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر واحد للأجزاء وعلامات التبويب. تستخدم الأشكال داخل الجزء هذا النصف مطروحًا منه حشوة الزاوية."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedan radijus za panele i kartice. Oblici unutar panela koriste ovaj radijus umanjen za razmak uglova."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruder og faner. Former i en rude bruger denne radius minus hjørneafstanden."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Radius für Bereiche und Tabs. Formen in einem Bereich nutzen diesen Radius minus den Eckabstand."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Un radio para paneles y pestañas. Las formas dentro de un panel usan este radio menos el margen de esquina."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Un seul rayon pour les volets et les onglets. Les formes d'un volet utilisent ce rayon moins la marge des coins."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Un raggio per pannelli e schede. Le forme in un pannello usano questo raggio meno la spaziatura degli angoli."}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "កាំតែមួយសម្រាប់ផ្ទាំង និងផ្ទាំងរង។ រូបរាងក្នុងផ្ទាំងប្រើកាំនេះដកគម្លាតជ្រុង។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "창과 탭에 쓰는 하나의 반경입니다. 창 안의 도형은 이 반경에서 모서리 여백을 뺀 값을 씁니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruter og faner. Former i en rute bruker denne radiusen minus hjørneavstanden."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden promień dla paneli i kart. Kształty w panelu używają tego promienia minus odstęp narożnika."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um raio para painéis e abas. As formas dentro de um painel usam este raio menos o espaçamento do canto."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Один радиус для панелей и вкладок. Фигуры внутри панели используют этот радиус минус отступ углов."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีเดียวสำหรับบานหน้าต่างและแท็บ รูปทรงในบานหน้าต่างใช้รัศมีนี้ลบระยะห่างมุม"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölmeler ve sekmeler için tek yarıçap. Bölme içindeki şekiller bu yarıçaptan köşe boşluğunu çıkarır."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Один радіус для панелей і вкладок. Фігури всередині панелі використовують цей радіус мінус відступ кутів."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Một bán kính cho ô và thẻ. Hình bên trong ô dùng bán kính này trừ khoảng đệm góc."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格和标签页共用一个半径。窗格内的形状使用此半径减去圆角内边距。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格與分頁共用一個半徑。窗格內的形狀使用此半徑減去圓角內距。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペイン、タブ、パネル、ポップオーバー、カード、トーストに共通の半径です。内側の図形はこの半径から角のパディングを引いた値を使います。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر واحد للأجزاء وعلامات التبويب واللوحات والنوافذ المنبثقة والبطاقات والإشعارات. تستخدم الأشكال داخلها هذا النصف مطروحًا منه حشوة الزاوية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedan radijus za panele, kartice, ploče, iskačuće prozore, kartone i obavijesti. Oblici unutar njih koriste ovaj radijus umanjen za razmak uglova."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruder, faner, paneler, popovere, kort og toasts. Former i dem bruger denne radius minus hjørneafstanden."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Radius für Bereiche, Tabs, Panels, Popover, Karten und Hinweise. Formen darin nutzen diesen Radius minus den Eckabstand."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un radio para paneles, pestañas, paneles flotantes, ventanas emergentes, tarjetas y avisos. Las formas dentro de ellos usan este radio menos el margen de esquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un seul rayon pour les volets, onglets, panneaux, popovers, cartes et notifications. Les formes qu'ils contiennent utilisent ce rayon moins la marge des coins."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un raggio per pannelli, schede, riquadri, popover, card e notifiche. Le forme al loro interno usano questo raggio meno la spaziatura degli angoli."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំតែមួយសម្រាប់ផ្ទាំង ផ្ទាំងរង បន្ទះ ផ្ទាំងលេចឡើង កាត និងសារជូនដំណឹង។ រូបរាងខាងក្នុងប្រើកាំនេះដកគម្លាតជ្រុង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창, 탭, 패널, 팝오버, 카드, 토스트에 쓰는 하나의 반경입니다. 그 안의 도형은 이 반경에서 모서리 여백을 뺀 값을 씁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruter, faner, paneler, popovere, kort og varsler. Former i dem bruker denne radiusen minus hjørneavstanden."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden promień dla paneli, kart, okien, dymków, kafelków i powiadomień. Kształty w nich używają tego promienia minus odstęp narożnika."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um raio para painéis, abas, painéis flutuantes, popovers, cartões e avisos. As formas dentro deles usam este raio menos o espaçamento do canto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Один радиус для панелей, вкладок, плавающих панелей, всплывающих окон, карточек и уведомлений. Фигуры внутри них используют этот радиус минус отступ углов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีเดียวสำหรับบานหน้าต่าง แท็บ แผง ป๊อปโอเวอร์ การ์ด และการแจ้งเตือน รูปทรงด้านในใช้รัศมีนี้ลบระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölmeler, sekmeler, paneller, açılır pencereler, kartlar ve bildirimler için tek yarıçap. İçlerindeki şekiller bu yarıçaptan köşe boşluğunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Один радіус для панелей, вкладок, плаваючих панелей, спливних вікон, карток і сповіщень. Фігури всередині них використовують цей радіус мінус відступ кутів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Một bán kính cho ô, thẻ, bảng, cửa sổ bật lên, thẻ nội dung và thông báo. Hình bên trong dùng bán kính này trừ khoảng đệm góc."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格、标签页、面板、弹出框、卡片和提示共用一个半径。其中的形状使用此半径减去圆角内边距。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格、分頁、面板、彈出框、卡片與提示共用一個半徑。其中的形狀使用此半徑減去圓角內距。"}}
       }
     },
     "settings.layout.cornerPadding.help": {
@@ -158750,6 +158804,1458 @@
         }
       }
     },
+    "settings.agentPane.display.uiFont": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Interface Font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط واجهة الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font sučelja chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttype for chatgrænseflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schrift der Chat-Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuente de la interfaz del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Police de l’interface du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font dell’interfaccia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのインターフェイスフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរចំណុចប្រទាក់ជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 인터페이스 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrift for chatgrensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka interfejsu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonte da interface do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт интерфейса чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Arayüzü Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт інтерфейсу чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ giao diện trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天界面字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天介面字體"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontInterTuned": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Inter (default)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (افتراضي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Zadano)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Predeterminado)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Par défaut)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Predefinito)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (デフォルト)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (លំនាំដើម)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (기본값)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Standard)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Domyślne)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Padrão)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (По умолчанию)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (ค่าเริ่มต้น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Varsayılan)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Типово)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (Mặc định)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (默认)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Inter (預設)"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontInter": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inter"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontVerdana": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdana"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontRoboto": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roboto"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontPlex": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IBM Plex Sans"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontSourceSans": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Sans 3"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontGeist": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geist"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontSystemUi": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontSystemUiTight": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System, tight"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النظام، متقارب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemski, zbijen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, tæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, eng"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, ajustada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Système, serré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, stretto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システム（詰め）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រព័ន្ធ, តឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 (좁게)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "System, tett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemowa, ciasna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistema, justa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системный, плотный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบ แบบชิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem, sıkı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системний, щільний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hệ thống, khít"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系统（紧凑）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系統（緊湊）"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.uiFont.help": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui), its help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of the whole chat: replies, the composer, cards and menus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط الدردشة كلها: الردود والمحرر والبطاقات والقوائم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font cijelog chata: odgovori, polje za pisanje, kartice i meniji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypen i hele chatten: svar, skrivefeltet, kort og menuer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Schrift des ganzen Chats: Antworten, Eingabefeld, Karten und Menüs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fuente de todo el chat: respuestas, el editor, tarjetas y menús."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La police de tout le chat : réponses, zone de saisie, cartes et menus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il font dell’intera chat: risposte, compositore, schede e menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャット全体のフォント：返信、入力欄、カード、メニュー。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សររបស់ការជជែកទាំងមូល៖ ចម្លើយ កន្លែងសរសេរ កាត និងម៉ឺនុយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 전체의 글꼴: 답변, 작성창, 카드, 메뉴."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriften i hele chatten: svar, skrivefeltet, kort og menyer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka całego czatu: odpowiedzi, pole pisania, karty i menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fonte de todo o chat: respostas, o editor, cartões e menus."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт всего чата: ответы, поле ввода, карточки и меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรของแชททั้งหมด: คำตอบ ช่องพิมพ์ การ์ด และเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm sohbetin yazı tipi: yanıtlar, yazma alanı, kartlar ve menüler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт усього чату: відповіді, поле введення, картки й меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ của toàn bộ cuộc trò chuyện: câu trả lời, ô soạn, thẻ và menu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整个聊天的字体：回复、输入框、卡片和菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整個聊天的字體：回覆、輸入框、卡片和選單。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.fontSize": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -177934,6 +179440,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新：進階"
+          }
+        }
+      }
+    },
+    "settings.updates.liveWebReload": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تحميل الويب المباشرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uživo ponovno učitavanje weba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live genindlæsning af web"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Web-Neuladen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Web Reload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recarga web en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechargement web en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ricaricamento web dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web のライブリロード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទុកវេបឡើងវិញផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 실시간 다시 로드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte nettinnlasting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeładowanie weba na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recarga web ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живая перезагрузка веба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีโหลดเว็บแบบสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı Web Yenileme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живе перезавантаження вебу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tải lại web trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网页实时重载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網頁即時重新載入"
+          }
+        }
+      }
+    },
+    "settings.updates.liveWebReload.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تظهر تعديلاتك على واجهة الويب في cmux من نسختك الخاصة في هذا التطبيق فور الحفظ، دون بناء أو إعادة تشغيل. ابدأ بالأمر scripts/cmux-next/web-overlay.sh server --local. عند الإيقاف: يتجاهل cmux الملف ~/.config/cmux/web-dev.json ويعرض واجهة الويب التي شُحن بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izmjene web sučelja cmuxa iz vaše kopije pojavljuju se u ovoj aplikaciji čim sačuvate, bez buildanja i ponovnog pokretanja. Pokrenite s scripts/cmux-next/web-overlay.sh server --local. Isključeno: cmux zanemaruje ~/.config/cmux/web-dev.json i prikazuje web sučelje s kojim je isporučen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændringer i cmux' webbrugerflade fra din egen checkout vises i appen, så snart du gemmer, uden build og genstart. Start med scripts/cmux-next/web-overlay.sh server --local. Fra: cmux ignorerer ~/.config/cmux/web-dev.json og viser den webbrugerflade, den blev leveret med."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Änderungen an der Web-UI von cmux aus deinem eigenen Checkout erscheinen beim Speichern in dieser App, ohne Build und ohne Neustart. Starte es mit scripts/cmux-next/web-overlay.sh server --local. Aus: cmux ignoriert ~/.config/cmux/web-dev.json und zeigt die mitgelieferte Web-UI."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los cambios en la interfaz web de cmux desde tu propia copia aparecen en esta app al guardar, sin compilar ni reiniciar. Empieza con scripts/cmux-next/web-overlay.sh server --local. Desactivado: cmux ignora ~/.config/cmux/web-dev.json y muestra la interfaz web con la que se distribuyó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les modifications de l'interface web de cmux faites dans votre propre copie apparaissent dans cette app dès l'enregistrement, sans build ni relance. Lancez-le avec scripts/cmux-next/web-overlay.sh server --local. Désactivé : cmux ignore ~/.config/cmux/web-dev.json et affiche l'interface web livrée avec l'app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modifiche all'interfaccia web di cmux dalla tua copia compaiono in questa app appena salvi, senza build e senza riavvio. Avvialo con scripts/cmux-next/web-overlay.sh server --local. Disattivato: cmux ignora ~/.config/cmux/web-dev.json e mostra l'interfaccia web con cui è stato distribuito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分のチェックアウトで cmux の Web UI を編集すると、保存した時点でこのアプリに反映されます。ビルドも再起動も不要です。scripts/cmux-next/web-overlay.sh server --local で開始します。オフ：cmux は ~/.config/cmux/web-dev.json を無視し、同梱の Web UI を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែប្រែ UI វេបរបស់ cmux ពីច្បាប់ចម្លងផ្ទាល់ខ្លួនរបស់អ្នក បង្ហាញក្នុងកម្មវិធីនេះពេលអ្នករក្សាទុក ដោយមិនចាំបាច់ build ឬបើកឡើងវិញ។ ចាប់ផ្តើមដោយ scripts/cmux-next/web-overlay.sh server --local។ បិទ៖ cmux មិនអើពើ ~/.config/cmux/web-dev.json ហើយបង្ហាញ UI វេបដែលភ្ជាប់មកជាមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 체크아웃에서 cmux 웹 UI를 수정하면 저장하는 즉시 이 앱에 반영됩니다. 빌드나 재실행이 필요 없습니다. scripts/cmux-next/web-overlay.sh server --local 로 시작하세요. 끄면: cmux는 ~/.config/cmux/web-dev.json 를 무시하고 함께 배포된 웹 UI를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringer i cmux sitt nettgrensesnitt fra din egen checkout vises i appen når du lagrer, uten bygg og omstart. Start med scripts/cmux-next/web-overlay.sh server --local. Av: cmux ignorerer ~/.config/cmux/web-dev.json og viser nettgrensesnittet den ble levert med."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmiany w interfejsie webowym cmux z twojej kopii pojawiają się w tej aplikacji po zapisaniu, bez budowania i ponownego uruchamiania. Uruchom przez scripts/cmux-next/web-overlay.sh server --local. Wyłączone: cmux ignoruje ~/.config/cmux/web-dev.json i pokazuje dostarczony interfejs webowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edições na interface web do cmux feitas na sua própria cópia aparecem neste app ao salvar, sem build e sem reiniciar. Comece com scripts/cmux-next/web-overlay.sh server --local. Desligado: o cmux ignora ~/.config/cmux/web-dev.json e mostra a interface web com que foi distribuído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правки веб-интерфейса cmux из вашей копии появляются в этом приложении при сохранении, без сборки и перезапуска. Запустите scripts/cmux-next/web-overlay.sh server --local. Выключено: cmux игнорирует ~/.config/cmux/web-dev.json и показывает встроенный веб-интерфейс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไข UI เว็บของ cmux จากสำเนาของคุณจะแสดงในแอปนี้ทันทีที่บันทึก โดยไม่ต้อง build หรือเปิดใหม่ เริ่มด้วย scripts/cmux-next/web-overlay.sh server --local ปิด: cmux จะละเว้น ~/.config/cmux/web-dev.json และแสดง UI เว็บที่มาพร้อมแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendi kopyanızda cmux web arayüzünde yaptığınız değişiklikler, kaydettiğiniz anda bu uygulamada görünür; derleme ve yeniden başlatma gerekmez. scripts/cmux-next/web-overlay.sh server --local ile başlatın. Kapalı: cmux ~/.config/cmux/web-dev.json dosyasını yok sayar ve birlikte gelen web arayüzünü gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зміни веб-інтерфейсу cmux з вашої копії з'являються в цьому застосунку під час збереження, без збирання й перезапуску. Запустіть scripts/cmux-next/web-overlay.sh server --local. Вимкнено: cmux ігнорує ~/.config/cmux/web-dev.json і показує вбудований веб-інтерфейс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các chỉnh sửa giao diện web của cmux từ bản checkout của bạn hiện trong ứng dụng này ngay khi lưu, không cần build hay khởi động lại. Bắt đầu bằng scripts/cmux-next/web-overlay.sh server --local. Tắt: cmux bỏ qua ~/.config/cmux/web-dev.json và hiển thị giao diện web đi kèm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你自己的检出中修改 cmux 的网页界面，保存后即在此应用中生效，无需构建或重新启动。用 scripts/cmux-next/web-overlay.sh server --local 启动。关闭：cmux 忽略 ~/.config/cmux/web-dev.json，显示随附的网页界面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你自己的檢出中修改 cmux 的網頁介面，儲存後即在此 App 中生效，無需建置或重新啟動。用 scripts/cmux-next/web-overlay.sh server --local 啟動。關閉：cmux 會忽略 ~/.config/cmux/web-dev.json，顯示隨附的網頁介面。"
           }
         }
       }
@@ -200801,6 +202569,268 @@
         }
       }
     },
+    "settings.labs.liveCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكود المباشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Code en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codice dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូដផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โค้ดสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı Kod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实时代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "即時程式碼"
+          }
+        }
+      }
+    },
+    "settings.labs.liveCode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في إصدار cmux المبني للكود المباشر، تُطبَّق تغييرات Swift التي تجمعها من نسختك الخاصة على التطبيق أثناء تشغيله دون انتظار إصدار جديد. أوقفه للعودة إلى الوضع العادي. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U cmux buildu za kod uživo, Swift izmjene koje kompajlirate iz svog checkouta primjenjuju se na pokrenutu aplikaciju bez čekanja novog builda. Isključite ga da se vratite na uobičajeno. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-build af cmux bliver Swift-ændringer, du kompilerer fra dit eget checkout, anvendt på den kørende app uden at vente på et nyt build. Slå det fra for at vende tilbage til normal. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Live-Code-Build von cmux werden Swift-Änderungen, die du aus deinem eigenen Checkout kompilierst, in der laufenden App übernommen, ohne auf einen neuen Build zu warten. Schalte es aus, um zum Normalzustand zurückzukehren. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En una compilación de cmux para código en vivo, los cambios de Swift que compilas desde tu propio checkout se aplican a la app en ejecución sin esperar una nueva compilación. Desactívalo para volver a la normalidad. Surte efecto al reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans une build de cmux pour le code en direct, les modifications Swift que vous compilez depuis votre propre checkout s’appliquent à l’app en cours d’exécution sans attendre une nouvelle build. Désactivez-le pour revenir à la normale. Prend effet au redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In una build di cmux per il codice dal vivo, le modifiche Swift che compili dal tuo checkout si applicano all’app in esecuzione senza attendere una nuova build. Disattivalo per tornare alla normalità. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード用にビルドされた cmux では、自分のチェックアウトからコンパイルした Swift の変更が、新しいビルドを待たずに実行中のアプリに反映されます。オフにすると通常に戻ります。cmux の再起動後に有効になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្នុង build កូដផ្ទាល់របស់ cmux ការផ្លាស់ប្ដូរ Swift ដែលអ្នក compile ពី checkout ផ្ទាល់ខ្លួន នឹងអនុវត្តលើកម្មវិធីដែលកំពុងដំណើរការ ដោយមិនចាំ build ថ្មី។ បិទវាដើម្បីត្រឡប់ទៅធម្មតាវិញ។ មានប្រសិទ្ធភាពបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드용 cmux 빌드에서는 자신의 체크아웃에서 컴파일한 Swift 변경 사항이 새 빌드를 기다리지 않고 실행 중인 앱에 적용됩니다. 끄면 원래대로 돌아갑니다. cmux를 다시 시작한 후 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-bygg av cmux blir Swift-endringer du kompilerer fra ditt eget checkout, brukt i appen som kjører, uten å vente på et nytt bygg. Slå det av for å gå tilbake til normalen. Trer i kraft når cmux starter på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W kompilacji cmux z kodem na żywo zmiany w Swift, które kompilujesz z własnego checkoutu, trafiają do działającej aplikacji bez czekania na nową kompilację. Wyłącz, aby wrócić do normalnego trybu. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em um build do cmux para código ao vivo, as alterações em Swift que você compila do seu próprio checkout são aplicadas ao app em execução sem esperar um novo build. Desative para voltar ao normal. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В сборке cmux для живого кода изменения Swift, которые вы компилируете из своего checkout, применяются к работающему приложению без ожидания новой сборки. Выключите, чтобы вернуться к обычному режиму. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใน build ของ cmux สำหรับโค้ดสด การเปลี่ยนแปลง Swift ที่คุณคอมไพล์จาก checkout ของคุณเองจะมีผลกับแอปที่กำลังทำงานโดยไม่ต้องรอ build ใหม่ ปิดเพื่อกลับสู่ปกติ มีผลหลังจากรีสตาร์ท cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un canlı kod derlemesinde, kendi checkout'unuzdan derlediğiniz Swift değişiklikleri yeni bir derleme beklemeden çalışan uygulamaya uygulanır. Normale dönmek için kapatın. cmux yeniden başladıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У збірці cmux для живого коду зміни Swift, які ви компілюєте зі свого checkout, застосовуються до запущеного застосунку без очікування нової збірки. Вимкніть, щоб повернутися до звичайного режиму. Діє після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong bản build mã trực tiếp của cmux, các thay đổi Swift bạn biên dịch từ checkout của mình được áp dụng vào ứng dụng đang chạy mà không cần chờ bản build mới. Tắt để trở lại bình thường. Có hiệu lực sau khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的实时代码构建中，你从自己的检出编译的 Swift 更改会直接应用到正在运行的应用，无需等待新构建。关闭即可恢复正常。cmux 重启后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的即時程式碼建置中，你從自己的檢出編譯的 Swift 變更會直接套用到執行中的 App，無需等待新建置。關閉即可恢復正常。cmux 重新啟動後生效。"
+          }
+        }
+      }
+    },
     "settings.labs.machineJoin": {
       "extractionState": "manual",
       "localizations": {
@@ -203602,6 +205632,923 @@
           "stringUnit": {
             "state": "translated",
             "value": "結束 cmux 時工作階段即結束"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working Status Verbs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verben für den Arbeitsstatus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes du statut de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال حالة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos del estado de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作狀態動詞"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作状态动词"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 상태 동사"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業状態の動詞"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glagoli statusa rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verber for arbejdsstatus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi dello stato di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទស្ថានភាពការងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verb for arbeidsstatus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czasowniki stanu pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos do status de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глаголы статуса работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาสถานะการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma durumu fiilleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дієслова стану роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Động từ trạng thái làm việc"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Working Verbs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Arbeitsverben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes de travail personnalisés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال عمل مخصصة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos de trabajo personalizados"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂工作動詞"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义工作动词"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 작업 동사"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムの作業動詞"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođeni glagoli rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpassede arbejdsverber"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi di lavoro personalizzati"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទការងារផ្ទាល់ខ្លួន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinerte arbeidsverb"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własne czasowniki pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos de trabalho personalizados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои глаголы работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาการทำงานที่กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel çalışma fiilleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власні дієслова роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Động từ làm việc tùy chỉnh"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.custom.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comma-separated -ing verbs for the live status line."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durch Kommas getrennte Tätigkeitswörter für die Statuszeile."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbes d’action séparés par des virgules pour la ligne de statut."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفعال عمل مفصولة بفواصل لسطر الحالة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos en gerundio separados por comas para la línea de estado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以逗號分隔的進行式動詞，用於狀態列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以逗号分隔的进行时动词，用于状态行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄에 사용할 진행형 동사를 쉼표로 구분하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス行に表示する動作の言葉をコンマで区切って入力します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glagoli radnje odvojeni zarezima za red statusa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingsverber adskilt af kommaer til statuslinjen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbi al gerundio separati da virgole per la riga di stato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិរិយាសព្ទសកម្មភាពដែលបំបែកដោយសញ្ញាក្បៀសសម្រាប់បន្ទាត់ស្ថានភាព។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingsverb atskilt med komma for statuslinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czasowniki czynności oddzielone przecinkami do wiersza stanu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos no gerúndio separados por vírgulas para a linha de status."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глаголы действий для строки состояния, разделённые запятыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำกริยาแสดงการกระทำที่คั่นด้วยจุลภาคสำหรับบรรทัดสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum satırı için virgülle ayrılmış şimdiki zaman fiilleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дієслова дій для рядка стану, розділені комами."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các động từ hành động phân cách bằng dấu phẩy cho dòng trạng thái."
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.statusVerbs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether the live status line rotates through verbs or stays on Thinking."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie, ob die Statuszeile wechselnde Verben oder immer „Nachdenken“ anzeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez si la ligne de statut alterne les verbes ou affiche toujours « Réflexion »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ما إذا كان سطر الحالة يتناوب بين الأفعال أو يعرض «يفكر» دائمًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige si la línea de estado alterna entre verbos o muestra siempre «Pensando»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇狀態列輪流顯示不同動詞，或始終顯示「思考中」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择状态行轮流显示不同动词，或始终显示“思考中”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄에 동사를 번갈아 표시할지, 항상 “생각 중”을 표시할지 선택합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス行の動詞を順に切り替えるか、「思考中」のみを表示するかを選びます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite da li se glagoli u statusu smjenjuju ili uvijek piše „Razmišljam“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg, om statuslinjen skifter mellem verber eller altid viser „Tænker“."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli se la riga di stato alterna i verbi o mostra sempre «Sto pensando»."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសថាតើបន្ទាត់ស្ថានភាពប្តូរកិរិយាសព្ទ ឬបង្ហាញ «កំពុងគិត» ជានិច្ច។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg om statuslinjen veksler mellom verb eller alltid viser «Tenker»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz, czy wiersz stanu zmienia czasowniki, czy zawsze pokazuje „Myślenie”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha se a linha de status alterna entre verbos ou sempre mostra “Pensando”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите, сменяются ли глаголы в строке состояния или всегда отображается «Думаю»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกว่าจะสลับคำกริยาในบรรทัดสถานะหรือแสดง “กำลังคิด” เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum satırının fiilleri dönüşümlü göstermesini veya hep “Düşünüyor” yazmasını seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть, чи змінюються дієслова в рядку стану, чи завжди відображається «Думаю»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn để dòng trạng thái luân phiên các động từ hoặc luôn hiển thị “Đang suy nghĩ”."
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخصص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasset"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ខ្លួន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsRotate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotate"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechselnde Verben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تناوب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輪替"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轮换"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번갈아 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順に切り替え"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smjenjuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterna"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឆ្លាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmieniaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чередовать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับคำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dönüşümlü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чергувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luân phiên"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatStatusVerbsThinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Nachdenken"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réflexion uniquement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفكر فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo Pensando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅思考中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅思考中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생각 중만 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考中のみ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo Razmišljam"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun Tænker"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo Sto pensando"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែកំពុងគិត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare Tenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas Pensando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только Думаю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังคิดเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Düşünüyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише Думаю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ Đang suy nghĩ"
           }
         }
       }

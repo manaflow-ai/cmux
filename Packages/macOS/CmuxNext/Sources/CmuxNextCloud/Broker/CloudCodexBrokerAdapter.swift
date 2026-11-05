@@ -42,6 +42,9 @@ import Observation
     /// asynchronously, but new requests and in-flight writes observe this flag
     /// through the scope callback before they can commit a VM file.
     public private(set) var available = true
+    /// The Mac's own Codex access (``CloudCodexLocalAccess``), read only once the person allowed it
+    /// (`cloud.useMyCodexLoginOnMyCloudMachines`); nil when it must not be read. Every holder asks it first.
+    @ObservationIgnored public var localSignIn: (@Sendable () async -> CloudCodexAccessGrant?)?
 
     /// Dependencies are injected; creating the adapter does not read credentials,
     /// start a process, or make a VM request.
@@ -64,7 +67,11 @@ import Observation
 
     /// Finishes one confirmed transfer, showing a native device-code prompt only
     /// when the local holder needs its first login. No VM terminal is opened.
+    ///
+    /// `askLocalSignIn` comes first when the holder has no login: the one-time consent to use the Mac's
+    /// own Codex sign-in (true when it was given and the Mac has one), so no device code shows then.
     public func run(machineID: String, scope: CloudCodexBrokerScope, confirmed: Bool, forceRefresh: Bool = false,
+                    askLocalSignIn: (@MainActor @Sendable () async -> Bool)? = nil,
                     presentDeviceCode: @escaping @MainActor @Sendable (CloudCodexLoginPrompt) async -> Bool) async throws {
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
         try check(scope)
@@ -86,6 +93,15 @@ import Observation
             do {
                 do { _ = try await broker.transfer(target: vm, confirmed: true, forceRefresh: forceRefresh) }
                 catch CloudCodexBrokerError.notAuthenticated {
+                    try self.check(scope)
+                    if let askLocalSignIn, await askLocalSignIn() {
+                        try self.check(scope)
+                        if (try? await broker.transfer(target: vm, confirmed: true, forceRefresh: true)) != nil {
+                            try self.check(scope)
+                            return
+                        }
+                    }
+                    try self.check(scope)
                     let prompt = try await broker.login(target: vm, confirmed: true)
                     try self.check(scope)
                     guard await presentDeviceCode(prompt) else { throw CloudCodexBrokerError.cancelled }
@@ -168,6 +184,7 @@ import Observation
             executable: resolved.executable, executablePrefix: resolved.prefix,
             codexExecutable: resolved.codex, home: home(for: scope))
         if retryingRetiredHolder { cleanupByScope.removeValue(forKey: scope) }
+        await broker.setLocalSignIn(localSignIn)
         return broker
     }
 

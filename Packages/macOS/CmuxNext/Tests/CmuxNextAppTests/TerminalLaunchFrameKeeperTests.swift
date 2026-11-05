@@ -199,7 +199,7 @@ import Testing
     /// none. A resize saves again as soon as the terminal is quiet, with no interval.
     @Test(arguments: [false, true])
     func aResizedTerminalIsSavedAgainWithoutWaitingForTheInterval(switchOn: Bool) async throws {
-        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default: the surface takes
+        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default until cmux-ad m19: the surface takes
         // its new size in the layout; on: in the commit that shows its frame, a refresh or two later).
         defer { PaneGroundCoversPaneTests.releaseFrames() }
         try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
@@ -233,7 +233,7 @@ import Testing
     /// (a frame of the old size is refused at launch), once the size holds, without waiting for its output to stop.
     @Test(arguments: [false, true])
     func aBusyResizedTerminalIsSavedAtItsNewSize(switchOn: Bool) async throws {
-        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default: the surface takes
+        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default until cmux-ad m19: the surface takes
         // its new size in the layout; on: in the commit that shows its frame, a refresh or two later).
         defer { PaneGroundCoversPaneTests.releaseFrames() }
         try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
