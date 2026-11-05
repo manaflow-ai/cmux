@@ -12,7 +12,7 @@ struct BuildSwitchDownloadTests {
     private static let bundleID = "com.cmuxterm.app.nightly.cmux-next"
 
     /// The bytes the "download" writes, and the key the feed signs them with.
-    private static let image = Data("cmux NEXT disk image".utf8)
+    private nonisolated static let image = Data("cmux NEXT disk image".utf8)
     private static let key = Curve25519.Signing.PrivateKey()
     private static var publicKey: String { key.publicKey.rawRepresentation.base64EncodedString() }
     private static func signed(_ data: Data = image, length: Int? = image.count) throws -> ArchiveSignature {
