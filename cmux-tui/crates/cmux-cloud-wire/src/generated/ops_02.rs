@@ -5,6 +5,42 @@
 use super::*;
 
 wire_op! {
+    /// Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.
+    ChiefCreateOp {
+        name: "chief.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ChiefCreateParams,
+        result: HomeChief,
+        error: ChiefCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefCreateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain_place: Option<ChiefBrainPlace>,
+}
+
+wire_errors! {
+    /// The error codes chief.create declares.
+    ChiefCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.
     ChiefDeleteOp {
         name: "chief.delete",
@@ -413,7 +449,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).
+    /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).
     CloudMachineConnectInfoOp {
         name: "cloud.machine.connect_info",
         class: Read,
@@ -630,7 +666,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
+    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
     CloudMachineLinkTokenOp {
         name: "cloud.machine.link_token",
         class: Mutation,
@@ -648,6 +684,7 @@ wire_enum! {
     CloudMachineLinkTokenParamsServicesItem {
         Daemon = "daemon",
         Ssh = "ssh",
+        Desktop = "desktop",
     }
 }
 
@@ -663,6 +700,7 @@ wire_enum! {
     CloudMachineLinkTokenResultServicesItem {
         Daemon = "daemon",
         Ssh = "ssh",
+        Desktop = "desktop",
     }
 }
 
@@ -852,51 +890,4 @@ pub struct CloudMachineResizeParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineResizeResult {
     pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.resize declares.
-    CloudMachineResizeError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineBusy = "cloud.machine.busy",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudMachineNotRunning = "cloud.machine.not_running",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSizeGrowOnly = "cloud.size.grow_only",
-        CloudSizeLocked = "cloud.size.locked",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
-    CloudMachineStartOp {
-        name: "cloud.machine.start",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: CloudMachineStartParams,
-        result: CloudMachineStartResult,
-        error: CloudMachineStartError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineStartParams {
-    pub machine: MachineId,
 }

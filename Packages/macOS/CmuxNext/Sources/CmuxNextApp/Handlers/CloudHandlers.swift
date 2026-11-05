@@ -30,6 +30,10 @@ enum CloudHandlers {
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
         CloudMachineStage.gatePowerActions(into: registry, context: context)
+        // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
+        ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
+            (try? machine(invocation, context)).flatMap { $0.machine.allows(.desktop) ? nil : CloudStrings.desktopUnavailable($0.machine.title) }
+        }
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
@@ -228,56 +232,42 @@ enum CloudHandlers {
         try await firstWorkspaceResult(on: session, context).id
     }
 
-    /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
-    /// Chromium tab of a new workspace on this Mac at a URL that names the machine
-    /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
-    /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
-    /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
-    /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `rd`
-    /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the Cloud tunnel);
-    /// `native` shows the remote view pane, the app's own VNC client over the same tunnel. The pane
-    /// viewers connect at once for a person and ask first for an agent or the CLI; the web viewer
-    /// opens for any local caller (who can already run `cloud exec` on the machine).
+    /// Open Desktop (`cloud open-desktop`): the machine's desktop in a new workspace on this Mac.
+    /// `viewer`: `rd` shows the remote view pane on the machine's `cmux-rd` host (H.264 over the
+    /// owner's Native link, service `desktop`), in every build, and is the default for a machine
+    /// whose capabilities declare `desktop`; it opens watching the agent (view), with Take over in
+    /// the pane's toolbar. `web` (the default for a machine without `desktop`: classic) shows its
+    /// noVNC page in a Chromium tab at a URL that names the machine
+    /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``), which remote localhost routes through
+    /// the peer-checked proxy and this Mac's own WireGuard tunnel to the machine's noVNC (6901 on
+    /// its loopback). `native` (development builds) shows the pane on the app's own VNC client
+    /// over the same tunnel. The pane viewers connect at once for a person and ask first for an
+    /// agent or the CLI; the web viewer opens for any local caller (who can already run
+    /// `cloud exec` on the machine).
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
-        guard session.machine.allows(.desktop), session.machine.address?.ipv4 != nil,
+        guard session.machine.allows(.desktop) else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+        let viewer = viewer ?? session.machine.defaultDesktopViewer
+        if viewer == "rd" {
+            guard session.machine.capabilities.desktop,
+                  let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,
+                                                   cloudDesktop: true, cloudRd: true) else {
+                throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+            }
+            openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
+            return
+        }
+        guard session.machine.address?.ipv4 != nil,
               let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
             throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
         }
-        if viewer == "native" || viewer == "rd" {
-            guard RemoteViewAvailability().isAvailable else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-            let rd = viewer == "rd"
-            guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
-                                                   cloudDesktop: true, cloudRd: rd) else {
+        if viewer == "native" {
+            guard RemoteViewAvailability().isAvailable,
+                  let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
+                                                   cloudDesktop: true) else {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
-            let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
-            let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
-            let unavailable = CloudStrings.desktopUnavailable(title)
-            // The person's run scope, captured here: their approval goes on the tab this open makes.
-            let scope = ActionRunScope.current, cache = services.cache
-            WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
-                guard let pane = terminal.pane else { return }
-                if rd {
-                    // The machine's `cmux-rd` host: started on its display :1 (loopback only), and its
-                    // session token fetched over the signed-in Cloud API into memory.
-                    let started = try await api.exec(machineID, command: Self.desktopRdStart)
-                    // A nonzero exit (127: no start script) means this machine has no cmux-rd host yet;
-                    // the host is not in the VM image (development-only today).
-                    guard started.exitCode == 0 else { throw ActionFailure(message: unavailable) }
-                    let file = try await api.readFile(machineID, path: Self.desktopRdTokenPath)
-                    let token = Data(base64Encoded: file.dataBase64).map { String(decoding: $0, as: UTF8.self) }?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    guard token.count == 64 else { throw ActionFailure(message: unavailable) }
-                    await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
-                }
-                let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
-                // The approval goes on the exact tab the daemon made for this open, never on whichever
-                // tab first shows the same address (#29208): until then the tab asks for Connect.
-                let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-                await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
-                if let surface = terminal.surface { try await connection.closeTab(surface) }
-            }
+            openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
             return
         }
         if let reason = services.cache.browserTabs.cefUnavailableReason() { throw ActionFailure(message: reason) }
@@ -290,10 +280,21 @@ enum CloudHandlers {
         }
     }
 
-    /// The machine's `cmux-rd` desktop host: its start script (a no-op while it runs) and its
-    /// session token file (0600), under the `cmux` user's cache.
-    static let desktopRdStart = "bash /home/cmux/.cache/cmux-rd/start-rd.sh"
-    static let desktopRdTokenPath = "/home/cmux/.cache/cmux-rd/token"
+    /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.
+    @MainActor private static func openDesktopPane(_ record: RemoteViewTabRecord, name: String, _ services: AppServices) {
+        let address = record.url.absoluteString
+        // The person's run scope, captured here: their approval goes on the tab this open makes.
+        let scope = ActionRunScope.current, cache = services.cache
+        WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
+            guard let pane = terminal.pane else { return }
+            let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+            // The approval goes on the exact tab the daemon made for this open, never on whichever
+            // tab first shows the same address (#29208): until then the tab asks for Connect.
+            let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
+            await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
+            if let surface = terminal.surface { try await connection.closeTab(surface) }
+        }
+    }
 
     /// The existing workspace and pane where a Cloud terminal should land.
     /// Keep the durable workspace key on the spawn request so terminals stay
@@ -353,9 +354,10 @@ enum CloudHandlers {
     /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
                          within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
-        try requireAttachableState(session)
+        // A machine that is resuming is waited for, not refused (``requireAttachableState(_:waitingOutResume:)``).
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         await session.refreshIfMaybePaused()
-        try requireAttachableState(session)
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         session.attach(origin: connectOrigin(for: invocation))
         let daemon = session.daemon
         if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
@@ -382,6 +384,15 @@ enum CloudHandlers {
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
+    }
+
+    /// ``requireAttachableState(_:)`` after waiting out a resume (``CloudWait/outwaitResume(of:within:read:)``): a
+    /// machine that is resuming is waited for, up to `limit`, instead of refused with "This machine is resuming"
+    /// (prod, 2026-11-05: `cloud start-chat` refused at once after `cloud resume-machine`, then worked in 12 s once
+    /// the machine ran). A pause or delete still refuses at once, and so does a resume still running at `limit`.
+    static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
+        await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        try requireAttachableState(session)
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {

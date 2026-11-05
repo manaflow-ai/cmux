@@ -300,7 +300,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
-                "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
+                "agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
                 "agentPane.display.code.family", "agentPane.display.code.scale",
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
@@ -318,6 +318,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // cmux's guidance for the agents it runs and the person's own skills.
+            group("settings.group.agentGuidance"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             group("settings.group.agentRetry"),
             // Folders that start an agent without the trust question.

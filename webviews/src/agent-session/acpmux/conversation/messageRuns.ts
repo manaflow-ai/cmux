@@ -66,6 +66,7 @@ function member(row: AcpmuxRow): Member | undefined {
     groups.some(
       (group) =>
         group.type === "subsessionGroup" ||
+        group.type === "agentCall" ||
         group.type === "dispatch" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )

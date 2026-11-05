@@ -1032,4 +1032,4 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
 
 mod relay;
 #[cfg(test)]
-mod tests;
+pub(in crate::cli) mod tests;

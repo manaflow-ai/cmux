@@ -35,6 +35,11 @@ export interface MachineRow {
   status: MachineStatus;
   machine?: CloudMachine;
   pending?: IntentKind;
+  /**
+   * The idle policy the newest unanswered idle change set (`null` = never pause), shown at once in
+   * place of the mirror's; undefined while none is waiting.
+   */
+  idle?: number | null;
   /** Imported from cmux Cloud classic: read-only until upgraded (contract 4). */
   classic?: boolean;
 }
@@ -96,17 +101,27 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
   }
 }
 
+/**
+ * Quick edits whose outcome the page already knows (a rename, the idle policy): the row shows the new
+ * value at once, with no pending label and nothing held; a refusal drops the intent, which puts the
+ * mirror's value back, and the page's one error line says why.
+ */
+export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle"]);
+
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
   const rows: MachineRow[] = machines.map((machine) => {
-    const intents = pending.filter((intent) => intent.machine === machine.id);
-    const rename = [...intents].reverse().find((intent) => intent.kind === "rename");
+    // Newest first.
+    const intents = pending.filter((intent) => intent.machine === machine.id).reverse();
+    const rename = intents.find((intent) => intent.kind === "rename");
+    const idle = intents.find((intent) => intent.kind === "idle");
     return {
       id: machine.id,
       title: rename?.name ?? machineTitle(machine),
       status: machine.status,
       machine,
-      pending: intents.at(-1)?.kind,
+      pending: intents.find((intent) => !QUICK_INTENTS.has(intent.kind))?.kind,
+      ...(idle ? { idle: idle.idle ?? null } : {}),
       ...(machine.classic ? { classic: true } : {}),
     };
   });

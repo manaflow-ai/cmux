@@ -85,7 +85,7 @@ def summary(results_path: Path, out: Path, previous: Path | None) -> None:
     prev = load(previous) if previous else None
     run = data.get("run") or {}
     lines = ["# Computer Use driver eval", ""]
-    lines.append(f"{run.get('host', '?')}, macOS {run.get('macos', '?')}, {run.get('display', '?')}, rev `{str(run.get('rev', '?'))[:12]}`, {run.get('at', '?')}")
+    lines.append(f"{run.get('host', '?')}, macOS {run.get('macos', '?')}, {run.get('display') or (run.get('screen', '?') + ' points')}, rev `{str(run.get('rev', '?'))[:12]}`, {run.get('at', '?')}")
     if run.get("blocked"):
         lines += ["", f"**Blocked:** {run['blocked']}"]
     ab = (data.get("suites") or {}).get("input_ab") or {}

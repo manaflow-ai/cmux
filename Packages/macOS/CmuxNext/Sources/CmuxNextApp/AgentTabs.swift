@@ -26,7 +26,7 @@ typealias AgentTabOpen = (PaneID, DaemonService, SplitDirection?) throws -> Agen
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
-    private let paneShared: AgentPaneShared
+    let paneShared: AgentPaneShared
     private let attentionTabs: AgentPaneAttentionTabs?
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the

@@ -154,6 +154,18 @@ fn frames_an_event() {
 }
 
 #[test]
+fn the_backoff_wait_runs_from_the_relay_thread_outside_any_runtime() {
+    // run() waits between dials from its own plain thread, which is in no runtime: a wait that panics there
+    // ends the relay thread, so the machine never dials the relay again after its first socket drops.
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (_tx, mut rx) = watch::channel(false);
+    let started = std::time::Instant::now();
+    let waited = std::thread::spawn(move || pause(&rt, &mut rx, Duration::from_millis(20))).join();
+    assert!(waited.is_ok(), "the wait panicked the relay thread");
+    assert!(started.elapsed() >= Duration::from_millis(20), "it waited out the backoff");
+}
+
+#[test]
 fn a_stop_drops_the_socket_at_once() {
     struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Socket {

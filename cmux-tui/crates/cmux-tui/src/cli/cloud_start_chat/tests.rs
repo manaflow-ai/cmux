@@ -1001,3 +1001,16 @@ fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
     assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
     assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
 }
+
+/// The words `cmux cloud start-chat --prompt "What is 2+2?" --cwd /home/cmux/w --wait` hands the app's
+/// `cloud relay-chat` on a new machine, as the CLI's own code builds them (the action argument contract's
+/// cmux-tui/spec/fixtures/cli-action-requests.json carries their `action.run` request, which the app's
+/// ArgumentActionContractTests validate against its catalog).
+pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
+    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let words = fake.ran[2].clone();
+    assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
+    words
+}
