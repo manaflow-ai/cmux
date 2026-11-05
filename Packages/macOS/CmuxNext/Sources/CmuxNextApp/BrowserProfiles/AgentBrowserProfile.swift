@@ -46,18 +46,6 @@ enum AgentBrowserProfile {
     }
 
     nonisolated struct NotReported: Error, CustomStringConvertible {
-        var description: String { "the agent browser profile was created but not reported back by the home daemon" }
-    }
-
-    /// Resumes a continuation once: the record or the deadline, whichever comes first.
-    nonisolated final class ResumeOnce: Sendable {
-        private let state = Mutex<CheckedContinuation<Void, any Error>?>(nil)
-        func begin(_ continuation: CheckedContinuation<Void, any Error>) { state.withLock { $0 = continuation } }
-        @discardableResult
-        func resume(_ result: Result<Void, any Error>) -> Bool {
-            guard let continuation = state.withLock({ value -> CheckedContinuation<Void, any Error>? in defer { value = nil }; return value }) else { return false }
-            continuation.resume(with: result)
-            return true
-        }
+        var description: String { "the browser profile was created but not reported back by the home daemon" }
     }
 }

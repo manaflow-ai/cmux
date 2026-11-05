@@ -136,25 +136,13 @@ extension NewTabPage {
         // A pairing link (its room secret) is never searched, loaded or typed: the
         // page stays, with what was typed, and Mac Screen says why.
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
-        // Open in New Profile: the profile is made first (the home daemon gives its id), then the
-        // address opens in it as Open in Profile… would; a refused create keeps the page.
+        // Open in New Profile: the profile is made, then the address opens in it; a refusal keeps the page.
         if request.kind == .browser, case .new(let name) = request.profile {
-            let profiles = services.browserProfiles
-            // task-owner: one profile create, then one open in the pane that asked; ends with the reply
-            Task { @MainActor [weak pane] in
-                do {
-                    let id = try await profiles.makeProfile(name: name)
-                    guard let pane else { return }
-                    var made = request
-                    made.profile = .existing(id)
-                    replace(key, with: made, cwd: cwd, in: pane, keep: chat)
-                } catch let error as BrowserProfileBookError {
-                    services.registry.refuse(BrowserProfileAppStrings.message(error))
-                } catch {
-                    services.registry.refuse(error.localizedDescription)
-                }
+            return services.browserProfiles.makeProfile(name: name, refusingThrough: services.registry) { [weak pane] id in
+                var made = request
+                made.profile = .existing(id)
+                if let pane { replace(key, with: made, cwd: cwd, in: pane, keep: chat) }
             }
-            return
         }
         let profile = request.profile.flatMap(\.existingID)
         if let profile, !services.browserProfiles.isKnown(profile) {

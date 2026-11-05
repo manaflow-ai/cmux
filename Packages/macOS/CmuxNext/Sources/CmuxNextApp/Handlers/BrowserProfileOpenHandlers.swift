@@ -31,18 +31,8 @@ enum BrowserProfileOpenHandlers {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.urlRequired)
             }
             guard let pane = context.paneController(invocation) else { return }
-            let name = invocation["name"]?.stringValue
-            let registry = context.services.registry
-            // task-owner: one profile create, then one tab in the pane that asked; ends with the reply
-            Task { @MainActor [weak pane] in
-                do {
-                    let id = try await profiles.makeProfile(name: name)
-                    pane?.newBrowserTab(url: url, profile: id)
-                } catch let error as BrowserProfileBookError {
-                    registry.refuse(BrowserProfileAppStrings.message(error))
-                } catch {
-                    registry.refuse(error.localizedDescription)
-                }
+            profiles.makeProfile(name: invocation["name"]?.stringValue, refusingThrough: context.services.registry) { [weak pane] id in
+                pane?.newBrowserTab(url: url, profile: id)
             }
         }
         bind("browserProfile.newWindow") { invocation in

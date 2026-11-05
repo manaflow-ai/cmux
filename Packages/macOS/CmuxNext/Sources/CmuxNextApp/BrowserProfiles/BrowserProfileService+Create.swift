@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextWakeups
@@ -25,27 +26,21 @@ extension BrowserProfileService {
         return id
     }
 
-    /// Waits until profile `id` is in this app's records, at most `deadline`. With daemon-owned
+    /// ``makeProfile(name:color:icon:)``, then `open` with the new id; a refusal is said through `registry`.
+    func makeProfile(name: String?, refusingThrough registry: ActionRegistry, then open: @escaping @MainActor (String) -> Void) {
+        // task-owner: one profile create, then one open; ends with the reply
+        Task { @MainActor in
+            do { open(try await makeProfile(name: name)) } catch let error as BrowserProfileBookError {
+                registry.refuse(BrowserProfileAppStrings.message(error))
+            } catch { registry.refuse(error.localizedDescription) }
+        }
+    }
+
+    /// Waits until profile `id` is in this app's records, at most `deadline`: with daemon-owned
     /// records the create reply can come before the record reaches the mirror, and a tab opened
     /// then falls back to the workspace's profile (the cascade takes only known ids).
     func awaitReported(_ id: String, deadline: Duration) async throws {
-        if isKnown(id) { return }
-        let timer = DemandTimer(owner: "BrowserProfileService.awaitReported")
-        let once = AgentBrowserProfile.ResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            once.begin(continuation)
-            // Event-driven: the profile list is observable state of the home store.
-            let watch = Task { @MainActor [weak self] in
-                guard let self else { return }
-                for await known in ObservationStream({ self.isKnown(id) }) where known {
-                    if once.resume(.success(())) { timer.cancel() }
-                    return
-                }
-            }
-            // A bounded deadline, not a poll: the record or this, whichever comes first.
-            timer.schedule(after: deadline) {
-                if once.resume(.failure(AgentBrowserProfile.NotReported())) { watch.cancel() }
-            }
-        }
+        await ObservationDeadline(owner: "BrowserProfileService.awaitReported").until({ [weak self] in self?.isKnown(id) ?? true }, limit: deadline)
+        guard isKnown(id) else { throw AgentBrowserProfile.NotReported() }
     }
 }
