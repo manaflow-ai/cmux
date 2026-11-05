@@ -109,6 +109,40 @@ struct CommandColumnEdgeFollowsPointerTests {
         screen.release(handle, at: CGPoint(x: from.x - 30, y: from.y), flags: .command)
     }
 
+    @Test func theFirstCommandFrameAtTheStripsEndWithUnevenWidthsKeepsEveryWidth() throws {
+        // Codex review of 054294ef137: widths 0.6, 0.3, 0.6 (not uniform yet), the camera at the strip's end, c1's edge
+        // Command-dragged 30 pt left. No uniform width holds the edge there: the pointer's width, and the hold at c1's
+        // width, both shrink the strip until it fits, so the camera would spring back. The drag made every column the plain
+        // extent instead (the pointer's width): the strip fit, the camera sprang back about 290 pt and the edge slid right
+        // under the still pointer. It keeps every width as it is: the edge holds at its limit and nothing moves.
+        let screen = Screen(DividerModifierDragTests.threeColumns([0.6, 0.3, 0.6]))
+        defer { screen.window.closeAfterTest() }
+        let view = screen.screen
+        let end = view.geometry.maxOffset
+        try #require(end > 200, "the strip has \(end) pt of room")
+        (view.scroll.value, view.scroll.target) = (end, end)
+        view.applyPresentation(force: true)
+        screen.root.layoutSubtreeIfNeeded()
+        let before = try edge(screen, "p3")
+        try #require(before > 40 && before < screen.root.bounds.maxX - 40, "c1's edge is off screen at \(before) pt")
+        let widths = ["c0", "c1", "c2"].map { view.geometry.columns[ColumnID($0)]?.width ?? 0 }
+
+        let (handle, from) = try screen.press(.columnEdge("c1"), flags: .command)
+        screen.move(handle, from: from, by: -30, flags: .command)
+        var moved: [CGFloat] = [], frames = 0, moving = true
+        while moving, frames < 240 {
+            moved.append(try edge(screen, "p3") - before)
+            frames += 1
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded()
+        }
+        let after = ["c0", "c1", "c2"].map { view.geometry.columns[ColumnID($0)]?.width ?? 0 }
+        #expect(zip(widths, after).allSatisfy { abs($0 - $1) < 0.5 }, "the columns went from \(widths) to \(after) pt")
+        #expect(moved.allSatisfy { $0 <= 1 && $0 >= -31 }, "the edge moved \(moved.prefix(8)) pt for the pointer's -30 pt")
+        #expect((moved.max() ?? 0) - (moved.min() ?? 0) <= 1, "the edge slid from \(moved.min() ?? 0) to \(moved.max() ?? 0) pt under the still pointer")
+        screen.release(handle, at: CGPoint(x: from.x - 30, y: from.y), flags: .command)
+    }
+
     @Test func commandDraggingTheSecondColumnsEdgeInAStripThatScrollsFollowsThePointerOverSeveralMoves() throws {
         // Three columns at 0.45 of the strip: it scrolls, the camera rests at its start with room to move.
         let screen = Screen(DividerModifierDragTests.threeColumns([0.45, 0.45, 0.45]))
