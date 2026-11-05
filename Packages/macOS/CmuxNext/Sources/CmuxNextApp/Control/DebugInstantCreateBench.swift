@@ -71,7 +71,7 @@ enum DebugInstantCreateBench {
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
+        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) || pageQuery.map { query in controller.content?.panes.values.contains { if $0.view.hostsContent, case .browser(let entry) = $0.currentContent { entry.tab.state.url?.query == query } else { false } } == true } == true }, start: start, window: 0, deadline: 5_000) // a quick link opens into its untimed press's column: shown at its address
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
@@ -99,7 +99,7 @@ enum DebugInstantCreateBench {
         ])
     }
 
-    /// `url` opened to the right (split right) from the focused pane, or the pane `from_pane` names: the quick arm's untimed press (`untimed`, the reply at once with its `source_pane`, so the spare window is taken) moved the focus to that link's browser pane, where a link is a tab, no pane to time.
+    /// `url` opened to the right (split right) from the focused pane, or the pane `from_pane` names: the quick arm's untimed press (`untimed`, the reply at once with its `source_pane`, so the spare window is taken) moved the focus to that link's browser pane, where a link is a tab, so the timed press opens from the same source (into that right column).
     @discardableResult private static func openLinkRight(_ params: [String: CmuxNextSettings.JSONValue], _ controller: WindowController, _ services: AppServices) -> CmuxNextSettings.JSONValue {
         let named = params["from_pane"]?.stringValue.flatMap(UInt64.init).flatMap { handle in controller.content?.panes.values.first { $0.pane.handle.rawValue == handle } }
         guard let source = named ?? controller.content?.focusedPane, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") else { return .null }
