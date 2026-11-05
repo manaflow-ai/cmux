@@ -330,6 +330,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
+                "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
                 "CmuxNextAgentCursor",
@@ -1230,6 +1231,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
+        .target(
+            name: "CmuxNextLiveCode",
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
