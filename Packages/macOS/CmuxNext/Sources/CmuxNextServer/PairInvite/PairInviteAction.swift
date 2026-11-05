@@ -58,7 +58,7 @@ extension PairInviteModel {
         case .confirm, .retry: return false
         case .newCode:
             // task-owner: one mint per press; a newer mint or close() supersedes it (its generation).
-            Task { await mint() }
+            Task { [weak self] in await self?.mint() }
             return false
         case .done, .cancel:
             close()

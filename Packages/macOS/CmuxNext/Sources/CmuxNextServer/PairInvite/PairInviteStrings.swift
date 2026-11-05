@@ -2,7 +2,7 @@ import Foundation
 
 /// Text of the Pair Another Machine card (Resources/PairInvite.xcstrings). The facts, the words
 /// question and warning, the name and Cancel are Add Server's own (``ServerStrings``).
-nonisolated enum PairInviteStrings {
+enum PairInviteStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "PairInvite", bundle: .module)
     }

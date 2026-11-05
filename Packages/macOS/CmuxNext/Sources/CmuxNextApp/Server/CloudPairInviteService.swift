@@ -9,11 +9,11 @@ import Foundation
 /// polls. Preview and approve are Add Server's own (``CloudPairingSource``).
 extension PairInviteService {
     /// - Parameters:
-    ///   - pairing: The approver's source; its Worker team is the team the invite enrolls into.
-    ///   - call: One POST to the API Worker as the signed-in user (`FeedService.call`).
+    ///   - pairing: The approver's source: its Worker team is the team the invite enrolls into, and
+    ///     its call (`FeedService.call`, as the signed-in user) mints the invite.
     ///   - apiBaseURL: The API Worker the socket opens on.
     @MainActor
-    static func app(pairing: CloudPairingSource, call: @escaping CloudPairingSource.Call, apiBaseURL: URL) -> PairInviteService {
+    static func app(pairing: CloudPairingSource, apiBaseURL: URL) -> PairInviteService {
         PairInviteService(
             mint: { @MainActor in
                 do {
@@ -24,7 +24,7 @@ extension PairInviteService {
                         "idempotency_key": "server-pair-invite-\(UUID().uuidString)",
                         "origin": "user",
                     ]
-                    let reply = try await call("v1/ops", body)
+                    let reply = try await pairing.call("v1/ops", body)
                     guard let invite = PairInvite.decode(try CloudPairingSource.okValue(reply)) else {
                         return .failure(.refused(Self.notMade))
                     }

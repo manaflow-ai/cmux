@@ -15,7 +15,8 @@ final class CloudPairingSource: ServerSource {
     typealias Call = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
 
     private let inner: any ServerSource
-    private let call: Call
+    /// One POST to the API Worker as the signed-in user (Pair Another Machine mints its invite with it).
+    let call: Call
     /// The approver's name for the team chip, or nil when signed out.
     private let account: @MainActor () -> String?
     /// The user's Chief moved to a server (Home re-checks its Chief tab).

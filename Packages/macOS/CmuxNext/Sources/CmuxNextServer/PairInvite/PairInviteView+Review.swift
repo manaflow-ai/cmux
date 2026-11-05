@@ -59,7 +59,7 @@ extension PairInviteView {
 
     /// The four fingerprint words, two by two, numbered (Add Server's grid).
     private func words(_ words: [String], width: CGFloat) -> NSView {
-        let cells = words.enumerated().map { index, word -> NSView in
+        let cells = words.enumerated().map { (index, word) -> NSView in
             let cell = NSStackView()
             cell.spacing = Metrics.space2
             cell.alignment = .firstBaseline

@@ -25,7 +25,7 @@ extension PairInviteCardPanel {
         let approver = ServerModel(source: pairing)
         approver.start()
         let model = PairInviteModel(
-            service: .app(pairing: pairing, call: call, apiBaseURL: feed.apiBaseURL), approver: approver,
+            service: .app(pairing: pairing, apiBaseURL: feed.apiBaseURL), approver: approver,
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) })
         let card = PairInviteCardPanel(model: model)

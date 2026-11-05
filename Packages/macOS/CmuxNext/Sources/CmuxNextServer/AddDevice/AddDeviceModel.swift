@@ -185,7 +185,7 @@ public final class AddDeviceModel {
 
     private var joinLineButtons: [AddDeviceButton] {
         if offersInvite { return [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .pairAnotherMachine, key: .return)] }
-        switch joinLine?.phase {
+        return switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
         case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
         // Signed out, a new line would be refused again: Sign In instead (msg 3790).
