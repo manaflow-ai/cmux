@@ -8,10 +8,10 @@ import Testing
 nonisolated final class RenderLoad: @unchecked Sendable {
     static let threads = 4 * ProcessInfo.processInfo.activeProcessorCount
     /// The load threads' QoS.
-    static let qos: QualityOfService = .userInteractive
+    static let qos: QualityOfService = .utility
     /// Tell Ghostty each test surface is focused, so its renderer thread runs at userInteractive (Ghostty's
     /// Thread.setQosClass: visible + unfocused is userInitiated, visible + focused is userInteractive).
-    static let focusSurfaces = true
+    static let focusSurfaces = false
     static let shared = RenderLoad()
     private let lock = NSLock()
     private var on = false
