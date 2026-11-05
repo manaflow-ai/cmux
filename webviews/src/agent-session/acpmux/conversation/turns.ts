@@ -2085,6 +2085,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
     group.type === "dispatch" ||
+    group.type === "whoElse" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
