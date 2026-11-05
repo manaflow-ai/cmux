@@ -1,5 +1,8 @@
+/* The picker's Add account sheet, in the Settings look: a title and one line, the ways to add as
+   radio rows, one Name field, and the shared buttons (ui/controls.css .ui-button.ui-btn). The pane does not
+   load ui.css, so the key hint's look is set here. */
 .acpmux-add-account {
-  width: min(400px, calc(100vw - 32px));
+  width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
   padding: 16px;
@@ -9,20 +12,89 @@
   border-radius: 12px;
   font-family: var(--font-ui);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-add-account form {
   display: grid;
   gap: 12px;
 }
-.acpmux-add-account label {
+.acpmux-add-account header {
   display: grid;
   gap: 4px;
 }
-.acpmux-add-account input {
+.acpmux-add-account h2 {
+  margin: 0;
+  color: inherit;
+  font-size: var(--text-content);
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-add-account p,
+.acpmux-add-account small {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-add-account-ways {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 4px;
+  min-width: 0;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+}
+.acpmux-add-account-way {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.acpmux-add-account-ways .acpmux-add-account-way:hover {
+  background: var(--agent-hover, color-mix(in srgb, currentColor 7%, transparent));
+}
+.acpmux-add-account-ways .acpmux-add-account-way:has(input:checked) {
+  background: var(--agent-selection, color-mix(in srgb, currentColor 11%, transparent));
+}
+.acpmux-add-account-way:has(input:disabled) {
+  opacity: 0.6;
+}
+.acpmux-add-account-way[data-only] {
+  padding: 8px 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+}
+.acpmux-add-account-way input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--agent-accent, AccentColor);
+}
+.acpmux-add-account-way > span {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+.acpmux-add-account-way strong {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-add-account-way small {
+  overflow-wrap: anywhere;
+}
+.acpmux-add-account-field {
+  display: grid;
+  gap: 4px;
+}
+.acpmux-add-account-field > span {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-add-account input:not([type="radio"]) {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 4px 8px;
+  height: 28px;
+  padding: 0 8px;
   border: 1px solid var(--agent-border);
   border-radius: 6px;
   background: var(--agent-input-bg);
@@ -30,15 +102,25 @@
   font: inherit;
   outline: none;
 }
-.acpmux-add-account input:focus {
+.acpmux-add-account input:not([type="radio"]):focus {
   border-color: var(--agent-text);
 }
-.acpmux-add-account p {
-  margin: 0;
-  color: var(--agent-muted);
+.acpmux-add-account .acpmux-add-account-error {
+  color: var(--agent-status-failure);
 }
 .acpmux-add-account footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.acpmux-add-account .ui-dialog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.acpmux-add-account .ui-keyhint {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  opacity: 0.6;
 }

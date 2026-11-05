@@ -313,8 +313,7 @@ fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
                 p.peers.push(other);
             }
             "long_lease" => {
-                p.expires_at_ms =
-                    p.checked_at_ms + cmux_link::native_token::MAX_POLICY_LEASE_MS + 1;
+                p.expires_at_ms = p.checked_at_ms + cmux_link::native_token::MAX_ADMIT_MS + 1;
             }
             "delayed" => p.request_started -= Duration::from_secs(30),
             "future" => p.checked_at_ms += 1,
@@ -372,5 +371,90 @@ fn native_token_receiver_full_replay_owner_never_evicts_a_live_id() {
     assert!(
         v.verify(token, &expected(Service::Daemon)).is_err(),
         "clock rollback cannot revive a pruned jti"
+    );
+}
+
+/// Local admission: a stream admitted under a policy whose authority runs to
+/// its admission horizon keeps its lease to that horizon, not to a renewal
+/// lease edge, and a newer policy without its peer still ends it at once.
+#[test]
+fn native_token_receiver_admission_window_holds_a_stream_until_revoked() {
+    use cmux_link::native_token::MAX_ADMIT_MS;
+    let f = fixture();
+    let time = std::sync::Arc::new(std::sync::Mutex::new(cmux_link::native_token::ReceiverTime {
+        unix_ms: 1_792_000_010_000,
+        monotonic: std::time::Instant::now(),
+    }));
+    let clock = time.clone();
+    let v = cmux_link::native_token::NativeTokenVerifier::new(
+        keys(),
+        move || Some(*clock.lock().unwrap()),
+        2,
+    )
+    .unwrap();
+    let mut long = policy(&f, snapshot(&time));
+    long.expires_at_ms = long.checked_at_ms + MAX_ADMIT_MS;
+    let started = long.request_started;
+    v.replace_authority(long).unwrap();
+    let lease =
+        v.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon)).unwrap().lease.unwrap();
+    assert_eq!(lease.deadline(), Some(started + Duration::from_millis(MAX_ADMIT_MS)));
+    {
+        // Ten minutes on, well past any renewal lease: the stream is still admitted.
+        let mut now = time.lock().unwrap();
+        now.unix_ms += 600_000;
+        now.monotonic += Duration::from_secs(600);
+    }
+    let mut revoked = policy(&f, snapshot(&time));
+    revoked.expires_at_ms = revoked.checked_at_ms + MAX_ADMIT_MS;
+    assert!(lease.deadline().is_some(), "the admission window ended at a lease edge");
+    revoked.peers.clear();
+    v.replace_authority(revoked).unwrap();
+    assert_eq!(lease.deadline(), None, "a read without the peer did not revoke its stream");
+}
+
+/// RED before reasons: every check below refused as the same bare `Invalid`,
+/// so a production issuer mismatch (`cmux:cloud:prod` minted against a
+/// receiver expecting `cmux:cloud:production`) read like any other refusal.
+#[test]
+fn native_token_receiver_names_the_check_that_refused() {
+    let f = fixture();
+    for (field, value, reason) in [
+        ("iss", serde_json::json!("cmux:cloud:prod"), "issuer"),
+        ("aud", serde_json::json!("host_00000000000000000003"), "audience"),
+        ("epoch", serde_json::json!(5), "epoch"),
+        ("team", serde_json::json!("team_00000000000000000003"), "team"),
+        ("sub", serde_json::json!("install_1"), "subject"),
+        ("sub", serde_json::json!("inst_00000000000000000003"), "peer_not_in_policy"),
+        ("iat", serde_json::json!(1_792_000_100), "iat_in_future"),
+        ("exp", serde_json::json!(1_792_000_400), "lifetime"),
+        ("jti", serde_json::json!("short"), "jti"),
+        ("svc", serde_json::json!([]), "services"),
+    ] {
+        let mut c = f["claims"].clone();
+        c[field] = value;
+        let token = signed(&c);
+        let (verifier, _) = configured();
+        let refusal = verifier.verify_explained(&token, &expected(Service::Daemon)).unwrap_err();
+        assert_eq!(refusal.reason, reason, "{field}");
+        let (verifier, _) = configured();
+        assert_eq!(
+            verifier.verify(&token, &expected(Service::Daemon)).err(),
+            Some(refusal.kind),
+            "the reason changed what {field} refuses"
+        );
+    }
+    let mut c = f["claims"].clone();
+    c["iss"] = serde_json::json!("cmux:cloud:prod");
+    let (verifier, _) = configured();
+    let refusal = verifier.verify_explained(&signed(&c), &expected(Service::Daemon)).unwrap_err();
+    let text = refusal.to_string();
+    assert!(text.contains("\"cmux:cloud:test\"") && text.contains("\"cmux:cloud:prod\""), "{text}");
+    let altered = format!("{}x", f["token"].as_str().unwrap());
+    let refusal = verifier.verify_explained(&altered, &expected(Service::Daemon)).unwrap_err();
+    assert!(!refusal.to_string().contains(f["token"].as_str().unwrap()), "never the token");
+    // A refused token is not spent, and the accepted one is unchanged.
+    assert!(
+        verifier.verify_explained(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok()
     );
 }

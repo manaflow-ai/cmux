@@ -100,7 +100,7 @@ jobs:
           name: cloud-journey-prod-${{ matrix.model }}
           path: ${{ runner.temp }}/cloud-journey
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
       # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
       - name: Open, update or close the red-journey issue

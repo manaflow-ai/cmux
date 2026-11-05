@@ -332,6 +332,7 @@
               "updates.checkAutomatically",
               "updates.checkIntervalSeconds",
               "updates.downloadAutomatically",
+              "updates.oneClickInstall",
               "updates.meteredNetwork",
               "updates.web",
               "updates.installOnQuit",
@@ -388,6 +389,7 @@
               "appearance.favoriteThemes",
               "appearance.rotateFavoriteThemes",
               "appearance.accent",
+              "appearance.themeFile",
               "appearance.highlightColor"
             ],
             "title" : {
@@ -531,6 +533,7 @@
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
+              "layout.cornerPadding",
               "layout.paneBorder",
               "layout.paneBorderColor",
               "layout.paneBorderWidth"
@@ -1169,6 +1172,8 @@
               "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap",
               "agentPane.display.pinnedPlan",
+              "agentPane.display.trayTucked",
+              "agentPane.display.trayHandle",
               "agentPane.display.rail.side",
               "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
@@ -8642,6 +8647,137 @@
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
         "text" : "Download Updates Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.oneClickInstall.help",
+        "text" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.oneClickInstall",
+      "keywords" : [
+        "update",
+        "install",
+        "restart",
+        "relaunch",
+        "one click"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "oneClickInstall"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:updates.oneClickInstall"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.oneClickInstall",
+        "text" : "Update in One Click"
       },
       "validation" : "portable"
     },
@@ -22116,6 +22252,148 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.none",
+        "text" : "None"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.themeFile.help",
+        "text" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.themeFile",
+      "keywords" : [
+        "theme file",
+        "rice",
+        "ricing",
+        "dotfile",
+        "dotfiles",
+        "look",
+        "config",
+        "themes folder",
+        "json"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "themeFile"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.themeFile.summary",
+        "text" : "A look from ~/.config/cmux/themes"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.themeFile"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.themeFile",
+        "text" : "Theme File"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "#1a2B3c",
         "#1A2B3C80",
         "1a2b3c"
@@ -30147,11 +30425,18 @@
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.layout.paneCornerRadius.help",
+        "text" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."
+      },
       "kept_on_reset_all" : false,
       "key" : "layout.paneCornerRadius",
       "keywords" : [
-        "rounded"
+        "rounded",
+        "radius",
+        "tabs",
+        "concentric",
+        "corners"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -30162,7 +30447,7 @@
       "range" : {
         "max" : 20,
         "min" : 0,
-        "placeholder" : 6,
+        "placeholder" : 10,
         "step" : 1,
         "unit" : "points"
       },
@@ -30261,6 +30546,151 @@
       "title" : {
         "key" : "settings.layout.paneCornerRadius",
         "text" : "Corner Radius"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        12,
+        6
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.layout.cornerPadding.help",
+        "text" : "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.cornerPadding",
+      "keywords" : [
+        "inset",
+        "gap",
+        "tabs",
+        "concentric",
+        "corners",
+        "radius"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "cornerPadding"
+      ],
+      "range" : {
+        "max" : 12,
+        "min" : 0,
+        "placeholder" : 2,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -12,
+        24,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:layout.cornerPadding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.layout.cornerPadding",
+        "text" : "Corner Padding"
       },
       "validation" : "portable"
     },
@@ -42320,6 +42750,323 @@
       "title" : {
         "key" : "settings.agentPane.display.pinnedPlan",
         "text" : "Pin Task List in Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.trayTucked.help",
+        "text" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.trayTucked",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "tray",
+        "hat",
+        "tuck",
+        "hide",
+        "collapse",
+        "running",
+        "background",
+        "subagents",
+        "commands",
+        "bar",
+        "composer",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "trayTucked"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.trayTucked"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.trayTucked",
+        "text" : "Tuck Away Running Tray"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "left",
+        "middle",
+        "right"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.middle",
+            "text" : "Middle"
+          },
+          "value" : "middle"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "middle",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.trayHandle.help",
+        "text" : "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.trayHandle",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "tray",
+        "hat",
+        "tuck",
+        "handle",
+        "grabber",
+        "pull",
+        "tab",
+        "side",
+        "left",
+        "middle",
+        "center",
+        "right",
+        "composer"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "trayHandle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.trayHandle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.trayHandle",
+        "text" : "Running Tray Handle"
       },
       "validation" : "portable"
     },

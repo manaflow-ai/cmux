@@ -1344,15 +1344,17 @@ async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
         )
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
-    assert!(gone_within(host, Duration::from_secs(15)), "the wedged pooled host still runs");
-    // It could not end what runs under it: the daemon ended that with it.
+    assert!(gone_within(host, Duration::from_secs(15)), "the dead pooled host still runs");
+    // A host killed outright ends nothing under it, and its harness exits on the closed pipe, so
+    // its setsid helper is left with no parent link: the daemon finds it by the host's mark in
+    // its environment (cx-jlxm2l) and ends it with the host.
     let ended = gone_within(helper, Duration::from_secs(10));
     end_group(harness);
     if !ended {
         // SAFETY: the exact helper pid the fake harness reported.
         unsafe { libc::kill(helper as i32, libc::SIGKILL) };
     }
-    assert!(ended, "a process under the wedged host runs on without an owner");
+    assert!(ended, "a process under the dead pooled host runs on without an owner");
 }
 
 /// A pooled host whose link stopped reading (an acknowledgement failed while its socket still

@@ -39,6 +39,31 @@ import Foundation
         return data
     }
 
+    /// The account's cached login under `teamID` first, else under the first of `otherTeams` (its
+    /// other teams, nil for its personal scope) that holds one: one person's own Claude login is the
+    /// same whichever of their teams is selected, so a team switch never asks them to sign in again
+    /// (Leo, 2026-11-04: "we literally said we were gonna do is such that you literally dont need to
+    /// log in"). Claude only; a Codex login is per machine and never kept. Nil when none holds one.
+    /// Every scope is read at once (each read is bounded by ``readTimeout``), so a locked Keychain
+    /// costs one timeout, not one per team; the selected team's entry wins, then `otherTeams` in order.
+    static func loadAny(provider: Provider, teamID: String?, otherTeams: [String?], userID: String) async throws -> Data? {
+        var scopes: [String?] = [teamID]
+        if provider == .claude { for team in otherTeams where !scopes.contains(team) { scopes.append(team) } }
+        var results = [Result<Data?, any Error>?](repeating: nil, count: scopes.count)
+        // concurrency-allow: bounded fan-out of Keychain reads, one per scope, each under readTimeout
+        await withTaskGroup(of: (Int, Result<Data?, any Error>).self) { group in
+            for (index, scope) in scopes.enumerated() {
+                group.addTask {
+                    do { return (index, .success(try await load(provider: provider, teamID: scope, userID: userID))) } catch { return (index, .failure(error)) }
+                }
+            }
+            for await (index, result) in group { results[index] = result }
+        }
+        // An unreadable or invalid entry under the selected team never hides a good one elsewhere.
+        for case .success(let data?)? in results { return data }
+        return try results.first.flatMap { $0 }?.get() ?? nil
+    }
+
     /// The Keychain service `cmux cloud secret set` stores under.
     nonisolated static let service = "cmux-cloud-secret"
     /// How long one Keychain read may take before the login counts as unreadable.

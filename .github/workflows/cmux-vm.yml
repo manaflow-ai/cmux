@@ -146,6 +146,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   check:
     # A label event re-runs it only for cmux-vm-breaking-change-ok.
@@ -842,14 +846,16 @@ jobs:
   tail-production:
     # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,
     # so a 503 "temporarily unavailable" shows the dependency behind it while someone reproduces it. Only the
-    # repository Cloudflare secrets are read (no environment). Printed per event:
+    # Cloudflare secrets are read, in cmux-vm-production like the deploy (a dispatchable job that reads a secret
+    # names its environment, tests/test_supplychain_security.py). Printed per event:
     # time, method, path, status, outcome, Durable Object RPC, log lines and exceptions (scripts/tail-filter.mjs);
     # no headers, bodies or query strings, emails redacted.
     name: tail production
     # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
+    environment: cmux-vm-production
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -893,7 +899,7 @@ jobs:
     # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
     name: sweep orphan VMs (production)
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     environment: cmux-vm-production
     defaults:

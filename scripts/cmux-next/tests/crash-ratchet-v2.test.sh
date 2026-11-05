@@ -371,4 +371,50 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
+# 20. The receiver decides which declaration a member subscript uses (tip red after
+#     4897e1224dc: `public var tasks: [String]?` in ConversationRunTool.swift made
+#     CloudLinkLauncher's `state.tasks[id] = Task { ... }` on its own
+#     `[UUID: Task<Void, Never>]` an array index). A receiver declared in this file
+#     (a property, local, parameter or closure parameter) uses this file's declaration of
+#     the member; a receiver from elsewhere keeps the module rule, so a module-wide array
+#     still counts there, and a true array member in this file still counts.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+final class Launcher {
+    private struct State {
+        var tasks: [UUID: Task<Void, Never>] = [:]
+        var order: [UUID] = []
+    }
+    private let state = Mutex(State())
+    func serve(id: UUID) {
+        let started = state.withLock { state -> Bool in
+            state.tasks[id] = Task { }
+            return true
+        }
+        state.withLock { state in state.tasks[id] = nil }
+    }
+}
+SWIFT
+printf 'public struct Input {\n    public var tasks: [String]?\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a dictionary member written through a receiver of this file counted because another file has a same-named array: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+final class Launcher {
+    private struct State {
+        var tasks: [UUID: Task<Void, Never>] = [:]
+        var order: [UUID] = []
+    }
+    private let state = Mutex(State())
+    func serve(id: UUID, i: Int) {
+        state.withLock { state in state.tasks[id] = nil }
+        state.withLock { state in state.order[i] = id }
+        input.tasks[i] = "x"
+    }
+}
+SWIFT
+g add -A
+if out="$(ratchet)"; then fail "an array member of this file, or a module-wide array through another receiver, passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 2"* ]] || fail "state.order[i] = id or input.tasks[i] = \"x\" was exempt, or state.tasks[id] = nil counted: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

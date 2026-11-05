@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 
 /// A Pause, Resume or Kill of a Cloud machine, from the click until its record says where it went.
@@ -106,6 +107,16 @@ public final class CloudMachineChanges {
             }
             throw error
         }
+    }
+
+    /// A person's change (`user`) runs as the tracked ``run(_:machineID:of:onRollback:_:)``; a script's hint (a typing
+    /// prewarm, cmux#34974) runs untracked, so no overlay holds back the person's connect and a refused hint stays retryable.
+    public func run(_ change: CloudMachine.Status, machineID: String, origin: AppsRunRequest.Origin,
+                    of holder: () -> (any CloudMachineHolder)?,
+                    onRollback: @escaping @MainActor (UUID) -> Void = { _ in },
+                    _ call: () async throws -> Void) async throws {
+        guard origin != .script else { return try await call() }
+        try await run(change, machineID: machineID, of: holder, onRollback: onRollback, call)
     }
 
     private func showPending(_ machineID: String, on holder: (any CloudMachineHolder)?) {

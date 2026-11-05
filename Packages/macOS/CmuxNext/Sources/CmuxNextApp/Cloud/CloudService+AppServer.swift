@@ -40,6 +40,21 @@ extension CloudService {
         return machine
     }
 
+    /// The backend team a composer reservation and its bind name: on the app server link, the team the machine
+    /// list and creates use (the install token's team claim), so the reserved machine is one the list shows.
+    /// Naming the active Stack team instead put a team account's reserved machine in that team's store,
+    /// which this list never reads ("No Cloud machine has the id vm_…"). The classic link keeps the active team.
+    func reservationTeam() async throws -> String? {
+        try await Self.reservationTeam(linkSource: configuration.linkSource,
+                                       installTeam: { MacInstallIdentity.team(ofToken: try await self.installIdentity.installToken()) },
+                                       activeTeam: { try self.auth.accessTokenTeam(requested: nil) })
+    }
+
+    static func reservationTeam(linkSource: CloudConfiguration.LinkSource, installTeam: () async throws -> String?,
+                                activeTeam: () throws -> String?) async throws -> String? {
+        linkSource == .appServer ? try await installTeam() : try activeTeam()
+    }
+
     /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
     func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
         guard configuration.linkSource != .appServer else { let r = try await machineRecord(id); return (r, CloudMachineStats(state: r.status.rawValue)) }
@@ -77,7 +92,8 @@ extension CloudService {
             record = try await flow.create(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, key: pinned.idempotencyKey,
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
-                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment, madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
+                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment, request: pinned,
+                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
         } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
@@ -129,6 +145,10 @@ extension CloudService {
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
+            },
+            validateOptions: { [configuration, work] params in
+                try await CloudEnvironmentBootstrap(work: work).checkCreate(
+                    backend: configuration.ownerAPIBaseURL(), params: JSONEncoder().encode(params))
             }
         )
     }
