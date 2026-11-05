@@ -51,7 +51,7 @@ a layout error or a failed probe, a drag or key resize in which no terminal resi
 terminal drew (a held drag: no view laid out), a round whose arm could not be set, a split action that resized no
 terminal): such zeros are not a result.
 """
-import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, importlib.util, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -76,6 +76,8 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+# SCRATCH (frame-owner-s4 profile, never merge): an xctrace recording of the first round of each arm of the key layouts.
+parser.add_argument("--xctrace", help="xctrace template key: time (Time Profiler) or metal (Metal System Trace): record each arm's first key round")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -148,6 +150,48 @@ def write(text):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
     subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", text],
                    capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
+
+
+# Background work on a perf mini spoils an A/B (2026-11-05: mediaanalysisd took 10.6 s CPU in one ON arm). Each
+# round records these daemons' CPU over its window; a reader drops a round above BACKGROUND_LIMIT_S.
+BACKGROUND_DAEMONS = ("mediaanalysisd", "mds", "mds_stores", "mdworker", "mdworker_shared", "mdbulkimport",
+                      "photoanalysisd", "corespotlightd")
+BACKGROUND_LIMIT_S = 1.0
+
+
+def background_cpu():
+    """CPU seconds so far per pid of the background daemons ({pid: (name, seconds)}); {} when ps fails."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,time=,comm="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        name = os.path.basename(parts[2].strip())
+        if name not in BACKGROUND_DAEMONS:
+            continue
+        seconds = 0.0
+        for field in parts[1].replace("-", ":").split(":"):
+            try:
+                seconds = seconds * 60 + float(field)
+            except ValueError:
+                seconds = 0.0
+        found[parts[0]] = (name, seconds)
+    return found
+
+
+def background_delta(before):
+    """CPU seconds the background daemons used since `before`, per daemon name, plus their total."""
+    by_name = {}
+    for pid, (name, seconds) in background_cpu().items():
+        used = seconds - before.get(pid, (name, 0.0))[1]
+        if used > 0:
+            by_name[name] = round(by_name.get(name, 0.0) + used, 2)
+    return {"by_name": by_name, "total_s": round(sum(by_name.values()), 2), "limit_s": BACKGROUND_LIMIT_S,
+            "over_limit": sum(by_name.values()) > BACKGROUND_LIMIT_S}
 
 
 def counter_delta(before, after):
@@ -317,11 +361,13 @@ def measure(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            background = background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = background_delta(background)
             time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
             after = surfaces()
             numbers, raw = frame_numbers(frames)
@@ -337,6 +383,100 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
+XCTRACE_DONE = set()
+
+
+def xctrace_start(label):
+    """SCRATCH: starts `xctrace record` of all processes for one round; returns (process, trace path) or None."""
+    if not opts.xctrace or label in XCTRACE_DONE:
+        return None
+    XCTRACE_DONE.add(label)
+    xcodes = sorted(glob.glob("/Applications/Xcode*.app"))
+    env_x = dict(os.environ, DEVELOPER_DIR=(xcodes[-1] + "/Contents/Developer") if xcodes else "")
+    trace = os.path.join(opts.out, f"xct-{label}.trace")
+    template = {"time": "Time Profiler", "metal": "Metal System Trace"}.get(opts.xctrace, opts.xctrace)
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", template, "--all-processes", "--time-limit", "60s",
+                             "--output", trace, "--no-prompt"], env=env_x, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(4)  # bench script: the recorder starts
+    return proc, trace, env_x
+
+
+def xctrace_stop(handle, label):
+    """SCRATCH: stops the recording and summarises CPU time per process and per thread, and the heaviest frames per process."""
+    if not handle:
+        return None
+    proc, trace, env_x = handle
+    proc.send_signal(signal.SIGINT)
+    try:
+        out = proc.communicate(timeout=180)[0].decode(errors="replace")[-1500:]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out = "timeout"
+    xml = trace + ".xml"
+    exported = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                               '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", xml],
+                              env=env_x, capture_output=True, text=True, timeout=600)
+    summary = {"template": opts.xctrace, "record_tail": out, "export_rc": exported.returncode, "export_err": exported.stderr[-800:]}
+    if exported.returncode != 0 or not os.path.exists(xml):
+        return summary
+    import collections, xml.etree.ElementTree as ET
+    byid = {}
+    proc_w, thread_w = collections.Counter(), collections.Counter()
+    self_w = collections.defaultdict(collections.Counter)
+    incl_w = collections.defaultdict(collections.Counter)
+
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        th = e.find("thread")
+        th = resolve(th) if th is not None else None
+        tfmt = th.get("fmt", "?") if th is not None else "?"
+        pr = e.find("process")
+        pr = resolve(pr) if pr is not None else None
+        pfmt = pr.get("fmt", "?") if pr is not None else tfmt.split(" ")[0]
+        w = e.find("weight")
+        w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        proc_w[pfmt] += weight
+        thread_w[tfmt] += weight
+        # The time-profile row holds the stack as tagged-backtrace > backtrace > frame; each level can be a ref.
+        bt = e.find("tagged-backtrace")
+        bt = resolve(bt) if bt is not None else e.find("backtrace")
+        if bt is not None and bt.tag == "tagged-backtrace":
+            inner = bt.find("backtrace")
+            bt = resolve(inner) if inner is not None else None
+        elif bt is not None:
+            bt = resolve(bt)
+        if bt is not None:
+            frames = [resolve(f).get("name", "?") for f in bt.findall("frame")]
+            if frames:
+                self_w[pfmt][frames[0]] += weight
+                for name in set(frames):
+                    incl_w[pfmt][name] += weight
+    summary["processes_ms"] = {k: round(v / 1e6, 1) for k, v in proc_w.most_common(15)}
+    summary["threads_ms"] = {k: round(v / 1e6, 1) for k, v in thread_w.most_common(25)}
+    # Every thread of the app and of WindowServer, even below the top 25 (the renderer and IO threads).
+    focus = lambda name: name.startswith("cmux (") or name.startswith("WindowServer")
+    summary["focus_threads_ms"] = {k: round(v / 1e6, 1) for k, v in thread_w.most_common()
+                                   if ("pid: " in k and (" (cmux, pid" in k or "(WindowServer, pid" in k)) and v >= 5e6}
+    procs = [p for p, _ in sorted(self_w.items(), key=lambda kv: -sum(kv[1].values())) if focus(p)][:3]
+    summary["self_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in self_w[p].most_common(25)} for p in procs}
+    summary["incl_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in incl_w[p].most_common(40)} for p in procs}
+    # The same named frames in every arm, below any top-N cut, so OFF and ON compare (S4: the render server's
+    # create_surface was in ON's top 40 only).
+    watch = re.compile(r"create_surface|set_dest|IOSurface|prepare_layer_image|Surface::|offscreen|render_layer|"
+                       r"ghostty|drawFrame|presentDrawable|nextDrawable|setContents|initTarget|newTexture")
+    summary["watch_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in incl_w[p].items() if watch.search(k)}
+                           for p in incl_w if focus(p)}
+    print(f"XCTRACE {label} {json.dumps(summary)[:24000]}", flush=True)
+    return summary
+
+
 def measure_keys(name):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
@@ -350,6 +490,8 @@ def measure_keys(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = xctrace_start(f"{name}-{arms.label(arm)}")
+            background = background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
@@ -372,6 +514,10 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = background_delta(background)
+            profile = xctrace_stop(recording, f"{name}-{arms.label(arm)}")
+            if profile:
+                entry["xctrace"] = profile
             if entry.get("error"):
                 rounds.append(entry)
                 continue
