@@ -323,7 +323,7 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
     assert_eq!(stored["collapsed"], last, "the last fold is in the registry file");
     mux.shutdown();
 
-    assert!(over.is_empty(), "a person's request waited behind the busy sessions: {over:#?}");
+    panic!("DIAG end: over={over:#?}");
 }
 
 /// The other side of the priority: agents can send personal writes too
