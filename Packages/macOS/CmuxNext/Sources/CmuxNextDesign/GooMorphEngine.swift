@@ -18,6 +18,9 @@ public nonisolated struct GooScene: Equatable, Sendable {
     /// The x the droplets ride (the main card's leading edge): their springs work relative to it, so a sidebar
     /// slide carries them with their tabs, and its speed only drags their trailing side out a little.
     public var anchorX: CGFloat = 0
+    /// The main card's outline up to the tabs' top, its top corners the leftmost tab's (`GooCorner`): group 0
+    /// never leaves it, and a droplet near its leading edge hangs on that edge, flush.
+    public var wall: GooShape?
 
     public struct Droplet: Equatable, Sendable {
         public var key: Int
@@ -156,6 +159,13 @@ public final class GooMorphEngine: MotionAnimating {
         for droplet in scene.droplets {
             guard let edge = edges[droplet.key] else { continue }
             var rect = edge.shown(droplet, thinning: style.thinning).offsetBy(dx: scene.anchorX, dy: 0)
+            // The leftmost tab presses on the card's edge: near it, the droplet reaches past the wall, which cuts it
+            // flush; leaving, it peels off the edge as liquid does. Not while the sidebar's card flows across.
+            if droplet.group == 0, let wall = scene.wall {
+                let gap = rect.minX - wall.rect.minX
+                let pull = (1 - Self.smoothstep(gap, from: 12, to: 52)) * (1 - scene.crossBlend)
+                if pull > 0 { rect = CGRect(x: rect.minX - pull * (gap + rect.height), y: rect.minY, width: rect.width + pull * (gap + rect.height), height: rect.height) }
+            }
             // Dragged by the card's motion: the trailing side lags a little, as liquid does.
             let drag = min(14, abs(anchorSpeed) * 0.016)
             if anchorSpeed > 0 { rect.origin.x -= drag }
@@ -165,13 +175,18 @@ public final class GooMorphEngine: MotionAnimating {
             windows.append(rect.insetBy(dx: -(reach + 2), dy: -(reach + 2)))
         }
         if scene.crossBlend > 0, let gutter = scene.crossWindow { windows.append(gutter.insetBy(dx: -(reach + 2), dy: -(reach + 2))) }
-        let field = GooField(shapes: shapes, reach: reach, crossBlend: scene.crossBlend)
+        let field = GooField(shapes: shapes, reach: reach, crossBlend: scene.crossBlend, wall: scene.wall, wallStrength: 1 - scene.crossBlend)
         // A card the cross blend reshapes (the sidebar's, budding or melting) is traced, not drawn as is.
         let plain = scene.crossBlend > 0 ? scene.cards.filter { card in !(scene.crossWindow?.contains(card.rect) ?? false) } : scene.cards
         let path = field.surface(plain: plain, windows: windows)
         lastDrawn = path
         draw?(path)
         costs.record(nanoseconds: DispatchTime.now().uptimeNanoseconds - start)
+    }
+
+    private static func smoothstep(_ x: CGFloat, from a: CGFloat, to b: CGFloat) -> CGFloat {
+        let t = min(max((x - a) / (b - a), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 }
 

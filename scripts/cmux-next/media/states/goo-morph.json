@@ -126,6 +126,43 @@
    "wait": 1.5
   },
   {
+   "title": "At rest, slime with the square corner: the leftmost tab is square on the card's edge",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph.corner",
+     "value": "square"
+    }
+   },
+   "wait": 0.8
+  },
+  {
+   "title": "At rest, drop with the square corner",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "drop"
+    }
+   },
+   "wait": 0.8
+  },
+  {
+   "title": "Back to the curved corner",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph.corner",
+     "value": "curve"
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
    "title": "pool: start the frame probe",
    "rpc": {
     "method": "debug.tunables",

@@ -43,6 +43,14 @@ public nonisolated enum GooMorphVariant: String, Sendable, CaseIterable, Hashabl
         help: "Captures only: the goo morph's springs run this many times slower.", default: 1, range: 1...12, step: 1,
         unit: .multiplier, code: "GooMorphVariant.slowMotion")
 
+    /// Where the leftmost tab meets the card's leading edge (`chrome.gooMorph.corner`): Leo, "either ... the
+    /// divider curves up right there, and ... the tab presses up right on that divider ... completely flush. Or
+    /// ... the tab at its left, when it's at the leftmost on that left area, is just square".
+    public static let corner = Tunable<GooCorner>.choice(
+        "chrome.gooMorph.corner", .sidebar, "Goo morph corner",
+        help: "Where the leftmost tab meets the card's edge: the edge curves up into the tab, or the tab is square there.",
+        default: .curve, code: "GooMorphVariant.corner")
+
     /// The look's parameters; nil when off.
     public var style: GooStyle? {
         switch self {
@@ -51,6 +59,21 @@ public nonisolated enum GooMorphVariant: String, Sendable, CaseIterable, Hashabl
         case .pool: GooStyle(reach: 22, sidebarCard: true, lead: MotionSpring.gooLead.base, trail: MotionSpring.gooTrail.base, thinning: 0.55)
         // Thicker: the same springs, a third slower and with more give, so it wobbles as it lands.
         case .slime: GooStyle(reach: 28, sidebarCard: true, lead: MotionSpring.gooLead.base.slimed, trail: MotionSpring.gooTrail.base.slimed, thinning: 0.8)
+        }
+    }
+}
+
+/// How the leftmost tab's droplet meets the card's leading edge (`GooMorphVariant.corner`).
+public nonisolated enum GooCorner: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The edge runs straight up into the tab and turns with the tab's own radius.
+    case curve
+    /// The edge runs straight up into the tab, which is square there.
+    case square
+
+    public var tunableTitle: String {
+        switch self {
+        case .curve: "Curve: the edge curves up into the tab"
+        case .square: "Square: the tab is square at the edge"
         }
     }
 }
@@ -103,15 +126,24 @@ public nonisolated struct GooField: Sendable {
     private var corner: [CGFloat] = []
     private var groups: [Int] = []
     private var weights: [CGFloat] = []
+    private var wall: (midX: CGFloat, midY: CGFloat, halfW: CGFloat, halfH: CGFloat, r: CGFloat)?
+    private var wallStrength: CGFloat = 0
     public let shapes: [GooShape]
     public let reach: CGFloat
     /// 0: groups only meet (the larger group sum wins); 1: every shape adds, so groups flow into each other too.
     public var crossBlend: CGFloat
 
-    public init(shapes: [GooShape], reach: CGFloat, crossBlend: CGFloat = 0) {
+    /// `wall`: group 0 stays inside it (by `wallStrength`, 0 to 1), so a droplet pressed on its edge is cut flat
+    /// there, flush with the card, instead of bulging past it.
+    public init(shapes: [GooShape], reach: CGFloat, crossBlend: CGFloat = 0, wall: GooShape? = nil, wallStrength: CGFloat = 1) {
         self.shapes = shapes
         self.reach = max(1, reach)
         self.crossBlend = min(max(crossBlend, 0), 1)
+        if let wall {
+            let rect = wall.rect.standardized
+            self.wall = (rect.midX, rect.midY, rect.width / 2, rect.height / 2, min(max(0, wall.radius), rect.width / 2, rect.height / 2))
+            self.wallStrength = min(max(wallStrength, 0), 1)
+        }
         for shape in shapes {
             let rect = shape.rect.standardized
             midX.append(rect.midX)
@@ -146,6 +178,15 @@ public nonisolated struct GooField: Sendable {
                 add = t * t * t
             }
             sums[groups[index]] += Double(add * weights[index])
+        }
+        if let wall, wallStrength > 0 {
+            // Past the wall, group 0 falls off linearly with the distance (2 per point), so the traced edge lands on
+            // the wall exactly, between samples too.
+            let qx = abs(x - wall.midX) - wall.halfW + wall.r, qy = abs(y - wall.midY) - wall.halfH + wall.r
+            let ox = max(qx, 0), oy = max(qy, 0)
+            let d = (ox * ox + oy * oy).squareRoot() + min(max(qx, qy), 0) - wall.r
+            let capped = min(sums[0], Double(1 - 2 * d))
+            sums[0] += Double(wallStrength) * (capped - sums[0])
         }
         let strongest = sums.max()
         return CGFloat(strongest + Double(crossBlend) * (sums.sum() - strongest)) - 1

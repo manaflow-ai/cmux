@@ -68,7 +68,7 @@ public final class GooMorphChrome {
         host.gooSidebar?.gooNewButtonRow = { [weak self] in self?.tabRow() }
         // Ends at the first change after the window's look is gone.
         Task { [weak self] in
-            for await _ in ObservationStream({ GooMorphVariant.tunable.value }) {
+            for await _ in ObservationStream({ (GooMorphVariant.tunable.value, GooMorphVariant.corner.value) }) {
                 guard let self else { return }
                 update()
             }
@@ -209,6 +209,11 @@ public final class GooMorphChrome {
         }
         var scene = GooScene(cards: cards, droplets: droplets, crossBlend: crossBlend, crossWindow: crossWindow, live: live)
         scene.anchorX = cardRect.minX
+        // Up to the tabs' top: the leftmost tab's top corner is the wall's, its own radius or square.
+        if let top = droplets.filter({ $0.group == 0 }).map(\.rect).max(by: { $0.maxY < $1.maxY }) {
+            let corner = GooMorphVariant.corner.value == .square ? 0 : top.height / 2
+            scene.wall = GooShape(rect: CGRect(x: cardRect.minX, y: cardRect.minY, width: cardRect.width, height: top.maxY - cardRect.minY), radius: corner, group: 0)
+        }
         return scene
     }
 
