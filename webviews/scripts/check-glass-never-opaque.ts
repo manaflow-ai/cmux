@@ -489,10 +489,6 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
     "a Chief view's in-page content card, on its own page, not floating (Chief area: its owners' call)",
   ],
   [
-    "agent-session/acpmux/conversation/conversation.css .acpmux-image-viewer",
-    "the full-pane image viewer: a blurred lightbox that sets the image apart from the chat, not a floating card",
-  ],
-  [
     "agent-session/acpmux/summary/summary.css .acpmux-chat-gallery",
     "the chat's full-pane image gallery: the image viewer's blurred lightbox, not a floating card",
   ],

@@ -23,6 +23,9 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// A Codex login as `codex login` leaves it: tokens (an empty `auth.json` is not one).
+const SIGNED_IN: &str = r#"{"tokens": {"access_token": "x"}}"#;
+
 fn scratch() -> PathBuf {
     let root = std::env::temp_dir().join(format!("acpmux-codex-login-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -134,7 +137,7 @@ async fn a_failed_codex_route_moves_onto_the_signed_in_codex_login() {
     assert!(failed["error"]["data"].get("fallback").is_none(), "{failed}");
 
     // Signed in: the chat moves onto the Codex CLI's own login by itself.
-    std::fs::write(root.join("codex").join("auth.json"), "{}").unwrap();
+    std::fs::write(root.join("codex").join("auth.json"), SIGNED_IN).unwrap();
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
     let fallback = &failed["error"]["data"]["fallback"];
     assert_eq!(fallback["routeId"], "codex-login", "{failed}");

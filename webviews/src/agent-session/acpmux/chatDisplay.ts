@@ -14,6 +14,7 @@ import { useSyncExternalStore } from "react";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
+import { configureStatusVerbs } from "./statusVerbs";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -113,6 +114,11 @@ export const PRESENTATION_KEY = "agentPane.display.presentation";
 export type Presentation = "transcript" | "messages";
 export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
 export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+
+/// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
+/// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
+export const STATUS_VERB_MODE_KEY = "agentPane.display.statusVerbs.mode";
+export const STATUS_VERB_CUSTOM_KEY = "agentPane.display.statusVerbs.custom";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -299,6 +305,7 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 /// The host's `display` event: the page follows at once.
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
+  configureStatusVerbs(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;

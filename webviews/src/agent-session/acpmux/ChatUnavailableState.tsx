@@ -18,6 +18,10 @@ import { currentLanguage, useT } from "./i18n";
 /// and none by acpmux's id: "This session no longer exists", never "Reconnecting…" forever.
 /// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
 /// session, and Close Tab (a deleted chat's is Remove from Sidebar).
+///
+/// `line`: the chat's rows as last read are drawn below (direct.ts `drawMissingTail`), so the same
+/// case and actions sit as one line under the header, above the transcript, instead of in its place;
+/// still loading draws no line at all.
 export function ChatUnavailableState({
   unavailable,
   session,
@@ -31,6 +35,7 @@ export function ChatUnavailableState({
   onResume,
   onClose,
   noteDelayMs = RESUME_NOTE_DELAY_MS,
+  line = false,
 }: {
   unavailable: ChatUnavailable;
   /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
@@ -49,6 +54,8 @@ export function ChatUnavailableState({
   /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
   /// settled variants pass 0.
   noteDelayMs?: number;
+  /// Over the chat's last-read rows: a line under the header, not the centered state.
+  line?: boolean;
 }) {
   const t = useT();
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
@@ -60,7 +67,9 @@ export function ChatUnavailableState({
   // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
   // the chat opens or the wait goes on (then offline or paused, below).
   if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
-    return <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
+    return line ? null : (
+      <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
+    );
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
@@ -112,6 +121,54 @@ export function ChatUnavailableState({
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
   const closes = onClose !== undefined && unavailable.reason !== "deleted";
+  const actions = (action || onResume || closes) && (
+    <div className="acpmux-unavailable-actions">
+      {action && (
+        <button
+          type="button"
+          className="acpmux-unavailable-action"
+          data-action={action.kind}
+          disabled={resuming}
+          onClick={action.run}
+        >
+          {action.label}
+        </button>
+      )}
+      {onResume && (
+        <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
+          {t("link.missing.resume")}
+        </button>
+      )}
+      {closes && (
+        <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
+          {t("link.missing.close")}
+        </button>
+      )}
+    </div>
+  );
+  if (line)
+    return (
+      <div
+        className="acpmux-link-missing acpmux-unavailable-line"
+        data-unavailable={unavailable.reason}
+        role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+        data-enter="top"
+      >
+        <p className="acpmux-peer-copy-title">
+          {(unavailable.reason === "offline" || resuming) && (
+            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
+          )}
+          {title}
+        </p>
+        {error && (
+          <p className="acpmux-watch-hint" role="alert">
+            {error}
+          </p>
+        )}
+        {detail && <p className="acpmux-watch-hint">{detail}</p>}
+        {actions}
+      </div>
+    );
   return (
     <div
       className="acpmux-empty acpmux-unavailable"
@@ -168,31 +225,7 @@ export function ChatUnavailableState({
             {t("unavailable.session", { session: shortSession(session) })}
           </p>
         )}
-        {(action || onResume || closes) && (
-          <div className="acpmux-unavailable-actions">
-            {action && (
-              <button
-                type="button"
-                className="acpmux-unavailable-action"
-                data-action={action.kind}
-                disabled={resuming}
-                onClick={action.run}
-              >
-                {action.label}
-              </button>
-            )}
-            {onResume && (
-              <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
-                {t("link.missing.resume")}
-              </button>
-            )}
-            {closes && (
-              <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
-                {t("link.missing.close")}
-              </button>
-            )}
-          </div>
-        )}
+        {actions}
       </div>
     </div>
   );

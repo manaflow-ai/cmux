@@ -65,7 +65,9 @@ outputs = re.search(r"^    outputs:\n((?:^      .*\n)+)", job, re.MULTILINE)
 for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
-timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
+# With one-mini mode off: the smaller limit (one-mini mode adds room for glaeda's capacity wait before
+# the job starts, tests/test_nightly_mini_gate_timeouts.py).
+timeout = re.search(r"^    timeout-minutes: (?:\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| )?(\d+)", job, re.MULTILINE)
 # It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
 # wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
 budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
