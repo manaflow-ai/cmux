@@ -576,6 +576,9 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host not started: \(blocked.reason, privacy: .public)")
                 await supervisor.stop(phase: .unavailable(blocked.reason))
+                // Nothing to serve: the Mac may sleep (a later reconcile sets it again).
+                guard !Task.isCancelled, self?.running == key else { return }
+                KeepAwakeService.shared.setIPhoneServing(false)
                 return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
