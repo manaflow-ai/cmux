@@ -87,9 +87,10 @@ pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     Ok(status)
 }
 
-/// What only the verified app reads: the person's devices, and who views this Mac or asks to.
+/// What only the verified app reads: the person's devices, and who views this Mac or asks to
+/// (the session, the pending asks, the indicator text and banner that name the viewer).
 fn strip_private(screen: &mut serde_json::Map<String, Value>) {
-    for key in ["devices", "session", "pending"] {
+    for key in ["devices", "session", "pending", "indicator", "banner"] {
         screen.remove(key);
     }
 }

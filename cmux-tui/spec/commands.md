@@ -10597,7 +10597,7 @@ Sharing. Elsewhere every command answers `remote_host_unavailable`.
 `{"cmd":"remote-host-status"}`. The host's state: `state` (`off`, `starting`,
 `running`, `unavailable` with `reason`), `config`, `upgrade` and, while it runs,
 `host` (its grants, workers and Screen Sharing state). Never starts the host.
-Only the verified app sees `host.screen.devices`.
+Only the verified app sees `host.screen.devices`, `session`, `pending`, `indicator` and `banner` (they name the viewers).
 
 ### remote-host-call
 
