@@ -93,7 +93,7 @@ nonisolated extension RefusalStrings {
 
     /// An agent chat tab in a pane whose daemon lacks `agent-session-tabs-v1`.
     public static var agentTabsUnsupported: String {
-        text("handlers.refusal.agentTabsUnsupported", "this machine's cmux-tui cannot hold agent chat tabs yet: update it")
+        text("handlers.refusal.agentTabsUnsupported", "cmux on this machine can't hold agent chat tabs yet: update it")
     }
 
     /// Duplicate Tab on an agent chat tab whose acpmux session runs on another Mac.
@@ -125,7 +125,7 @@ nonisolated extension RefusalStrings {
 
     /// A new agent chat tab in a pane whose daemon is not connected (nothing queues).
     public static var agentTabsDisconnected: String {
-        text("handlers.refusal.agentTabsDisconnected", "this machine's cmux-tui is not connected: the agent chat tab was not opened")
+        text("handlers.refusal.agentTabsDisconnected", "this machine isn't connected: the agent chat tab was not opened")
     }
 
     /// A chat change in a tab that did not reach the store (not a conflict).

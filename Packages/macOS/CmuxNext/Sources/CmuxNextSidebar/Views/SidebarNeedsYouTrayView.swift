@@ -22,7 +22,7 @@ final class SidebarNeedsYouTrayView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space3
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.masksToBounds = true
         layer?.addSublayer(backing)
         layer?.addSublayer(tintFill)
@@ -146,7 +146,7 @@ private final class TrayLine: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space2
+        layer?.cornerRadius = Metrics.insetCornerRadius
         layer?.addSublayer(glyph)
         [title, reason, detail].forEach(addSubview)
         title.lineBreakMode = .byTruncatingTail

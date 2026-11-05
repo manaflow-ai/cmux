@@ -29,6 +29,7 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
+import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -144,35 +145,37 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   return (
     <>
-      <button
-        type="button"
-        className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
-        aria-expanded={open}
-        aria-controls={open ? detailsId : undefined}
-        ref={fold.headerRef}
-        onClick={fold.toggle}
-      >
-        <span className="cv-tool__icon">
-          <ToolGroup size={16} />
-        </span>
-        <span className="cv-tool__text" data-find-skip>
-          <ToolLabel text={label} />
-          {failure ? (
-            <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
-          ) : (
-            outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
-          )}
-          {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
-          <InlineFailureCause failure={failure} />
-        </span>
-        {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
-        {tool.approved && (
-          <span className="cv-command__meta cv-tool__meta">
-            <ApprovedMark />
+      <ToolVisualRow sources={images} label={label}>
+        <button
+          type="button"
+          className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          aria-expanded={open}
+          aria-controls={open ? detailsId : undefined}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
+        >
+          <span className="cv-tool__icon">
+            <ToolGroup size={16} />
           </span>
-        )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
-      </button>
+          <span className="cv-tool__text" data-find-skip>
+            <ToolLabel text={label} />
+            {failure ? (
+              <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+            ) : (
+              outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
+            )}
+            {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
+            <InlineFailureCause failure={failure} />
+          </span>
+          {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
+          {tool.approved && (
+            <span className="cv-command__meta cv-tool__meta">
+              <ApprovedMark />
+            </span>
+          )}
+          <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        </button>
+      </ToolVisualRow>
       <ToolFailureCause failure={failure} />
       {video && <VideoFramesCard video={video} />}
       {images.length > 0 && <ToolImages sources={images} />}

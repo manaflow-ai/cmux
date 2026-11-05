@@ -174,7 +174,7 @@ public final class FileGridView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.wantsLayer = true
-        scrollView.layer?.cornerRadius = 8
+        scrollView.layer?.cornerRadius = appearanceValues.cornerRadius
         addSubview(scrollView)
         emptyLabel.alignment = .center
         emptyLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
@@ -186,6 +186,7 @@ public final class FileGridView: NSView {
         let side = appearanceValues.tileSide
         layoutValues.itemSize = CGSize(width: side + 12, height: side + 12 + FileGridCell.nameHeight)
         emptyLabel.textColor = appearanceValues.secondaryText
+        scrollView.layer?.cornerRadius = appearanceValues.cornerRadius
         layoutValues.invalidateLayout()
         for case let cell as FileGridCell in collectionView.visibleItems() {
             guard let item = cell.item else { continue }

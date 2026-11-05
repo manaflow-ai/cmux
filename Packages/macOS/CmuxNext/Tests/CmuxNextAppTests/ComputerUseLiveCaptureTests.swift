@@ -21,6 +21,12 @@ struct ComputerUseLiveCaptureTests {
                                                 machineName: "")
     }
 
+    /// The time the capture stamps frames and pointers with.
+    @MainActor
+    final class TimeBox {
+        var now = Date(timeIntervalSince1970: 1000)
+    }
+
     /// The helper's socket and tokens as the capture reads them; nil: no helper runs.
     @MainActor
     final class HelperBox {
@@ -36,6 +42,7 @@ struct ComputerUseLiveCaptureTests {
         let sight = FakeSight(seen: ["a"])
         let box = HelperBox()
         let cursors = FakeCursors()
+        let time = TimeBox()
         let preview: ComputerUseLivePreview
         /// Requests whose answer the capture handled, and the waits on that count.
         private var settles = 0
@@ -43,7 +50,7 @@ struct ComputerUseLiveCaptureTests {
 
         init() {
             let capture = ComputerUseLiveCapture(frames: frames, cursors: cursors, configuration: { [box] in box.value },
-                                                 helperPID: { 77 }, clock: clock)
+                                                 helperPID: { 77 }, clock: clock, now: { [time] in time.now })
             preview = ComputerUseLivePreview(host: host, makeSource: { LiveSource() }, resolver: NoApps(), clock: clock,
                                              capture: capture, sight: sight)
             capture.settled = { [unowned self] in
@@ -130,6 +137,47 @@ struct ComputerUseLiveCaptureTests {
         try await rig.nextTick()
         _ = await rig.frames.next()
         _ = try #require(await rig.host.next { $0 != nil && $0?.pointer == nil })
+    }
+
+    /// The person's pointer rides the same tick as the agent's cursor: it reaches the card as a
+    /// telepointer when it moves, hides when it leaves the window, is sent once more when it has
+    /// stayed still for personIdle (idle), and goes when the stream ends. A tick that changes the
+    /// frame and both pointers reaches the page as one card.
+    @Test(.timeLimit(.minutes(1)))
+    func thePersonsPointerFollowsTheMouseAsATelepointer() async throws {
+        let rig = Rig()
+        try await rig.streaming()
+        rig.cursors.person = ComputerUsePersonPointer(point: CGPoint(x: 0.2, y: 0.3), visible: true)
+        rig.cursors.point = ComputerUseAgentCursor(point: CGPoint(x: 0.6, y: 0.4), windowWidth: 230)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        let first = try #require(await rig.host.next { $0?.telepointers?.person != nil })
+        #expect(first?.frame == FakeSurfaceFrames.url(1), "the frame and both pointers came as one card")
+        #expect(first?.telepointers?.agent == ComputerUsePreviewTelepointer(x: 0.6, y: 0.4, visible: true, movedAt: rig.time.now))
+        #expect(first?.telepointers?.person == ComputerUsePreviewTelepointer(x: 0.2, y: 0.3, visible: true, movedAt: rig.time.now))
+        let moved = rig.time.now
+        // Still, under personIdle: nothing new for the person.
+        rig.time.now = moved.addingTimeInterval(1)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        await rig.settled(3)
+        #expect(rig.preview.board.entries["s"]?.person?.idle == false)
+        // Still for personIdle: sent once, idle, with its first move's time.
+        rig.time.now = moved.addingTimeInterval(ComputerUseLiveCapture.personIdle)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        let idle = try #require(await rig.host.next { $0?.telepointers?.person?.idle == true })
+        #expect(idle?.telepointers?.person?.movedAt == moved)
+        // Out of the window: hidden, clamped to its edge.
+        rig.cursors.person = ComputerUsePersonPointer(point: CGPoint(x: 1, y: 0.3), visible: false)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        let outside = try #require(await rig.host.next { $0?.telepointers?.person?.visible == false })
+        #expect(outside?.telepointers?.person?.x == 1)
+        #expect(outside?.telepointers?.person?.idle == false)
+        // The stream ends (no target any more): no person pointer is kept.
+        rig.capture.want(nil)
+        #expect(rig.preview.board.entries["s"]?.person == nil)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -371,16 +419,27 @@ struct ComputerUseLiveCaptureTests {
 
 // MARK: Fakes
 
-/// The helper's agent cursor in the streamed window: `point`, read on each tick.
+/// The helper's agent cursor in the streamed window, `point`, and the person's pointer, `person`,
+/// read on each tick.
 final class FakeCursors: ComputerUseAgentCursorReading, @unchecked Sendable {
     private let lock = NSLock()
     private var _point: ComputerUseAgentCursor?
+    private var _person: ComputerUsePersonPointer?
     var point: ComputerUseAgentCursor? {
         get { lock.withLock { _point } }
         set { lock.withLock { _point = newValue } }
     }
 
+    var person: ComputerUsePersonPointer? {
+        get { lock.withLock { _person } }
+        set { lock.withLock { _person = newValue } }
+    }
+
     func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> ComputerUseAgentCursor? { point }
+
+    func pointers(in window: ComputerUsePreviewWindow, helper: pid_t?) async -> ComputerUseWindowPointers {
+        ComputerUseWindowPointers(agent: helper == nil ? nil : point, person: person)
+    }
 }
 
 /// The helper's window stream: each call goes to `next()`; reads answer frames 1, 2, 3...

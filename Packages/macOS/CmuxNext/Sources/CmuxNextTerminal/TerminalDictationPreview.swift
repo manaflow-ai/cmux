@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// deliberately click-through so the terminal remains the input target.
 public final class TerminalDictationPreview: NSView {
     private let label = ThemedLabel(labelWithString: "")
-    private let glass = Glass.makeSurface(.toast, cornerRadius: 8, interactive: false)
+    private let glass = Glass.makeSurface(.toast, cornerRadius: Metrics.surfaceCornerRadius, interactive: false)
 
     public init() {
         super.init(frame: .zero)
