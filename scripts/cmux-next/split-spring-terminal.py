@@ -118,6 +118,11 @@ if "--suite=app-perf" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
 # `--suite=anim-perf`: every other app animation (tabs, workspace switch, sidebars, groups, Home, palette),
 # scripts/cmux-next/anim-perf-terminal.py, budgets in scripts/perf-bench/budgets.json (animations).
+# `--suite=one-motion`: does every pane move as one? Per-pane frame timing of Cmd-B, Cmd-D, the two together and the
+# right sidebar beside an agent chat (scripts/cmux-next/one-motion-trace.py; Leo 2026-11-05, "everything moves as one").
+if "--suite=one-motion" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "one-motion-trace.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=one-motion"])
 # `--suite=chromium-tab-count`: 150 Chromium tabs under launchd's 256 open files, the app still answering
 # (scripts/cmux-next/chromium-tab-count-live.py; release blocker 2026-10-23, OpenFileLimit).
 if "--suite=chromium-tab-count" in sys.argv:
