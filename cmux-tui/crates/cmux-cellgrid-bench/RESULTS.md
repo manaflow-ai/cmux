@@ -33,7 +33,7 @@ the network round trip, which every path pays the same.
    carry the exact RGB.
 3. **A static screen stays blurry on video.** Damage-only encoding sends nothing more once the
    screen stops changing, and the 500 ms refresh (P frames) does not sharpen it: idle vim stays at
-   PSNR 37 dB and 0% exact text either way, while the refresh costs 31 kbps and ~5x the encode CPU (47.5 against 9.0 ms/s).
+   PSNR 37 dB and 0% exact text either way, while the refresh costs 31 kbps and ~5x the encode CPU (47.3 against 8.8 ms/s).
 4. **Raw VT does not survive a flood; coalesced cells do.** A `cat` flood is 624 Mbps of VT, beyond any
    link (the channel falls back to a GHOSTSNP snapshot once the viewer is 8 MiB behind).
    Cells at the daemon's 8 ms cadence send 7.5 Mbps, 1.0 Mbps deflated, and stay exact;
