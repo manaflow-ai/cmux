@@ -19,6 +19,12 @@ import { waveProps } from "../../../ui/wave";
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
 
+/// A subagent's own transcript (the snapshot's `subagentViews`), read when a line needs its whole
+/// final reply (SubagentReportLine.tsx): a getter, so a streaming view wakes no line (App.tsx).
+export const SubagentViewsContext = createContext<((id: string) => readonly AcpmuxRow[] | undefined) | undefined>(
+  undefined,
+);
+
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
 

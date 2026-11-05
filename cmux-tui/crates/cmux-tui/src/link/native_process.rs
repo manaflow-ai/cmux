@@ -83,17 +83,10 @@ enum ReadFailure {
     Refused,
 }
 
-/// One policy read. The first read (`renewal` false) closes on any failure; a
-/// renewal's intent retains the installed lease, so an unanswered renewal
-/// leaves the caller to decide how long the current policy keeps serving.
-async fn refresh(
-    source: &Arc<AgentReceiver>,
-    renewal: bool,
-) -> Result<ReceiverSnapshot, ReadFailure> {
+async fn refresh(source: &Arc<AgentReceiver>) -> Result<ReceiverSnapshot, ReadFailure> {
     // Intent creation belongs to the live actor, not to the blocking executor.
     // A delayed executor must never create fresh authority after role stop.
-    let prepared = if renewal { source.prepare_renewal() } else { source.prepare_refresh() };
-    let Ok(prepared) = prepared else {
+    let Ok(prepared) = source.prepare_refresh() else {
         source.invalidate();
         return Err(ReadFailure::Refused);
     };
@@ -113,16 +106,9 @@ async fn refresh(
     };
     match result {
         Some(Ok(Ok(snapshot))) => Ok(snapshot),
-        // A read still running past its budget is detached, not stopped. On a
-        // renewal its intent is superseded at once, so a late reply can never
-        // install a policy this loop never sent to the receiver; the new
-        // intent retains the installed lease, so this closes nothing valid.
-        None => {
-            if renewal {
-                drop(source.prepare_renewal());
-            }
-            Err(ReadFailure::Unanswered)
-        }
+        // A read still running past its budget may yet publish its own
+        // authenticated answer; a later read supersedes it.
+        None => Err(ReadFailure::Unanswered),
         Some(Ok(Err(error))) if !is_refusal(&error) => Err(ReadFailure::Unanswered),
         _ => {
             source.invalidate();
@@ -140,7 +126,7 @@ async fn initialize(
         AgentReceiver::for_receiver(binding.clone(), keys, generation)
             .map_err(|error| anyhow!(error))?,
     ));
-    let snapshot = refresh(&authority.0, false).await.map_err(|failure| {
+    let snapshot = refresh(&authority.0).await.map_err(|failure| {
         // Nothing is retained before the first policy: any failure closes.
         authority.0.invalidate();
         anyhow!("cloud.receiver.policy_unavailable ({failure:?})")
@@ -238,7 +224,7 @@ impl RenewalLog {
     fn kept(&self, took: Duration, retry: Duration, left: Duration) {
         eprintln!(
             "cmux link: receiver policy read got no answer after {} ms; kept the current policy \
-             ({} s left of local admission or lease), streams and peers stay up, next read in {} ms",
+             (local admission, {} s left), streams and peers stay up, next read in {} ms",
             took.as_millis(),
             left.as_secs(),
             retry.as_millis()
@@ -246,35 +232,16 @@ impl RenewalLog {
     }
 }
 
-/// A snapshot's lease end on both clocks: active time and elapsed time.
-fn lease_of(snapshot: &ReceiverSnapshot) -> Option<(Instant, Deadline)> {
-    Some((snapshot.expires(), snapshot.elapsed_deadline()?))
-}
-
-/// What is left of a lease, by whichever clock ends it first; `None` once
-/// either has run out.
-fn lease_left(lease: &(Instant, Deadline), now: Instant) -> Option<Duration> {
-    let active = lease.0.checked_duration_since(now).filter(|left| !left.is_zero())?;
-    Some(active.min(lease.1.remaining()?))
-}
-
-/// Whether a failed read keeps the current policy, and for how long. Only a
-/// read with no answer keeps it: until the local admission the control plane
-/// granted (`admit_until`) ends, or else until the installed lease ends on its
-/// own. A refusal, or a read past both, closes as before.
-fn keeps_policy(
-    failure: ReadFailure,
-    admitted: Option<Instant>,
-    lease: Option<&(Instant, Deadline)>,
-    now: Instant,
-) -> Option<Duration> {
-    if failure != ReadFailure::Unanswered {
-        return None;
+/// Whether a failed read keeps the current policy: only a read with no answer,
+/// only under local admission the control plane granted (`admit_until`), and
+/// only while that admission lasts. Every other failure closes as before.
+fn keeps_policy(failure: ReadFailure, admitted: Option<Instant>, now: Instant) -> Option<Duration> {
+    match (failure, admitted) {
+        (ReadFailure::Unanswered, Some(end)) => {
+            end.checked_duration_since(now).filter(|left| !left.is_zero())
+        }
+        _ => None,
     }
-    let admission =
-        admitted.and_then(|end| end.checked_duration_since(now)).filter(|left| !left.is_zero());
-    let lease = lease.and_then(|lease| lease_left(lease, now));
-    admission.into_iter().chain(lease).max()
 }
 
 async fn renew(
@@ -283,7 +250,6 @@ async fn renew(
     mut next: (Instant, Deadline),
     mut expires: Option<Instant>,
     mut admitted: Option<Instant>,
-    mut lease: Option<(Instant, Deadline)>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
     let mut log = RenewalLog { last_slow: None };
@@ -295,7 +261,7 @@ async fn renew(
             .await
             .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
         let started = Instant::now();
-        match refresh(&source, true).await {
+        match refresh(&source).await {
             Ok(snapshot) => {
                 let arrived = Instant::now();
                 let took = arrived - started;
@@ -303,7 +269,6 @@ async fn renew(
                 log.read(took, snapshot.expires() - snapshot.started(), lapsed);
                 expires = Some(snapshot.admitted_until());
                 admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
-                lease = lease_of(&snapshot);
                 next = renewal_at(&snapshot, took)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
@@ -314,29 +279,21 @@ async fn renew(
                 if source.is_retired() {
                     return Err(anyhow!("cloud.receiver.generation_retired"));
                 }
-                // A read with no answer is not a revocation: the receiver's own
-                // expiry of the policy it holds still ends it (at `admit_until`
-                // or its lease) if no read answers before then, and reads
-                // retry meanwhile, before that end.
-                let wait = match keeps_policy(failure, admitted, lease.as_ref(), Instant::now()) {
-                    Some(left) => {
-                        let wait = retry.min(left);
-                        log.kept(started.elapsed(), wait, left);
-                        wait
-                    }
-                    None => {
-                        log.failed(started.elapsed(), retry, failure);
-                        expires = None;
-                        admitted = None;
-                        lease = None;
-                        source.invalidate();
-                        send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
-                        retry
-                    }
-                };
-                let elapsed =
-                    clock.after(wait).ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
-                next = (Instant::now() + wait, elapsed);
+                if let Some(left) = keeps_policy(failure, admitted, Instant::now()) {
+                    // The receiver's own expiry of this policy still ends it at
+                    // `admit_until` if no read answers before then.
+                    log.kept(started.elapsed(), retry, left);
+                } else {
+                    log.failed(started.elapsed(), retry, failure);
+                    expires = None;
+                    admitted = None;
+                    source.invalidate();
+                    send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
+                }
+                let elapsed = clock
+                    .after(retry)
+                    .ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
+                next = (Instant::now() + retry, elapsed);
                 retry = (retry * 2).min(Duration::from_secs(30));
             }
         }
@@ -375,7 +332,6 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
     let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
     let expires = Some(snapshot.admitted_until());
     let admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
-    let lease = lease_of(&snapshot);
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
         let _ = stopped.await;
@@ -389,7 +345,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = closed(&mut control) => result,
         result = &mut shutdown => result,
         result = &mut serving => { finished = true; result },
-        result = renew(authority.0.clone(), send, next, expires, admitted, lease) => result,
+        result = renew(authority.0.clone(), send, next, expires, admitted) => result,
     };
     authority.0.invalidate();
     let _ = stop.send(());

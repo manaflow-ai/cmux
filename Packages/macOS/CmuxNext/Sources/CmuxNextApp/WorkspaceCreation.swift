@@ -119,7 +119,7 @@ enum WorkspaceCreation {
         guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
         // A session of this Mac never opens in a workspace of another machine (cx-k21v).
         guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
-        if let refusal = tabs.hostRefusal(host, daemonIsLocal: true) {
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: localHost, chiefHost: tabs.chiefHost, daemonIsLocal: true) {
             throw AgentTabRefusal(message: refusal)
         }
         // A chat of that acpmux: its tab shows it as soon as the tree lists it.

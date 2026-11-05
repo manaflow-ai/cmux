@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -60,7 +59,7 @@ import Testing
     }
 
     /// A tab a launch on the selected backend saved (under that backend's id, before this fix) is this
-    /// Mac's too; the tunnel keeps the backend's id; another Mac's tab still is not this Mac's.
+    /// Mac's too when this Mac's tree lists it; the tunnel keeps the backend's id; another Mac's tab still is not this Mac's.
     @Test func aTabSavedUnderABackendsIDIsThisMacsAndAnotherMacsIsNot() throws {
         let (bundle, folder) = try Self.buildFolder()
         defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
@@ -81,15 +80,6 @@ import Testing
         let otherMac = AgentSessionRef(host: AgentSessionRef.host(installID: "mac-other"), hostName: "studio-mac")
         #expect(tabs.hostKind(otherMac, listedHere: true) == .remote)
 
-        // Every "is this chat this Mac's" check agrees with hostKind (duplicate, folder, transfer, links,
-        // subagent limits read isLocalHost; opening by host reads hostRefusal; the sidebar reads the turn store).
-        #expect(tabs.isLocalHost(staging.host) && tabs.isLocalHost(tabs.localHost) && !tabs.isLocalHost(otherMac.host))
-        #expect(tabs.hostRefusal(staging.host, daemonIsLocal: true) == nil)
-        #expect(tabs.hostRefusal(otherMac.host, daemonIsLocal: true) != nil)
-        let turns = AgentTurnStateStore()
-        turns.localHost = tabs.localHost
-        turns.formerLocalHosts = [staging.host]
-        #expect(turns.isLocal(staging.host) && !turns.isLocal(otherMac.host))
         // Closed windows recorded under either id are this Mac's.
         #expect(cloud.installIDs.all() == ["mac-before", "mac-staging"])
     }

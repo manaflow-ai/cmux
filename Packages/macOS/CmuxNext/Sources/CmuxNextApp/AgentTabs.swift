@@ -366,8 +366,8 @@ final class AgentTabStore {
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
     func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
-        let local = host == nil || isLocalHost(host)
-        return listTabs().first { (local ? isLocalHost($0.record.host) : $0.record.host == host) && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
+        let host = host ?? localHost
+        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.

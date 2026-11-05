@@ -95,9 +95,10 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   mkdir -p "$launch"
   if app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
     # --request also lists the app under Privacy & Security, where the grant is made.
-    open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request || true
+    open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request \
+      >"$launch/open.log" 2>&1 || echo "open exited $?" >>"$launch/open.log"
     grants=$(cat "$launch/grants.json" 2>/dev/null)
-    echo "SCREEN-STREAM-EVAL-LAUNCHER $grants"
+    echo "SCREEN-STREAM-EVAL-LAUNCHER app=$app grants=${grants:-none} open=$(tr '\n' ' ' <"$launch/open.log" | cut -c1-300) err=$(tr '\n' ' ' <"$launch/grants.err" 2>/dev/null | cut -c1-300)"
     if granted "$grants"; then
       # An app LaunchServices starts gets launchd's environment, not ours: pass what the build needs.
       env_args=()

@@ -94,17 +94,8 @@ pub struct Refresh {
     started: Instant,
     elapsed: Option<Elapsed>,
     done: bool,
-    retain: bool,
 }
 impl Refresh {
-    /// A renewal: if this read fails or is abandoned, the installed policy
-    /// keeps serving until its own lease ends instead of closing at once. The
-    /// verifier's expiry checks still end it on time; nothing is extended,
-    /// and an expired policy or an untrusted clock still closes authority.
-    pub fn retain_installed(&mut self) {
-        self.retain = true;
-    }
-
     pub fn started(&self) -> Instant {
         self.started
     }
@@ -136,25 +127,11 @@ fn cancel(verifier: &NativeTokenVerifier, refresh: &Refresh) -> bool {
     if !state.receiver.as_ref().is_some_and(|r| r.current(refresh)) {
         return false;
     }
-    if refresh.retain && installed_is_live(verifier, &mut state) {
-        return false;
-    }
     invalidate_state(&mut state);
     let wake = reconcile_streams(&mut state, None);
     drop(state);
     wake_streams(wake);
     true
-}
-
-/// The installed policy is still within its lease on the receiver's own
-/// clocks (wall and elapsed). A failed clock sample is never live.
-fn installed_is_live(verifier: &NativeTokenVerifier, state: &mut State) -> bool {
-    let Ok(now) = verifier.sample(state) else { return false };
-    let Some(policy) = state.policy.as_ref() else { return false };
-    policy.valid(now)
-        && super::streams::stream_deadline(policy, now).is_some_and(|end| end > now.monotonic)
-        && super::streams::elapsed_deadline(state, policy)
-            .is_some_and(|budget| budget.is_none_or(|budget| budget.remaining().is_some()))
 }
 
 /// A single authority writer. Its initial public keyset comes from the original
@@ -251,7 +228,6 @@ impl Owner {
                 started,
                 elapsed,
                 done: false,
-                retain: false,
             });
         }
         invalidate_state(&mut state);
@@ -342,14 +318,6 @@ impl Owner {
     /// caller without it must still close authority itself.
     pub fn keep(&self, mut refresh: Refresh) {
         refresh.done = true;
-    }
-
-    /// The read returned a reply that failed validation: close at once,
-    /// whatever lease the installed policy has left. Only a transport
-    /// failure (no reply, timeout) may keep a retained lease.
-    pub fn reject(&self, mut refresh: Refresh) -> bool {
-        refresh.retain = false;
-        self.fail(refresh)
     }
 
     pub fn fail(&self, mut refresh: Refresh) -> bool {

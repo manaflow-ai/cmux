@@ -39,6 +39,11 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if usesStatusColors != oldValue { needsDisplay = true } }
     }
 
+    /// Optional host-resolved identity ink. Changes only the spinner, never status colours.
+    public var spinnerColor: NSColor? {
+        didSet { if spinnerColor != oldValue { needsDisplay = true } }
+    }
+
     /// The diameter a dot glyph paints, centered in the view whatever its size
     /// (``StatusIndicatorLayer/dotDiameter``); nil paints it at its share of the view.
     public var dotDiameter: CGFloat? {
@@ -169,7 +174,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public override func updateLayer() {
         performWithTheme {
             let loading = StatusIndicatorAppearance.shared.config.settings.color
-            indicator.colors = usesStatusColors ? .status(loading: loading) : .current(loading: loading)
+            var colors: StatusIndicatorLayer.Colors = usesStatusColors ? .status(loading: loading) : .current(loading: loading)
+            if let spinnerColor { colors.spinner = spinnerColor.cgColor }
+            indicator.colors = colors
         }
     }
 

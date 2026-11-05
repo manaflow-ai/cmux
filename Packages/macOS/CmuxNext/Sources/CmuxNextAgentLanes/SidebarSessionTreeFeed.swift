@@ -42,10 +42,8 @@ public final class SidebarSessionTreeFeed {
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
-    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions. `formerLocalHosts` reads the
-    /// `install:<id>` hosts this Mac's tabs were saved under on its other Cloud backends (#35284).
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
-                      formerLocalHosts: @escaping @MainActor @Sendable () -> Set<String> = { [] },
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
                       recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
@@ -63,13 +61,13 @@ public final class SidebarSessionTreeFeed {
                 let chats = Self.chats(models)
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
-                    for ref in refs where ref.host == localHost || formerLocalHosts().contains(ref.host) {
+                    for ref in refs where ref.host == localHost {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
                 var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
-                                     localHost: localHost, formerLocalHosts: formerLocalHosts(), pullRequests: pullRequests.answers)
+                                     localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
                 // Captures: sample pull requests on every row, and no GitHub reads.
                 if fixture { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
@@ -109,7 +107,7 @@ public final class SidebarSessionTreeFeed {
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links lanes: [String: AgentLaneLinks],
                      remoteParentsByHost: [String: [String: String]] = [:], hostAliases: [String: Set<String>] = [:],
                      recordedParents: [AgentSessionParents.Identity: AgentSessionParents.Identity] = [:],
-                     localHost: String?, formerLocalHosts: Set<String> = [], pullRequests: [String: AgentPanePullRequest]) -> Pass {
+                     localHost: String?, pullRequests: [String: AgentPanePullRequest]) -> Pass {
         // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only), and
         // its chats on other machines whose parent that machine's daemon listed. Session ids are
         // scoped to a daemon, so every owner lookup keeps the tab's host alongside its id.
@@ -120,7 +118,7 @@ public final class SidebarSessionTreeFeed {
             for ref in refs {
                 guard let session = ref.session else { continue }
                 let identity = AgentSessionParents.identity(host: ref.host, session: session)
-                if ref.host == localHost || formerLocalHosts.contains(ref.host) { sessions[id, default: []].append(ref) } else { remote[id, default: []].append(ref) }
+                if ref.host == localHost { sessions[id, default: []].append(ref) } else { remote[id, default: []].append(ref) }
                 owner[identity] = owner[identity] ?? id
             }
         }
@@ -169,7 +167,7 @@ public final class SidebarSessionTreeFeed {
             let shown = refs.compactMap { $0.session.flatMap { lanes[$0] } }
             if let parent = shown.lazy.compactMap({ lane -> SidebarWorkspaceID? in
                 guard let parentID = lane.spawnedBy, let localHost else { return nil }
-                return ([localHost] + formerLocalHosts).lazy.compactMap { owner[AgentSessionParents.identity(host: $0, session: parentID)] }.first
+                return owner[AgentSessionParents.identity(host: localHost, session: parentID)]
             }).first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
                 state.parents[id] = parent
             }

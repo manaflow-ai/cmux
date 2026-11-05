@@ -45,7 +45,7 @@ enum SidebarLaneStatus {
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,
-                              turns.isLocal(ref.host) || ref.host.hasPrefix("chief:") else { return nil }
+                              ref.host == turns.localHost || ref.host.hasPrefix("chief:") else { return nil }
                         // UUID identity, not display names. A Chief-home session can be mirrored in either store.
                         for store in [lanes, chiefLanes] {
                             guard let lane = store.lane(id), lane.peer == nil, let parent = lane.parent,

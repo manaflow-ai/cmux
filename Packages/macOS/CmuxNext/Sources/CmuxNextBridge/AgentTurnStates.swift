@@ -350,9 +350,6 @@ public final class AgentTurnStateStore {
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
-    /// The `install:<id>` hosts this Mac's chat tabs were saved under on its other Cloud backends (#35284):
-    /// the same acpmux as ``localHost``'s.
-    public var formerLocalHosts: Set<String> = []
     /// The hosts of other acpmux daemons on this Mac whose watch also feeds this store (the
     /// Chief home's `chief:<id>`, where the Chief runs its subagents): their chat tabs read
     /// their titles and states here as this Mac's do.
@@ -382,12 +379,7 @@ public final class AgentTurnStateStore {
 
     /// Whether a chat of `host` has its facts here: this Mac's or a mirrored acpmux's.
     private func isMirrored(_ host: String) -> Bool {
-        isLocal(host) || mirroredHosts.contains(host)
-    }
-
-    /// Whether `host` names this Mac's own acpmux: ``localHost`` or one of ``formerLocalHosts``.
-    public func isLocal(_ host: String) -> Bool {
-        localHost != nil && (host == localHost || formerLocalHosts.contains(host))
+        host == localHost || mirroredHosts.contains(host)
     }
 
     // MARK: Writes (the watch feed)

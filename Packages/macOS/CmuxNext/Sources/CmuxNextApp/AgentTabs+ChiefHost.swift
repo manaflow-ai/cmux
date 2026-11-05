@@ -4,15 +4,10 @@ import CmuxNextHomeEngine
 import Foundation
 
 extension AgentTabStore {
-    /// ``AgentPaneHostKind`` of `record` with this store's hosts, this Mac's former ones included.
+    /// ``AgentPaneHostKind`` of `record` with this store's hosts, this Mac's former ones included for a tab its own tree lists.
     func hostKind(_ record: AgentSessionRef, listedHere: Bool) -> AgentPaneHostKind {
         AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: listedHere, formerLocalHosts: resolveFormerLocalHosts())
     }
-
-    /// Whether `host` is this Mac's (``AgentPaneHostKind/isLocal(_:localHost:formerLocalHosts:)``): every such check reads it, never `== localHost`.
-    func isLocalHost(_ host: String?) -> Bool { AgentPaneHostKind.isLocal(host, localHost: localHost, formerLocalHosts: resolveFormerLocalHosts()) }
-    /// ``hostRefusal(_:localHost:chiefHost:daemonIsLocal:)`` with this store's hosts, a former host of this Mac's included.
-    func hostRefusal(_ host: String?, daemonIsLocal: Bool) -> String? { Self.hostRefusal(isLocalHost(host) ? localHost : host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemonIsLocal) }
 
     /// The machine tab `key`'s chat runs on when that is another machine: the tab's pane attaches
     /// there (``view(for:)``'s `.remote`), through the daemon whose tree lists it. Nil for a chat on

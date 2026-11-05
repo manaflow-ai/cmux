@@ -65,16 +65,6 @@ impl AgentReceiver {
         self.owner.begin().map_err(|_| UNAVAILABLE.into())
     }
 
-    /// [`Self::prepare_refresh`] for a renewal: a failed or abandoned read
-    /// leaves the installed policy serving until its own lease ends, rather
-    /// than closing every stream and peer at the first failed read. A
-    /// generation change still retires at once.
-    pub fn prepare_renewal(&self) -> Result<Refresh, String> {
-        let mut refresh = self.prepare_refresh()?;
-        refresh.retain_installed();
-        Ok(refresh)
-    }
-
     /// Complete only this prepared intent; never issue another intent when
     /// a blocking executor eventually starts a previously queued read.
     pub fn refresh_prepared(&self, refresh: Refresh) -> Result<ReceiverSnapshot, String> {
@@ -113,13 +103,7 @@ impl AgentReceiver {
     ) -> Result<ReceiverSnapshot, String> {
         let snapshot = match self.read_prepared(path, uid, system, budget, &refresh) {
             Ok(snapshot) => snapshot,
-            Err(error) if is_refusal(&error) => {
-                // A reply that fails validation is a rejected snapshot, not
-                // a transport failure: it never keeps a retained lease
-                // (#36008), as dropping a retained renewal would.
-                self.owner.reject(refresh);
-                return Err(error);
-            }
+            Err(error) if is_refusal(&error) => return Err(error),
             Err(error) => {
                 self.owner.keep(refresh);
                 return Err(error);

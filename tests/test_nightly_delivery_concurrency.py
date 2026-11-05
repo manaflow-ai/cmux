@@ -211,7 +211,9 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
         env = steps[lock]["env"]
         ttl, wait = int(env["LEASE_TTL"]), int(env["LEASE_WAIT"])
         renew, max_hold = int(env["LEASE_RENEW"]), int(env["LEASE_MAX_HOLD"])
-        timeout = int(jobs[name]["timeout-minutes"]) * 60
+        # With one-mini mode off: the smaller limit, the one the lease must match (one-mini mode adds
+        # room for glaeda's capacity wait before the job starts, tests/test_nightly_mini_gate_timeouts.py).
+        timeout = min(int(n) for n in re.findall(r"\b\d+\b", str(jobs[name]["timeout-minutes"]))) * 60
         assert ttl <= 15 * 60, f"{name}: a dead holder's lease ({ttl}s) blocks the feed past 15 minutes"
         assert renew * 10 <= ttl, f"{name}: renewing every {renew}s leaves under ten tries per {ttl}s TTL"
         assert max_hold <= 3 * 60 * 60 and max_hold >= timeout - wait, (
