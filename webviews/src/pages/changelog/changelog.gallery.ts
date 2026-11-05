@@ -4,6 +4,7 @@ import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
+import nightlyNext50 from "./fixtures/nightly-next-50.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
 import { dayOfNightlies, denseDay, journalNotes, longAreaDay } from "./whatsNewFixtures";
@@ -92,6 +93,24 @@ export default changelogPageEntry({
     "sheet-long-area": {
       note: "A day with twelve Sidebar changes: the area shows its first six and Show more (6); the other areas stay open.",
       notes: longAreaDay,
+    },
+    "sheet-versions": {
+      note: 'Leo 2026-11-05 ("with a click to a past nightly"): a day\'s Versions open, each build with its commit, its changes since the build before, and Install; Installed on the running one. Real nightly-next index.',
+      notes: nightlyNext50 as unknown as ReleaseNotes[],
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cls-day .cls-versions-toggle" });
+        await ctx.waitFor(() => document.querySelector(".cls-builds"));
+      },
+    },
+    "sheet-versions-confirm": {
+      note: "Install asks once: Restart into it, then the app downloads that build, checks its signature and team, and restarts with every session.",
+      notes: nightlyNext50 as unknown as ReleaseNotes[],
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cls-day .cls-versions-toggle" });
+        await ctx.waitFor(() => document.querySelector(".cls-build-action button"));
+        await ctx.click({ selector: ".cls-build-action button" });
+        await ctx.waitFor(() => document.querySelector('.cls-build-action button:not([data-variant="ghost"])'));
+      },
     },
     "sheet-real-nightlies": {
       note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",

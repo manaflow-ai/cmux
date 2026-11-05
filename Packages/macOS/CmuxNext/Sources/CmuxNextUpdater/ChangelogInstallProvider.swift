@@ -19,8 +19,11 @@ public final class ChangelogInstallProvider: PageProvider {
 
     /// The What's New page's: Install on a release build that follows a feed, none on a DEV build.
     public convenience init(updater: UpdaterService) {
-        let installs = updater.switchesBuilds && !updater.changelogReadsDevelopmentNotes
-        self.init(install: installs ? { build in await updater.switchToBuild(build) } : nil)
+        var install: (@MainActor (String) async -> String?)?
+        if updater.switchesBuilds && !updater.changelogReadsDevelopmentNotes {
+            install = { (build: String) async -> String? in await updater.switchToBuild(build) }
+        }
+        self.init(install: install)
     }
 
     /// The What's New page's route to it, ahead of the notes' `cmux.changelog.` (routes match in order).

@@ -99,6 +99,8 @@ export interface ReleaseNotes {
   build: string;
   shortVersion: string;
   date: string;
+  /** The commit the build was cut from; older notes lack it. */
+  head?: string;
   highlights: Highlight[];
   changes: string[];
   items?: ChangeItem[];
