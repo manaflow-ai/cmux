@@ -19,15 +19,18 @@ import Testing
         let solo = GroupID("Coordinators")
         let header = try #require(list.rowViews[.group(solo)], "no Coordinators header before the drag")
         let drag = try Self.dragToHeadersSlot(list)
+        let released = drag.lift.frame
         list.finishDrag()
         defer { if let landing = list.landing { list.finishLand(landing, then: nil) } }
         #expect(model.group(solo) == nil, "the drop did not empty the group")
         // The card is still on its way to the slot; the header has left the list's rows.
-        Self.expectHeaderNotUnder(list, header: header, card: drag.lift)
+        Self.expectHeaderNotUnder(list, header: header, card: drag.lift, released: released)
     }
 
     /// The app's path: the drop goes to the sidebar document, the list holds the drop's look until the model shows the
-    /// move (the settle), and the emptied header leaves in that later reload while the card is still on its way.
+    /// move (the settle), and the emptied header leaves in that later reload while the card is still on its way. In this
+    /// fixture the card's flight only touches the header's edge there (the drop's gap pushed the header down a slot), so
+    /// this guards the path rather than reproducing the overlap the classic drop shows.
     @Test func theEmptiedGroupsHeaderDoesNotFadeUnderTheCardOnADocumentDrop() async throws {
         let store = SidebarDocStore(remote: SidebarGroupDragRailTests.Remote(document: Self.document))
         store.refresh()
@@ -54,13 +57,14 @@ import Testing
         let solo = GroupID("Coordinators")
         let header = try #require(list.rowViews[.group(solo)], "no Coordinators header before the drag")
         let drag = try Self.dragToHeadersSlot(list)
+        let released = drag.lift.frame
         list.finishDrag()
         try #require(list.settling != nil, "the drop did not settle on the document's move")
         // The daemon's echo: the group is gone and the workspace stands where its header was.
         list.model.sections = Self.sections(grouped: false)
         list.showModelChange(animates: true)
         defer { if let landing = list.landing { list.finishLand(landing, then: nil) } }
-        Self.expectHeaderNotUnder(list, header: header, card: drag.lift)
+        Self.expectHeaderNotUnder(list, header: header, card: drag.lift, released: released)
     }
 
     static let section = "sec_m_s1"
@@ -112,12 +116,14 @@ import Testing
         return drag
     }
 
-    /// The header the drop emptied draws nowhere under the card: not shown, not fading.
-    static func expectHeaderNotUnder(_ list: SidebarListView, header: SidebarRowView, card lift: DragLiftView) {
-        let card = lift.frame.union(lift.layer?.presentation()?.frame ?? lift.frame)
+    /// The header the drop emptied draws nowhere under the card's flight (from where it was `released` to its slot):
+    /// not shown, not fading. The card's frame jumps to the slot at once; its layer flies there over the path.
+    static func expectHeaderNotUnder(_ list: SidebarListView, header: SidebarRowView, card lift: DragLiftView, released: NSRect) {
+        let card = lift.frame.union(released)
         let drawn = list.subviews.contains { $0 === header && !$0.isHidden && $0.alphaValue > 0 }
         let fading = list.fadingRows.values.contains { $0 === header } || header.layer?.animation(forKey: "opacity") != nil
-        #expect(!(header.frame.intersects(card) && (drawn || fading)),
+        // Under it means overlapping by more than an edge's 2 pt, the list's own rule (`isUnderCard`).
+        #expect(!(header.frame.intersection(card).height > 2 && (drawn || fading)),
                 "the emptied group's header still draws under the landing card (frame \(header.frame), card \(card), hidden \(header.isHidden), fading \(fading))")
     }
 
