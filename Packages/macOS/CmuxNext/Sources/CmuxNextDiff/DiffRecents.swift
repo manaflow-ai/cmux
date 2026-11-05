@@ -1,21 +1,17 @@
-import AppKit
-import CmuxNextControl
-import CmuxNextDaemon
-import CmuxNextDiff
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// One repository the diff viewer opened (diff-host.md "Empty state",
 /// `cmux.diff.recents`): its top level, when, with which source kind, on
 /// which branch.
-nonisolated struct DiffRecent: Codable, Sendable, Equatable {
-    var path: String
-    var name: String?
+public nonisolated struct DiffRecent: Codable, Sendable, Equatable {
+    public var path: String
+    public var name: String?
     /// Milliseconds since the epoch.
-    var openedAt: Double
+    public var openedAt: Double
     /// `branch`, `uncommitted` (a branch session against HEAD), `staged` or `unstaged`.
-    var source: String?
-    var branch: String?
+    public var source: String?
+    public var branch: String?
 
     var json: CmuxNextSettings.JSONValue {
         var object: [String: CmuxNextSettings.JSONValue] = ["path": .string(path), "openedAt": .number(openedAt)]
@@ -40,27 +36,21 @@ nonisolated struct DiffRecent: Codable, Sendable, Equatable {
 /// recorded on every open (empty state, palette, keyboard, CLI) and kept in
 /// one small JSON file beside the tag's state (`diff-recents.json`). Reads and
 /// writes run off the main actor, writes in order.
-final class DiffRecents {
+public final class DiffRecents {
     static let limit = 32
-    static let fileName = "diff-recents.json"
+    public static let fileName = "diff-recents.json"
 
-    let url: URL
+    public let url: URL
     private var items: [DiffRecent]?
     private var loading: Task<[DiffRecent], Never>?
     private var saving: Task<Void, Never>?
 
-    init(url: URL) {
+    public init(url: URL) {
         self.url = url
     }
 
-    /// Beside the build's daemon state, as SidebarSnapshotFile does
-    /// (per-build isolation S5): never another build's tag folder.
-    static func standardURL(launch: LaunchIdentity) -> URL {
-        SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: fileName)
-    }
-
     /// The recents, newest first.
-    func list() async -> [DiffRecent] {
+    public func list() async -> [DiffRecent] {
         if let items { return items }
         let task = loading ?? Task { [url] in await Self.read(url) }
         loading = task
@@ -70,12 +60,12 @@ final class DiffRecents {
     }
 
     /// `cmux.diff.recents`: `{home, items}`.
-    func page() async -> CmuxNextSettings.JSONValue {
+    public func page() async -> CmuxNextSettings.JSONValue {
         ["home": .string(NSHomeDirectory()), "items": .array(await list().map(\.json))]
     }
 
     /// Moves `repository` to the front.
-    func record(_ repository: DiffRepository, source: DiffOpenSource, at date: Date = Date()) async {
+    public func record(_ repository: DiffRepository, source: DiffOpenSource, at date: Date = Date()) async {
         var current = await list()
         current.removeAll { $0.path == repository.root }
         current.insert(DiffRecent(path: repository.root, name: repository.name, openedAt: (date.timeIntervalSince1970 * 1000).rounded(),
@@ -89,7 +79,7 @@ final class DiffRecents {
     }
 
     /// Waits for the writes started so far (tests).
-    func flush() async { await saving?.value }
+    public func flush() async { await saving?.value }
 
     @concurrent private static func read(_ url: URL) async -> [DiffRecent] {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,

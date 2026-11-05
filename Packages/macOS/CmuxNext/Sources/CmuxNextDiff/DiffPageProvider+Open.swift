@@ -1,5 +1,6 @@
+import AppKit
 import CmuxNextAgentPane
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 
@@ -139,5 +140,22 @@ extension DiffPageProvider {
               // A link inside the repository may still point into git's own folder.
               DiffFileOpenRequest.isRepositoryPath(String(file.path.dropFirst(prefix.count))) else { return nil }
         return file
+    }
+}
+
+extension DiffPageProvider {
+    /// An empty diff tab opens a folder dropped from Finder (the page cannot read its path): a
+    /// dropped file opens its folder. The page reloads to show the repository.
+    public func folderDrop(page: PageWebView) -> PageFileDrop {
+        PageFileDrop(accepts: { [weak self] url in url.isFileURL && self?.isPicking == true }, open: { [weak self, weak page] url in
+            let folder = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
+            // task-owner: one open of the dropped folder; ends when the tab shows it or refuses it
+            Task {
+                guard let self, (try? await self.open(folder: folder, source: .default)) != nil else {
+                    return NSSound.beep()
+                }
+                page?.reload()
+            }
+        })
     }
 }

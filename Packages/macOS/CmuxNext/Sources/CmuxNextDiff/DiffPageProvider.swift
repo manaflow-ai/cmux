@@ -59,6 +59,8 @@ public final class DiffPageProvider: PageProvider {
     /// Sessions of the current grant this tab named or was given, not closed yet.
     var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
+    /// The bench's open timeline (``DiffOpenTimeline``); nil outside the app.
+    public var timeline: DiffOpenTimeline?
     private var discards: [Task<Void, Never>] = []
     private var events: [UUID: (JSONValue) -> Void] = [:]
     /// Sessions materialized from a remote daemon, keyed by the provider's session id.
@@ -100,6 +102,8 @@ public final class DiffPageProvider: PageProvider {
         switch op {
         case Self.configOp:
             return try await config()
+        case Self.shownOp:
+            return shownCall(params)
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
@@ -205,6 +209,8 @@ public final class DiffPageProvider: PageProvider {
             if remote { return Self.remoteHandshake }
             return try await send(method, params: nil)
         case "sessionOpen":
+            mark("diff.session_open")
+            defer { mark("diff.session_opened") }
             return try await open(params, tab: tab)
         case "sessionClose":
             guard let id = params["sessionId"]?.stringValue else { throw PageError.invalidParams("sessionId is required") }

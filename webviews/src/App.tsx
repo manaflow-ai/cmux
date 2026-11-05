@@ -94,6 +94,7 @@ import {
 } from "./diff-viewer/openFile";
 import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
+import { reportFirstHunk } from "./diff-viewer/openTiming";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
 import { useGitWrite } from "./agent-session/acpmux/changes/useGitWrite";
 import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./diff-viewer/FilesSidebar";
@@ -248,8 +249,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     options.onLineClick = ((click: DiffLineClick, context: { item: DiffItem }) =>
       lineClick.current(click, context.item)) as any;
     if (bulkBarRoom) options.layout = { paddingTop: 0, gap: 1, ...options.layout, paddingBottom: DIFF_BULK_BAR_ROOM };
+    // The open's timeline goes to the host once a file with hunks has drawn its rows (openTiming.ts).
+    options.onPostRender = ((_node: HTMLElement, _instance: unknown, phase: string, context?: { item?: DiffItem }) => {
+      if (phase === "mount" && (context?.item?.fileDiff?.hunks?.length ?? 0) > 0)
+        reportFirstHunk(diffPageClient(), latestState.current.items.length);
+    }) as any;
     return options;
-  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom]);
+  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
