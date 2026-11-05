@@ -30,10 +30,26 @@ public struct ConductorImport {
     /// The most workspace names the preview lists before an ellipsis.
     static let listedWorkspaces = 8
 
+    /// The most projects one listing reads to tell which of Conductor's repositories are listed
+    /// already (the daemon keeps at most 1,000).
+    static let listedProjects = 1_000
+
     let host: any ConductorImportHost
+    /// The daemon calls the run makes (a test's fake); nil when this Mac's daemon is not connected.
+    let daemon: @MainActor () -> (any ConductorImportDaemon)?
+    /// Shows the preview; true when the person pressed Import.
+    let confirm: @MainActor (ConductorImportPlan) async -> Bool
 
     public init(host: any ConductorImportHost) {
+        self.init(host: host, daemon: { host.conductorDaemon.map { LiveConductorImportDaemon(connection: $0) } },
+                  confirm: { await Self.showPreview($0) })
+    }
+
+    init(host: any ConductorImportHost, daemon: @escaping @MainActor () -> (any ConductorImportDaemon)?,
+         confirm: @escaping @MainActor (ConductorImportPlan) async -> Bool) {
         self.host = host
+        self.daemon = daemon
+        self.confirm = confirm
     }
 
     /// Runs the import; returns how many workspaces it opened, nil when the person declined.
@@ -48,27 +64,48 @@ public struct ConductorImport {
     }
 
     private func importing(progress: (@MainActor (Double) -> Void)?) async throws -> Int? {
-        guard let connection = host.conductorDaemon else { throw DaemonError.notConnected }
-        let client = ConductorImportClient(connection: connection)
-        let reply = try await client.plan()
+        guard let daemon = daemon() else { throw DaemonError.notConnected }
+        let reply = try await daemon.plan()
         if let error = reply.error { throw ConductorImportFailure.plan(error) }
-        guard let plan = reply.plan, !plan.adopting.isEmpty else {
+        guard let plan = reply.plan else {
             Self.toast(ConductorImportStrings.allHere)
             return 0
         }
-        guard await Self.confirm(plan) else { return nil }
+        // Which repositories are not listed yet. A failed listing counts every one as not listed:
+        // the preview then shows, and adding a listed project again changes nothing.
+        let listed = Set((try? await daemon.projectPaths(limit: Self.listedProjects)) ?? [])
+        let unlisted = plan.projects.filter { project in
+            project.skipped == nil && project.path.map { !listed.contains($0) } == true
+        }
+        // Nothing to make, add or explain: the preview would say nothing new.
+        guard !plan.adopting.isEmpty || !unlisted.isEmpty || !plan.recoverable.isEmpty || !plan.cleanup.isEmpty else {
+            Self.toast(ConductorImportStrings.allHere)
+            return 0
+        }
+        guard await confirm(plan) else { return nil }
 
-        // A cut-off run's half-made workspaces close before they are made again.
+        // A cut-off run's half-made workspaces close before they are made again. One that will not
+        // close stops the run: making its replacement would leave two. One already gone is fine.
         for key in plan.cleanup.compactMap(host.conductorWorkspaceKey) {
-            _ = try? await connection.closeWorkspace(key, endTerminals: true)
+            do {
+                try await daemon.closeWorkspace(key)
+            } catch let error as DaemonError where error.isWorkspaceNotFound {
+                continue
+            }
         }
-        let projects = ProjectStateClient(connection: connection)
-        for project in plan.projects where project.skipped == nil {
-            guard let path = project.path else { continue }
-            try? await projects.add(path: path, idempotencyKey: "conductor-import-project-\(project.repoID)")
-        }
-        let adopting = plan.adopting
         let run = UUID().uuidString.lowercased()
+        // A repository that could not be added keeps its workspaces unrecorded, so Import Again
+        // offers them with it; the other repositories still come over, and the run ends failed.
+        var failedProjects: [String] = []
+        for project in unlisted {
+            guard let path = project.path else { continue }
+            do {
+                try await daemon.addProject(path: path, idempotencyKey: "conductor-import-\(run)-project-\(project.repoID)")
+            } catch {
+                failedProjects.append(project.repoID)
+            }
+        }
+        let adopting = plan.adopting.filter { !failedProjects.contains($0.project.repoID) }
         var opened = 0
         for (index, item) in adopting.enumerated() {
             guard let path = item.workspace.path else { continue }
@@ -76,19 +113,27 @@ public struct ConductorImport {
             // The key is in the ledger before the workspace exists: a run cut off here leaves a
             // pending entry naming it, which the next run's plan lists for cleanup.
             let key = WorkspaceKey.generate()
-            try await client.record(workspace: id, stage: .pending, cmuxWorkspace: key.rawValue,
+            try await daemon.record(workspace: id, stage: .pending, cmuxWorkspace: key.rawValue, runCompleted: false,
                                     idempotencyKey: "conductor-import-\(run)-\(id)-pending")
             let made = try await host.openConductorWorkspace(folder: path, name: item.workspace.name, key: key)
-            try await client.record(workspace: id, stage: .done, cmuxWorkspace: made, runCompleted: index == adopting.count - 1,
+            try await daemon.record(workspace: id, stage: .done, cmuxWorkspace: made,
+                                    runCompleted: failedProjects.isEmpty && index == adopting.count - 1,
                                     idempotencyKey: "conductor-import-\(run)-\(id)-done")
             opened += 1
             progress?(Double(index + 1) / Double(adopting.count))
         }
-        Self.toast(opened > 0 ? ConductorImportStrings.opened : ConductorImportStrings.allHere)
+        if !failedProjects.isEmpty { throw ConductorImportFailure.projects(failedProjects) }
+        if opened > 0 {
+            Self.toast(ConductorImportStrings.opened)
+        } else if !plan.recoverable.isEmpty {
+            Self.toast(ConductorImportStrings.recoverable(plan.recoverable.count))
+        } else {
+            Self.toast(ConductorImportStrings.allHere)
+        }
         return opened
     }
 
-    private static func confirm(_ plan: ConductorImportPlan) async -> Bool {
+    private static func showPreview(_ plan: ConductorImportPlan) async -> Bool {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let spec = CmuxDialogSpec(
             title: ConductorImportStrings.previewTitle,
@@ -129,12 +174,15 @@ public struct ConductorImport {
     }
 }
 
-enum ConductorImportFailure: Error, CustomStringConvertible {
+enum ConductorImportFailure: Error, Equatable, CustomStringConvertible {
     case plan(String)
+    /// These Conductor repositories (by id) could not be added as projects.
+    case projects([String])
 
     var description: String {
         switch self {
         case .plan(let reason): "conductor import plan: \(reason)"
+        case .projects(let ids): "conductor import: projects not added: \(ids.joined(separator: ", "))"
         }
     }
 }
