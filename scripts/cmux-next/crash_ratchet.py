@@ -284,12 +284,28 @@ TYPE_DECL = re.compile(r"\b(?:struct|class|enum|actor)\s+([A-Z]\w*)")
 # A lock whose withLock closure parameter is its element: `Mutex(State())`, `Mutex<State>`,
 # `OSAllocatedUnfairLock(initialState: State())`.
 LOCK_WRAPPERS = frozenset({"Mutex", "OSAllocatedUnfairLock"})
-WITH_LOCK_BEFORE = re.compile(r"(\w+)\.withLock\s*\(?\s*$")
+WITH_LOCK_BEFORE = re.compile(r"(?<![\w.)\]?!])((?:\w+\.)*\w+)\.withLock\s*\(?\s*$")
+# The head of a type body: its `{` opens the scope that `self.name` resolves in.
+TYPE_HEADER = re.compile(r"\b(?:struct|class|enum|actor|extension)\s+[A-Z][^{}()=]*$")
 TYPE_NAME = r"[A-Z]\w*(?:\.[A-Z]\w*)*"
 ANNOTATED_TYPE = re.compile(r"(?:(?:inout|any|some|borrowing|consuming)\s+|@\w+(?:\([^)]*\))?\s+)*"
                             r"(" + TYPE_NAME + r")(?:\s*<\s*(" + TYPE_NAME + r"))?")
 CONSTRUCTED_TYPE = re.compile(r"(" + TYPE_NAME + r")\s*(?:<\s*(" + TYPE_NAME + r")[^>]*>\s*)?"
                               r"(?:\.init\s*)?\(\s*(?:\w+\s*:\s*)?(?:(" + TYPE_NAME + r")\s*(?:\.init\s*)?\()?")
+
+
+def whole_call(text, open_at, end=None):
+    """The call whose "(" is at OPEN_AT in TEXT closes at END (default: the end of TEXT, so
+    nothing follows it: no `.member`, no `.method()`, no operator)."""
+    depth = 0
+    for pos in range(open_at, len(text)):
+        if text[pos] in "([":
+            depth += 1
+        elif text[pos] in ")]":
+            depth -= 1
+            if depth == 0:
+                return (text[pos + 1:].strip() == "") if end is None else pos == end - 1
+    return False
 
 
 def written_type(text, annotated):
@@ -304,13 +320,25 @@ def written_type(text, annotated):
         element = match.group(2)
     else:
         match = CONSTRUCTED_TYPE.match(text)
-        if not match:
+        if not match or not whole_call(text, text.index("(", match.start(1))):
             return None, None
         element = match.group(2) or match.group(3)
+        if match.group(3) and not whole_call(text, text.index("(", match.start(3)), text.rindex(")")):
+            element = None  # `Mutex(State().snapshot())`: the element is not a State
     return match.group(1), element
 
 
+# Pattern bindings DECLARED_TYPE does not see: a tuple `let (a, b) = x`, `case .a(let a)`,
+# `case let .a(a)`, `catch let e`, `let a` with no `=` or `:`. Their names have no written
+# type, so each hides an outer local of the same name (the module rule applies).
+PATTERN_TUPLE = re.compile(r"\b(?:let|var)\s*\(([^()]*)\)")
+PATTERN_NAME = re.compile(r"\b(?:let|var)\s+(\w+)")
+CASE_LET = re.compile(r"\bcase\s+(?:let|var)\s+[\w.]*\(([^()]*)\)")
 IF_BINDING_BEFORE = re.compile(r"\b(?:if|while)\s+(?:case\s+)?$")
+
+
+class TypeScope(dict):
+    """The bindings of a struct, class, enum, actor or extension body (its properties)."""
 
 
 class FileScopes:
@@ -338,9 +366,17 @@ class FileScopes:
             return self._local(name, stack, through_self)
         return local
 
+    @staticmethod
+    def _scopes(stack, through_self):
+        """The scopes NAME may resolve in, innermost first: for `self.name`, only the
+        innermost type body (an extension file whose type body declares no such property
+        resolves nothing, so a function local named the same is never self.name)."""
+        if through_self:
+            return [scope for scope in reversed(stack) if isinstance(scope, TypeScope)][:1]
+        return list(reversed(stack))
+
     def _local(self, name, stack, through_self=False):
-        order = stack if through_self else tuple(reversed(stack))
-        for scope in order:
+        for scope in self._scopes(stack, through_self):
             if name in scope:
                 resolved = [self._resolve(entry) for entry in scope[name]]
                 resolved = [kind for kind in resolved if kind != "lock"]
@@ -355,13 +391,13 @@ class FileScopes:
     def _resolve(self, entry):
         kind, element = entry[0], entry[1]
         if kind == "lock-of":
-            return self._element(element, entry[2])
+            return self._element(element, entry[2], entry[3])
         return "lock" if kind in LOCK_WRAPPERS else kind
 
-    @staticmethod
-    def _element(lock, stack):
+    @classmethod
+    def _element(cls, lock, stack, through_self=False):
         """The element type of the lock named LOCK as seen from STACK, else None."""
-        for scope in reversed(stack):
+        for scope in cls._scopes(stack, through_self):
             if lock in scope:
                 entries = scope[lock]
                 elements = {element for kind, element, *_ in entries if kind in LOCK_WRAPPERS}
@@ -381,12 +417,24 @@ def declarations(lines):
     stack = [{}]
     scopes = FileScopes(local_types)
     pending = []  # bindings for the next `{`: func parameters, for/if-let variables
+    type_pending = False  # a type header with its `{` on a later line
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for index, line in enumerate(lines):
         code = swift_code(line)
         local_types.update(TYPE_DECL.findall(code))
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
         events = []  # (position, order, action, payload)
+        declared_at = {m.start() for m in DECLARED_TYPE.finditer(code)}
+        opens_block = re.search(r"\b(?:if|guard|while|switch|catch|case)\b", code) is not None
+        untyped = [(m.start(), name) for m in PATTERN_NAME.finditer(code)
+                   if m.start() not in declared_at for name in [m.group(1)]]
+        untyped += [(m.start(), name) for pattern in (PATTERN_TUPLE, CASE_LET)
+                    for m in pattern.finditer(code) for name in PARAMETER_NAME.findall(m.group(1))]
+        for start, name in untyped:
+            if name != "_":
+                events.append((start, 1, "bind", (name, (None, None))))
+                if opens_block:
+                    events.append((start, 1, "pend", (name, (None, None))))
         for m in DECLARED_TYPE.finditer(code):
             entry = written_type((m.group(2) or m.group(3) or "").strip(), m.group(2) is not None)
             opens = IF_BINDING_BEFORE.search(code[:m.start()])
@@ -417,15 +465,21 @@ def declarations(lines):
             group, bound = match.group(1), []
             if group.startswith("("):
                 inner = group[1:-1]
-                typed = {m.group(1): m.group(2).strip() for m in TYPED_PARAMETER.finditer(inner)}
-                for name in PARAMETER_NAME.findall(inner):
-                    bound.append((name, written_type(typed[name], True) if name in typed else (None, None)))
+                for item in inner.split(","):
+                    typed = TYPED_PARAMETER.match("," + item)
+                    if typed:  # `(_ s: State)`, `(s: State)`: the name after the label
+                        bound.append((typed.group(1), written_type(typed.group(2).strip(), True)))
+                    else:
+                        bound += [(name, (None, None)) for name in PARAMETER_NAME.findall(item)[:1]]
             else:
                 names = PARAMETER_NAME.findall(group)
                 lock = WITH_LOCK_BEFORE.search(code[:match.start()])
+                chain = lock.group(1) if lock else ""
+                through_self = chain.startswith("self.")
+                lock_name = chain[len("self."):] if through_self else chain
                 for name in names:
-                    if lock and len(names) == 1:
-                        bound.append((name, ("lock-of", lock.group(1), tuple(stack))))
+                    if lock and len(names) == 1 and "." not in lock_name:
+                        bound.append((name, ("lock-of", lock_name, tuple(stack), through_self)))
                     else:
                         bound.append((name, (None, None)))
             closures[match.start()] = bound
@@ -444,10 +498,11 @@ def declarations(lines):
             elif action == "pend":
                 pending.append(payload)
             elif action == "{":
-                scope = {}
+                scope = TypeScope() if (TYPE_HEADER.search(code[:pos]) or type_pending) else {}
+                type_pending = False
                 for name, entry in closures.get(pos, []):
                     if entry[0] == "lock-of":
-                        entry = ("lock-of", entry[1], tuple(stack))
+                        entry = ("lock-of", entry[1], tuple(stack), entry[3])
                     scope.setdefault(name, []).append(entry)
                 for name, entry in pending:
                     scope.setdefault(name, []).append(entry)
@@ -460,6 +515,8 @@ def declarations(lines):
                     stack.pop()
                 points.append((pos, tuple(stack)))
         scopes.checkpoints[index] = points
+        if TYPE_HEADER.search(code) and "{" not in code[TYPE_HEADER.search(code).start():]:
+            type_pending = True  # the header continues; its body brace is on a later line
         for name, text in found:
             kind = bracket_kind(text)
             (dicts if kind == "dict" else arrays if kind == "array" else others).add(name)
