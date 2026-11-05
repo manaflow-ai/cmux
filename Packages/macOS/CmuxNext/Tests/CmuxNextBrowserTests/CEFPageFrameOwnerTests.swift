@@ -152,6 +152,45 @@ import Testing
         hosting.stop()
     }
 
+    /// A tab moved to another pane in the same window during a key resize (BrowserPageArea.show adds its page to the
+    /// other chrome; AppKit sends no window change, so `viewDidMoveToWindow` does not run): the page lets go of that
+    /// resize. Its old pane's page window gives back its wait share (S5 on), and the page holds no size and no hold
+    /// (both arms). The new pane gives the page a hold again only if it is in a key resize itself (BrowserChromeView.attach).
+    @Test(arguments: [true, false])
+    func aTabMovedToAnotherPaneDuringAKeyResizeLetsThatResizeGo(_ pages: Bool) throws {
+        Self.set(pages: pages)
+        defer { Self.set(pages: nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        let paneA = NSView(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
+        let paneB = NSView(frame: NSRect(x: 820, y: 0, width: 180, height: 500))
+        window.contentView?.addSubview(paneA)
+        window.contentView?.addSubview(paneB)
+        first.container.frame = paneA.bounds
+        paneA.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+        if pages {
+            try #require(host.hostView.layerHosting.inPaneDrag, "SETUP: the key resize gives the page window no share")
+        } else {
+            try #require(first.container.heldPageSize != nil, "SETUP: the page does not hold through the key resize")
+        }
+
+        // The move: the other pane's page area adds the page; it never leaves the window.
+        paneB.addSubview(first.container)
+        first.container.frame = paneB.bounds
+        first.container.layoutSubtreeIfNeeded()
+
+        #expect(!host.hostView.layerHosting.inPaneDrag, "the old pane's page window keeps waiting for a resize the page left")
+        #expect(first.container.heldPageSize == nil, "the moved page keeps its old pane's size")
+        #expect(first.container.pageMotionHold == nil, "the moved page keeps its old pane's key resize")
+        #expect(host.hostView.frame == first.container.bounds, "the moved page is not at its new pane's size")
+    }
+
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
     @Test func theSwitchOffKeepsTodaysKeyResizeHold() throws {
         Self.set(pages: false)
