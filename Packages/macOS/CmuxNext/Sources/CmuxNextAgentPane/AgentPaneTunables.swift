@@ -3,6 +3,30 @@ public import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 
+/// How the chat header's top-right icons move (webviews header/headerMotion.ts), Thunderdome B
+/// "animated and expressive" (Leo 2026-11-05: should the top-right icons be "a little more animated?"):
+/// `agentChat.headerMotion`. `still`, the default, is the shipped header; each other style adds to
+/// the one before it. Pushed with the header state; every motion obeys the agent pane's Motion gate.
+public nonisolated enum AgentPaneHeaderMotion: String, Sendable, CaseIterable, TunableChoice {
+    /// The shipped header: nothing moves.
+    case still
+    /// The pressed plate grows out of its glyph and back; a dot on Changes breathes while the turn runs.
+    case animatedCue = "animated-cue"
+    /// The cue, plus an icon that becomes relevant springs in and its neighbours glide over.
+    case animatedSpring = "animated-spring"
+    /// The spring, plus an opening click turns the glyph into the pane's tab, and hover previews it.
+    case animatedMorph = "animated-morph"
+
+    public var tunableTitle: String {
+        switch self {
+        case .still: "Still (shipped)"
+        case .animatedCue: "Animated: cue (plate grows, activity dot)"
+        case .animatedSpring: "Animated: spring (icons arrive, neighbours glide)"
+        case .animatedMorph: "Animated: morph (icon becomes the tab, hover preview)"
+        }
+    }
+}
+
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
 public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, TunableChoice {
@@ -198,6 +222,12 @@ public nonisolated struct AgentPaneTunables {
         "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened. Off: the button toggles its terminal.",
         default: true, code: "AgentPaneTunables.terminalButtonAdds")
+
+    /// The chat header's top-right icon motion (``AgentPaneHeaderMotion``), pushed with the header state.
+    public static let headerMotion = Tunable<AgentPaneHeaderMotion>.choice(
+        "agentChat.headerMotion", .panes, "Chat header icon motion",
+        help: "How the agent chat's top-right icons move: still (shipped), a cue (the pressed plate grows, a dot while the turn runs), a spring (icons arrive and make room), or a morph (an icon becomes the pane's tab, hover previews it). Follows the agent pane's Motion setting.",
+        default: .still, code: "AgentPaneTunables.headerMotion")
 
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
@@ -404,6 +434,7 @@ public nonisolated struct AgentPaneTunables {
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
+            headerMotion.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,

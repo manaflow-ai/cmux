@@ -1,0 +1,199 @@
+{
+ "title": "Chat header icons, cue: the pressed plate grows out of its glyph, a dot on Changes",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Header motion animated-cue",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.headerMotion",
+     "value": "animated-cue"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Session Info on",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agent.sessionInfo",
+     "value": true
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Light appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Open agent chat",
+   "cmux": [
+    "agent",
+    "new-chat"
+   ],
+   "wait": 5,
+   "shot": false,
+   "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "light: the header at rest, nothing moves",
+   "wait": 1
+  },
+  {
+   "title": "light: a turn that edited three files: Changes arrives, its dot shows changes are waiting",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "worked-turn"
+    }
+   },
+   "wait": 0.12,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "light: settled",
+   "wait": 1
+  },
+  {
+   "title": "light: click Terminal: its plate grows out of the glyph",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": "[data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 0.12,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "light: Terminal open, its plate on",
+   "wait": 1.5
+  },
+  {
+   "title": "light: click Terminal again: the plate shrinks back into the glyph",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": "[data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 1
+  },
+  {
+   "title": "Dark appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Open agent chat",
+   "cmux": [
+    "agent",
+    "new-chat"
+   ],
+   "wait": 5,
+   "shot": false,
+   "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "dark: the header at rest, nothing moves",
+   "wait": 1
+  },
+  {
+   "title": "dark: a turn that edited three files: Changes arrives, its dot shows changes are waiting",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "worked-turn"
+    }
+   },
+   "wait": 0.12,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "dark: settled",
+   "wait": 1
+  },
+  {
+   "title": "dark: click Terminal: its plate grows out of the glyph",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": "[data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 0.12,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "dark: Terminal open, its plate on",
+   "wait": 1.5
+  },
+  {
+   "title": "dark: click Terminal again: the plate shrinks back into the glyph",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": "[data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 1
+  },
+  {
+   "title": "Back to the system appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "system"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.appearance is DEBUG only"
+  },
+  {
+   "title": "Header motion back to still",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.headerMotion",
+     "value": "still"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  }
+ ]
+}

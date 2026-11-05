@@ -183,3 +183,228 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 :root[data-reduce-transparency] .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:none}
 
 .acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}
+
+/* ---------- Header icon motion (headerMotion.ts, Debug Settings agentChat.headerMotion) ----------
+   Only with a style other than `still` (the shipped header sets no data-header-motion). Transform and
+   opacity only. `data-motion-mode` is the pane's motion gate as the page last read it (motionMode()):
+   `full` moves, `reduced` (Reduce Motion) fades without travel, `none` draws every end state at once. */
+
+/* The pressed plate lives under the glyph so it can grow out of it: a click that opens a panel grows it
+   from half size with the one spring; closing shrinks it back into the glyph, quicker (anything leaving). */
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool {
+  position: relative;
+  isolation: isolate;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open]),
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open]):hover {
+  background: none;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--acpmux-header-tool-on, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  opacity: 0;
+  transform: scale(0.5);
+  pointer-events: none;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open])::before {
+  opacity: 1;
+  transform: none;
+}
+.acpmux-header-tools[data-motion-mode="full"] .acpmux-header-tool::before {
+  transition:
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+.acpmux-header-tools[data-motion-mode="full"] .acpmux-header-tool:is([aria-pressed="true"], [data-popup-open])::before {
+  transition:
+    opacity var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    transform var(--cmux-motion-large, 240ms) var(--cmux-ease-spring, cubic-bezier(0, 0, 0.58, 1));
+}
+.acpmux-header-tools[data-motion-mode="reduced"] .acpmux-header-tool::before {
+  transform: none;
+  transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* The activity dot: a crisp 5px circle at the icon's top right, ringed in the page's colour so it
+   reads apart from the glyph. It breathes only while the turn runs (`working`, the only loop, and
+   only with full motion); with changes left and no turn it holds still. No work, no dot. */
+.acpmux-header-tools[data-activity-on="changes"] [data-quick-action="changes"]::after,
+.acpmux-header-tools[data-activity-on="panel"] .acpmux-header-panel-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent-accent, var(--agent-text));
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg, Canvas);
+  pointer-events: none;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-panel-toggle {
+  position: relative;
+}
+.acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="changes"] [data-quick-action="changes"]::after,
+.acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="panel"] .acpmux-header-panel-toggle::after {
+  animation: acpmux-header-breathe 1200ms ease-in-out infinite alternate;
+}
+@keyframes acpmux-header-breathe {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.3;
+  }
+}
+
+/* The morph's ghost (morphIntoTab): the glyph's square that travels to the page's right edge and
+   widens into a tab with the button's name, in the pressed plate's tint, then fades. */
+.acpmux-header-morph {
+  position: fixed;
+  z-index: var(--layer-tooltip, 1000);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 0 8px 0 4px;
+  border-radius: var(--ds-radius-md, 6px);
+  background: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, Canvas));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+  font: 500 12px/1 var(--agent-font, system-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  will-change: transform, clip-path, opacity;
+}
+.acpmux-header-morph > [data-icon],
+.acpmux-header-morph > .acpmux-header-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.acpmux-header-morph-label {
+  color: var(--agent-text);
+}
+
+/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. */
+.acpmux-header-preview {
+  position: fixed;
+  z-index: var(--layer-tooltip, 1000);
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--agent-surface-elevated, Canvas);
+  color: var(--agent-text);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent),
+    0 6px 20px rgb(0 0 0 / 0.18);
+  font: 12px/1.3 var(--agent-font, system-ui);
+  pointer-events: none;
+  animation: acpmux-header-preview-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both;
+}
+@keyframes acpmux-header-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"]) .acpmux-header-preview {
+  animation: none;
+}
+:root:is([data-agent-motion="reduced"], [data-cmux-motion="reduced"]) .acpmux-header-preview {
+  animation-name: acpmux-header-preview-fade;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-header-preview {
+    animation-name: acpmux-header-preview-fade;
+  }
+}
+@keyframes acpmux-header-preview-fade {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-header-preview-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  height: 64px;
+  margin-bottom: 8px;
+}
+.acpmux-header-preview-pane-down {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.acpmux-header-preview-chat,
+.acpmux-header-preview-panel {
+  position: relative;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-header-preview-chat {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px;
+}
+.acpmux-header-preview-chat > i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-header-preview-chat > i:nth-child(2) {
+  width: 70%;
+}
+.acpmux-header-preview-panel {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 45%, transparent);
+}
+.acpmux-header-preview[data-closes] .acpmux-header-preview-panel {
+  background: none;
+  box-shadow: none;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 35%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-header-preview-tab {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--agent-surface-elevated, Canvas);
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+.acpmux-header-preview-tab .acpmux-header-glyph {
+  width: 10px;
+  height: 10px;
+}
+.acpmux-header-preview-text {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.acpmux-header-preview-name {
+  font-weight: 600;
+}
+.acpmux-header-preview-key {
+  font: inherit;
+  color: var(--agent-muted);
+}
+.acpmux-header-preview-detail {
+  margin-top: 2px;
+  color: var(--agent-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

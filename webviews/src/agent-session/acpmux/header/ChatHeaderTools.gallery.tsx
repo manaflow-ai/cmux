@@ -41,6 +41,8 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  working?: boolean;
+  motion?: "still" | "animated-cue" | "animated-spring" | "animated-morph";
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -463,6 +465,129 @@ const base: HeaderToolsProps = {
   onMenuOpen: async () => undefined,
 };
 
+
+// Thunderdome B, header icon motion (headerMotion.ts; Debug Settings agentChat.headerMotion; Leo
+// 2026-11-05: should the top-right icons be "a little more animated?"). The plays freeze each motion
+// at a frame (every running animation paused at `at` ms), so a still shows it mid-flight.
+const frozenAt =
+  (at: number): Play =>
+  async (ctx) => {
+    const view = ctx.document.defaultView!;
+    await new Promise((done) => view.requestAnimationFrame(() => done(undefined)));
+    for (const animation of ctx.document.getAnimations()) {
+      animation.pause();
+      animation.currentTime = at;
+    }
+  };
+const motionLit =
+  (lit: string[], at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    setHeaderState({ lit });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionArrive =
+  (at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    // Changes shows while its diff is open: it arrives, and Terminal and Browser make room.
+    setHeaderState({ lit: ["openDiffViewer"] });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="changes"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionMorph =
+  (at: number): Play =>
+  async (ctx) => {
+    ctx.find({ selector: '[data-quick-action="terminal"]' }).click();
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-morph"));
+    await frozenAt(at)(ctx);
+  };
+const motionHover =
+  (name: string): Play =>
+  async (ctx) => {
+    const button = ctx.find({ role: "button", name });
+    button.dispatchEvent(new (ctx.document.defaultView!.PointerEvent)("pointerover", { bubbles: true }));
+    button.dispatchEvent(new (ctx.document.defaultView!.PointerEvent)("pointerenter", { bubbles: false }));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-preview"), { capMs: 2000 });
+  };
+const motionBase = (motion: HeaderToolsProps["motion"]): HeaderToolsProps => ({
+  ...base,
+  motion,
+  summary: panelToggle(false),
+  hasChanges: true,
+  onChanges: () => undefined,
+  previewUrl: "http://localhost:5173/",
+  onPreview: () => undefined,
+});
+const motionVariants = {
+  "motion-still": {
+    note: "Header motion: still (the shipped default). Nothing moves; the pressed square appears at once.",
+    props: { ...motionBase("still"), working: true },
+    play: motionLit(["splitRight"]),
+  },
+  "motion-cue-working": {
+    note: "Header motion: cue. While the chat's turn runs, a crisp 5px dot on Changes breathes (1.2 s, opacity only, the only loop, and only while a turn runs).",
+    props: { ...motionBase("animated-cue"), working: true },
+  },
+  "motion-cue-pending": {
+    note: "Header motion: cue. The turn is over and its changes wait: the dot holds still. No work, no dot.",
+    props: motionBase("animated-cue"),
+  },
+  "motion-cue-plate-60ms": {
+    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"], 60),
+  },
+  "motion-cue-plate-settled": {
+    note: "Header motion: cue. The plate settled: the same filled rounded square the shipped header draws.",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"]),
+  },
+  "motion-spring-arrive-50ms": {
+    note: "Header motion: spring. Changes became relevant: 50 ms in, it springs up from a dot while Terminal and Browser glide right to make room (transforms only).",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(50),
+  },
+  "motion-spring-arrive-120ms": {
+    note: "Header motion: spring. 120 ms in: Changes overshoots a touch, its neighbours nearly there.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(120),
+  },
+  "motion-spring-arrive-settled": {
+    note: "Header motion: spring. Settled: the same row the shipped header draws, Changes lit while its diff is open.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(),
+  },
+  "motion-morph-fly-90ms": {
+    note: "Header motion: morph. A click on Terminal opens its split: 90 ms in, the glyph leaves for the pane's right edge, widening into a tab.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(90),
+  },
+  "motion-morph-fly-170ms": {
+    note: "Header motion: morph. 170 ms in: the glyph has become the Terminal tab where the split lands, then fades as the real pane shows.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(170),
+  },
+  "motion-morph-hover-browser": {
+    note: "Header motion: morph. Resting on Browser previews what a click opens: the chat's page in the right column, with its address. It stands in for the tooltip.",
+    props: motionBase("animated-morph"),
+    play: motionHover("Browser"),
+  },
+  "motion-morph-hover-closes": {
+    note: "Header motion: morph. Resting on Terminal while its split is open: the panel draws dashed, the click closes it.",
+    props: motionBase("animated-morph"),
+    play: async (ctx) => {
+      await motionLit(["splitRight"])(ctx);
+      await motionHover("Terminal")(ctx);
+    },
+  },
+} satisfies Record<string, { note: string; props: HeaderToolsProps; play?: Play }>;
+
 export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
   title: "Chat header tools",
@@ -479,6 +604,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
     "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
+    "agent-session/acpmux/header/HeaderToolPreview.tsx#HeaderToolPreview",
   ],
   load: () =>
     import("./ChatHeaderTools").then(
@@ -516,6 +642,7 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    ...motionVariants,
     "native-row-off": {
       note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
       props: { ...base, inbox },
