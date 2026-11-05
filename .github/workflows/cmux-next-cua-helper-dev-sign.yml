@@ -1,0 +1,278 @@
+name: cmux NEXT Computer Use helper (dev) signing
+
+# Re-signs the dev Computer Use helper every DEV build embeds
+# (feat-cmux-next scripts/cmux-next/cua-helper-dev.pin.json), so a helper
+# change reaches DEV builds without a person signing it on a Mac. Leo,
+# 2026-11-05: "Yes, re-sign it".
+#
+# build   feat-cmux-next's build-cua-helper-dev.sh on an owned Mac first. It
+#         holds no signing secret, only the repository's CMUX_CEF_R2 key, which
+#         the SDK tarball download needs (as in cmux-next.yml).
+# sign    the release environment (its secrets reach main only): the Developer
+#         ID certificate goes into a per-job temporary keychain
+#         (scripts/ci/signing-keychain.sh, deleted by an always() step), then
+#         feat-cmux-next's sign-cua-helper-dev.sh signs with a secure time
+#         stamp, verifies, publishes to R2 (publish-cua-pinned-asset.sh,
+#         write-once) and writes the pin. It runs no code from the helper.
+#         Blacksmith macOS, trusted like GitHub-hosted for release signing:
+#         the owned signing runners admit only nightly.yml's own signing jobs.
+# pin-pr  opens the pin bump against feat-cmux-next as the glaeda-route App,
+#         so its CI runs. Without the App the pin stays in the run summary
+#         and the artifact.
+#
+# Developer ID, not Apple Development: its designated requirement names the
+# team, not one person's certificate, so the helper's macOS grants survive a
+# later re-sign. The first switch from the Apple Development pin needs one
+# Accessibility and Screen Recording re-grant on every Mac that runs DEV.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "A feat-cmux-next commit to build (default: the branch head)"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-cua-helper-dev-sign
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the unsigned helper
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      unsigned_sha256: ${{ steps.build.outputs.unsigned_sha256 }}
+    steps:
+      - name: Checkout feat-cmux-next
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || 'feat-cmux-next' }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      # The input may name any commit; only one on feat-cmux-next is built.
+      - name: Require a feat-cmux-next commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          status="$(gh api "repos/$GH_REPO/compare/$sha...feat-cmux-next" --jq .status)"
+          [[ "$status" == ahead || "$status" == identical ]] ||
+            { echo "::error::$sha is not on feat-cmux-next ($status)" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Building the dev helper from feat-cmux-next $sha" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Build
+        id: build
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+          CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/unsigned"
+          ./scripts/cmux-next/build-cua-helper-dev.sh --out "$out"
+          sha256="$(awk '{print $1}' "$out/cmux-computer-use-dev-unsigned-macos-arm64.zip.sha256")"
+          echo "unsigned_sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the unsigned helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-helper-dev-unsigned
+          path: ${{ runner.temp }}/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+  sign:
+    name: Sign and publish the helper
+    needs: build
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.sign.outputs.sha256 }}
+    steps:
+      # The keychain tool from main, the signing and publishing scripts from
+      # the commit the helper was built from.
+      - name: Checkout the keychain tool
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            scripts/apple-developer-id-certs
+            scripts/import-apple-developer-id-intermediates.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout the signing scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .next
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: false
+
+      # No Xcode selection: signing uses only the system codesign, PlistBuddy and ditto.
+      - name: Download the unsigned helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cua-helper-dev-unsigned
+          path: ${{ runner.temp }}/unsigned
+
+      - name: Check the unsigned helper's digest
+        env:
+          WANT: ${{ needs.build.outputs.unsigned_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the build job gave no digest" >&2; exit 1; }
+          echo "$WANT  $RUNNER_TEMP/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip" | shasum -a 256 -c -
+
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create --keychain cua-helper-dev.keychain
+
+      # The R2 key goes to curl on stdin (publish-cua-pinned-asset.sh); the
+      # upload is write-once and read back before the pin is written.
+      - name: Sign, verify and publish
+        id: sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_WRITE_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
+          ./.next/scripts/cmux-next/sign-cua-helper-dev.sh \
+            "$RUNNER_TEMP/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip" \
+            --identity "$APPLE_SIGNING_IDENTITY" \
+            --keychain "$HOME/Library/Keychains/cua-helper-dev.keychain-db" \
+            --timestamp --out "$RUNNER_TEMP/signed"
+          mkdir -p "$RUNNER_TEMP/pin"
+          cp .next/scripts/cmux-next/cua-helper-dev.pin.json "$RUNNER_TEMP/pin/"
+          echo "sha256=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$RUNNER_TEMP/pin/cua-helper-dev.pin.json")" >> "$GITHUB_OUTPUT"
+          { echo '```json'; cat "$RUNNER_TEMP/pin/cua-helper-dev.pin.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete the signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete --keychain cua-helper-dev.keychain
+
+      - name: Upload the pin and the signed helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-helper-dev-signed
+          path: |
+            ${{ runner.temp }}/pin/cua-helper-dev.pin.json
+            ${{ runner.temp }}/signed/cmux-computer-use-dev-macos-arm64.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+  pin-pr:
+    name: Open the pin bump
+    needs: [build, sign]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Mint the pin PR token
+        id: app-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Checkout feat-cmux-next
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: false
+
+      - name: Download the pin
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cua-helper-dev-signed
+          path: ${{ runner.temp }}/signed
+
+      - name: Push the pin and open the PR
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_SHA: ${{ needs.build.outputs.sha }}
+          SHA256: ${{ needs.sign.outputs.sha256 }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          pin=scripts/cmux-next/cua-helper-dev.pin.json
+          cp "$RUNNER_TEMP/signed/cua-helper-dev.pin.json" "$pin"
+          if git diff --quiet -- "$pin"; then
+            echo "feat-cmux-next already pins $SHA256" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -z "$APP_TOKEN" ]]; then
+            echo "::warning::no App token; the pin is in the cua-helper-dev-signed artifact for a manual PR"
+            exit 0
+          fi
+          branch="cua-helper-dev-pin/${SHA256:0:12}"
+          title="cmux NEXT: DEV builds embed the Computer Use helper (dev) signed in CI (${SHA256:0:12})"
+          git add "$pin"
+          git -c user.name="cmux helper signing" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "$title" -m "Built and signed from feat-cmux-next $SOURCE_SHA by $RUN_URL."
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+          body="$(printf '%s\n' \
+            "Re-signs the dev Computer Use helper every DEV build embeds, from feat-cmux-next \`$SOURCE_SHA\`." \
+            "Built, signed with the Developer ID certificate, verified and published to R2 by $RUN_URL." \
+            "" \
+            "Leo, 2026-11-05: \"Yes, re-sign it\"." \
+            "" \
+            "## Changelog" \
+            "" \
+            "- DEV builds embed the current Computer Use helper (dev).")"
+          url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          if [[ -z "$url" ]]; then
+            url="$(GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \
+              -f head="$branch" -f base=feat-cmux-next -f title="$title" -f body="$body" --jq .html_url)"
+          fi
+          echo "Pin PR: $url" >> "$GITHUB_STEP_SUMMARY"
