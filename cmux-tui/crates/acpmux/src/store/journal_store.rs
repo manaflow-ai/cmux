@@ -148,6 +148,9 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next log write on this thread stops right after the write
+    /// ([`pause_next_log_write_on_this_thread`]).
+    static PAUSE_AFTER_LOG_WRITE: log_sync::HoldSlot = const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
@@ -168,23 +171,16 @@ fn hold_in_sync() {
     log_sync::hold(&HOLD_IN_SYNC);
 }
 
-/// Tests: the next append stops right after its log write, says so on the first channel and
-/// waits for the second (the appends' lock held, as at that point in a real append).
-#[cfg(test)]
-pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
-    Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
-> = Mutex::new(None);
-
-/// Tests: the next log write made on this thread stops right after the write, says so on
-/// `arrived` and waits for `release` ([`PAUSE_AFTER_LOG_WRITE`]). (#36142: the seam is still
-/// process-wide here, so another thread's log write can take this thread's pause.)
+/// Tests: the next log write made on this thread stops right after the write (the appends' lock
+/// held, as at that point in a real append), says so on `arrived` and waits for `release`. Only
+/// this thread's write: under `cargo test` a binary's tests are threads of one process, and a
+/// process-wide pause let one test's append take another test's (#36142).
 #[cfg(test)]
 pub(crate) fn pause_next_log_write_on_this_thread(
     arrived: std::sync::mpsc::Sender<()>,
     release: std::sync::mpsc::Receiver<()>,
 ) {
-    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((arrived, release));
+    PAUSE_AFTER_LOG_WRITE.with(|slot| *slot.borrow_mut() = Some((arrived, release)));
 }
 
 impl Inner {
@@ -197,14 +193,10 @@ impl Inner {
     }
 }
 
+/// Tests: the stop of [`PAUSE_AFTER_LOG_WRITE`].
 #[cfg(test)]
 fn pause_after_log_write() {
-    let pause =
-        PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-    if let Some((arrived, release)) = pause {
-        let _ = arrived.send(());
-        let _ = release.recv();
-    }
+    log_sync::hold(&PAUSE_AFTER_LOG_WRITE);
 }
 
 pub struct JournalStore {

@@ -1074,7 +1074,6 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
 /// between the log write and the record, and the reply went out with no wait for it.
 #[test]
 fn a_read_that_shows_a_line_covers_its_record() {
-    use super::journal_store::PAUSE_AFTER_LOG_WRITE;
     use std::sync::atomic::Ordering;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(47);
@@ -1084,11 +1083,12 @@ fn a_read_that_shows_a_line_covers_its_record() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel();
-    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((arrived_tx, release_rx));
     let appender = {
         let store = Arc::clone(&store);
-        std::thread::spawn(move || store.append(CHAT, &record(2, "queued")))
+        std::thread::spawn(move || {
+            pause_next_log_write_on_this_thread(arrived_tx, release_rx);
+            store.append(CHAT, &record(2, "queued"))
+        })
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
     let reader = {
