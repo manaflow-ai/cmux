@@ -260,6 +260,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_ROUTE_TEST, Run(json!({"id": "lso-route"}))),
         (method::MUX_ROUTE_DEFAULT_SET, Run(json!({"scope": "global"}))),
         (method::MUX_CHAT_ROUTE_SET, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_ACCOUNTS, Run(json!({}))),
+        (method::MUX_ACCOUNT_SET, Run(json!({"id": "lso-route", "enabled": true}))),
         (method::ACP_TRUST_GET, Run(json!({"cwd": "$CWD"}))),
         (method::ACP_TRUST_SET, Run(json!({"cwd": "$CWD", "level": "trusted"}))),
         (

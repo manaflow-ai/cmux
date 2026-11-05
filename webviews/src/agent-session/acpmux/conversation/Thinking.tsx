@@ -11,7 +11,7 @@
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute").
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -24,8 +24,9 @@ import { formatDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
-import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
+import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
@@ -101,8 +102,7 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
-/// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`), or
-/// the turn's verb ("Pondering 18s") where the pane gives verbs (thinkingVerbs.ts).
+/// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
 /// One clock and one token count for all of them, the turn's, so the line just keeps going: "Using
 /// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
@@ -183,7 +183,7 @@ export function Thinking({
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
-  /// The turn the line belongs to (its prompt's row id): picks the turn's verb (thinkingVerbs.ts).
+  /// The turn's prompt id, used to keep one playful verb for the whole turn when Rotate is on.
   verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
@@ -208,21 +208,37 @@ export function Thinking({
   const from = untimed ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
+  const statusVerbConfig = useStatusVerbConfig();
+  const thinkingVerbs = useContext(ThinkingVerbsContext);
+  const verbs = useMemo(
+    () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
+    [t, statusVerbConfig, thinkingVerbs],
+  );
+  // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
+  const verbSizes = useMemo(
+    () =>
+      verbs.map((word, index) => (
+        <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
+      )),
+    [verbs],
+  );
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
-  // The turn's playful verb in place of "Thinking", when the pane gives some (thinkingVerbs.ts).
-  const verb = thinkingVerb(useContext(ThinkingVerbsContext), verbKey);
   const writing = liveState === "writing" && stillWriting;
+  const elapsedMs = timed ? Math.max(0, time - from) : 0;
+  const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
+  const decorative = doing === undefined && !waitsOnAgents && !writing;
   const label =
     doing === undefined
       ? waitsOnAgents
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : (verb ?? t("thinking"))
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -317,7 +333,11 @@ export function Thinking({
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}
-          <output className="cv-thinking is-shimmer">
+          <output
+            className="cv-thinking is-shimmer"
+            aria-label={decorative ? t("thinking") : undefined}
+            aria-live={decorative ? "off" : undefined}
+          >
             <ShimmerText
               text={label}
               baseText={
@@ -326,13 +346,20 @@ export function Thinking({
                     <span className="cv-worked__lead">{lead.lead}</span>
                     {lead.rest}
                   </>
+                ) : decorative ? (
+                  <span className="cv-status-verb">
+                    {verbSizes}
+                    <span className="cv-status-verb__word">{label}</span>
+                  </span>
                 ) : (
                   label
                 )
               }
               lit={
                 <>
-                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+                    {decorative && verbSizes}
+                  </span>
                   {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                 </>
               }

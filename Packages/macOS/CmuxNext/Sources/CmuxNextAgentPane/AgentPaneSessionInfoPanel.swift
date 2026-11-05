@@ -269,6 +269,7 @@ struct AgentPaneSessionInfoColors: Equatable {
     var success = ThemeTokens.unresolved.success.nsColor
     var attention = ThemeTokens.unresolved.attention.nsColor
     var accent = ThemeTokens.unresolved.litGlyph.nsColor
+    var identities: [NSColor] = []
 
     init() {}
 
@@ -282,6 +283,12 @@ struct AgentPaneSessionInfoColors: Equatable {
         success = tokens.success.nsColor
         attention = tokens.attention.nsColor
         accent = tokens.litGlyph.nsColor
+        identities = (0..<5).compactMap { AgentIdentityTone.rgb($0, tokens: tokens)?.nsColor }
+    }
+
+    func identity(_ tone: Int?) -> NSColor? {
+        guard let tone, identities.indices.contains(tone) else { return nil }
+        return identities[tone]
     }
 
     func symbol(_ token: String?, fallback: NSColor) -> NSColor {

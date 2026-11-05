@@ -35,8 +35,11 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextAgentUpdates",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
@@ -312,6 +315,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
+        "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -1374,13 +1378,24 @@
       ],
       "packages": []
     },
+    "CmuxNextLiveCode": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
     "CmuxNextMacScreen": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
       "targets": [
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextComputerUse",
         "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDevices",
         "CmuxNextRemoteView",

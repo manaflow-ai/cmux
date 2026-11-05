@@ -93,7 +93,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
             return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
-        case "menu":
+        case "menu": if let row = params["choose"]?.stringValue { return .object(["ok": .bool(view.debugChooseMenuItem(row, onBubble: params["text"]?.stringValue ?? ""))]) } // {choose, text}: that row of the bubble's menu
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
         case "link":
