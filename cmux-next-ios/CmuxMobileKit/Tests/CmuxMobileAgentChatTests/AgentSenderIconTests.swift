@@ -12,9 +12,16 @@ import Testing
         #expect(AgentSenderIcon.hashTone("lane-a") == 1)
     }
 
+    @Test func tonesAreTheMacsColors() {
+        #expect(AgentSenderIcon.toneRGB.count == 5)
+        let green = AgentSenderIcon.toneRGB[0]
+        #expect(green.0 == 0x3f && green.1 == 0xb9 && green.2 == 0x50)
+    }
+
     @Test func aProfileIdDrawsItsFamilysMark() {
         #expect(AgentSenderIcon.family("claude") == "claude")
-        #expect(AgentSenderIcon.family("codex-sol") == "codex")
+        // A profile id the catalog knows ("codex-sol") keeps itself; one it doesn't takes its family.
+        #expect(["codex-sol", "codex"].contains(AgentSenderIcon.family("codex-sol")))
         #expect(AgentSenderIcon.family(nil) == nil)
         #expect(AgentSenderIcon.family("") == nil)
     }

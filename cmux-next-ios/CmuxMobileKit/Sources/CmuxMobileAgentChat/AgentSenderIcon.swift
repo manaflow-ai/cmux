@@ -63,8 +63,14 @@ struct AgentSenderIcon: View {
         return Int(hash % 5)
     }
 
-    /// The tones' colors, the Mac's terminal-color fallbacks (subagents.css `[data-agent-tone]`).
+    /// The tones' colors: the Mac's own terminal-color fallbacks (subagents.css `[data-agent-tone]`),
+    /// so a session reads in the same hue on both.
+    static let toneRGB: [(Double, Double, Double)] = [
+        (0x3f, 0xb9, 0x50), (0xa3, 0x71, 0xf7), (0xd2, 0x99, 0x22), (0x39, 0xc5, 0xcf), (0xdb, 0x61, 0xa2),
+    ]
+
     static func toneColor(_ tone: Int) -> Color {
-        [Color.green, .purple, .yellow, .cyan, .pink][tone % 5]
+        let (r, g, b) = toneRGB[tone % toneRGB.count]
+        return Color(red: r / 255, green: g / 255, blue: b / 255)
     }
 }
