@@ -10,12 +10,14 @@ import Foundation
 // DEBUG builds `debug.mouse` (synthesized mouse input).
 extension AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.mouse`: synthesized mouse input for one of this process's windows (`DebugMouse`).
+    /// `debug.mouse`: synthesized mouse input for one of this process's windows (`DebugMouse`). Its body posts events,
+    /// which run after its frame as a person's do, and moves the synthesized pointer: it leaves the control snapshot
+    /// fresh, so a drag bench's request per frame maps no topology (RESIZE MAIN BUDGET).
     static func debugMouseMethod(_ services: AppServices) -> ControlMethod {
-        .mainActor("debug.mouse") { [weak services] call in
+        ControlMethod.mainActor("debug.mouse") { [weak services] call in
             guard let services else { return .value(.null) }
             return .value(DebugMouse.send(call.params, services: services))
-        }
+        }.leavingSnapshotFresh()
     }
     #endif
 

@@ -73,7 +73,7 @@ extension DebugMouse {
         }
         let location = page.convertPoint(fromScreen: screenPoint)
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
-        guard let event = scroll(atBase: location, in: page, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
+        guard let event = NSEvent.syntheticScroll(atBase: location, in: page, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
                                  phase: params["phase"]?.stringValue, flags: flags),
               let target = frame.hitTest(frame.convert(location, from: nil)) else {
             return .object(["error": .string("could not synthesize the page scroll")])
@@ -83,7 +83,7 @@ extension DebugMouse {
             target.scrollWheel(with: event)
             return false
         }
-        if params["hover"]?.boolValue != false { LayoutRootView.setDebugPointer(mainPoint, in: window) }
+        if params["hover"]?.boolValue != false { movePointer(mainPoint, controller: controller, window: window) }
         let top = InputJournal.topLeftPoint(mainPoint, in: window, relativeTo: window)
         return .object(["window": .string(controller.state.id), "x": .number(top.x), "y": .number(top.y),
                         "delivered_to": .string(layoutTook ? "LayoutRootView" : String(describing: type(of: target)))])

@@ -48,7 +48,8 @@ struct DebugPointerLayoutLookupTests {
         defer { PointerHover.debugPointers[ObjectIdentifier(window)] = nil }
 
         CountingView.subviewReads = 0
-        LayoutRootView.setDebugPointer(divider, in: window)
+        // The app names the window's live layouts (its on-screen workspaces', `DebugMouse.movePointer`).
+        LayoutRootView.setDebugPointer(divider, in: window, layouts: [root])
         #expect(CountingView.subviewReads == 0,
                 "one debug.mouse move asked the sidebar's views for their subviews \(CountingView.subviewReads) times (want 0)")
         // The move still reached the layout: the divider under the synthesized pointer hovers.
