@@ -122,9 +122,11 @@ struct DividerDragTerminalSteadyTests {
         #expect(misses.isEmpty, "\(misses.count) drag frames showed a terminal at another size than its pane's: \(misses.prefix(4))")
     }
 
-    /// A surface swapped in mid-drag (a replay puts a fresh surface in the host, `TerminalSession.swapSurface`) takes
-    /// its pane's size, and after the landing it still fits its pane.
-    @Test func aSurfaceSwappedInMidDragTakesItsPanesSize() async throws {
+    /// A surface swapped in mid-drag (a replay puts a fresh surface in the host, `TerminalSession.swapSurface`) follows the
+    /// drag too: it takes its pane's size in every frame left, its release spring holds no final size, and it stops
+    /// following when the release lands. Codex review of b72c7e2d3fa (blocker): the drag was told only to the surfaces
+    /// shown at its start, so a fresh one got the release spring's final-size hold (and a grid report on every frame).
+    @Test func aSurfaceSwappedInMidDragFollowsTheDrag() async throws {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
@@ -140,24 +142,42 @@ struct DividerDragTerminalSteadyTests {
         let handle = try #require(view.dividerViews[.split("r")])
         let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
         view.handleDrag(kind: .split("r"), event: .began(start, []))
-        for step in 1...20 {
+        for step in 1...10 {
             view.handleDrag(kind: .split("r"), event: .moved(CGPoint(x: start.x - CGFloat(step) * 8, y: start.y), []))
             screen.root.syncWithModel()
             await Self.frame(screen)
         }
-        #expect(session.surfaceView.bounds.width < before.width - 100, "the drag holds p1's surface at its drag-start size (\(session.surfaceView.bounds.width) pt)")
-
         let (_, continuation) = AsyncStream<TerminalOutgoing>.makeStream()
         defer { continuation.finish() }
         let fresh = TerminalSurfaceView(io: GHOSTTY_SURFACE_IO_MANUAL, input: TerminalInputSink(continuation: continuation), session: nil)
         host.install(fresh)
         host.layoutSubtreeIfNeeded()
-        #expect(fresh.frame.width < before.width - 100,
-                "the fresh surface did not take its pane's size (\(fresh.frame.width) pt in a \(host.bounds.width) pt host)")
+        #expect(fresh.isFollowingResizeGesture, "the fresh surface does not follow the drag under way")
+        var misses: [String] = []
+        func check(_ label: String) {
+            let area = host.surfaceSize(forHostSize: host.bounds.size)
+            if abs(fresh.frame.width - area.width) > 0.5 || abs(fresh.frame.height - area.height) > 0.5 {
+                misses.append("\(label): \(fresh.frame.size) in a \(area) area")
+            }
+        }
+        check("at the swap")
+        for step in 11...20 {
+            view.handleDrag(kind: .split("r"), event: .moved(CGPoint(x: start.x - CGFloat(step) * 8, y: start.y), []))
+            screen.root.syncWithModel()
+            await Self.frame(screen)
+            check("drag step \(step)")
+        }
+        #expect(fresh.bounds.width < before.width - 100, "the fresh surface did not narrow with its pane (\(fresh.bounds.width) pt)")
         view.handleDrag(kind: .split("r"), event: .ended(CGPoint(x: start.x - 160, y: start.y), []))
         screen.root.syncWithModel()
-        var moving = true
-        for _ in 1...240 where moving { moving = await Self.frame(screen) }
-        #expect(abs(fresh.frame.width - host.bounds.width) < 40, "after the landing the fresh surface fits its pane (\(fresh.frame.width) vs \(host.bounds.width))")
+        var moving = true, frames = 0
+        while moving, frames < 240 {
+            moving = await Self.frame(screen)
+            frames += 1
+            check("release frame \(frames)")
+        }
+        #expect(!moving, "the release never landed")
+        #expect(misses.isEmpty, "\(misses.count) frames showed the fresh surface at another size than its pane's: \(misses.prefix(6))")
+        #expect(!fresh.isFollowingResizeGesture, "the fresh surface still follows a drag that landed")
     }
 }
