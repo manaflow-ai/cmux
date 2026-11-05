@@ -152,7 +152,7 @@ export function UserBubble({
       const video = sentVideoOf(part, videos);
       return video ? (
         <span className="cv-user__inline-image">
-          <SentVideoTile video={video} width={sentImageWidth(video)} />
+          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
         </span>
       ) : undefined;
     },
@@ -371,7 +371,12 @@ export const SentImages = memo(function SentImages({
 /// A prompt's videos, each at a sent image's height in its own shape.
 function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
-    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+    <SentVideoTile
+      key={`${video.name}\n${video.path}`}
+      video={video}
+      width={sentImageWidth(video)}
+      height={SENT_IMAGE_HEIGHT}
+    />
   ));
 }
 
