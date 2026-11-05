@@ -31,8 +31,8 @@ const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
 
 /// The session `query` names: a listed chat's id by name at once (no ask), else the daemon's
-/// cached answer.
-function useSessionRef(query: string | undefined, byName: boolean): SessionRefTarget | null | undefined {
+/// cached answer (a received line's unlisted sender reads it too, IncomingMessageCard.tsx).
+export function useSessionRef(query: string | undefined, byName: boolean): SessionRefTarget | null | undefined {
   const store = useContext(SubsessionContext)?.store;
   const readListed = () => (byName && query ? store?.find(query) : undefined);
   const listed = useSyncExternalStore(store?.subscribeNames ?? noStore, readListed, readListed);
