@@ -1,0 +1,133 @@
+import AppKit
+@testable import CmuxNextDesign
+@testable import CmuxNextSidebar
+import Testing
+
+/// Lawrence 2026-11-05: "too much padding on right. padding on left/right of every workspace needs to be even."
+/// Measured in the running app (compact, 2x): a pinned row's pin started 6 pt inside its fill, but its spinner's ink
+/// ended 9 pt before the fill's end. The trailing column centered `horizontalInset` plus half the 14 pt status mark
+/// box inside the fill, so a glyph drawn smaller than that box stopped short of the row's inset.
+///
+/// The trailing twin of `SidebarLeadingEdgeTests` (every row's first ink starts at the row inset): every workspace
+/// row (a pinned band row, a Pinned section row, a top-level group's member, a loose row, the selected row, a hovered
+/// row showing its ×) keeps its fill as far from the list's right edge as from its left, and its last trailing ink
+/// ends the row inset before the fill's end, as its first ink starts the row inset after the fill's start.
+@MainActor @Suite(.serialized) struct SidebarEvenRowInsetsTests {
+    private static let pinnedID = WorkspaceID("even-pinned")
+    private static let groupedID = WorkspaceID("even-grouped")
+    private static let looseID = WorkspaceID("even-loose")
+    private static let erroredID = WorkspaceID("even-errored")
+    private static let hoveredID = WorkspaceID("even-hovered")
+    private static let selectedID = WorkspaceID("even-selected")
+    /// Device pixels at 2x: frames snap to half points (as `SidebarLeadingEdgeTests`).
+    private static let tolerance: CGFloat = 0.5
+
+    /// One workspace of each kind, each showing a status mark, so each row has a last trailing ink to measure.
+    private static func sidebar() -> SidebarView {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        func workspace(_ id: WorkspaceID, _ title: String, _ activity: StatusIndicatorState = .success) -> SidebarWorkspace {
+            SidebarWorkspace(id: id, title: title, activity: activity)
+        }
+        let group = SidebarGroup(id: GroupID("even-group"), name: "Group",
+                                 workspaces: [workspace(groupedID, "grouped")])
+        let model = SidebarModel(sections: [
+            SidebarSection(kind: .pinned, nodes: [.workspace(workspace(pinnedID, "pinned"))]),
+            SidebarSection(kind: .machine(machine), nodes: [
+                .group(group),
+                .workspace(workspace(looseID, "loose")),
+                .workspace(workspace(erroredID, "errored", .error)),
+                .workspace(workspace(hoveredID, "hovered")),
+                .workspace(workspace(selectedID, "selected")),
+            ]),
+        ], activeWorkspaceID: selectedID)
+        model.rowBadgeStyle = .trailing
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
+        return sidebar
+    }
+
+    private static func row(_ sidebar: SidebarView, _ id: WorkspaceID) throws -> WorkspaceRowView {
+        try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView, "no row for \(id)")
+    }
+
+    /// The x where `view`'s drawn ink ends, in `view`'s coordinates: its layer tree drawn at 2x, the rightmost column
+    /// with a pixel at least a quarter opaque (`SidebarGlyphInk`'s threshold). Nil when it draws nothing.
+    static func inkMaxX(_ view: NSView) throws -> CGFloat? {
+        view.layoutSubtreeIfNeeded()
+        let size = view.bounds.size
+        let (w, h) = (Int((size.width * 2).rounded(.up)), Int((size.height * 2).rounded(.up)))
+        guard w > 0, h > 0, let layer = view.layer else { return nil }
+        let context = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.scaleBy(x: 2, y: 2)
+        layer.render(in: context)
+        let data = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        for x in stride(from: w - 1, through: 0, by: -1) {
+            for y in 0..<h where data[(y * w + x) * 4 + 3] >= 64 {
+                return CGFloat(x + 1) / 2
+            }
+        }
+        return nil
+    }
+
+    /// The row's last visible trailing view (a status mark, a count, the hover ×), the one nearest the fill's end.
+    private static func lastTrailingView(_ row: NSView, excluding: [NSView]) -> NSView? {
+        row.subviews.filter { view in
+            !view.isHidden && view.alphaValue > 0 && view.frame.width > 0 && !excluding.contains { $0 === view }
+                && view.frame.minX > row.bounds.midX
+        }.max { $0.frame.maxX < $1.frame.maxX }
+    }
+
+    /// How far before the fill's end (the row's bounds) `row`'s last trailing ink ends.
+    private static func trailingInkInset(_ row: NSView, excluding: [NSView] = []) throws -> (inset: CGFloat, view: String) {
+        let last = try #require(lastTrailingView(row, excluding: excluding), "\(type(of: row)) shows no trailing view")
+        let ink = try #require(try inkMaxX(last), "\(type(of: last)) drew no ink")
+        return (row.bounds.width - (last.frame.minX + ink), "\(type(of: last)) \(last.frame)")
+    }
+
+    @Test func everyWorkspaceListRowHasEvenOuterAndInnerInsets() throws {
+        let sidebar = Self.sidebar()
+        let hovered = try Self.row(sidebar, Self.hoveredID)
+        hovered.isHovered = true
+        hovered.layoutSubtreeIfNeeded()
+        let list = sidebar.list
+        let inset = SidebarStyle.horizontalInset
+        for (name, id) in [("pinned", Self.pinnedID), ("grouped", Self.groupedID), ("loose", Self.looseID),
+                           ("errored", Self.erroredID), ("hovered", Self.hoveredID), ("selected", Self.selectedID)] {
+            let row = try Self.row(sidebar, id)
+            if id == Self.selectedID { #expect(row.isSelected) }
+            let left = row.frame.minX, right = list.bounds.width - row.frame.maxX
+            #expect(abs(left - right) < 0.01, "\(name): the fill is \(left) pt from the list's left edge, \(right) pt from its right")
+            let leading = row.icon.frame.width > 0 ? row.icon.frame.minX : row.title.frame.minX
+            #expect(abs(leading - inset) < 0.01, "\(name): the first ink \(leading) pt inside the fill, the row inset \(inset)")
+            let (trailing, view) = try Self.trailingInkInset(row, excluding: [row.title, row.icon])
+            #expect(abs(trailing - leading) <= Self.tolerance,
+                    "\(name): the first ink starts \(leading) pt inside the fill, the last ink (\(view)) ends \(trailing) pt before its end")
+        }
+    }
+
+    /// A pinned workspace in the band above the list (`SidebarItemRowView`): its fill keeps one gap on both sides, and
+    /// its status mark's ink ends the row inset before the fill's end, where the pin's ink starts after its start.
+    @Test func aPinnedBandRowHasEvenOuterAndInnerInsets() throws {
+        let view = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarRowTokens.current.band.rowHeight))
+        view.wantsLayer = true
+        var info = SidebarItemInfo(title: "cmux perf lead", symbol: "square")
+        info.leadingPin = true
+        info.activity = .success
+        view.configure(info, style: .builtIn)
+        view.layoutSubtreeIfNeeded()
+        view.layout()
+        let pill = view.pill.frame
+        #expect(abs(pill.minX - (view.bounds.width - pill.maxX)) < 0.01,
+                "the fill is \(pill.minX) pt from the row's left edge, \(view.bounds.width - pill.maxX) pt from its right")
+        #expect(!view.activity.isHidden && view.activity.frame.width > 0, "the row shows its status mark")
+        let ink = try #require(try Self.inkMaxX(view.activity), "the status mark drew no ink")
+        let trailing = pill.maxX - (view.activity.frame.minX + ink)
+        #expect(abs(trailing - SidebarStyle.horizontalInset) <= Self.tolerance,
+                "the mark's ink (\(view.activity.frame)) ends \(trailing) pt before the fill's end, the row inset \(SidebarStyle.horizontalInset)")
+    }
+}
