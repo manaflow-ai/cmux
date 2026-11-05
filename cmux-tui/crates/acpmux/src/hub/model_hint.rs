@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// The model a `-m claude-…` name that is no model id is pointed at instead.
+const CLAUDE_FALLBACK: &str = "claude-opus-5-5";
+
 impl Hub {
     /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a
     /// bare model id, or `HEAD/MODEL` may be a full id such as
@@ -20,10 +23,14 @@ impl Hub {
         };
         let known = self.known_models.lock().unwrap();
         let mut hits: Vec<String> = Vec::new();
+        let mut claude_harness: Option<&str> = None;
         for (name, p) in &cfg.harnesses {
             let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
             match p.kind {
                 crate::config::HarnessKind::ClaudeStdio => {
+                    if claude_harness.is_none() || name == "claude" {
+                        claude_harness = Some(name);
+                    }
                     ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
                 }
                 crate::config::HarnessKind::Acp => {
@@ -32,15 +39,82 @@ impl Hub {
                 crate::config::HarnessKind::Terminal => {}
             }
             if ids.contains(&spec)
-                || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
+                || (p.kind == crate::config::HarnessKind::ClaudeStdio
+                    && looks_like_claude_model_id(&spec))
             {
                 hits.push(format!("{name}/{spec}"));
             }
         }
-        if hits.is_empty() {
-            err
-        } else {
-            format!("{err}. {spec:?} is a model id: write {}", hits.join(" or "))
+        hint_text(err, &spec, &hits, claude_harness)
+    }
+}
+
+/// The error with its hint: the spelling to use when `spec` is a model id,
+/// or, for a `claude…` name that is no model id (a harness profile such as
+/// `claude-sr2` that this host lacks), never `claude/<name>`, which Claude
+/// Code would refuse as an unrecognized model on every turn.
+fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&str>) -> String {
+    if !hits.is_empty() {
+        return format!("{err}. {spec:?} is a model id: write {}", hits.join(" or "));
+    }
+    let _ = claude_harness;
+    err
+}
+
+/// Whether `spec` has the shape of a Claude model id: a family release
+/// (`claude-opus-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`),
+/// the older `claude-3-5-sonnet-…` shape, or an alias Claude Code takes
+/// (`opus`, `sonnet[1m]`). A `[1m]` suffix is allowed. A harness profile
+/// name such as `claude-sr2` or `claude-sr2-pipe` is none of these.
+pub(super) fn looks_like_claude_model_id(spec: &str) -> bool {
+    spec.starts_with("claude") || matches!(spec, "opus" | "sonnet" | "haiku")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hint_text, looks_like_claude_model_id};
+
+    #[test]
+    fn claude_model_shapes() {
+        for id in [
+            "claude-opus-5-5",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-7[1m]",
+            "claude-3-5-sonnet-20241022",
+            "opus",
+            "sonnet[1m]",
+            "haiku",
+        ] {
+            assert!(looks_like_claude_model_id(id), "{id}");
         }
+        for name in ["claude-sr2", "claude-sr2-pipe", "claude", "claude-opus", "claude-work", "claude-"]
+        {
+            assert!(!looks_like_claude_model_id(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn harness_profile_gets_no_claude_model_suggestion() {
+        let err = "unknown harness \"claude-sr2\"".to_owned();
+        let out = hint_text(err, "claude-sr2", &[], Some("claude"));
+        assert!(!out.contains("claude/claude-sr2"), "{out}");
+        assert!(!out.contains("is a model id"), "{out}");
+        assert!(out.contains("harness profile this host does not have"), "{out}");
+        assert!(out.contains("-m claude/claude-opus-5-5 -e medium"), "{out}");
+        assert!(!out.contains("fable"), "{out}");
+    }
+
+    #[test]
+    fn real_model_id_still_suggests_claude_spelling() {
+        assert!(looks_like_claude_model_id("claude-opus-5-5"));
+        let hits = vec!["claude/claude-opus-5-5".to_owned()];
+        let out = hint_text("unknown harness".into(), "claude-opus-5-5", &hits, Some("claude"));
+        assert!(out.contains("\"claude-opus-5-5\" is a model id: write claude/claude-opus-5-5"), "{out}");
+    }
+
+    #[test]
+    fn other_names_keep_the_bare_error() {
+        assert_eq!(hint_text("unknown harness \"gpt\"".into(), "gpt", &[], None), "unknown harness \"gpt\"");
     }
 }
