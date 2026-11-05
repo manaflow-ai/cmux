@@ -99,10 +99,12 @@ class TestIntegrity(unittest.TestCase):
                 mock.patch.object(module, "_git", return_value="head"):
             self.assertEqual(module.main(["--base", "base", "--allow-all"]), 0)
 
-    def test_workflow_keeps_approval_for_other_label_events_but_not_new_heads(self):
+    def test_workflow_approval_is_only_for_the_approval_label_event(self):
         workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
-        self.assertIn("github.event.action != 'synchronize'", workflow)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'test-integrity-approved')", workflow)
+        self.assertIn("github.event.action == 'labeled'", workflow)
+        self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
+        self.assertNotIn("github.event.action != 'synchronize'", workflow)
+        self.assertNotIn("contains(github.event.pull_request.labels.*.name, 'test-integrity-approved')", workflow)
 
 
 if __name__ == "__main__":

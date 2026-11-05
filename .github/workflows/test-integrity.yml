@@ -32,7 +32,10 @@ jobs:
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          TEST_INTEGRITY_APPROVED: ${{ github.event.action != 'synchronize' && contains(github.event.pull_request.labels.*.name, 'test-integrity-approved') }}
+          # Only the maintainer's approval-label event can grant an override.
+          # Other label events and later synchronize events stay strict, so an
+          # approval cannot carry over to a new head.
+          TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
@@ -52,10 +55,11 @@ jobs:
           merge_base="$(git merge-base "$base" HEAD)"
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
           args=(--base "$merge_base")
-          # pull_request_target is the authoritative PR gate. A maintainer-added
-          # label event is a one-head override; synchronize returns to strict so
-          # approval cannot silently cover later test changes. Pushes to main stay
-          # report-only so an intended, already-reviewed retirement cannot strand main.
+          # pull_request_target is the authoritative PR gate. Only the
+          # maintainer-added approval-label event is a one-head override; every
+          # other event returns to strict so approval cannot silently cover later
+          # test changes. Pushes to main stay report-only so an intended,
+          # already-reviewed retirement cannot strand main.
           if [[ "${{ github.event_name }}" == "pull_request_target" && "$TEST_INTEGRITY_APPROVED" != "true" ]]; then
             args+=(--strict)
           fi
