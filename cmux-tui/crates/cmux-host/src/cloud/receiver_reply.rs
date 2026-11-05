@@ -10,9 +10,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    Bound, Env, ReceiverSnapshot, RequiredPolicy, SAFE, UNAVAILABLE, UniqueJson, install_point,
-    validate,
+    Bound, Env, POLICY_UNAVAILABLE, REFUSED, ReceiverSnapshot, RequiredPolicy, SAFE, UNAVAILABLE,
+    UniqueJson, install_point, validate,
 };
+
+/// A reply that is not a policy: the agent's own failure answer says whether
+/// the control plane did not answer (keep) or refused (revoke). Anything else
+/// from the authenticated root agent is malformed, and refuses.
+fn failed_reply(bytes: &[u8]) -> String {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Failed {
+        ok: BoolLit<false>,
+        error: String,
+    }
+    let Ok(failed) = serde_json::from_slice::<Failed>(bytes) else { return REFUSED.into() };
+    let _ = failed.ok;
+    if failed.error == POLICY_UNAVAILABLE { UNAVAILABLE.into() } else { REFUSED.into() }
+}
 
 /// Public self identity from the original protected bootstrap. No bearer,
 /// original grant id, private install key or private WG key is retained here.
@@ -96,8 +111,8 @@ impl ReceiverSnapshot {
         if bytes.len() > 1024 * 1024 {
             return Err(UNAVAILABLE.into());
         }
-        let _: UniqueJson = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
-        let reply: Reply = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
+        let _: UniqueJson = serde_json::from_slice(bytes).map_err(|_| REFUSED)?;
+        let reply: Reply = serde_json::from_slice(bytes).map_err(|_| failed_reply(bytes))?;
         let _ = reply.ok;
         let PublicValue {
             policy: RequiredPolicy(policy),
@@ -106,12 +121,12 @@ impl ReceiverSnapshot {
             issuer_time_ms,
             remaining_ms,
         } = reply.value;
-        validate(&policy, binding)?;
+        validate(&policy, binding).map_err(|_| REFUSED)?;
         if issuer != format!("cmux:cloud:{}", binding.env.auth_environment())
             || issuer_time_ms > SAFE as u64
             || issuer_time_ms < policy.checked_at as u64
         {
-            return Err(UNAVAILABLE.into());
+            return Err(REFUSED.into());
         }
         let active = now.checked_duration_since(started).ok_or(UNAVAILABLE)?;
         let source_elapsed = match &source {

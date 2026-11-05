@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::cloud::receiver_read_tests::public_fixture;
+use cmux_link::native_token::MAX_POLICY_LEASE_MS;
 
 fn test_uid() -> u32 {
     // SAFETY: geteuid has no parameters or memory preconditions.
@@ -253,12 +254,42 @@ fn receiver_owner_agent_socket_refuses_unprotected_directory_and_symlink() {
     assert!(check_path(&link, test_uid(), false).is_err());
 }
 
-#[test]
-fn receiver_owner_agent_refusal_clears_existing_authority() {
-    let (binding, keys, mut reply) = public_fixture();
-    reply.push(b'\n');
-    let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
-    let verifier = receiver.verifier();
+/// A token like the fixture's, with its own single-use id.
+fn development_token_with_jti(jti: u8) -> String {
+    let f: Value =
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
+            .unwrap();
+    let vectors: Value =
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/vectors.json"))
+            .unwrap();
+    let seed =
+        URL_SAFE_NO_PAD.decode(vectors["test_keys"]["test-k1"]["d"].as_str().unwrap()).unwrap();
+    let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+    let mut claims = f["claims"].clone();
+    claims["iss"] = "cmux:cloud:development".into();
+    claims["jti"] = URL_SAFE_NO_PAD.encode([jti; 16]).into();
+    let head = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&json!({"alg":"EdDSA","typ":"cmux-link+jwt","kid":"test-k1"})).unwrap(),
+    );
+    let body = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+    let signed = format!("{head}.{body}");
+    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(key.sign(signed.as_bytes()).as_ref()))
+}
+
+/// The public fixture reply with local admission granted for ten minutes.
+fn admitting_reply() -> (ReceiverBinding, Keyset, Vec<u8>) {
+    let (binding, keys, bytes) = public_fixture();
+    let mut body: Value = serde_json::from_slice(&bytes).unwrap();
+    let checked = body["value"]["policy"]["checked_at"].as_i64().unwrap();
+    body["value"]["policy"]["admit_until"] = (checked + 600_000).into();
+    (binding, keys, [serde_json::to_vec(&body).unwrap(), b"\n".to_vec()].concat())
+}
+
+fn admitted_stream(
+    receiver: &AgentReceiver,
+    binding: &ReceiverBinding,
+    reply: Vec<u8>,
+) -> cmux_link::stream_lease::StreamLease {
     let (_dir, path, task) = server(reply);
     receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).unwrap();
     task.join().unwrap();
@@ -268,12 +299,83 @@ fn receiver_owner_agent_refusal_clears_existing_authority() {
         service: Service::Daemon,
         peer_key: &[b'a'; 32],
     };
-    let lease = verifier.verify(&development_token(), &expected).unwrap().lease.unwrap();
-    let (_dir, path, task) =
-        server(b"{\"ok\":false,\"error\":\"cloud.vm.network_policy.unavailable\"}\n".to_vec());
-    assert!(receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).is_err());
-    task.join().unwrap();
-    assert!(lease.deadline().is_none());
+    receiver.verifier().verify(&development_token(), &expected).unwrap().lease.unwrap()
+}
+
+#[test]
+fn receiver_owner_agent_refusal_clears_existing_authority() {
+    for refused in [
+        b"{\"ok\":false,\"error\":\"cloud.vm.network_policy.refused\"}\n".to_vec(),
+        b"{\"ok\":false,\"error\":\"something else\"}\n".to_vec(),
+        b"{\"ok\":true}\n".to_vec(),
+    ] {
+        let (binding, keys, reply) = admitting_reply();
+        let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+        let lease = admitted_stream(&receiver, &binding, reply);
+        let (_dir, path, task) = server(refused.clone());
+        let error = receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2));
+        task.join().unwrap();
+        assert!(error.is_err_and(|e| is_refusal(&e)), "{}", String::from_utf8_lossy(&refused));
+        assert!(lease.deadline().is_none(), "a refusal kept an admitted stream");
+    }
+}
+
+/// Control plane down or slow: the read gets no answer. The agent level keeps
+/// current authority (its owner decides, see native_process), so an admitted
+/// stream stays up and a new signed token is still admitted locally.
+#[test]
+fn receiver_owner_agent_no_answer_keeps_admitted_streams_and_admits_new_ones() {
+    let (binding, keys, reply) = admitting_reply();
+    let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+    let lease = admitted_stream(&receiver, &binding, reply);
+    let deadline = lease.deadline();
+    for unanswered in [
+        b"{\"ok\":false,\"error\":\"cloud.vm.network_policy.unavailable\"}\n".to_vec(),
+        // The agent closed without a word (it timed out its own Cloud read).
+        Vec::new(),
+    ] {
+        let (_dir, path, task) = server(unanswered);
+        let error = receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2));
+        task.join().unwrap();
+        assert!(error.is_err_and(|e| !is_refusal(&e)));
+        assert_eq!(lease.deadline(), deadline, "no answer ended an admitted stream");
+    }
+    // The agent socket gone (the host agent restarting) is no answer too.
+    let gone = tempfile::tempdir().unwrap();
+    let error = receiver.refresh_at(
+        &gone.path().join("agent.sock"),
+        test_uid(),
+        false,
+        Duration::from_secs(2),
+    );
+    assert!(error.is_err_and(|e| !is_refusal(&e)));
+    assert_eq!(lease.deadline(), deadline);
+    let expected = Expected {
+        host: &binding.host,
+        epoch: binding.epoch,
+        service: Service::Daemon,
+        peer_key: &[b'a'; 32],
+    };
+    assert!(
+        receiver.verifier().verify(&development_token_with_jti(9), &expected).is_ok(),
+        "a new stream was not admitted locally while the control plane was down"
+    );
+}
+
+/// Local admission runs the verifier's authority to admit_until, not to the
+/// renewal lease; without the field (the kill switch) it ends at the lease.
+#[test]
+fn receiver_owner_agent_admission_window_comes_from_admit_until() {
+    let (binding, keys, reply) = admitting_reply();
+    let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+    let admitted = admitted_stream(&receiver, &binding, reply);
+    let (binding, keys, mut plain) = public_fixture();
+    plain.push(b'\n');
+    let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+    let leased = admitted_stream(&receiver, &binding, plain);
+    let (admitted, leased) = (admitted.deadline().unwrap(), leased.deadline().unwrap());
+    assert!(admitted > leased + Duration::from_secs(400), "admit_until did not extend authority");
+    assert!(leased < Instant::now() + Duration::from_secs(MAX_POLICY_LEASE_MS / 1000 + 1));
 }
 
 #[test]
