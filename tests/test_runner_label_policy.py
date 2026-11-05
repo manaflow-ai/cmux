@@ -293,6 +293,33 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
 
 
+class NightlySlotVariable(unittest.TestCase):
+    def test_only_a_nightly_slot_label_is_allowed(self) -> None:
+        # nightly.yml's decide and the scheduled nightly-next canary and launch smoke take
+        # CI_NIGHTLY_NEXT_BUILD_RUNNER whole as runs-on, with write tokens in their failure jobs.
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}), [])
+        for label in ("self-hosted-nightly-prod", "glaeda-nightly-", "glaeda-nightly-only-m4pro", "glaeda-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", "glaeda-trusted-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": label})],
+                    ["CI_NIGHTLY_NEXT_BUILD_RUNNER"],
+                )
+
+    def test_the_scheduled_gate_bounds_it_to_the_slot_prefix(self) -> None:
+        # Every runs-on that reads the variable checks the prefix first (the variable check runs on a schedule).
+        for workflow in ("nightly-next-canary.yml", "nightly-next-launch-smoke.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            reads = [line for line in text.splitlines()
+                     if "runs-on:" in line and "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER" in line]
+            self.assertEqual(len(reads), 4, workflow)
+            for line in reads:
+                self.assertEqual(line.count("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"), 2, line)
+                self.assertIn("github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, "
+                              "'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", line)
+
+
 class NextNightlyTrustedLabels(unittest.TestCase):
     def test_next_has_a_separate_trusted_pool_and_runner(self):
         self.assertEqual(drifted_runner_variables({

@@ -1625,6 +1625,11 @@ check_no_self_hosted_fleet_runners() {
   # Capability is accepted only as the complete NEXT trusted selector.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The scheduled nightly-next canary and launch smoke (main's copies, which glaeda's hook admits on the
+  # nightly slot only from their schedule) may name the slot through this exact bounded read, in those two
+  # files alone. runner_label_policy.nightly_slot_reason holds the variable to glaeda-nightly-<class> labels,
+  # and test_ci_fork_runner_routing keeps secrets off any job a variable can move.
+  local nightly_slot_selector="github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"
   # The main metadata bootstrap has no preceding picker. Accept its complete
   # main-only selector in this job alone, without exempting other fleet labels
   # or allowing secrets onto the shared nightly pool. RC and forks keep their
@@ -1700,6 +1705,10 @@ PYTHON
     content="${line#*:*:}"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-canary.yml" ||
+          "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-launch-smoke.yml" ]]; then
+      content="${content/"$nightly_slot_selector"/}"
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
