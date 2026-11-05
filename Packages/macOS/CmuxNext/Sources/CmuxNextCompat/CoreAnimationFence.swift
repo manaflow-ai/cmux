@@ -101,11 +101,27 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
         return found
     }
 
-    /// The selector named `name`. Every caller checks it with `class_getInstanceMethod`, `class_getClassMethod` or
-    /// `responds(to:)` before it calls it, so a selector this OS lacks is never sent.
+    /// The selector named `name`, from the compile-time table of ``CoreAnimationSPI`` (no string lookup). Every caller
+    /// checks it with `class_getInstanceMethod`, `class_getClassMethod` or `responds(to:)` before it calls it, so a
+    /// selector this OS lacks is never sent.
     static func selector(_ name: String) -> Selector {
-        NSSelectorFromString(name) // crash-allow: callers check the selector exists before sending it (see above)
+        selectors[name] ?? #selector(NSObject.description)
     }
+
+    private static let selectors: [String: Selector] = {
+        let list: [Selector] = [
+            #selector(CoreAnimationSPI.createFencePort), #selector(CoreAnimationSPI.setFencePort(_:)),
+            #selector(CoreAnimationSPI.setFencePort(_:commitHandler:)), #selector(CoreAnimationSPI.invalidateFences),
+            #selector(CoreAnimationSPI.contextId), #selector(CoreAnimationSPI.setLayer(_:)), #selector(CoreAnimationSPI.layer),
+            #selector(CoreAnimationSPI.invalidate), #selector(CoreAnimationSPI.remoteContextWithOptions(_:)),
+            #selector(CoreAnimationSPI.contextWithCGSConnection(_:options:)), #selector(CoreAnimationSPI.localContext),
+            #selector(CoreAnimationSPI.allContexts), #selector(CoreAnimationSPI.currentContext),
+            #selector(CoreAnimationSPI.addCommitHandler(_:forPhase:)), #selector(CoreAnimationSPI.activate),
+            #selector(CoreAnimationSPI.synchronize), #selector(CoreAnimationSPI.context),
+            #selector(CoreAnimationSPI.setContextId(_:)), #selector(CoreAnimationSPI._layerContext),
+        ]
+        return Dictionary(list.map { (NSStringFromSelector($0), $0) }, uniquingKeysWith: { first, _ in first })
+    }()
 
     static func object(_ target: NSObject, _ name: String) -> NSObject? {
         let selector = CoreAnimationFence.selector(name)
@@ -170,4 +186,29 @@ public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
         self.fence = fence
         hostLayer = host
     }
+}
+
+/// The SPI selectors, declared once so `#selector` names them at compile time. Nothing conforms: it is only a table of
+/// names (class methods are declared as instance methods: a selector is only a name); every call checks the receiver
+/// has the method first (``CoreAnimationFence``).
+@objc private protocol CoreAnimationSPI {
+    func createFencePort() -> UInt32
+    func setFencePort(_ port: UInt32)
+    func setFencePort(_ port: UInt32, commitHandler: Any)
+    func invalidateFences()
+    func contextId() -> UInt32
+    func setLayer(_ layer: CALayer?)
+    func layer() -> CALayer?
+    func invalidate()
+    func remoteContextWithOptions(_ options: NSDictionary?) -> NSObject?
+    func contextWithCGSConnection(_ connection: UInt32, options: NSDictionary?) -> NSObject?
+    func localContext() -> NSObject?
+    func allContexts() -> NSArray?
+    func currentContext() -> NSObject?
+    func addCommitHandler(_ handler: Any, forPhase phase: Int)
+    func activate()
+    func synchronize()
+    func context() -> NSObject?
+    func setContextId(_ contextId: UInt32)
+    func _layerContext() -> NSObject?
 }
