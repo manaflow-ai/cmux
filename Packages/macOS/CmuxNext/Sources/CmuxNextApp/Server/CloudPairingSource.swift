@@ -104,6 +104,13 @@ final class CloudPairingSource: ServerSource {
         }
     }
 
+    /// The Worker's team for this session, or nil when signed out ("Pair Another Machine…" mints its
+    /// invite into it, as Add Server approves into it).
+    func workerTeam() async throws -> ServerTeam? {
+        guard let account = account() else { return nil }
+        return try await workerTeam(account: account)
+    }
+
     /// The Worker's team for this session, from `team.policy.get`. A user
     /// who only ever signed in on a Mac has no personal team yet: on
     /// `auth.forbidden` run `user.ensure` (idempotent) once and read again.

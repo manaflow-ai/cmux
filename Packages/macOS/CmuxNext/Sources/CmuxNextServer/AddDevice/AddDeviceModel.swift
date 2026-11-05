@@ -23,6 +23,10 @@ public final class AddDeviceModel {
     public private(set) var copied = false
     /// The "Any machine: one line" way's state; nil while Labs `labs.machineJoin` is off.
     public private(set) var joinLine: MachineJoinLineModel?
+    /// Signed in, the "Any machine" way offers Pair Another Machine (a code the new machine types,
+    /// no ssh) in place of the ticket line; signed out, the ticket line shows as before.
+    public private(set) var offersInvite = false
+    @ObservationIgnored private var openInvite: (() -> Void)?
 
     @ObservationIgnored private let services: AddDeviceServices
     /// The person picked a way: a late listing never moves them.
@@ -47,6 +51,8 @@ public final class AddDeviceModel {
         let mine = generation
         joinLine?.close()
         joinLine = services.machineJoin().map { MachineJoinLineModel(service: $0, clock: joinClock, sleep: joinSleep) }
+        openInvite = joinLine == nil ? nil : services.pairAnotherMachine()
+        offersInvite = openInvite != nil
         self.way = way.flatMap { ways.contains($0) ? $0 : nil } ?? .network
         chosenByHand = self.way == way
         copied = false
@@ -159,6 +165,11 @@ public final class AddDeviceModel {
             services.showMachines()
             closeCard()
             return true
+        case .pairAnotherMachine:
+            guard let openInvite else { return false }
+            closeCard()
+            openInvite()
+            return true
         case .done, .cancel:
             closeCard()
             return true
@@ -173,6 +184,7 @@ public final class AddDeviceModel {
     }
 
     private var joinLineButtons: [AddDeviceButton] {
+        if offersInvite { return [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .pairAnotherMachine, key: .return)] }
         switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
         case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
