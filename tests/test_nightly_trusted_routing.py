@@ -481,7 +481,8 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]
         self.assertIn(
-            "github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id)",
+            "github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || "
+            "format('run-{0}', github.run_id))",
             group,
         )
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
@@ -498,8 +499,10 @@ class NightlyTrustedRouting(unittest.TestCase):
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
-        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-run-39124573091')
-        self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
+        # Every nightly-next push shares one group: a waiting push run is replaced by a newer one, so only the
+        # newest head builds (Leo, 2026-11-05: "why do multiple merges even build the f***ing nightlies anyway?").
+        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-push')
+        self.assertEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
     def test_every_nightly_build_has_its_own_slot(self):

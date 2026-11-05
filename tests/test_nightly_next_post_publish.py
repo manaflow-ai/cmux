@@ -103,20 +103,28 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
 if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
     failures.append("legacy identity publication must wait for successful NEXT publication")
 legacy_publish = job("publish-nightly-identity-legacy")
+
+
+def target(field: str) -> str:
+    """The publish reads the decision of whichever job signed: the main job's copy (legacy_ran) or legacy-identity-target."""
+    return (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+            f"needs.build-sign-notarize-nightly.outputs.legacy_target_{field} || needs.legacy-identity-target.outputs.{field})")
+
+
 pause_exemption = "needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue'"
 if pause_exemption not in job("sign-nightly-identity-legacy"):
     failures.append("parallel identity signing must honor the notary pause except for accepted continuations")
-if pause_exemption not in legacy_publish:
+if f"needs.decide.outputs.notary_paused != 'true' || {target('action')} == 'continue'" not in legacy_publish:
     failures.append("parallel identity publication must honor the notary pause except for accepted continuations")
 if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
     failures.append("legacy identity publication must stop when NEXT publication was refused")
-if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
+if f"needs.publish-nightly.outputs.build == {target('build')}" not in legacy_publish:
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
-if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
+if f"needs.publish-nightly.result == 'skipped' && {target('action')} == 'continue'" not in legacy_publish:
     failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
 # Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
 # NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
-if "|| needs.legacy-identity-target.outputs.source_run == '')" not in legacy_publish:
+if f"|| {target('source_run')} == '')" not in legacy_publish:
     failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
 
 if failures:

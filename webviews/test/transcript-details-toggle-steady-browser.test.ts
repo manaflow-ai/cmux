@@ -324,15 +324,16 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
   const RUN_B = '[data-row-id="run-b"] [aria-expanded]';
   const RUN_A = '[data-row-id="run-a"] [aria-expanded]';
-  /// The clicked line's height up from the view's foot, as a share of the view.
-  const upShare = async (page: Page, selector: string) => {
-    const view = await viewBox(page);
-    const top = await page.evaluate(
-      (query) => document.querySelector<HTMLElement>(query)!.getBoundingClientRect().top,
-      selector,
-    );
-    return (view.bottom - top) / view.height;
-  };
+  /// The clicked line's height up from the visible view's foot (the composer's top), as a share of
+  /// the visible view, as the transcript measures it.
+  const upShare = (page: Page, selector: string) =>
+    page.evaluate((query) => {
+      const box = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+      const holder = document.querySelector<HTMLElement>('[style*="--acpmux-dock-space"]');
+      const dock = holder ? parseFloat(holder.style.getPropertyValue("--acpmux-dock-space")) || 0 : 0;
+      const top = document.querySelector<HTMLElement>(query)!.getBoundingClientRect().top;
+      return (box.bottom - dock - top) / (box.height - dock);
+    }, selector);
 
   /// Whether the disclosure `selector` finds is open now.
   const expanded = (page: Page, selector: string) =>
@@ -398,9 +399,9 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
     test(`${name}: up the screen from the bottom: the clicked line and the rows above it stay, the rows under it move`, async () => {
       browser = browsers[name];
       const page = await open();
-      // A line high in the view, at the latest row: the run at the turn's start, brought into the top
-      // part of the view by a taller viewport's worth of rows under it.
-      await page.setViewportSize({ width: 900, height: 1100 });
+      // A line high in the view, at the latest row: the run at the turn's start, about 70% up the
+      // visible view (the view's height the rows under it fill, at the latest row).
+      await page.setViewportSize({ width: 900, height: 900 });
       await settle(page);
       // The run starts shut, so the click opens it (a shut at the bottom pins the bottom, as ever).
       if (await expanded(page, RUN_A)) {
