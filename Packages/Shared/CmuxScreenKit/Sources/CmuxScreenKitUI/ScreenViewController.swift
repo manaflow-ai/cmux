@@ -37,6 +37,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private let content = UIView()
     private let screenLayer = CALayer()
     private let cursorLayer = CALayer()
+    /// The agent's pointer (Computer Use) on a screen stream, from the Mac's telepointers.
+    private let agentLayer = CALayer()
+    /// A screen stream's pointers from the Mac, in framebuffer pixels (nil: none on this display).
+    private var streamPerson: CGPoint?
+    private var streamAgent: CGPoint?
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
     private var hostCursorImage: CGImage?
     private let keyInput = KeyInputView()
@@ -61,6 +66,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         self.session = session
         inputMode = session.preferences.inputMode
         super.init(nibName: nil, bundle: nil)
+        // This view draws a stream's pointers itself: the Mac leaves its cursor out of the video.
+        session.drawsPointers = true
+        session.stream?.drawPointers()
     }
 
     @available(*, unavailable)
@@ -90,6 +98,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         cursorLayer.zPosition = 1
         cursorLayer.isHidden = true
         content.layer.addSublayer(cursorLayer)
+        agentLayer.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "transform": NSNull()]
+        agentLayer.zPosition = 1
+        agentLayer.isHidden = true
+        agentLayer.contents = Self.agentPointer.image
+        agentLayer.bounds = CGRect(origin: .zero, size: Self.agentPointer.size)
+        content.layer.addSublayer(agentLayer)
         keyInput.session = session
         view.addSubview(keyInput)
         installGestures()
@@ -115,6 +129,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         session.onFrame = { [weak self] frame in self?.show(frame) }
         if session.isStream { installVideo() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
+        session.onTelepointers = { [weak self] person, agent in self?.setTelepointers(person: person, agent: agent) }
         session.onScreens = { [weak self] screens in
             self?.screensFromServer = true
             self?.setScreens(screens)
@@ -204,19 +219,33 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         updateCursor()
     }
 
+    /// A screen stream's pointers (fractions of the streamed display) from
+    /// the Mac: the person's is drawn as the cursor, the agent's as its own marker.
+    private func setTelepointers(person: CGPoint?, agent: CGPoint?) {
+        func pixels(_ point: CGPoint?) -> CGPoint? { point.map { CGPoint(x: $0.x * frameSize.width, y: $0.y * frameSize.height) } }
+        streamPerson = pixels(person)
+        streamAgent = pixels(agent)
+        updateCursor()
+    }
+
     /// Draws the cursor at the pointer: the server's shape (local cursor),
     /// and in trackpad mode or under a hovering mouse the shape or, when
-    /// the server sends none (a screen stream), a plain arrow.
+    /// the server sends none (a screen stream), a plain arrow. Otherwise a
+    /// screen stream's cursor is where the Mac says its pointer is (the
+    /// video carries none); the agent's pointer is drawn beside it.
     private func updateCursor() {
+        updateAgentPointer()
         let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
-        let visible = frameSize != .zero && (hostShape || inputMode == .trackpad || pointerHovering)
+        let local = hostShape || inputMode == .trackpad || pointerHovering
+        let remote = local ? nil : streamPerson
+        let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
         guard visible else { return }
         let fallback = Self.fallbackCursor
         let image = hostShape ? hostCursorImage : fallback.image
         let size = hostShape ? CGSize(width: cursor.width, height: cursor.height) : fallback.size
         let hotspot = hostShape ? CGPoint(x: cursor.hotspotX, y: cursor.hotspotY) : fallback.hotspot
-        let pointer = session.pointer
+        let pointer = remote ?? session.pointer
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if (cursorLayer.contents as AnyObject?) !== image {
@@ -227,6 +256,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         // Keep the cursor a readable size when zoomed out.
         let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
         cursorLayer.transform = CATransform3DMakeScale(scale, scale, 1)
+        CATransaction.commit()
+    }
+
+    /// The agent's marker at its pointer, kept a readable size when zoomed out.
+    private func updateAgentPointer() {
+        let visible = frameSize != .zero && streamAgent != nil
+        agentLayer.isHidden = !visible
+        guard let point = streamAgent, visible else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        agentLayer.position = point
+        let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
+        agentLayer.transform = CATransform3DMakeScale(scale, scale, 1)
         CATransaction.commit()
     }
 

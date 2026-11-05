@@ -82,6 +82,14 @@ public final class ScreenSession {
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
+    /// A screen stream's pointers, as fractions of the streamed display:
+    /// the Mac's own (the person's) and the agent's; nil when off it. Only
+    /// with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onTelepointers: ((CGPoint?, CGPoint?) -> Void)?
+    /// The app draws a screen stream's pointers itself (``onTelepointers``):
+    /// the Mac then leaves its cursor out of the video. Set before
+    /// connecting; an app that never sets it gets the cursor in the picture.
+    @ObservationIgnored public var drawsPointers = false
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -296,6 +304,14 @@ public final class ScreenSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
+        viewer.onTelepointers = { [weak self, weak viewer] message in
+            let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
+            let (person, agent) = (point(message.person), point(message.agent))
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onTelepointers?(person, agent)
+            }
+        }
         viewer.onState = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, let message, self.stream === viewer else { return }
@@ -312,6 +328,7 @@ public final class ScreenSession {
                 isReconnecting = false
                 // The display's rate first: the Mac then sets up the quality at the agreed rate.
                 if let fps = displayMaximumFrameRate { viewer.setDisplayFrameRate(fps) }
+                if drawsPointers { viewer.drawPointers() }
                 viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))

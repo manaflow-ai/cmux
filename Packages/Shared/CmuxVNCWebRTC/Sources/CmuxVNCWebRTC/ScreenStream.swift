@@ -173,6 +173,21 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// protocol, as a comma list (``pixelScrollCapability``,
     /// ``modifiedPointerCapability``). An older host sends no `caps`.
     public var s: String?
+    /// For `telepointers`: the Mac's pointer (the person's) and the agent's,
+    /// each as a fraction (0–1, top left origin) of the streamed display;
+    /// absent when it is off that display or hidden.
+    public var person: Pointer?
+    public var agent: Pointer?
+
+    /// A pointer position as a fraction of the streamed display.
+    public struct Pointer: Codable, Sendable, Equatable {
+        public var x: Double
+        public var y: Double
+        public init(x: Double, y: Double) {
+            self.x = x
+            self.y = y
+        }
+    }
 
     /// `t` of the message a host sends once its input channel opens.
     public static let capabilitiesType = "caps"
@@ -180,6 +195,14 @@ public struct ScreenHostMessage: Codable, Sendable {
     public static let pixelScrollCapability = "scroll-px"
     /// Pointer events carry the modifier keys held down (a modifier `key` down, then a click, is a modified click).
     public static let modifiedPointerCapability = "mods"
+    /// `t` of the host's pointer positions (``person``, ``agent``), sent
+    /// while they change to a viewer that draws pointers itself.
+    public static let telepointersType = "telepointers"
+    /// What a viewer that draws pointers from ``telepointersType`` messages
+    /// says in its own `caps` message: the host then leaves the cursor out of
+    /// the picture (Petal's telepointers: cursors as metadata, never pixels).
+    /// An older viewer never says it and keeps the cursor in the picture.
+    public static let telepointersCapability = "telepointers"
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -203,6 +226,12 @@ public protocol ScreenBackend: AnyObject, Sendable {
     var maximumFrameRate: Int? { get }
     /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
+    /// Whether the cursor is drawn into the picture (on until a viewer draws
+    /// pointers itself). A source that can't leave it out ignores this.
+    func setDrawsCursor(_ draws: Bool)
+    /// The streaming display's frame in global display coordinates (points,
+    /// top left origin, as `CGEvent` locations); nil when the source does not know.
+    var displayFrame: CGRect? { get }
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -211,6 +240,8 @@ public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
+    func setDrawsCursor(_ draws: Bool) {}
+    var displayFrame: CGRect? { nil }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -243,6 +274,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var captured = 0
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
+        /// The viewer draws pointers itself (it said ``ScreenHostMessage/telepointersCapability``).
+        var telepointers = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
@@ -276,6 +309,16 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private var session: Session?
     /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
     private var ticketSignaling: (any ScreenSignaling)?
+    /// Where the agent's pointer is (Computer Use), in global display
+    /// coordinates (points, top left origin, as `CGEvent` locations); nil
+    /// when it shows none. Read about 60 times a second while a viewer draws
+    /// pointers itself. Set by the app; nil by default (no agent pointer).
+    public var agentPointer: (@Sendable () -> CGPoint?)? {
+        get { lock.withLock { agentPointerSource } }
+        set { lock.withLock { agentPointerSource = newValue } }
+    }
+    private var agentPointerSource: (@Sendable () -> CGPoint?)?
+
     /// Called from the host's tasks with each `Event` (any thread).
     public var onEvent: (@Sendable (Event) -> Void)? {
         get { lock.withLock { eventSink } }
@@ -494,6 +537,57 @@ public final class ScreenStreamHost: @unchecked Sendable {
         return fps
     }
 
+    /// Whether a viewer's `caps` message says it draws pointers itself.
+    static func viewerDrawsPointers(_ input: ScreenInput) -> Bool {
+        input.t == ScreenHostMessage.capabilitiesType
+            && (input.s ?? "").split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == ScreenHostMessage.telepointersCapability }
+    }
+
+    /// `point` (global display coordinates) as a fraction of `display`;
+    /// nil when it is off that display.
+    static func fraction(of point: CGPoint?, in display: CGRect?) -> ScreenHostMessage.Pointer? {
+        guard let point, let display, display.width > 0, display.height > 0, display.contains(point) else { return nil }
+        return .init(x: Double((point.x - display.minX) / display.width), y: Double((point.y - display.minY) / display.height))
+    }
+
+    /// This Mac's pointer in global display coordinates (none off macOS).
+    static func pointerLocation() -> CGPoint? {
+        #if os(macOS)
+        CGEvent(source: nil)?.location
+        #else
+        nil
+        #endif
+    }
+
+    /// Sends the pointers to a viewer that draws them: about 60 times a
+    /// second, only when one moved, on the unordered `pointer` channel
+    /// (latest wins; the ordered channel for a viewer without one).
+    private func startTelepointers(_ session: Session) {
+        session.tasks.append(Task { [weak self] in
+            var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?)?
+            var lastSent = DispatchTime.now()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(16)) // telepointer sampling period (60 Hz)
+                guard let self else { return }
+                let display = session.backend.displayFrame
+                let person = Self.fraction(of: Self.pointerLocation(), in: display)
+                let agent = Self.fraction(of: agentPointer?(), in: display)
+                // Unchanged: nothing to send, but once a second anyway (an unordered message may be lost).
+                let stale = DispatchTime.now().uptimeNanoseconds - lastSent.uptimeNanoseconds > 1_000_000_000
+                if let last, last.0 == person, last.1 == agent, !stale { continue }
+                last = (person, agent)
+                lastSent = .now()
+                var message = ScreenHostMessage(t: ScreenHostMessage.telepointersType)
+                message.person = person
+                message.agent = agent
+                if let data = try? JSONEncoder().encode(message) {
+                    let text = String(decoding: data, as: UTF8.self)
+                    if !session.link.sendText(text, on: "pointer") { _ = session.link.sendText(text) }
+                }
+            }
+        })
+    }
+
     /// Whether a viewer message ends its session (the viewer left: `bye`).
     static func endsSession(_ input: ScreenInput) -> Bool { input.t == "bye" }
 
@@ -509,6 +603,16 @@ public final class ScreenStreamHost: @unchecked Sendable {
             session.lock.withLock { session.quality = quality }
             log("quality: \(quality.rawValue)")
             if applyQuality(session) { sendDisplays(session) }
+            return
+        }
+        if input.t == ScreenHostMessage.capabilitiesType {
+            // The viewer's own capabilities, not input: view-only sessions too.
+            let draws = Self.viewerDrawsPointers(input)
+            guard draws, !session.lock.withLock({ session.telepointers }) else { return }
+            session.lock.withLock { session.telepointers = true }
+            log("viewer draws pointers: cursor left out of the picture")
+            session.backend.setDrawsCursor(false)
+            startTelepointers(session)
             return
         }
         if input.t == ScreenStreamViewer.frameRateMessage {
@@ -722,6 +826,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// once after the channel opens; a host that sends none predates them
     /// (send only line scrolls).
     public var onCapabilities: (@Sendable ([String]) -> Void)?
+    /// The host's pointer positions (``ScreenHostMessage/person``,
+    /// ``ScreenHostMessage/agent``), after ``drawPointers()``; any thread.
+    public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -793,6 +900,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                         self?.onCapabilities?(capabilities)
                     } else if Self.isDisplays(message) {
                         self?.onDisplays?(message)
+                    } else if message.t == ScreenHostMessage.telepointersType {
+                        self?.onTelepointers?(message)
                     }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
@@ -900,6 +1009,14 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// never sends it gets 60.
     public func setDisplayFrameRate(_ fps: Int) {
         send(Self.frameRateInput(fps))
+    }
+
+    /// Tells the Mac this viewer draws the pointers itself (sent again by
+    /// the app after a reconnect): the Mac leaves its cursor out of the
+    /// picture and sends ``onTelepointers`` instead. An older Mac ignores it
+    /// and keeps the cursor in the picture.
+    public func drawPointers() {
+        send(ScreenInput(t: ScreenHostMessage.capabilitiesType, s: ScreenHostMessage.telepointersCapability))
     }
 
     /// Asks the Mac for `quality` (sent again by the app after a reconnect).

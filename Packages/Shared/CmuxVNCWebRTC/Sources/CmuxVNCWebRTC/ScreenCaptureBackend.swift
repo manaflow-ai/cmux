@@ -29,6 +29,19 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRates: [CGDirectDisplayID: Int] = [:]
     /// The capture rate (``setFrameRate(_:)``).
     private var frameRate = ScreenQuality.baselineFrameRate
+    /// The cursor is drawn into the picture (``setDrawsCursor(_:)``).
+    private var drawsCursor = true
+    /// The processes whose windows are left out of the picture, as last applied.
+    private var excludedApplied: Set<pid_t> = []
+    /// Processes whose windows never appear in the picture: the Computer Use
+    /// agent's cursor overlay, which a viewer that draws pointers shows
+    /// itself. Read when a capture starts and every 2 s. Set by the app; nil
+    /// by default (nothing left out).
+    public var excludedProcessIDs: (@Sendable () -> [pid_t])? {
+        get { lock.withLock { excludedSource } }
+        set { lock.withLock { excludedSource = newValue } }
+    }
+    private var excludedSource: (@Sendable () -> [pid_t])?
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
@@ -60,6 +73,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         displays(found.map { pixelSize($0) }, main)
         try await capture(found[main])
         watchDisplays()
+        watchExclusions()
     }
 
     /// A display added, removed or changing mode: read the displays again
@@ -144,6 +158,20 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         fps > ScreenQuality.baselineFrameRate ? 6 : 4
     }
 
+    public func setDrawsCursor(_ draws: Bool) {
+        let generation = lock.withLock { () -> Int? in
+            guard draws != drawsCursor else { return nil }
+            drawsCursor = draws
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
+        }
+        guard let generation else { return }
+        reconfigure(generation: generation)
+    }
+
+    public var displayFrame: CGRect? {
+        lock.withLock { displays.indices.contains(current) ? displays[current].frame : nil }
+    }
+
     public func setFrameRate(_ fps: Int) {
         let rate = Self.captureFrameRate(for: fps)
         let generation = lock.withLock { () -> Int? in
@@ -166,30 +194,31 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private func reconfigure(generation: Int) {
         let log = self.log
         Task {
-            var applied: Int?
+            var applied: (rate: Int, cursor: Bool)?
             while true {
-                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int)? in
+                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int, cursor: Bool)? in
                     guard !stopped, streamGeneration == generation, let stream = self.stream,
                           let streamDisplay else { return nil }
-                    return (stream, streamDisplay, self.frameRate)
+                    return (stream, streamDisplay, self.frameRate, self.drawsCursor)
                 }
-                guard let running, running.rate != applied else { return }
+                guard let running, running.rate != applied?.rate || running.cursor != applied?.cursor else { return }
                 let rate = running.rate
                 do {
-                    try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
-                    log("capturing display \(running.display.displayID) at \(rate) fps")
+                    try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate, cursor: running.cursor))
+                    log("capturing display \(running.display.displayID) at \(rate) fps\(running.cursor ? "" : ", no cursor")")
                 } catch {
                     log("capture frame rate \(rate) not applied: \(error.localizedDescription)")
                     return
                 }
-                applied = rate
+                applied = (rate, running.cursor)
             }
         }
     }
 
     /// The pointer stays in the picture (`showsCursor`): the viewer shows the
-    /// Mac's own cursor, never one drawn locally.
-    private func configuration(for display: SCDisplay, frameRate: Int) -> SCStreamConfiguration {
+    /// Mac's own cursor, never one drawn locally. A viewer that draws
+    /// pointers from the host's `telepointers` messages turns it off.
+    private func configuration(for display: SCDisplay, frameRate: Int, cursor: Bool) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         let size = pixelSize(display)
         configuration.width = Int(size.width)
@@ -198,15 +227,17 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         configuration.colorSpaceName = CGColorSpace.sRGB
         configuration.queueDepth = Self.queueDepth(for: frameRate)
-        configuration.showsCursor = true
+        configuration.showsCursor = cursor
         return configuration
     }
 
     private func capture(_ display: SCDisplay) async throws {
-        let rate = lock.withLock { frameRate }
-        let configuration = configuration(for: display, frameRate: rate)
+        let (rate, cursor, excluded) = lock.withLock { (frameRate, drawsCursor, excludedSource) }
+        let configuration = configuration(for: display, frameRate: rate, cursor: cursor)
         let size = pixelSize(display)
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let pids = Set(excluded?() ?? [])
+        let filter = await Self.filter(display: display, excluding: pids)
+        lock.withLock { excludedApplied = pids }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
@@ -229,6 +260,46 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
         if latest != rate { reconfigure(generation: generation) }
+    }
+
+    /// The display, without the windows of `pids` (none: the whole display).
+    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> SCContentFilter {
+        guard !pids.isEmpty,
+              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
+            return SCContentFilter(display: display, excludingWindows: [])
+        }
+        let apps = content.applications.filter { pids.contains($0.processID) }
+        return SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: [])
+    }
+
+    /// Every 2 s: when the processes to leave out changed (the agent's helper
+    /// started or restarted), the running capture's filter follows.
+    private func watchExclusions() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
+                guard let self else { return }
+                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, applied: Set<pid_t>, generation: Int) in
+                    (stopped, excludedSource, excludedApplied, streamGeneration)
+                }
+                if state.stopped { return }
+                let pids = Set(state.source?() ?? [])
+                guard pids != state.applied else { continue }
+                let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+                    guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
+                    return (stream, streamDisplay)
+                }
+                guard let running else { continue }
+                let filter = await Self.filter(display: running.1, excluding: pids)
+                do {
+                    try await running.0.updateContentFilter(filter)
+                    lock.withLock { excludedApplied = pids }
+                    log("capture leaves out \(pids.count) process(es)")
+                } catch {
+                    log("capture filter not applied: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
