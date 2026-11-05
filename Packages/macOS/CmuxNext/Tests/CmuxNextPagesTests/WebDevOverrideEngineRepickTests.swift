@@ -101,6 +101,43 @@ struct WebDevOverrideEngineRepickTests {
         #expect((focusViews.views.first ?? nil) === view.webKitView)
     }
 
+    /// No focus model takes the move (it answers false): the Chromium page had the keys in its own
+    /// child window, so the WebKit view takes them.
+    @Test(.timeLimit(.minutes(1))) func theWebKitViewTakesTheKeysTheChromiumPageHad() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page, window) = try await shownInChromium(hosting, scrollY: 0)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+        hosting.focusModel = { _ in false }
+        page.hasKeys = true
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
+
+        let responder = window.firstResponder as? NSView
+        #expect(responder.map { $0 === view.webKitView || $0.isDescendant(of: view.webKitView) } == true,
+                "the keys were lost in the move: \(String(describing: responder))")
+    }
+
+    /// `location.hash` is percent-encoded: `%20` a space, `%26` a `&` inside a value. It reopens as
+    /// itself, neither encoded twice nor decoded into a separator.
+    @Test(.timeLimit(.minutes(1))) func anEncodedFragmentReopensUnchanged() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, _, window) = try await shownInChromium(hosting, scrollY: 0, hash: "#/search?q=a%26b%20c")
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
+
+        #expect(view.webKitView.url?.fragment(percentEncoded: true) == "/search?q=a%26b%20c",
+                "the fragment changed: \(view.webKitView.url?.absoluteString ?? "-")")
+    }
+
     @Test func aPageChromiumCanServeLiveStaysInChromium() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
