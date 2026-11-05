@@ -235,6 +235,9 @@ describe("baked npm cache", () => {
     for (const dep of PREFILL_NODE_DEPS) expect(cmd).toContain(dep);
     expect(cmd).toContain(`-gt ${NPM_CACHE_CAP_MB}`);
     expect(cmd).toContain("npm-cache-mb");
+    // No package's lifecycle scripts run in the build, and every prefill starts from an empty cache.
+    expect(cmd).toContain("npm install --ignore-scripts");
+    expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
   });
 
   test("clean.py keeps the work user's npm cache content and nothing else under ~/.npm", () => {
