@@ -52,6 +52,38 @@ const COMMANDS: &[&str] = &[
     "agent-inventory-watch",
     // The app's terminal theme on connect (`set-default-colors`): the owner's own machine.
     "set-default-colors",
+    // The owner's own terminals and layout (`cmux cloud ssh` opens a tab with new-tab, then types into
+    // it): the commands the app's terminal panes send. Host administration (shutdown-daemon,
+    // apps-*, remote-host-*, pairing, credentials) stays local only.
+    "new-tab",
+    "new-pane",
+    "new-pane-right",
+    "new-row",
+    "split",
+    "close-pane",
+    "close-surface",
+    "close-tabs",
+    "close-terminal",
+    "rename-surface",
+    "rename-workspace",
+    "rename-pane",
+    "set-split-ratio",
+    "set-viewport-pane-width",
+    "set-row-heights",
+    "undo-layout",
+    "zoom-pane",
+    "swap-pane",
+    "move-tab",
+    "set-tab-pinned",
+    "read-screen",
+    "read-scrollback",
+    "send-key",
+    "list-terminals",
+    "set-attach-visibility",
+    "restart-tab",
+    "clear-history",
+    "terminal-clipboard-reply",
+    "terminal-clipboard-subscribe",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -232,7 +264,37 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::ListWorkspaces
         | Command::CreateWorkspace { .. }
         | Command::CreateTerminal { .. }
-        | Command::SetDefaultColors { .. } => true,
+        | Command::SetDefaultColors { .. }
+        | Command::NewTab { .. }
+        | Command::NewPane { .. }
+        | Command::NewPaneRight { .. }
+        | Command::NewRow { .. }
+        | Command::Split { .. }
+        | Command::ClosePane { .. }
+        | Command::CloseSurface { .. }
+        | Command::CloseTabs { .. }
+        | Command::CloseTerminal { .. }
+        | Command::RenameSurface { .. }
+        | Command::RenameWorkspace { .. }
+        | Command::RenamePane { .. }
+        | Command::SetSplitRatio { .. }
+        | Command::SetViewportPaneWidth { .. }
+        | Command::SetRowHeights { .. }
+        | Command::UndoLayout { .. }
+        | Command::ZoomPane { .. }
+        | Command::SwapPane { .. }
+        | Command::MoveTab { .. }
+        | Command::SetTabPinned { .. }
+        | Command::ReadScreen { .. }
+        | Command::ReadScrollback { .. }
+        | Command::SendKey { .. }
+        | Command::ListTerminals { .. }
+        | Command::SetAttachVisibility { .. }
+        | Command::RestartTab { .. }
+        | Command::ClearHistory { .. }
+        | Command::TerminalClipboardReply { .. }
+        | Command::TerminalClipboardSubscribe { .. }
+        => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }

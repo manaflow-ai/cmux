@@ -170,6 +170,9 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"agent-transfer-receive", "cwd":"/tmp", "manifest":{}, "vm_kind":"owner"}),
             json!({"cmd":"agent-transfer-finish", "receive_id":"fake", "vm_kind":"owner"}),
             json!({"cmd":"set-default-colors", "fg":"#ffffff"}),
+            json!({"cmd":"new-tab", "pane":1}),
+            json!({"cmd":"close-surface", "surface":1}),
+            json!({"cmd":"send-key", "surface":1, "key":"enter"}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -270,4 +273,27 @@ fn native_owner_takes_the_apps_connect_commands() {
     let reply = call(&mut stream, &mut reader, json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}));
     assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
     assert_eq!(reply["ok"], json!(true), "{reply}");
+}
+
+/// `cmux cloud ssh` on the owner's machine: new-tab opens a terminal, and typing into it reaches it
+/// (2026-11-05: "open Cloud SSH terminal: new-tab failed: remote_denied").
+#[test]
+fn native_owner_opens_a_terminal_tab_and_types_into_it() {
+    let fake = FakeAcpmux::start("native-terminal-tab");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let workspace = ok(&mut stream, &mut reader, json!({"cmd":"create-workspace", "name":"ssh"}));
+    let terminal = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"create-terminal", "workspace":workspace["workspace"], "cols":80, "rows":24}),
+    );
+    let tab = call(&mut stream, &mut reader, json!({"cmd":"new-tab", "pane":terminal["pane"]}));
+    assert_ne!(tab["error_code"], json!(REMOTE_DENIED), "{tab}");
+    assert_eq!(tab["ok"], json!(true), "{tab}");
+    let listed = call(&mut stream, &mut reader, json!({"cmd":"list-terminals"}));
+    assert_ne!(listed["error_code"], json!(REMOTE_DENIED), "{listed}");
 }
