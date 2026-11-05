@@ -343,7 +343,7 @@ function Columns({
       if (box.height > height) {
         height = box.height;
         // Never past the frame's own cap: min-height beats max-height.
-        frame.style.minHeight = `min(${height}px, 259px, var(--available-height, 259px))`;
+        frame.style.minHeight = `min(${height}px, var(--acpmux-cols-max-height), var(--available-height, var(--acpmux-cols-max-height)))`;
       }
     });
     observer.observe(frame);
@@ -864,7 +864,7 @@ function Columns({
         aria-disabled={model.disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={index === hl ? "" : undefined}
-        // tooltip-allow: a long model name ends in "…" at the column's width; the tooltip names it whole.
+        // tooltip-allow: includes the model's provider and harness alongside its name.
         title={[
           model.name,
           query ? model.harness : undefined,
