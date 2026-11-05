@@ -8,7 +8,7 @@ import { ChevronRight, Globe } from "./icons";
 import type { WebSource } from "./webSourceList";
 import "./WebSources.css";
 
-/// The sites the closed line names before "+N".
+/// The sites the closed line names before "+N", the pages from any other site.
 const NAMED = 3;
 
 const open = (url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" }).catch(() => undefined);
@@ -19,7 +19,9 @@ export const WebSources = memo(function WebSources({ sources }: { sources: reado
   const listId = useId();
   if (!sources.length) return null;
   const hosts = [...new Set(sources.map((source) => source.host))];
-  const more = hosts.length - NAMED;
+  const named = hosts.slice(0, NAMED);
+  // "+N" counts the pages the named sites leave out, so it reads as more sources, not more sites.
+  const more = sources.filter((source) => !named.includes(source.host)).length;
   return (
     <div className="cv-web-sources">
       <button
@@ -31,7 +33,7 @@ export const WebSources = memo(function WebSources({ sources }: { sources: reado
       >
         <Globe size={12} />
         <span className="cv-web-sources__label">{t("tools.webSources")}</span>
-        <span className="cv-web-sources__hosts">{hosts.slice(0, NAMED).join(" · ")}</span>
+        <span className="cv-web-sources__hosts">{named.join(" · ")}</span>
         {more > 0 && <span className="cv-web-sources__more">+{more}</span>}
         <ChevronRight size={12} className={`cv-rotor${shown ? " is-open" : ""}`} />
       </button>
