@@ -63,3 +63,63 @@ test("does not decorate timestamps inside Markdown or bare URL destinations", ()
   expect(html).toContain('data-path="docs/2026-10-24T05:24:28Z.txt"');
   expect(html).not.toContain("%EE%80%80");
 });
+
+const postedAt = Date.UTC(2026, 9, 25, 2, 30, 0);
+
+function sources(markdown: string, at = postedAt): string[] {
+  const html = renderToStaticMarkup(<Markdown messageAt={at}>{markdown}</Markdown>);
+  return [...html.matchAll(/<time\b[^>]*>([^<]*)<\/time>/g)].map((match) => match[1]!);
+}
+
+test("a zone after a coordinated pair of times covers both, each on its own day", () => {
+  const text = "(23:55 and 01:28 UTC)";
+  expect(dateTimes(text, postedAt)).toEqual(["2026-10-24T23:55:00.000Z", "2026-10-25T01:28:00.000Z"]);
+  expect(sources(text)).toEqual(["23:55", "01:28 UTC"]);
+});
+
+test("a zone after a longer list covers every time, stepping back a day at each wrap", () => {
+  expect(dateTimes("23:55, 00:10 and 01:28 UTC", postedAt)).toEqual([
+    "2026-10-24T23:55:00.000Z",
+    "2026-10-25T00:10:00.000Z",
+    "2026-10-25T01:28:00.000Z",
+  ]);
+  expect(dateTimes("22:00, 23:55 or 01:28Z", postedAt)).toEqual([
+    "2026-10-24T22:00:00.000Z",
+    "2026-10-24T23:55:00.000Z",
+    "2026-10-25T01:28:00.000Z",
+  ]);
+});
+
+test("a range and a between phrase share the zone", () => {
+  expect(dateTimes("23:55–01:28 UTC", postedAt)).toEqual(["2026-10-24T23:55:00.000Z", "2026-10-25T01:28:00.000Z"]);
+  expect(dateTimes("23:55-01:28 UTC", postedAt)).toEqual(["2026-10-24T23:55:00.000Z", "2026-10-25T01:28:00.000Z"]);
+  expect(dateTimes("between 23:55 and 01:28 UTC", postedAt)).toEqual([
+    "2026-10-24T23:55:00.000Z",
+    "2026-10-25T01:28:00.000Z",
+  ]);
+  expect(sources("between 23:55 and 01:28 UTC.")).toEqual(["23:55", "01:28 UTC"]);
+});
+
+test("times in the same day need no day step", () => {
+  expect(dateTimes("00:10 and 01:28 UTC", postedAt)).toEqual(["2026-10-25T00:10:00.000Z", "2026-10-25T01:28:00.000Z"]);
+});
+
+test("times without a shared zone, and versions, ratios and scores, stay plain", () => {
+  for (const text of [
+    "23:55 and 01:28",
+    "23:55 and 01:28 PST",
+    "a 16:9 screen",
+    "the ratio 16:9 and 4:3 UTC",
+    "won 12:10 in 2.1.14:30 UTC",
+    "score 24:17 and 31:28",
+    "v1.2:30 and 3:45",
+    "the 23:55 and 01:28 meeting",
+  ]) {
+    expect(dateTimes(text)).toEqual([]);
+  }
+});
+
+test("a single time with a zone, and times in code, behave as before", () => {
+  expect(sources("at 01:28 UTC and 23:55")).toEqual(["01:28 UTC"]);
+  expect(sources("`23:55 and 01:28 UTC` stays code")).toEqual([]);
+});

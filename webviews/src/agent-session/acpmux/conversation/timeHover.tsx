@@ -10,8 +10,16 @@ const TOKEN_START = "\uE000";
 const TOKEN_END = "\uE001";
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const CLOCK = /^(?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d)(?::(?<second>[0-5]\d))?(?<zone>Z| UTC)$/;
-const DETECT =
-  /\b(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})|(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?Z|(?:[01]\d|2[0-3]):[0-5]\d UTC)\b/g;
+const CLOCK_TIME = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?";
+// A list or range of clock times ("23:55 and 01:28 UTC", "23:55, 00:10 and 01:28 UTC",
+// "23:55–01:28 UTC") shares the zone that follows its last time.
+const CLOCK_JOIN = "(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s+(?:and|or|to|through|until)\\s+|\\s*[\u2013\u2014-]\\s*)";
+const CLOCK_LIST = `${CLOCK_TIME}(?:${CLOCK_JOIN}${CLOCK_TIME})+(?: UTC|Z)`;
+const DETECT = new RegExp(
+  `\\b(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})|${CLOCK_LIST}|${CLOCK_TIME}Z|${CLOCK_TIME} UTC)\\b`,
+  "g",
+);
+const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
 const SHORT_UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
   ["day", 86_400_000],
   ["hour", 3_600_000],
@@ -102,12 +110,39 @@ function decorateProseSegment(text: string, messageAt?: number): string {
   let from = 0;
   for (const match of text.matchAll(DETECT)) {
     const source = match[0]!;
-    const resolved = resolveTimestamp(source, messageAt);
-    if (resolved === undefined) continue;
-    out += text.slice(from, match.index) + encodeToken({ source, at: resolved });
+    const encoded = encodeMatch(source, messageAt);
+    if (encoded === undefined) continue;
+    out += text.slice(from, match.index) + encoded;
     from = match.index! + source.length;
   }
   return from ? out + text.slice(from) : text;
+}
+
+function encodeMatch(source: string, messageAt?: number): string | undefined {
+  const times = [...source.matchAll(CLOCK_TIMES)];
+  if (times.length < 2 || ISO.test(source)) {
+    const resolved = resolveTimestamp(source, messageAt);
+    return resolved === undefined ? undefined : encodeToken({ source, at: resolved });
+  }
+  if (!Number.isFinite(messageAt)) return undefined;
+  // Walk back from the last time: it is the latest one at or before the message, and each
+  // earlier one is the latest at or before the time that follows it.
+  const resolved: number[] = [];
+  let reference = messageAt!;
+  for (let index = times.length - 1; index >= 0; index--) {
+    reference = resolveClock(times[index]![0], reference);
+    resolved[index] = reference;
+  }
+  let out = "";
+  let from = 0;
+  times.forEach((time, index) => {
+    const start = time.index!;
+    // The last time keeps the zone it shares with the rest ("01:28 UTC").
+    const end = index === times.length - 1 ? source.length : start + time[0].length;
+    out += source.slice(from, start) + encodeToken({ source: source.slice(start, end), at: resolved[index]! });
+    from = end;
+  });
+  return out;
 }
 
 /** Resolve one supported timestamp to epoch milliseconds. Bare UTC clocks use messageAt's date. */
@@ -118,13 +153,16 @@ export function resolveTimestamp(source: string, messageAt?: number): number | u
   }
   const clock = source.match(CLOCK);
   if (!clock || !Number.isFinite(messageAt)) return undefined;
-  const hour = Number(clock.groups?.hour);
-  const minute = Number(clock.groups?.minute);
-  const second = Number(clock.groups?.second ?? 0);
-  const message = new Date(messageAt!);
-  let resolved = Date.UTC(message.getUTCFullYear(), message.getUTCMonth(), message.getUTCDate(), hour, minute, second);
-  if (resolved > messageAt!) resolved -= DAY_MS;
-  return resolved;
+  const { hour, minute, second } = clock.groups!;
+  return resolveClock(`${hour}:${minute}${second === undefined ? "" : `:${second}`}`, messageAt!);
+}
+
+/** The latest UTC occurrence of an "HH:MM[:SS]" clock time at or before `reference`. */
+function resolveClock(time: string, reference: number): number {
+  const [hour, minute, second] = time.split(":").map(Number);
+  const day = new Date(reference);
+  const resolved = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour!, minute!, second ?? 0);
+  return resolved > reference ? resolved - DAY_MS : resolved;
 }
 
 function encodeToken(token: TimeToken): string {
