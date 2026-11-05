@@ -693,7 +693,8 @@ while True:
             with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
                 f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
-        if request.get("subtype") == "initialize" and SKILLS:
+        # A renaming test needs `rename` listed, as Claude Code lists it (live_name.rs asks only then).
+        if request.get("subtype") == "initialize" and (SKILLS or os.environ.get("FAKE_CLAUDE_RENAMED")):
             answer = {"commands": COMMANDS}
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):
