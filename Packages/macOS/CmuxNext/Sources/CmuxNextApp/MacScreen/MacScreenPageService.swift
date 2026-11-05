@@ -234,7 +234,7 @@ extension AppServices {
             guard let self, let settings else { return (false, false, true) }
             let computerUse = settings.snapshot.computerUse
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
-            return (computerUse.enabled && computerUse.driver == .upstream && !registry.disabledFeatures.contains(.computerUse),
+            return (computerUse.enabled && ComputerUseHelperDaemon.shared.effectiveDriver(computerUse.driver) == .upstream && !registry.disabledFeatures.contains(.computerUse),
                     cloud.isSignedIn, !settings.snapshot.remote.endSharingOnQuit)
         }
     }

@@ -47,7 +47,6 @@ public final class ComputerUseHelperV2 {
     private(set) var state: State = .off
     public let directory: String
     private let helperApp: @Sendable () -> URL?
-    private let remoteInBuild: @Sendable () -> Bool
     /// The copy outside this app that runs (ComputerUseHelperStaging).
     private let staging: ComputerUseHelperStaging
     /// This app's acpmux (executable and daemon socket), set by the agent
@@ -80,7 +79,6 @@ public final class ComputerUseHelperV2 {
 
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
-         remoteInBuild: @escaping @Sendable () -> Bool = { ComputerUseRemoteSource.executable() != nil },
          acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)? = { nil },
          staging: ComputerUseHelperStaging = .upstream(),
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
@@ -89,7 +87,6 @@ public final class ComputerUseHelperV2 {
          exitGrace: Duration = .seconds(2)) {
         self.directory = directory
         self.helperApp = helperApp
-        self.remoteInBuild = remoteInBuild
         self.acpmux = acpmux
         self.staging = staging
         self.spawner = spawner
@@ -146,11 +143,10 @@ public final class ComputerUseHelperV2 {
         "\(ComputerUseHelperDaemon.userTemporaryDirectory())cmux-cua-v2/\(ComputerUseHelperDaemon.scope(bundleID))"
     }
 
-    /// Whether this build carries the helper v2: its own dev helper, or cmux Remote, whose
-    /// Computer Use worker runs the same engine (docs/cmux-remote.md). A build with neither
-    /// (NIGHTLY, release today) runs the legacy helper when `computerUse.driver` is "upstream"
-    /// (`ComputerUseHelperDaemon.effectiveDriver`).
-    public var isInBuild: Bool { helperApp() != nil || remoteInBuild() }
+    /// Whether this build carries the helper v2. DEV builds embed it; a
+    /// build without it (NIGHTLY, release today) runs the legacy helper
+    /// when `computerUse.driver` is "upstream" (`ComputerUseHelperDaemon.effectiveDriver`).
+    public var isInBuild: Bool { helperApp() != nil }
 
     /// DEV builds embed the dev helper at Contents/Library (scripts/cmux-next/embed-cua-helper-dev.sh).
     nonisolated static func embeddedHelperApp(bundle: Bundle = .main) -> URL? {
