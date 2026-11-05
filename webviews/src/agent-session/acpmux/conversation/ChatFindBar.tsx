@@ -32,9 +32,9 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
     return () => shell?.removeEventListener(FIND_HIDE_EVENT, hide);
   }, [hide]);
   // The transcript keeps its top fade while the bar is open, with full ink over the bar's box
-  // (conversation.css, --acpmux-find-x and --acpmux-find-width on the scroller); measured before paint
-  // and again when the bar narrows, the pane resizes, or Session Info moves it (its reach is a style
-  // on the shell, SessionInfo.tsx SESSION_INFO_CLEAR).
+  // (conversation.css: --acpmux-find-x, --acpmux-find-y and --acpmux-find-width on the scroller),
+  // measured before paint and again when the bar narrows, the pane resizes, or Session Info moves it
+  // (its reach is a style on the shell, SessionInfo.tsx SESSION_INFO_CLEAR).
   const bar = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = bar.current;
@@ -43,8 +43,9 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
     if (!node || !scroller || !View) return;
     const measure = () => {
       const box = node.getBoundingClientRect();
-      const left = box.left - scroller.getBoundingClientRect().left;
-      scroller.style.setProperty("--acpmux-find-x", `${left}px`);
+      const view = scroller.getBoundingClientRect();
+      scroller.style.setProperty("--acpmux-find-x", `${box.left - view.left}px`);
+      scroller.style.setProperty("--acpmux-find-y", `${box.top - view.top}px`);
       scroller.style.setProperty("--acpmux-find-width", `${box.width}px`);
     };
     measure();
@@ -58,6 +59,7 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
       observer.disconnect();
       moved.disconnect();
       scroller.style.removeProperty("--acpmux-find-x");
+      scroller.style.removeProperty("--acpmux-find-y");
       scroller.style.removeProperty("--acpmux-find-width");
     };
   }, []);

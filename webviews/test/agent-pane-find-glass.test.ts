@@ -94,6 +94,8 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
           return {
             fadeTop: style.getPropertyValue("--acpmux-fade-top").trim(),
             x: parseFloat(scroller.style.getPropertyValue("--acpmux-find-x")),
+            y: parseFloat(scroller.style.getPropertyValue("--acpmux-find-y")),
+            barY: box.top - view.top,
             width: parseFloat(scroller.style.getPropertyValue("--acpmux-find-width")),
             barX: box.left - view.left,
             barWidth: box.width,
@@ -105,6 +107,9 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
         expect(read.fadeTop).toBe("18px");
         // The full-ink layer sits over the bar's own box, feathered 16px past each side.
         expect(Math.abs(read.x - read.barX)).toBeLessThanOrEqual(0.5);
+        // It starts at the bar's top edge: the rows above it, in the band, keep fading.
+        expect(Math.abs(read.y - read.barY)).toBeLessThanOrEqual(0.5);
+        expect(read.y).toBeGreaterThan(0);
         expect(Math.abs(read.width - read.barWidth)).toBeLessThanOrEqual(0.5);
         expect(read.width).toBeGreaterThan(100);
         expect(read.masks).toBeGreaterThanOrEqual(3);

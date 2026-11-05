@@ -5529,8 +5529,9 @@ a.cv-sha:focus-visible {
 /* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
    is open (Leo, 2026-11-05: Find "takes off the blur of the top bar bit"): the mask's last layer
    keeps full ink only over the bar's own box, which ChatFindBar measures (--acpmux-find-x,
-   --acpmux-find-width), its sides feathered over --acpmux-find-soft so its drop is not cut. Rows
-   pass under the bar's glass. With no bar the layer is empty (0 by 0). */
+   --acpmux-find-y, --acpmux-find-width), from its top edge down, its sides feathered over
+   --acpmux-find-soft so its drop is not cut. Rows above and beside it keep fading; rows pass under
+   its glass. With no bar the layer is empty (0 by 0). */
 .acpmux-scroll:has(> .acpmux-find) {
   --acpmux-find-soft: 16px;
   --acpmux-find-hole: linear-gradient(
@@ -5541,8 +5542,9 @@ a.cv-sha:focus-visible {
     transparent
   );
   --acpmux-find-hole-size: calc(var(--acpmux-find-width, 0px) + 2 * var(--acpmux-find-soft))
-    calc(var(--find-pill-inset, 10px) + var(--find-pill-height, 34px) + var(--acpmux-find-soft));
-  --acpmux-find-hole-position: calc(var(--acpmux-find-x, 0px) - var(--acpmux-find-soft)) 0;
+    calc(var(--find-pill-height, 34px) + var(--acpmux-find-soft));
+  --acpmux-find-hole-position: calc(var(--acpmux-find-x, 0px) - var(--acpmux-find-soft))
+    var(--acpmux-find-y, var(--find-pill-inset, 10px));
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
