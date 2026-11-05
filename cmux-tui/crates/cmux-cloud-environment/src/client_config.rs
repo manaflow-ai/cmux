@@ -93,6 +93,24 @@ pub(crate) fn cached(
     Ok(Some(selection))
 }
 
+/// The launch answer that needs no fetch: a valid cache, else a known deployment's built-in
+/// configuration. None (fetch) for a custom origin with no cache or any unreadable cache.
+pub(crate) fn without_fetch(resolver: &Resolver, mut selection: Selection) -> Option<Selection> {
+    match cached(resolver, selection.clone()) {
+        Ok(Some(cached)) => Some(cached),
+        Ok(None)
+            if !matches!(
+                Environment::parse(&selection.api_origin),
+                Ok(Environment::LocalOrigin(_)) | Err(_)
+            ) =>
+        {
+            selection.config_source = ConfigSource::KnownOriginFallback;
+            Some(selection)
+        }
+        Ok(None) | Err(_) => None,
+    }
+}
+
 fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, String> {
     Ok(resolver
         .state_path()
@@ -475,6 +493,40 @@ mod tests {
         assert_eq!(served.configuration, cached.configuration);
         let other = resolver.resolve(Some("http://127.0.0.1:1")).unwrap();
         assert!(resolver.client_config(other).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn cache_first_reads_the_cache_or_a_known_deployment_without_the_network() {
+        // A backend that takes the connection and never answers: any fetch waits out its timeout.
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", silent.local_addr().unwrap());
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let body = serde_json::to_vec(&config(&origin)).unwrap();
+        atomic_cache(&cache_path(&resolver, &origin).unwrap(), &body).unwrap();
+        let started = std::time::Instant::now();
+        let cached = resolver.client_config_cache_first(selected).await.unwrap();
+        assert_eq!(cached.config_source, ConfigSource::Cache);
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        drop(silent);
+
+        // A known deployment with no cache takes its built-in configuration, still without a fetch.
+        let known = resolver
+            .client_config_cache_first(resolver.resolve(Some("staging")).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(known.config_source, ConfigSource::KnownOriginFallback);
+
+        // A custom origin with no cache is fetched.
+        let (origin, server) =
+            serve(|origin| http_json(&serde_json::to_string(&config(origin)).unwrap()));
+        let fetched = resolver
+            .client_config_cache_first(resolver.resolve(Some(&origin)).unwrap())
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(fetched.config_source, ConfigSource::Backend);
     }
 
     #[tokio::test]

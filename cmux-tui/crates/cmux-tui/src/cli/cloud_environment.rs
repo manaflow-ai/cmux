@@ -110,7 +110,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if scope != "cloud" || noun != "env" {
         return None;
     }
-    let command = match parse(rest) {
+    // `get --cache-first`: the app's launch read (Resolver::client_config_cache_first).
+    let (cache_first, rest) = match rest {
+        [get, flag, tail @ ..] if get == "get" && flag == "--cache-first" => {
+            (true, std::iter::once(get.clone()).chain(tail.iter().cloned()).collect::<Vec<_>>())
+        }
+        _ => (false, rest.to_vec()),
+    };
+    let command = match parse(&rest) {
         Ok(command) => command,
         Err(error) => {
             return Some(super::app::failure("usage.invalid", &error.0, global.output, 2));
@@ -135,7 +142,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             }
         });
     }
-    Some(match run(command, &global) {
+    Some(match run(command, &global, cache_first) {
         Ok(value) => match global.output {
             OutputMode::Human => {
                 if value.get("check_create").is_some() {
@@ -162,7 +169,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     })
 }
 
-fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
+fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value, String> {
     let exe = std::env::current_exe().ok();
     let identity =
         crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
@@ -172,6 +179,7 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unavailable.")?;
     let resolver = Resolver::new(bundle, &home)?;
     let switching = matches!(command, Command::Set(_));
+    let reads = matches!(command, Command::Get | Command::GetPersisted | Command::GetBackend(_));
     let check_create = match &command {
         Command::CheckCreate { backend, params } => Some((backend.clone(), params.clone())),
         _ => None,
@@ -196,7 +204,11 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
         .enable_all()
         .build()
         .map_err(|error| format!("create client-config runtime: {error}"))?;
-    let selection = runtime.block_on(resolver.client_config(selection))?;
+    let selection = if cache_first && reads {
+        runtime.block_on(resolver.client_config_cache_first(selection))?
+    } else {
+        runtime.block_on(resolver.client_config(selection))?
+    };
     if let Some((_, params)) = check_create {
         check_create_capabilities(&selection, &params)?;
         return Ok(serde_json::json!({
