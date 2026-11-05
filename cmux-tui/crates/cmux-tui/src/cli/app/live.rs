@@ -36,7 +36,12 @@ pub(crate) enum Command {
     /// What the app loads from, and the Live Web Reload setting.
     Status { worktree: Option<PathBuf> },
     /// `start|stop|status --rust`: the Rust daemon loop of `worktree`'s [`RUST_SCRIPT`].
-    Rust { verb: RustVerb, worktree: Option<PathBuf>, build_host: Option<String>, session: Option<String> },
+    Rust {
+        verb: RustVerb,
+        worktree: Option<PathBuf>,
+        build_host: Option<String>,
+        session: Option<String>,
+    },
 }
 
 /// What `--rust` does.
@@ -180,7 +185,9 @@ fn run_rust(command: &Command) -> i32 {
         return 2;
     };
     let tree = match worktree {
-        Some(worktree) => worktree.canonicalize().ok().filter(|tree| tree.join(RUST_SCRIPT).is_file()),
+        Some(worktree) => {
+            worktree.canonicalize().ok().filter(|tree| tree.join(RUST_SCRIPT).is_file())
+        }
         None => Process::new("git")
             .args(["rev-parse", "--show-toplevel"])
             .output()
@@ -256,7 +263,9 @@ fn recorded_rust_script() -> Option<PathBuf> {
                     .join("cmux-next/rust-live")
             }
         });
-    recorded_watch_tree(&state.join("watch.pid")).map(|tree| tree.join(RUST_SCRIPT)).filter(|s| s.is_file())
+    recorded_watch_tree(&state.join("watch.pid"))
+        .map(|tree| tree.join(RUST_SCRIPT))
+        .filter(|s| s.is_file())
 }
 
 /// The checkout in a `watch.pid` file (`<pid> <tree>`, written by `rust-live.py`).

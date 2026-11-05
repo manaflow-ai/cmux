@@ -70,8 +70,14 @@ fn a_short_gui_path_gains_bun_and_homebrew() {
 #[test]
 fn rust_takes_a_build_host_and_a_session_on_start() {
     assert_eq!(
-        parse(&words(&["start", "--rust", "--build-host", "huge-blue", "--session=cmux-app-nightly"]))
-            .unwrap(),
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host",
+            "huge-blue",
+            "--session=cmux-app-nightly"
+        ]))
+        .unwrap(),
         Command::Rust {
             verb: RustVerb::Start,
             worktree: None,
