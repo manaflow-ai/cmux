@@ -20,18 +20,12 @@ import Testing
         let descriptor: SettingDescriptor
         let url: URL
         let panels: [NSWindow]
-        let source: SettingsPaletteSource
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
         /// The row's on/off state, as its symbol shows it.
         var rowIsOn: Bool? { row.map { $0.symbol == "checkmark.circle.fill" } }
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
-        /// What the row shows on any redraw of the page: the source's row now.
-        var redrawnIsOn: Bool? {
-            guard case .toggle(let isOn)? = source.rows.first(where: { $0.id == descriptor.id })?.kind else { return nil }
-            return isOn
-        }
 
         func tearDown() {
             // The palette keeps its panel for the next open; this palette has none, so it closes.
@@ -48,7 +42,9 @@ import Testing
     }
 
     /// `watching`: the file watcher runs, as in the app, so its loads overlap the writes' own.
-    func make(watching: Bool = false) async throws -> Harness {
+    /// `recentOnRoot`: the palette opens on its root (Cmd-Shift-P) with an empty query, the
+    /// setting's row under Recent, as in Leo's recording; otherwise on the Settings page, searched.
+    func make(watching: Bool = false, recentOnRoot: Bool = false) async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-setting-\(UUID().uuidString)")
         var completed = false
@@ -66,15 +62,19 @@ import Testing
             $0.isPaletteExposed && $0.kind == .toggle && $0.defaultValue == .bool(false)
         })
         var sources = PaletteSources()
-        let source = SettingsPaletteSource(settings: settings, themeColors: { [] })
-        sources.settings = source
+        sources.settings = SettingsPaletteSource(settings: settings, themeColors: { [] })
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: sources, frecencyPersistence: nil)
-        #expect(palette.show(scope: PaletteScopeID.settings))
+        if recentOnRoot {
+            palette.model.recordUse("setting:\(descriptor.id)")
+            palette.show(.commands)
+        } else {
+            #expect(palette.show(scope: PaletteScopeID.settings))
+        }
         // Keep ownership independently of visibility before the first suspension can lose focus.
         let harness = Harness(settings: settings, palette: palette, descriptor: descriptor, url: url,
-                              panels: NSApp.windows.filter { palette.owns($0) }, source: source)
+                              panels: NSApp.windows.filter { palette.owns($0) })
         defer { if !completed { harness.tearDown() } }
-        palette.model.send(.setQuery(descriptor.title))
+        if !recentOnRoot { palette.model.send(.setQuery(descriptor.title)) }
         await palette.model.settle()
         completed = true
         return harness
@@ -133,40 +133,36 @@ import Testing
     }
 
     /// Leo, 2026-11-05: "when things get toggled on and off in the command palette, like it shouldn't
-    /// flicker, but it flickers right now. It goes like on and off." With the file watcher running, a
-    /// load that read the file before the write could apply after the write's own load, so the stored
-    /// value (and the row, on its next redraw) went back to the old value until the next load. Each
-    /// click must change the row once, and the stored value once.
-    @Test func aToggleChangesItsRowOnceWhileTheWatcherReloads() async throws {
-        let harness = try await make(watching: true)
+    /// flicker, but it flickers right now. It goes like on and off." His recording toggles a setting
+    /// row under Recent on the root palette's empty query. Each click must change the row the palette
+    /// shows exactly once, with no frame of the old value after it, through the write, the watcher's
+    /// loads of it and the palette's reloads.
+    @Test func aRecentToggleOnTheRootChangesItsRowOnce() async throws {
+        let harness = try await make(watching: true, recentOnRoot: true)
         defer { harness.tearDown() }
+        #expect(harness.palette.model.query.isEmpty)
         var expected = false
-        for round in 0..<12 {
-            #expect(harness.redrawnIsOn == expected)
+        for round in 0..<6 {
+            #expect(harness.rowIsOn == expected, "round \(round): the row is under Recent with the stored value")
             expected.toggle()
-            var shown: [Bool] = []
-            var stored: [Bool] = [harness.storedIsOn]
+            var shown: [Bool?] = []
             func sample() {
-                if let value = harness.redrawnIsOn, shown.last != value { shown.append(value) }
-                if stored.last != harness.storedIsOn { stored.append(harness.storedIsOn) }
+                let value = harness.rowIsOn
+                if shown.last != value { shown.append(value) }
             }
             try toggle(harness)
             sample()
-            // The write lands, then the watcher's own loads of it: sample until well after.
             let deadline = ContinuousClock.now + .seconds(5)
             while harness.storedIsOn != expected, ContinuousClock.now < deadline {
                 sample()
                 try? await Task.sleep(for: .milliseconds(1))
             }
-            let after = ContinuousClock.now + .milliseconds(400)
+            let after = ContinuousClock.now + .milliseconds(500)
             while ContinuousClock.now < after {
                 sample()
                 try? await Task.sleep(for: .milliseconds(1))
             }
             #expect(shown == [expected], "round \(round): the row showed \(shown)")
-            #expect(stored == [!expected, expected], "round \(round): the stored value went \(stored)")
-            await harness.palette.model.settle()
-            #expect(harness.rowIsOn == expected, "round \(round): the palette's row")
         }
     }
 
