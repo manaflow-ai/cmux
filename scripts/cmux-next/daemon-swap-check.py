@@ -26,9 +26,11 @@ older one bundles for the newer one's, so a scheduled run swaps real builds.
 Old and new must differ in bytes; two local builds may report the same
 version and no commit stamp, so the new daemon is recognized by its process.
 
-Cleanup SIGKILLs only host processes this check claimed from their records:
-a process that started after its record was written, or whose start time
-has changed since, holds a reused pid and is left alone.
+Cleanup SIGKILLs only host processes this check claimed from their records,
+through a pidfd (Linux): a process that started after its record was
+written, or whose start time has changed since, holds a reused pid and is
+left alone. Where there are no pidfds (macOS) it signals nothing and reports
+a host still alive; the graceful shutdowns end them.
 
 Prints one JSON report and exits 0 only when every check passed and every
 phase's swap took less than `--budget` seconds (10).
@@ -117,16 +119,19 @@ def kill(pid: int) -> None:
         pass
 
 
+LINUX_PROC = Path("/proc/self/stat").exists()
+
+
 def process_start(pid: int) -> float | None:
-    """When a process started, in seconds since the epoch; None once it is gone."""
-    if Path("/proc/self/stat").exists():
+    """When a process started, None once it is gone: on Linux in seconds since
+    boot (its /proc start ticks, CLOCK_BOOTTIME), elsewhere since the epoch
+    (`ps -o lstart`, whole seconds, rounded down)."""
+    if LINUX_PROC:
         try:
             fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        except (OSError, IndexError):
+            return int(fields[19]) / os.sysconf("SC_CLK_TCK")
+        except (OSError, IndexError, ValueError):
             return None
-        boot = next(float(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
-                    if line.startswith("btime "))
-        return boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
     out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
     try:
         return time.mktime(time.strptime(out.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
@@ -134,39 +139,51 @@ def process_start(pid: int) -> float | None:
         return None
 
 
-def claim(owned: dict[int, float], pid: int | None, recorded_at: float) -> None:
+def clock_now() -> float:
+    """Now, on process_start's clock."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME) if LINUX_PROC else time.time()
+
+
+def recorded_at(path: Path) -> float:
+    """When a host record was last written, on process_start's clock."""
+    return path.stat().st_mtime - (time.time() - clock_now())
+
+
+def claim(owned: dict[int, float], pid: int | None, written: float) -> None:
     """Remember a recorded host process with its start time. A process that
-    started after its record was written is a reused pid, not ours."""
+    started after its record was written holds a reused pid, not ours. Both
+    clocks round a start down, so a host never looks later than it was."""
     if not pid or pid in owned:
         return
     start = process_start(pid)
-    if start is not None and start <= recorded_at + 1:
+    if start is not None and start <= written:
         owned[pid] = start
 
 
 def kill_owned(owned: dict[int, float]) -> None:
-    """SIGKILL each claimed process that is still the same process (its start
-    time unchanged); a pid the system has since given to another process is left alone."""
+    """SIGKILL each claimed process that is still the same process: through a
+    pidfd, which pins it (its pid can't be reused while the fd is open), and
+    only while its start time is unchanged. Without pidfds (macOS) nothing is
+    signalled: a check and a kill by pid could race a reuse, so a host still
+    alive here is reported instead (the graceful shutdowns end them)."""
     for pid, start in owned.items():
-        pidfd = None
-        if hasattr(os, "pidfd_open"):
-            try:
-                pidfd = os.pidfd_open(pid)  # pins this process: the pid can't be reused while open
-            except OSError:
-                continue
+        if not hasattr(os, "pidfd_open"):
+            if process_start(pid) == start:
+                print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely", file=sys.stderr)
+            continue
+        try:
+            pidfd = os.pidfd_open(pid)
+        except OSError:
+            continue  # gone
         try:
             if process_start(pid) != start:
                 print(f"daemon-swap-check: left pid {pid}: not the recorded process", file=sys.stderr)
                 continue
-            if pidfd is not None:
-                signal.pidfd_send_signal(pidfd, signal.SIGKILL)
-            else:
-                kill(pid)
+            signal.pidfd_send_signal(pidfd, signal.SIGKILL)
         except ProcessLookupError:
             pass
         finally:
-            if pidfd is not None:
-                os.close(pidfd)
+            os.close(pidfd)
 
 
 def stop(proc: subprocess.Popen) -> float:
@@ -360,7 +377,7 @@ def claim_hosts(state: Path, owned: dict[int, float]) -> None:
         try:
             record = json.loads(path.read_text())
             if isinstance(record, dict) and "host_pid" in record:
-                claim(owned, int(record["host_pid"]), path.stat().st_mtime)
+                claim(owned, int(record["host_pid"]), recorded_at(path))
         except (OSError, ValueError, TypeError):
             continue
 
@@ -533,12 +550,12 @@ class Acpmux:
         for path in (self.home / "hosts").glob("*.json"):
             try:
                 record = json.loads(path.read_text())
-                recorded_at = path.stat().st_mtime
+                written = recorded_at(path)
             except (OSError, ValueError):
                 continue
             for key in ("host_pid", "harness_pid"):
                 if isinstance(record.get(key), int):
-                    claim(owned, record[key], recorded_at)
+                    claim(owned, record[key], written)
 
     def host_records(self) -> list[dict]:
         records = []
@@ -568,7 +585,8 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         hosts = mux.host_records()
         pids = [p for r in hosts for p in (r.get("host_pid"), r.get("harness_pid")) if p]
         mux.claim_hosts(owned)
-        claim(owned, before_pid, now())  # the harness that just answered
+        # The harness that just answered (it runs now, so it started before now).
+        claim(owned, before_pid, clock_now())
 
         t0 = now()
         stop_secs = stop(mux.proc)
