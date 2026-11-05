@@ -20,7 +20,9 @@ extension SidebarContainerView {
     /// Keeps the curved-card edge line in the titlebar band, above the card: the row-to-card gap
     /// stays plain sidebar background, and flat styles keep the full-height line. `rootY` is in the
     /// container's superview coordinates, which is also where the main-pane card frame is reported.
-    public func updateResizeLine(cardMaxY rootY: CGFloat) {
+    /// `topRowHeight`: the line starts that far below the window's top instead (the squared tab's flat look).
+    public func updateResizeLine(cardMaxY rootY: CGFloat, topRowHeight: CGFloat = 0) {
+        handle.lineTopInset = topRowHeight
         guard Metrics.mainPaneCurved else {
             handle.lineMinY = 0
             return

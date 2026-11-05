@@ -52,6 +52,16 @@ final class SidebarResizeHandle: NSView {
         }
     }
 
+    /// Points the line stops short of the top (`SquaredTabCorner` flat: the line starts under the top
+    /// row, at the first tab's square side, so the top row is one surface across the window).
+    var lineTopInset: CGFloat = 0 {
+        didSet {
+            guard lineTopInset != oldValue else { return }
+            needsLayout = true
+            updateLineFrame()
+        }
+    }
+
     /// The line's frame after layout, exposed for geometry tests without exposing its layer.
     var drawnLineFrame: CGRect { line.frame }
 
@@ -148,7 +158,7 @@ final class SidebarResizeHandle: NSView {
         CATransaction.setDisableActions(true)
         let width = lineWidth
         let minY = min(max(0, lineMinY), bounds.height)
-        line.frame = CGRect(x: edgeOffset - width / 2, y: minY, width: width, height: bounds.height - minY)
+        line.frame = CGRect(x: edgeOffset - width / 2, y: minY, width: width, height: max(0, bounds.height - minY - lineTopInset))
         CATransaction.commit()
         glow.place(along: line.frame, vertical: true)
     }

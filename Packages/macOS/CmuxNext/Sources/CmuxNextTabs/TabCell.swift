@@ -133,6 +133,18 @@ final class TabCell {
     var pillFrameInCell: CGRect { backgroundLayer.frame }
 
     let backgroundLayer = CALayer()
+    /// The tab starts the strip on the sidebar's edge (`TabStripView.squareLeadingTab`): its pill is
+    /// square on the leading side, the side that touches the edge.
+    var squaresLeadingCorners = false {
+        didSet {
+            guard squaresLeadingCorners != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            backgroundLayer.maskedCorners = squaresLeadingCorners ? [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+                : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            CATransaction.commit()
+        }
+    }
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
     let separatorLayer = TabCell.makeSeparatorLayer()

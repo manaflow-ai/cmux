@@ -25,6 +25,9 @@ public final class SidebarView: NSView {
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
     public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
+    /// The top row's center line, in points from the window's top, when the + follows the tabs' line
+    /// instead of the traffic lights' (`SquaredTabCorner`); nil keeps the lights' line.
+    public var tabRowCenterFromTop: CGFloat? { didSet { if oldValue != tabRowCenterFromTop { needsLayout = true } } }
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { titlebarReserveChanged() } } }
@@ -344,7 +347,9 @@ public final class SidebarView: NSView {
         // Every control in the row centers on the traffic lights' line (the
         // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
-        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        let lightsMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        // The sidebar's top is the window's (flipped): the tabs' line is the same y here.
+        let rowMidY = tabRowCenterFromTop ?? lightsMidY
         let x = titlebarLeadingX
         let buttonY = (rowMidY - button / 2).rounded()
         let trailing = b.width - Metrics.space3

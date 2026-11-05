@@ -23,7 +23,8 @@ extension Metrics {
     /// then starts on the outline, not inside a curve).
     public static var tabStripCardRadius: CGFloat? {
         if floatingPanes { return paneCornerRadius > 0 ? paneCornerRadius : nil }
-        guard mainPaneCurved, paneBorder == .none else { return nil }
+        // The squared tab's framed looks put the card under the strip, not around it: no curve to nest in.
+        guard mainPaneCurved, paneBorder == .none, !SquaredTabCorner.current.drawsFrame else { return nil }
         let radius = mainPaneCornerRadius(windowCornerRadius: standardWindowCornerRadius)
         return radius > 0 ? radius : nil
     }

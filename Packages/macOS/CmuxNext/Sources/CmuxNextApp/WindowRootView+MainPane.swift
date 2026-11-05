@@ -11,7 +11,7 @@ import Observation
 /// `PaneClipView`. `masksToBounds` clips terminals (IOSurface and Metal
 /// layers) and web views; Chromium pages are child windows and clip
 /// through that mask.
-final class MainPaneCardView: NSView {
+final class MainPaneCardView: NSView, LeadingTabEdgeAnchor {
     /// Called after the frame moves or resizes (the sidebar's animation
     /// moves it every frame), so the chrome shade follows in the same pass.
     var onFrameChange: (() -> Void)?
@@ -88,7 +88,7 @@ extension WindowRootView {
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0, SquaredTabCorner.current.observationKey] }) {
                 self?.applyMainPane()
             }
         }
@@ -157,8 +157,8 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
-        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+        let holes = SquaredTabCorner.current.shadeHoles(content: contentHost.frame, in: bounds, sidebar: sidebarHidden || sidebar.isHidden ? nil : sidebar.frame, sidebarOnLeft: sidebarSide == .left, page: presentsPage)
+        mainPaneShade.update(card: holes.card, radius: radius, alpha: Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), cutouts: holes.cutouts, content: contentHost)
     }
 }
 

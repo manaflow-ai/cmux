@@ -290,7 +290,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
-        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
+        sidebar.applyTopRow(cardTop: mainPaneTopInset, cardMaxY: contentHost.frame.maxY, page: presentsPage)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

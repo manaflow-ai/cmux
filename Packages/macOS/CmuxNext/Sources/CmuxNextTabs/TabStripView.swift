@@ -69,6 +69,9 @@ public final class TabStripView: NSView {
         metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
     }
     var windowControlsInset: CGFloat = 0
+    /// The sidebar's edge in this strip's coordinates while the strip starts on it and squares its
+    /// first tab there (`TabStripView+LeadingEdge`); nil otherwise.
+    var leadingTabEdge: CGFloat?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -508,8 +511,10 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
-        tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
+        leadingTabEdge = computeLeadingTabEdge()
+        let leadX = leadingTabEdge ?? padding + windowControlsInset
+        let viewport = max(0, bounds.width - leadX - padding - (model.showsNewTabButton ? newTabControlsWidth : 0))
+        tabsClip.frame = CGRect(x: leadX, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
             // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).

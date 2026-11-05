@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: Thunderdome r2 B, "squared" (`chrome.squaredTab`, Debug Settings, off by default: no change). Leo,
+  verbatim: "the tab at its left, when it's at the leftmost on that left area, is just square". On, the sidebar's + takes
+  the top-row tabs' center line (`SidebarView.tabRowCenterFromTop`), `flat` starts the edge line under the top row
+  (`SidebarResizeHandle.lineTopInset`), and `framed` / `matched` start the list level with the content card under one
+  shaded top row (`SidebarContainerView.applyTopRow`); `matched` draws the sidebar as a 12 pt card. Draft PR, not landing.
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they

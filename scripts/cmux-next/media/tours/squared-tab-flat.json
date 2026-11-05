@@ -1,0 +1,154 @@
+{
+ "title": "Squared first tab (r2 B): Flat: the edge line runs into a square first tab",
+ "settings": {
+  "appearance": {
+   "density": "comfortable"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "A second workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "A third workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api"
+   ],
+   "shot": false
+  },
+  {
+   "title": "The workspace shown",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Corner"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "shot": false,
+   "wait": 2
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "shot": false,
+   "wait": 4
+  },
+  {
+   "title": "Second browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.org"
+   ],
+   "shot": false,
+   "wait": 4
+  },
+  {
+   "title": "Leftmost tab selected",
+   "cmux": [
+    "action",
+    "run",
+    "selectSurfaceByNumber",
+    "--index",
+    "1"
+   ],
+   "shot": false,
+   "wait": 1.5
+  },
+  {
+   "title": "Before: today's corner",
+   "wait": 1.5
+  },
+  {
+   "title": "Squared tab: flat",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.squaredTab",
+     "value": "flat"
+    }
+   },
+   "shot": false,
+   "wait": 2.5,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Flat: the edge line runs into a square first tab: leftmost tab selected",
+   "wait": 2
+  },
+  {
+   "title": "Second tab selected",
+   "cmux": [
+    "action",
+    "run",
+    "selectSurfaceByNumber",
+    "--index",
+    "2"
+   ],
+   "shot": true,
+   "wait": 1.5
+  },
+  {
+   "title": "Back to the leftmost tab",
+   "cmux": [
+    "action",
+    "run",
+    "selectSurfaceByNumber",
+    "--index",
+    "1"
+   ],
+   "shot": false,
+   "wait": 1.5
+  },
+  {
+   "title": "Sidebar hidden",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "shot": true,
+   "wait": 2
+  },
+  {
+   "title": "Sidebar shown again",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "shot": true,
+   "wait": 2
+  }
+ ]
+}

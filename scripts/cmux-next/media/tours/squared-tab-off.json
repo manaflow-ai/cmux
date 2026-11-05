@@ -1,0 +1,92 @@
+{
+ "title": "Squared first tab (r2 B): Today (off)",
+ "settings": {
+  "appearance": {
+   "density": "comfortable"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "A second workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "A third workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api"
+   ],
+   "shot": false
+  },
+  {
+   "title": "The workspace shown",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Corner"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "shot": false,
+   "wait": 2
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "shot": false,
+   "wait": 4
+  },
+  {
+   "title": "Second browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.org"
+   ],
+   "shot": false,
+   "wait": 4
+  },
+  {
+   "title": "Leftmost tab selected",
+   "cmux": [
+    "action",
+    "run",
+    "selectSurfaceByNumber",
+    "--index",
+    "1"
+   ],
+   "shot": false,
+   "wait": 1.5
+  },
+  {
+   "title": "Before: today's corner",
+   "wait": 1.5
+  }
+ ]
+}

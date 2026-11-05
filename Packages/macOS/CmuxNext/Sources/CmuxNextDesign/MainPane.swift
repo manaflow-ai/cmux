@@ -47,7 +47,9 @@ extension Metrics {
     /// Settings override, else `appearance.chromeStyle`, else the default.
     public static var mainPaneCurved: Bool {
         let tunable = ChromeTunables.mainPaneCurved
-        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+        // The squared tab's framed looks (`chrome.squaredTab`) draw the card under any chrome style; a Debug override still wins.
+        let framed: Bool? = SquaredTabCorner.current.drawsFrame ? true : nil
+        return tunable.override ?? framed ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
@@ -68,13 +70,14 @@ extension Metrics {
     public static var mainPaneGutter: CGFloat {
         guard mainPaneCurved else { return 0 }
         if floatingPanes, ChromeTunables.mainPaneGutter.override == nil { return panePadding }
+        if SquaredTabCorner.current.drawsFrame, ChromeTunables.mainPaneGutter.override == nil { return SquaredTabCorner.frameGap }
         return scale(ChromeTunables.mainPaneGutter.value)
     }
     /// Corner radius of the main pane; 0 when it is edge to edge or its
     /// panes float (each pane rounds its own card).
     public static var mainPaneCornerRadius: CGFloat {
         guard mainPaneCurved, !floatingPanes || ChromeTunables.mainPaneCornerRadius.override != nil else { return 0 }
-        return ChromeTunables.mainPaneCornerRadius.override.map(scale) ?? cornerRadius
+        return ChromeTunables.mainPaneCornerRadius.override.map(scale) ?? (SquaredTabCorner.current.drawsFrame ? SquaredTabCorner.cardRadius : cornerRadius)
     }
     /// Corner radius of the main pane in a window whose own corners have
     /// `windowCornerRadius`: the one outer ``cornerRadius`` (`layout.paneCornerRadius`,
@@ -91,6 +94,10 @@ extension Metrics {
     /// Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        // The squared tab's framed looks: concentric with the 16 pt window across the one gap.
+        if SquaredTabCorner.current.drawsFrame {
+            return windowCornerRadius > 0 ? min(SquaredTabCorner.cardRadius, windowCornerRadius) : SquaredTabCorner.cardRadius
+        }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
         // The one outer radius, never rounder than the window's own; fullscreen (square window) keeps it too.
@@ -103,6 +110,8 @@ extension Metrics {
     /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
+        // The squared tab's framed looks shade the frame so the cards read on its one surface.
+        if SquaredTabCorner.current.drawsFrame { return SquaredTabCorner.frameShade(isDark: isDark) }
         let style = DesignSettings.shared.chromeStyle
         let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
         let separate = tunable.override.map { CGFloat($0) } ?? style.separateShade(isDark: isDark) ?? CGFloat(tunable.defaultValue)

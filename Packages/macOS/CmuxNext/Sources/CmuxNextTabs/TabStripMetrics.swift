@@ -60,6 +60,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
+    /// Whether the strip that starts on the sidebar's edge starts its first tab there, square on
+    /// that side (`SquaredTabCorner`, Debug Settings `chrome.squaredTab`).
+    public var squaresLeadingTab: Bool
     /// The radius of a fill (the close button's hover and pressed fill, a badge's
     /// fill, a group chip) at `rect` inside a tab pill at `pill`: concentric with the
     /// pill (``cornerRadius`` less the fill's inset from the pill's nearer top or bottom
@@ -181,6 +184,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.tabCornerRadius
+        squaresLeadingTab = SquaredTabCorner.current != .off
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
