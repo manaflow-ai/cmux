@@ -8,8 +8,8 @@
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "706c6963a17d1861f2bcc44257f735e543d559f8",
-    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 41995370136 (SOURCE-MANIFEST.json ghostty_revision 706c6963a, no unresolved packages). The texts are byte-identical to the 7d43bb68b ones: Ghostty LICENSE, highway (N-V-__8AAGmZhABb...) LICENSE, LICENSE-BSD3, debian/copyright, wuffs (N-V-__8AAP5JWgCG...) LICENSE, LICENSE-APACHE, LICENSE-MIT and uucode LICENSE.md have the same sha256 in that tree. The upstream sync moves uucode to a new Zig package hash (deps.files.ghostty.org tarball of uucode ea6214973) with the same LICENSE.md, so only its owner key and source change.",
+    "commit": "383b27d73717a538af3c8b1e21a39995517cb3bd",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 42004729138 (SOURCE-MANIFEST.json ghostty_revision 383b27d73, no unresolved packages). The texts are byte-identical to the 7d43bb68b ones: Ghostty LICENSE, highway (N-V-__8AAGmZhABb...) LICENSE, LICENSE-BSD3, debian/copyright, wuffs (N-V-__8AAP5JWgCG...) LICENSE, LICENSE-APACHE, LICENSE-MIT and uucode LICENSE.md have the same sha256 in that tree. The upstream sync moves uucode to a new Zig package hash (deps.files.ghostty.org tarball of uucode ea6214973) with the same LICENSE.md, so only its owner key and source change.",
     "owners": {
       "ghostty-next": {
         "name": "Ghostty",
@@ -17,7 +17,7 @@
           {
             "file": "texts/ghostty-next/LICENSE",
             "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
-            "source": "https://github.com/manaflow-ai/ghostty-next/blob/706c6963a17d1861f2bcc44257f735e543d559f8/LICENSE"
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/383b27d73717a538af3c8b1e21a39995517cb3bd/LICENSE"
           }
         ]
       },
