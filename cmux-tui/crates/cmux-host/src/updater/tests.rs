@@ -255,6 +255,17 @@ fn busy_sessions_follow_acpmux_rules() {
 }
 
 #[test]
+fn daemon_status_replies() {
+    assert_eq!(daemon_running(r#"{"pid": 41, "build": "91d3ea019"}"#), Some(true));
+    assert_eq!(daemon_running(r#"{"running": false, "error": "daemon not running"}"#), Some(false));
+    assert_eq!(daemon_running(r#"{"running": false}"#), Some(false));
+    assert_eq!(daemon_running(r#"{"pid": null}"#), None);
+    assert_eq!(daemon_running("{}"), None);
+    assert_eq!(daemon_running(""), None);
+    assert_eq!(daemon_running("not json"), None);
+}
+
+#[test]
 fn state_and_pending_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());

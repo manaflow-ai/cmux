@@ -244,6 +244,18 @@ pub fn record_rollback(state: &mut State, pending: &Pending) {
 
 /// The daemon's own sessions (not its peers') that run a turn or wait on a
 /// permission, by name, from its `acpmux --json ls` (the rule of acpmux's
+/// Whether an `acpmux --json daemon status` reply names a running daemon (a
+/// live one's reply carries its `pid`, a stopped one's says `"running":
+/// false`); None when it is neither, which the idle check counts as busy.
+pub fn daemon_running(status: &str) -> Option<bool> {
+    let v: serde_json::Value = serde_json::from_str(status.trim()).ok()?;
+    let v = v.as_object()?;
+    if v.get("pid").is_some_and(|pid| !pid.is_null()) {
+        return Some(true);
+    }
+    (v.get("running")? == &serde_json::Value::Bool(false)).then_some(false)
+}
+
 /// `host update --if-idle`); None when that is not a session list.
 pub fn busy_sessions_in(ls: &str) -> Option<Vec<String>> {
     use serde_json::Value;

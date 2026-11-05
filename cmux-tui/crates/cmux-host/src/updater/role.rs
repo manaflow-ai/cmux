@@ -7,6 +7,7 @@ use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
@@ -61,6 +62,12 @@ enum Msg {
 /// worker and never stop.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// Held from a worker's last [`stopped`] look through the flip and the
+/// queued restarts, and by a stop while it bumps [`GENERATION`]: once a stop
+/// returns, no worker flips or restarts anything; a stop that comes during
+/// one waits for it (a rename and a few `--no-block` systemctl calls).
+static COMMIT: Mutex<()> = Mutex::new(());
+
 thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
@@ -88,8 +95,28 @@ impl UpdaterRole {
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         let Some(worker) = self.worker.take() else { return Ok(()) };
-        GENERATION.fetch_add(1, Ordering::SeqCst);
         let _ = worker.tx.send(Msg::Stop);
+        // Bump the generation under COMMIT, so a flip in progress finishes
+        // first and none starts after.
+        loop {
+            match COMMIT.try_lock() {
+                Ok(_commit) => {
+                    GENERATION.fetch_add(1, Ordering::SeqCst);
+                    break;
+                }
+                Err(std::sync::TryLockError::Poisoned(e)) => {
+                    let _commit = e.into_inner();
+                    GENERATION.fetch_add(1, Ordering::SeqCst);
+                    break;
+                }
+                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    return Err(RoleError("updater was flipping at the deadline".to_owned()));
+                }
+            }
+        }
         match worker.done.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Err(RecvTimeoutError::Timeout) => {
                 // The worker kills its download and stops before it changes
@@ -321,14 +348,17 @@ fn check_inner(paths: &Paths) -> Outcome {
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
+    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
+        drop(commit);
         disarm_guard();
         clear_pending(paths);
         return outcome;
     }
     if let Err(e) = store::flip(paths, plan.to) {
+        drop(commit);
         disarm_guard();
         clear_pending(paths);
         return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
@@ -341,6 +371,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         plan.commit.get(..12).unwrap_or(&plan.commit)
     ));
     restart_after_flip();
+    drop(commit);
     Outcome::Updating(plan.commit)
 }
 
@@ -468,7 +499,7 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
 /// it answered that no daemon runs and its unit is down (or absent).
 fn busy_sessions() -> Result<Vec<String>, String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
-    match daemon_running(&status) {
+    match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
@@ -484,14 +515,6 @@ fn busy_sessions() -> Result<Vec<String>, String> {
         return Err("acpmux ls failed".to_owned());
     }
     super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
-}
-
-/// Whether `acpmux --json daemon status` names a running daemon; None when
-/// it is not that answer.
-fn daemon_running(status: &str) -> Option<bool> {
-    let v: Value = serde_json::from_str(status.trim()).ok()?;
-    let pid = v.as_object()?.get("pid")?;
-    Some(!pid.is_null())
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.
@@ -598,6 +621,11 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
     if load_pending(paths).as_ref() != Some(pending) {
         return;
     }
+    // A stopped worker leaves the rollback to the guard.
+    let _commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    if stopped() {
+        return;
+    }
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     if let Err(e) = store::flip(paths, pending.from) {
         log(&format!("flipping back to profile {}: {e}", pending.from));
@@ -680,7 +708,7 @@ fn disarm_guard() {
 /// `cmux-host.service`. systemd says which units run and what each starts,
 /// so nothing lists processes (plans/cmux-next/pty-holder.md section 4).
 fn restart_after_flip() {
-    if !user_systemctl(&["restart", ACPMUX_UNIT]) {
+    if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
     let listed = systemctl_stdout(&[
