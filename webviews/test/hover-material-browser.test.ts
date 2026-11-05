@@ -55,7 +55,14 @@ await requireBrowserLane("hover-material-browser.test.ts", async () => {
             const surface = document.querySelector<HTMLElement>(".hm-stage .ui-glass");
             const found: string[] = [];
             const own = surface ? getComputedStyle(surface) : undefined;
-            if (own) found.push(`surface backdrop-filter=${own.backdropFilter} background=${own.backgroundColor}`);
+            if (own)
+              found.push(
+                `surface backdrop-filter=${own.backdropFilter} background-color=${own.backgroundColor} background-image=${own.backgroundImage}`,
+              );
+            const root = document.documentElement;
+            found.push(
+              `root ${[...root.attributes].filter((attr) => attr.name.startsWith("data-")).map((attr) => `${attr.name}=${attr.value}`).join(" ")}`,
+            );
             for (let node = surface?.parentElement; node; node = node.parentElement) {
               const style = getComputedStyle(node);
               const marks = [
