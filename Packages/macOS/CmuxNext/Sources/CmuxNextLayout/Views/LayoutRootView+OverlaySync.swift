@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextWakeups
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
@@ -54,6 +55,36 @@ extension LayoutRootView {
         nextOverlaySyncObserver += 1
         layoutMotionObservers[nextOverlaySyncObserver] = block
         return LayoutOverlaySyncObservation(root: self, id: nextOverlaySyncObserver, remove: { $0.layoutMotionObservers[$1] = nil })
+    }
+
+    /// Runs `work` as a task on `queue` once the layout is still: no spring, no divider drag, no live resize of its window.
+    /// When it is still now, the task is queued now; else when the motion lands (``setLayoutInMotion(_:)``) or the live
+    /// resize ends. A motion that began before the task runs makes it wait again, so it never runs in a motion's frames.
+    /// A later call with the same `key` replaces the waiting work. For content that lays out out of sight (a parked page,
+    /// RESIZE MAIN BUDGET): hidden work is model only during a motion, then one layout at the final size.
+    public func whenStill(_ key: String, on queue: FrameBatchQueue, _ work: @escaping @MainActor () -> Void) {
+        stillWork[key] = (queue, work)
+        runStillWork()
+    }
+
+    private var isStill: Bool { !isInLayoutMotion && window?.inLiveResize != true }
+
+    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still.
+    func runStillWork() {
+        guard isStill, !stillWork.isEmpty else { return }
+        let ready = stillWork
+        stillWork.removeAll()
+        for (key, entry) in ready {
+            entry.queue.enqueue { [weak self] in
+                guard let self, !self.isStill else { return entry.work() }
+                if self.stillWork[key] == nil { self.stillWork[key] = entry }
+            }
+        }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        runStillWork()
     }
 
     /// Holds `work` until `pane`, which left the layout in a close that still springs, goes when the motion lands (or

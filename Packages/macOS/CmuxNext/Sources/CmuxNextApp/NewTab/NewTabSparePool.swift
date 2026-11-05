@@ -14,9 +14,9 @@ import CmuxNextWakeups
 /// turn (no load, no React mount on the open path); the next spare starts
 /// ``openSettle`` after a handout (else once input is quiet for ``idleInput``),
 /// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare is parked at the size of the
-/// pane content Cmd-T fills (the target window's focused pane) and keeps it while hidden: a pane that changes size later
-/// lays out no hidden page (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); the Cmd-T that takes it
-/// puts it in its pane, whose layout sizes it once (`debug.new_tab` records that as `Opening.refit`). Memory pressure drops the spare. A spare
+/// pane content Cmd-T fills (the target window's focused pane) and follows it in one fit once the layout is still, never in
+/// a motion's frames (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); a Cmd-T during a motion puts
+/// it in its pane, whose layout sizes it (`debug.new_tab` records that as `Opening.refit`). Memory pressure drops the spare. A spare
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
@@ -263,14 +263,14 @@ final class NewTabSparePool {
         if !refills.isOpening { slot.all.forEach(snapshotParked) }
     }
 
-    /// A pane of `window` changed size, or its focus or selected tab moved: the parked spare draws the context a
-    /// Cmd-T there gives once that settles (``fitSettle``). It keeps its size: a hidden page gets model changes, no
-    /// layout (a fit in a key resize's spring cost a motion frame 3.6 ms, RESIZE MAIN BUDGET); the New Tab that takes it
-    /// lays it out once, at its pane's size.
+    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives (``fitSettle``)
+    /// and takes the pane's size in one background fit once the layout is still (`LayoutRootView.whenStill`, RESIZE MAIN BUDGET).
     func paneLayoutDidChange(in window: NSWindow?) {
-        guard let window, window === target, parking.superview != nil, targetIdentity != preparedFor else { return }
-        schedulePrepare()
+        guard let window, window === target, parking.superview != nil else { return }
+        if targetIdentity != preparedFor { schedulePrepare() }
+        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenStill("NewTabSparePool.fit", on: fits) { [weak self] in self?.fitParked() }
     }
+    private lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).

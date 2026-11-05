@@ -112,6 +112,8 @@ public final class LayoutRootView: NSView {
     public private(set) var isLayoutInMotion = false
     /// Layout motion observers by id (`observeLayoutMotion`).
     var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
+    /// Work waiting for the layout to be still (``whenStill(_:on:_:)``), by key, with the queue it runs on.
+    var stillWork: [String: (queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
@@ -546,6 +548,7 @@ public final class LayoutRootView: NSView {
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
     func setLayoutInMotion(_ moving: Bool) {
+        if !moving { runStillWork() } // a drag's release with no spring ends here too, with the flag already off
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
