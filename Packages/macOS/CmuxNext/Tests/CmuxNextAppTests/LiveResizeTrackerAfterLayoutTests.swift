@@ -17,7 +17,7 @@ import Testing
 /// (cmux22, 2026-11-05), 1589 samples under the steps' `setFrame`: page-window placements from the host's posts 138
 /// samples and from the frame view's notice 42, beside the 120 of the didResize update that the step needs.
 ///
-/// `ForkTracker` observes as the fork's `CmuxParentViewTracker` does (chrome_child_window_mac.mm at 3d323193): the host's
+/// `LiveResizeForkTracker` observes as the fork's `CmuxParentViewTracker` does (chrome_child_window_mac.mm at 3d323193): the host's
 /// geometry post, the frame and bounds notices of the host and of every ancestor up to the root (it turns their posts
 /// on), and the window's didResize and didMove. Each update reads the host's occlusion rects and clip, as `-applyClip:`
 /// does. The rig is `WindowLiveResizeFrameTickTests`'s. A page container in the left pane lays the host out and gives it
@@ -34,7 +34,7 @@ struct LiveResizeTrackerAfterLayoutTests {
             defer { rig.close() }
             let window = rig.window
             let page = try Self.page(in: rig)
-            let tracker = ForkTracker(host: page.host)
+            let tracker = LiveResizeForkTracker(host: page.host)
             defer { tracker.stop() }
             let press = try rig.pressPoint()
             window.sendEvent(rig.event(.leftMouseDown, press))
@@ -43,11 +43,11 @@ struct LiveResizeTrackerAfterLayoutTests {
 
             for step in 1...3 {
                 tracker.reset()
-                let before = ForkTracker.onScreen(page.host)
+                let before = LiveResizeForkTracker.onScreen(page.host)
                 window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24 * CGFloat(step), y: press.y)))
                 rig.frameTick()
                 window.layoutIfNeeded()
-                let final = ForkTracker.onScreen(page.host)
+                let final = LiveResizeForkTracker.onScreen(page.host)
                 try #require(final != before, "step \(step): the page host did not change; the test proves nothing")
                 try #require(tracker.hostAtDidResize == final,
                              "step \(step): the host was not at its final place at the window's didResize (\(String(describing: tracker.hostAtDidResize)), final \(final)): the rig does not lay out inside setFrame as AppKit's live resize does")
@@ -68,7 +68,7 @@ struct LiveResizeTrackerAfterLayoutTests {
             defer { rig.close() }
             let window = rig.window
             let page = try Self.page(in: rig)
-            let tracker = ForkTracker(host: page.host)
+            let tracker = LiveResizeForkTracker(host: page.host)
             defer { tracker.stop() }
             let frameView = try #require(window.contentView?.superview, "the window has no frame view")
             let press = try rig.pressPoint()
@@ -80,7 +80,7 @@ struct LiveResizeTrackerAfterLayoutTests {
                 tracker.reset()
                 window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 30 * CGFloat(step), y: press.y)))
                 rig.frameTick()
-                let notices = tracker.updates.filter { $0.cause == ForkTracker.frameCause(of: frameView) }.count
+                let notices = tracker.updates.filter { $0.cause == LiveResizeForkTracker.frameCause(of: frameView) }.count
                 #expect(notices == 1, "step \(step): the frame view posted \(notices) frame notices")
             }
             window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 60, y: press.y)))
@@ -95,7 +95,7 @@ struct LiveResizeTrackerAfterLayoutTests {
             defer { rig.close() }
             let window = rig.window
             let pages = try Self.stackedPages(in: rig)
-            let trackers = pages.map { ForkTracker(host: $0.host) }
+            let trackers = pages.map { LiveResizeForkTracker(host: $0.host) }
             defer { trackers.forEach { $0.stop() } }
             let press = try rig.pressPoint()
             window.sendEvent(rig.event(.leftMouseDown, press))
@@ -104,12 +104,12 @@ struct LiveResizeTrackerAfterLayoutTests {
 
             for step in 1...2 {
                 trackers.forEach { $0.reset() }
-                let before = pages.map { ForkTracker.onScreen($0.host) }
+                let before = pages.map { LiveResizeForkTracker.onScreen($0.host) }
                 window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24 * CGFloat(step), y: press.y)))
                 rig.frameTick()
                 window.layoutIfNeeded()
                 for (index, (page, tracker)) in zip(pages, trackers).enumerated() {
-                    try #require(ForkTracker.onScreen(page.host) != before[index], "step \(step), page \(index): the host did not change")
+                    try #require(LiveResizeForkTracker.onScreen(page.host) != before[index], "step \(step), page \(index): the host did not change")
                     let early = tracker.updates.filter { !$0.afterDidResize }.map(\.cause)
                     #expect(early.isEmpty, "step \(step), page \(index): \(early.count) updates before didResize: \(early)")
                     #expect(tracker.reads.last == [page.host.bounds], "step \(step), page \(index): last read \(tracker.reads.last ?? [])")
@@ -126,7 +126,7 @@ struct LiveResizeTrackerAfterLayoutTests {
         defer { rig.close() }
         let page = try Self.page(in: rig)
         page.host.isHidden = true
-        let tracker = ForkTracker(host: page.host)
+        let tracker = LiveResizeForkTracker(host: page.host)
         defer { tracker.stop() }
         let occlusion = page.host.occlusionRects
 
@@ -137,9 +137,9 @@ struct LiveResizeTrackerAfterLayoutTests {
         }
         try #require(page.host.occlusionRects != occlusion, "the hidden page's occlusion did not change; the test proves nothing")
         let causes = tracker.updates.map(\.cause)
-        let posts = causes.filter { $0 == ForkTracker.postCause }.count
+        let posts = causes.filter { $0 == LiveResizeForkTracker.postCause }.count
         #expect(posts == 1, "the tracker heard \(causes)")
-        #expect(causes.last == ForkTracker.postCause, "the held post did not come after the frame notices: \(causes)")
+        #expect(causes.last == LiveResizeForkTracker.postCause, "the held post did not come after the frame notices: \(causes)")
         #expect(tracker.reads.isEmpty, "the tracker read a hidden page: \(tracker.reads)")
     }
 
@@ -149,7 +149,7 @@ struct LiveResizeTrackerAfterLayoutTests {
         let rig = WindowLiveResizeFrameTickTests.Rig()
         defer { rig.close() }
         let page = try Self.page(in: rig)
-        let tracker = ForkTracker(host: page.host)
+        let tracker = LiveResizeForkTracker(host: page.host)
         defer { tracker.stop() }
         let bar = CGRect(x: 0, y: 0, width: 120, height: 24)
 
@@ -166,20 +166,20 @@ struct LiveResizeTrackerAfterLayoutTests {
         let rig = WindowLiveResizeFrameTickTests.Rig()
         defer { rig.close() }
         let page = try Self.page(in: rig)
-        let tracker = ForkTracker(host: page.host)
+        let tracker = LiveResizeForkTracker(host: page.host)
         defer { tracker.stop() }
         let bar = CGRect(x: 0, y: 0, width: 120, height: 24)
 
         tracker.reset()
         page.host.occlusionRects = [bar]
-        #expect(tracker.updates.map(\.cause) == [ForkTracker.postCause], "the tracker heard \(tracker.updates.map(\.cause))")
+        #expect(tracker.updates.map(\.cause) == [LiveResizeForkTracker.postCause], "the tracker heard \(tracker.updates.map(\.cause))")
         #expect(tracker.reads.last?.contains(bar) == true, "the tracker did not read the new occlusion: \(tracker.reads.last ?? [])")
     }
 
     /// A page container filling the rig's left pane (it grows with the window), laid out.
-    private static func page(in rig: WindowLiveResizeFrameTickTests.Rig) throws -> PageContainer {
+    static func page(in rig: WindowLiveResizeFrameTickTests.Rig) throws -> LiveResizeTestPageContainer {
         let pane = try #require(rig.root.contentView(for: "p1"), "the left pane has no content view")
-        let page = PageContainer(frame: pane.bounds)
+        let page = LiveResizeTestPageContainer(frame: pane.bounds)
         page.autoresizingMask = [.width, .height]
         pane.addSubview(page)
         rig.root.layoutSubtreeIfNeeded()
@@ -187,12 +187,12 @@ struct LiveResizeTrackerAfterLayoutTests {
     }
 
     /// Two page containers in the rig's left pane, one over the other; both grow with the window's width.
-    private static func stackedPages(in rig: WindowLiveResizeFrameTickTests.Rig) throws -> [PageContainer] {
+    static func stackedPages(in rig: WindowLiveResizeFrameTickTests.Rig) throws -> [LiveResizeTestPageContainer] {
         let pane = try #require(rig.root.contentView(for: "p1"), "the left pane has no content view")
         let half = (pane.bounds.height / 2).rounded(.down)
         let pages = [
-            PageContainer(frame: NSRect(x: 0, y: 0, width: pane.bounds.width, height: half)),
-            PageContainer(frame: NSRect(x: 0, y: half, width: pane.bounds.width, height: pane.bounds.height - half)),
+            LiveResizeTestPageContainer(frame: NSRect(x: 0, y: 0, width: pane.bounds.width, height: half)),
+            LiveResizeTestPageContainer(frame: NSRect(x: 0, y: half, width: pane.bounds.width, height: pane.bounds.height - half)),
         ]
         pages[0].autoresizingMask = [.width, .maxYMargin]
         pages[1].autoresizingMask = [.width, .minYMargin]
@@ -205,7 +205,7 @@ struct LiveResizeTrackerAfterLayoutTests {
 /// A CEF tab's content view as the page tracker meets it: lays the host out over itself and gives it its occlusion when
 /// its size changes (`CEFTabContentView.layoutContent` -> `CEFTab.applyOcclusion`; native UI covers all of a page
 /// before its first real page).
-@MainActor private final class PageContainer: NSView {
+@MainActor final class LiveResizeTestPageContainer: NSView {
     let host: CEFHostView
 
     override init(frame: NSRect) {
@@ -228,7 +228,7 @@ struct LiveResizeTrackerAfterLayoutTests {
 }
 
 /// The fork's page tracker for one host view (see the suite's comment).
-@MainActor private final class ForkTracker: NSObject {
+@MainActor final class LiveResizeForkTracker: NSObject {
     static let postCause = "geometry post"
     static let didResizeCause = "didResize"
     static let didMoveCause = "didMove"
