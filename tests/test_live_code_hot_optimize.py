@@ -6,6 +6,7 @@ stand-ins too. So this checks the patch's path (every file compiled at -O in par
 with state of its own left out, one dylib in the live folder), not a real compile.
 """
 
+import json
 import os
 import shlex
 import subprocess
@@ -103,6 +104,27 @@ class HotOptimizeTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("files=1 kept_for_state=0 optimized=0", run.stdout)
         self.assertEqual(self.frontend_record.read_text().split(), ["-Onone", str(cache)])
+
+    def test_a_patch_across_modules_lists_every_modules_files_in_its_sidecar(self):
+        # A second module beside CmuxNextApp, with its own compile in the log.
+        other = self.tmp / "checkout/Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+        other.mkdir(parents=True)
+        theme = other / "Theme.swift"
+        theme.write_text("struct Theme { func color() {} }\n")
+        filelist = self.tmp / "CmuxNextSettings.SwiftFileList"
+        filelist.write_text(f"{theme}\n")
+        frontend = shlex.split(self.log.read_text().splitlines()[0])
+        frontend[frontend.index("-filelist") + 1] = str(filelist)
+        frontend[frontend.index("-primary-file") + 1] = str(theme)
+        frontend[frontend.index("-module-name") + 1] = "CmuxNextSettings"
+        with self.log.open("a") as log:
+            log.write(shlex.join(frontend) + "\n")
+        view = next(path for path in self.sources if path.name == "Keys.swift")
+        run = self.run_patch(str(view), str(theme))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        sidecar = next(self.live.glob("patch-*.json"))
+        files = json.loads(sidecar.read_text())["files"]
+        self.assertEqual(sorted(os.path.basename(path) for path in files), ["Keys.swift", "Theme.swift"])
 
     def test_no_file_and_no_all_is_a_usage_error(self):
         run = self.run_patch()

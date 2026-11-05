@@ -95,6 +95,16 @@ pub enum PeerCmd {
         #[arg(long)]
         status: bool,
     },
+    /// Leave the cloud: revoke this joined machine's credential at the hub
+    /// with the credential itself (`tailscale logout`), then remove
+    /// `meshRelay`, the credential and the node key here. A hub that cannot
+    /// revoke from the machine says to revoke it from your Mac (`cmux machine
+    /// revoke NAME`); then `--local-only` removes this machine's state anyway.
+    Leave {
+        /// Remove the local join state even when the hub did not revoke it.
+        #[arg(long)]
+        local_only: bool,
+    },
     /// Request screen/control consent through the daemon. Changing it requires
     /// the local app's person proof; a shell or agent cannot grant consent.
     Consent {

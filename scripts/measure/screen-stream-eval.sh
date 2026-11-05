@@ -5,24 +5,57 @@
 # processes hold Screen Recording and Accessibility:
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
 #     --ref SHA --artifact artifacts/screen-stream-eval/results.json [--target-worker W] \
-#     [--arg=targets=rd,webrtc] [--arg=samples=200] --timeout 5400
+#     [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] --timeout 5400
+#     (two Macs on one LAN: README.md, "Two Macs"; lan=IP or viewer-of=IP, with peer-token=HEX)
 # Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
     samples=*) samples="${arg#samples=}" ;;
+    repeats=*) repeats="${arg#repeats=}" ;;
+    # Two Macs on one LAN (README.md, "Two Macs"): this Mac hosts at LAN address lan=, and the step on
+    # the other Mac runs viewer-of=THAT_ADDRESS; both get the same peer-token= (64 hex).
+    lan=*) lan="${arg#lan=}" ;;
+    viewer-of=*) viewer_of="${arg#viewer-of=}" ;;
+    peer-token=*) peer_token="${arg#peer-token=}" ;;
+    # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
+    # for a before/after against the default.
+    input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
+[[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+[[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
+ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+for value in "$lan" "$viewer_of"; do
+  [[ -z "$value" || "$value" =~ $ipv4 ]] || { echo "screen-stream-eval.sh: lan= and viewer-of= are IPv4 addresses" >&2; exit 2; }
+  # Each octet at most 255, so a typo fails here, not as a peer server that never binds.
+  IFS=. read -r -a octets <<<"$value"
+  for octet in ${octets[@]+"${octets[@]}"}; do
+    (( 10#$octet <= 255 )) || { echo "screen-stream-eval.sh: $value is not an IPv4 address" >&2; exit 2; }
+  done
+done
+if [[ -n "$lan$viewer_of" ]]; then
+  [[ "$peer_token" =~ ^[0-9a-f]{64}$ ]] || { echo "screen-stream-eval.sh: two Macs need peer-token= (64 hex)" >&2; exit 2; }
+  [[ -z "$lan" || -z "$viewer_of" ]] || { echo "screen-stream-eval.sh: lan= (the host Mac) or viewer-of= (the viewer Mac), not both" >&2; exit 2; }
+fi
+peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+# The rd host takes options it does not know without a word, so input-frame-now=1 at a commit whose host
+# lacks --input-frame-now (before #36690) would measure the default and call it the bypass: refuse it.
+if [[ "$input_frame_now" == 1 ]] && ! grep -q 'flag("input-frame-now")' cmux-tui/crates/cmux-rd-host/src/host.rs 2>/dev/null; then
+  echo "screen-stream-eval.sh: input-frame-now=1, but this commit's rd host has no --input-frame-now" >&2
+  exit 2
+fi
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
@@ -41,12 +74,23 @@ import json, sys, datetime
 keys = sys.argv[1::2]; values = sys.argv[2::2]
 run = dict(zip(keys, values))
 run["at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-run["link"] = "loopback: host and viewer on one Mac"
+run.setdefault("link", "loopback: host and viewer on one Mac")
 print(json.dumps(run))
 EOF
 }
+link_arg=()
+if [[ "$lan" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
+  # A tailnet address (100.64.0.0/10): two Macs on one LAN reach each other directly, inside
+  # WireGuard. The fleet needs it, since macOS Local Network privacy refuses launchd-started
+  # binaries the LAN addresses (cmuxterm-hq build-fleet/README.md); the label keeps that visible.
+  link_arg=(link "lan via tailnet: host at $lan (WireGuard, direct), viewer on a second Mac")
+elif [[ -n "$lan" ]]; then
+  link_arg=(link "lan: host at $lan, viewer on a second Mac")
+fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
-  macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples")
+  macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
+  rd_input_frame_now "$input_frame_now" \
+  ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
 pids=()
@@ -76,6 +120,24 @@ EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
   cat "$out/summary.md"
 }
+
+if [[ -n "$viewer_of" ]]; then
+  # The viewer Mac of a two-Mac run: no scene, marker or grants here (the viewers only receive and
+  # send input over the network). It builds each target and serves the host Mac's view verbs.
+  printf '%s\n' "$peer_token" >"$work/peer-token"
+  chmod 600 "$work/peer-token"
+  IFS=',' read -r -a names <<<"$targets"
+  for name in "${names[@]}"; do
+    echo "SCREEN-STREAM-EVAL-STAGE viewer $name build"
+    mkdir -p "$out/$name"
+    bash "$here/targets/$name.sh" build >"$out/$name/build.log" 2>&1 || { tail -40 "$out/$name/build.log"; echo "SCREEN-STREAM-EVAL-ERROR viewer $name build failed"; }
+  done
+  echo "SCREEN-STREAM-EVAL-STAGE viewer serving $viewer_of:$peer_port"
+  python3 -I "$here/peer.py" agent "$viewer_of" "$peer_port" "$work/peer-token" "$root"
+  status=$?
+  finish "the viewer Mac of a two-Mac run (host $viewer_of): the host Mac's step has the results"
+  exit "$status"
+fi
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 for tool in preflight scene ocr; do
@@ -134,6 +196,68 @@ if ! granted "$grants"; then
   exit 3
 fi
 
+if [[ -n "$lan" ]]; then
+  printf '%s\n' "$peer_token" >"$work/peer-token"
+  chmod 600 "$work/peer-token"
+  python3 -I "$here/peer.py" serve "$lan" "$peer_port" "$work/peer-token" "$work/peer" >"$work/peer.log" 2>&1 &
+  server=$!
+  pids+=("$server")
+  echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
+  # Once: does the server answer on the LAN address from this Mac? (403 without the token is an answer.)
+  sleep 1
+  echo "SCREEN-STREAM-EVAL-PEER-SELF $(python3 -I -c 'import sys, urllib.request
+try:
+    urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}/clock", timeout=5)
+    print("answered")
+except urllib.error.HTTPError as e:
+    print(f"answered {e.code}")
+except OSError as e:
+    print(f"no answer: {e!r}")' "$lan" "$peer_port")"
+  for _ in $(seq 1 360); do
+    [[ -s "$work/peer/agent.json" ]] && break
+    # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
+    if ! kill -0 "$server" 2>/dev/null; then
+      finish "two Macs: the peer server on $lan:$peer_port stopped ($(tail -1 "$work/peer.log" 2>/dev/null))"
+      exit 4
+    fi
+    sleep 5 # bounded wait for the viewer Mac's step to start and build (30 min)
+  done
+  if [[ ! -s "$work/peer/agent.json" ]]; then
+    finish "two Macs: the viewer Mac's step never reached $lan:$peer_port ($(tail -1 "$work/peer.log" 2>/dev/null))"
+    exit 4
+  fi
+  echo "SCREEN-STREAM-EVAL-PEER $(cat "$work/peer/agent.json")"
+  export EVAL_BIND="$lan"
+fi
+# view VERB ARG... RAW: a target's view verb, on this Mac or (two Macs) on the viewer Mac.
+view() {
+  if [[ -n "$lan" ]]; then
+    EVAL_PEER_STREAM_TOKEN="$EVAL_STATE/token" \
+      CMUX_VNC_STREAM_LINK="$(grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log" 2>/dev/null)" \
+      python3 -I "$here/peer.py" call "$work/peer" "$name" "$@"
+  else
+    # RAW.span, the view's start and end on this Mac's wall clock, as peer.py writes it for a LAN
+    # view: the reports cut the host's shared logs (WebRTC's encode samples) to this view's.
+    local raw="${*: -1}" start rc=0
+    start=$(python3 -I -c 'import time; print(time.time_ns() // 1_000_000)')
+    bash "$script" "$@" || rc=$?
+    python3 -I -c 'import json, sys, time
+json.dump({"start_unix_ms": int(sys.argv[2]), "end_unix_ms": time.time_ns() // 1_000_000}, open(sys.argv[1], "w"))' "$raw.span" "$start"
+    return "$rc"
+  fi
+}
+# with_offsets RAW CMD...: CMD with the clock offsets peer.py measured for RAW's view (none on one Mac).
+with_offsets() {
+  local clock="$1.clock" mono=0 wall=0
+  shift
+  if [[ -s "$clock" ]]; then
+    mono=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["mono_ms"])' "$clock")
+    wall=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["wall_ms"])' "$clock")
+    echo "SCREEN-STREAM-EVAL-PEER $name $(basename "${clock%.clock}") $(cat "$clock")"
+  fi
+  EVAL_PEER_MONO_OFFSET_MS=$mono EVAL_PEER_WALL_OFFSET_MS=$wall "$@"
+}
+
 ran=0
 IFS=',' read -r -a names <<<"$targets"
 for name in "${names[@]}"; do
@@ -180,7 +304,10 @@ for name in "${names[@]}"; do
   if why=$(host_start); then
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
-      bash "$script" latency "$input" "$samples" "$dir/latency-$input.json" || err "latency $input failed"
+      raw="$EVAL_STATE/latency-$input.raw"
+      rm -f "$raw" "$raw.clock" "$raw.span"
+      view latency-view "$input" "$samples" "$raw" || err "latency $input failed"
+      with_offsets "$raw" bash "$script" latency-report "$input" "$raw" "$dir/latency-$input.json" || err "latency $input: no report"
     done
   else
     err "host did not start for latency: $why"
@@ -189,30 +316,36 @@ for name in "${names[@]}"; do
   kill "$marker" 2>/dev/null || true
   wait "$marker" 2>/dev/null || true
 
-  # Window: the scene's fixed timeline under one passive viewer.
-  echo "SCREEN-STREAM-EVAL-STAGE $name window"
-  go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
-  rm -f "$go" "$stop" "$dir/host.png"
-  "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases.jsonl" "$dir/host.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
-  scene=$!
-  pids+=("$scene")
-  sleep 2 # the scene's window is up before the host captures its first frame
-  if why=$(host_start); then
-    bash "$script" window "$window_s" "$dir/viewer-frame" "$go" "$dir/window.json" || err "window failed"
-  else
-    err "host did not start for the window: $why"
-    touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
-  fi
-  touch "$stop"
-  wait "$scene" || err "scene exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
-  bash "$script" host-stop
+  # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
+  # each time); eval.py reports each number's median and keeps every repeat's.
+  for rep in $(seq 1 "$repeats"); do
+    echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
+    go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
+    rm -f "$go" "$stop" "$dir/host-$rep.png"
+    "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases-$rep.jsonl" "$dir/host-$rep.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
+    scene=$!
+    pids+=("$scene")
+    sleep 2 # the scene's window is up before the host captures its first frame
+    if why=$(host_start); then
+      raw="$EVAL_STATE/window-$rep.raw"
+      rm -f "$raw" "$raw.clock" "$raw.span"
+      view window-view "$window_s" "$dir/viewer-frame-$rep" "$go" "$raw" || err "window $rep failed"
+      with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
+    else
+      err "host did not start for window $rep: $why"
+      touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
+    fi
+    touch "$stop"
+    wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
+    bash "$script" host-stop
 
-  echo "SCREEN-STREAM-EVAL-STAGE $name ocr"
-  if [[ -s "$dir/host.png" && -s "$dir/viewer-frame" ]]; then
-    "$EVAL_BIN/screen-eval-ocr" "$dir/host.png" "$dir/viewer-frame" "$dir/truth.txt" >"$dir/ocr.json" || err "ocr failed"
-  else
-    err "ocr: missing $( [[ -s "$dir/host.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame" ]] || echo 'viewer frame')"
-  fi
+    echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
+    if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+    else
+      err "ocr $rep: missing $( [[ -s "$dir/host-$rep.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame-$rep" ]] || echo 'viewer frame')"
+    fi
+  done
   # The logs, without the WebRTC host's pairing (its link and the QR code of it: the room secret).
   for log in "$EVAL_STATE"/*.log; do
     [[ -f "$log" ]] || continue
@@ -222,6 +355,7 @@ for name in "${names[@]}"; do
   echo "SCREEN-STREAM-EVAL-TARGET $name $(python3 -I -c 'import json,sys; t=json.load(open(sys.argv[1])); print(json.dumps({k: t[k] for k in ("ok", "latency", "kbps", "ocr")}))' "$dir/target.json")"
 done
 
+[[ -n "$lan" ]] && python3 -I "$here/peer.py" done "$work/peer"
 if [[ $ran == 0 ]]; then
   finish "no target built"
   exit 4

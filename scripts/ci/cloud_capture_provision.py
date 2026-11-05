@@ -35,6 +35,10 @@ CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud ch
 key belongs to that project; each target names the one project it may touch. The run also prints the account's
 Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
 
+`--target journey-production` does the same for the production Cloud journey's own account
+(cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
+CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
+
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
@@ -97,6 +101,15 @@ TARGETS = {
                          "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
                          "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
                          project=PRODUCTION_PROJECT_ID),
+    # The production Cloud journey (cloud-journey-prod.yml hourly, backend.yml journey-production): both run in this
+    # repository's cmux-next-cloud-journey environment and read the production pair as CMUX_DOGFOOD_STACK_*, which
+    # shadows the repository's dev pair (production refuses that one with EMAIL_PASSWORD_MISMATCH). Its own
+    # account, so rotating it never signs the probe's account out.
+    "journey-production": Target("cmux-cloud-capture-journey-prod@manaflow.dev", "cmux cloud journey (production)",
+                                 "manaflow-ai/cmux", "cmux-next-cloud-journey", "3380204578043523366",
+                                 "phe+RfKRmKGeO9B3rCULM4jdTzJX8aS7LbvGrIoTFWM=",
+                                 "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
+                                 project=PRODUCTION_PROJECT_ID),
 }
 CAPTURE = TARGETS["capture"]
 EMAIL = CAPTURE.email

@@ -139,7 +139,8 @@ const collapsibles: Array<{ name: string; node: () => ReactNode; body: string }>
         items={[tool("mcp", { title: "mcp__hub__send_message", inputSummary: '{"to":"lane"}' })]}
       />
     ),
-    body: ".cv-mcp-call",
+    // An object of arguments opens to its labeled fields (ToolDetail.tsx).
+    body: ".cv-tool-detail",
   },
   {
     name: "a settled run",
