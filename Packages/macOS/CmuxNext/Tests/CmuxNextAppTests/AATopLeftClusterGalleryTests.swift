@@ -180,6 +180,23 @@ import Testing
         }
     }
 
+    /// The New Workspace row's label starts after its + glyph, on the icon rows' text column (the first capture
+    /// drew the + over the "N": the label sat on the iconless text column).
+    @Test func newWorkspaceRowLabelClearsGlyph() async throws {
+        _ = NSApplication.shared
+        for density in [SidebarDensity.comfortable, .expanded] {
+            let saved = DesignSettings.shared.sidebarSections
+            DesignSettings.shared.sidebarSections.density = density
+            defer { DesignSettings.shared.sidebarSections = saved }
+            let row = SidebarNewWorkspaceRow()
+            row.frame = NSRect(x: 0, y: 0, width: 260, height: SidebarDensityTokens.rowHeight)
+            row.layoutSubtreeIfNeeded()
+            let columns = SidebarStyle.columns(rowWidth: 260)
+            #expect(row.name.frame.minX + SidebarStyle.labelCellPadding >= row.glyph.frame.maxX, "\(density): label clears the +")
+            #expect(abs(row.name.frame.minX - (columns.text(hasLeadingMark: true) - SidebarStyle.labelCellPadding)) < 0.5)
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() async throws {
         let root = AANestedGroupsGalleryTests.packageRoot
