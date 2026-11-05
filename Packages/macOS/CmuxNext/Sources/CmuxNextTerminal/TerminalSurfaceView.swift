@@ -477,7 +477,8 @@ public final class TerminalSurfaceView: NSView {
         // reflowed. A held or coalesced grid is reported later: the preview draws it meanwhile.
         updateReflowPreview(reporting: report != nil || geometry.held || gridReports.isWaiting)
         guard let report else { return }
-        if isFollowingResizeGesture, !forceReport { gridReports.coalesced(report) } else { gridReports.now(report) }
+        // A drag's grid goes once its size shows: now with the bounds, or when the presenter shows it (`frameDidLand`).
+        if !isFollowingResizeGesture || forceReport { gridReports.now(report) } else { gridReports.drag(report, shownNow: frameOwnership.inFlight == nil) }
     }
 
     private func publish(size: ghostty_surface_size_s) {
