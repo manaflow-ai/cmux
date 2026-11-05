@@ -399,9 +399,11 @@ import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
+  BOTTOM_PIN_SHARE,
   atFoldBottom,
   clickFold,
   FOLD_HOLD_MIN_MS,
+  opensBody,
   FOLD_SETTLE_MS,
   foldHoldTarget,
   foldHolding,
@@ -5658,8 +5660,17 @@ export function VirtualTranscript({
       // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
       // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
       // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
-      // text above it up; what closes pulls it down. No blank room is left under the rows.
-      if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
+      // text above it up; what closes pulls it down. No blank room is left under the rows. A line
+      // that opens higher up than BOTTOM_PIN_SHARE of the view from its foot opens downward instead,
+      // as anywhere else: the line and the rows over it held, the rows under it moving down (Leo,
+      // 2026-11-05: "when you get >like 50-70% up the screen from the bottom then it starts doing it
+      // normally expanding down"). A close at the bottom still pins it wherever its line is.
+      if (
+        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX) ||
+        (opensBody(toggle) &&
+          node.getBoundingClientRect().bottom - toggle.getBoundingClientRect().top >
+            node.clientHeight * BOTTOM_PIN_SHARE)
+      ) {
         stopBottomStackFold();
         return false;
       }

@@ -80,18 +80,33 @@ you have read its `webviews/` changes and add `--fork`.
 ### Try a pull request without knowing what it changed
 
 ```sh
-scripts/cmux-next/try-pr.sh <PR>            # --dry-run to only look, --build to request the dev build
+scripts/cmux-next/try-pr.sh <PR>            # --here for your own app, --dry-run to only look
+scripts/cmux-next/try-pr.sh <PR> --stop     # quit and remove its side instance
 ```
 
-reads the PR's diff with git and takes the cheapest path. A web-only PR goes straight to
-`web-overlay.sh follow`, so the running app shows it in seconds with no build. A PR that changes
-only CI, tests or docs is reported as nothing to try. A PR that changes the daemon, Swift, a
-resource or a manifest needs a new binary: the script says why (a stored property, a changed
-signature, a new type in an existing file, and so on), and with `--build` it requests the fleet dev build tagged `pr-<N>`.
-The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs, about half of
-the ones that touch the app changed only web code or nothing in the app, so they need no new binary.
-A Swift change confined to function bodies and new files could be injected live once the app takes live code
-(the view shell does today); until then it takes the dev build.
+reads the PR's diff with git and takes the cheapest path, in a side instance by default: a copy
+of your cmux NEXT named "cmux PR #N" with its own bundle id, data, settings and web overlay
+(`scripts/cmux-next/side-instance.sh`), so your app's data, sessions and settings stay apart. The copy
+starts signed out with fresh settings and never updates itself; cmux links still open your app.
+Like every cmux build on the Mac, it shares two folders with your app: `agent-home` (the folder a
+chat with no folder runs in, so its Home chats see your Home chats' files) and `Chat Uploads`.
+`try-pr.sh <PR> --stop` quits it with its terminal daemon and deletes it and the data it kept.
+
+- A web-only PR is patched in: the side instance opens and `web-overlay.sh follow` serves the PR's
+  web UI to it, with no build. Later pushes and edits hot-reload.
+- A PR that changes only CI, tests or docs is reported as nothing to try.
+- A PR that changes the daemon, Swift, a resource or a manifest needs a new binary: the script says
+  why (a stored property, a changed signature, a new type in an existing file, and so on), requests the fleet dev build
+  tagged `pr-<N>`, waits for it and opens that build as the side instance. `--no-build` stops at
+  the verdict.
+
+`--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
+build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
+about half of the ones that touch the app changed only web code or nothing in the app, so they
+need no new binary. A Swift change confined to function bodies and new files could be injected live once the
+app takes live code (the view shell does today); until then it takes the dev build.
+`scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
+loading in the side instance.
 
 ### No dev server: built bundles
 

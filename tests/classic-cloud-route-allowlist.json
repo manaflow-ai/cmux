@@ -54,18 +54,6 @@
       "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift",
-      "pattern": "base:cmux-staging",
-      "count": 1,
-      "reason": "debt: the classic staging API origin; the Cloud config move to Rust (lane cloud-config-rust) takes it out of Swift"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift",
-      "pattern": "base:cmux.com",
-      "count": 1,
-      "reason": "debt: the classic production API origin; the Cloud config move to Rust (lane cloud-config-rust) takes it out of Swift"
-    },
-    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineLink.swift",
       "pattern": "route:/api/vm",
       "count": 1,
@@ -94,6 +82,12 @@
       "pattern": "base:cmux.com",
       "count": 1,
       "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); production NEXT customers still sign in and reach their team on cmux.com until cmux-platform serves those routes; step B deletes the Swift copy"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: moved from CloudConfiguration.swift (#35284 deleted the Swift staging and production origins); the approved-host check for a backend client-config's credential origins, so it may name the staging sign-in, teams and billing origin; not a call; step B merges cmux-cloud-environment into cmux-cloud-config"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
