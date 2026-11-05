@@ -110,6 +110,10 @@ public final class CloudAuth {
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
+        // NEXT uses the same protected Keychain/file fallback as classic. Preserve a cached
+        // session when the Keychain is temporarily unreadable (for example, before first
+        // unlock) instead of treating an empty read as sign-out.
+        let tokenStorageAvailable: @Sendable () async -> Bool
         #if DEBUG
         if useCaptureFixture {
             let fixtureStore = CaptureFixtureTokenStore()
@@ -117,16 +121,19 @@ public final class CloudAuth {
             client = CaptureFixtureAuthClient(store: fixtureStore)
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
+            tokenStorageAvailable = { true }
         } else {
             let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
             tokenStore = productionStore
             authDefaults = defaults
+            tokenStorageAvailable = { await productionStore.isTokenStorageAvailable() }
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
         let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
         tokenStore = productionStore
         authDefaults = defaults
+        tokenStorageAvailable = { await productionStore.isTokenStorageAvailable() }
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         #endif
         let sessionStore = tokenStore
@@ -176,7 +183,8 @@ public final class CloudAuth {
                                       // credentials though it is not compiled DEBUG (``launchSignIn``); the signed NEXT DEV
                                       // build only from the file's resolved credentials, never raw launch keys.
                                       allowsEnvironmentAutoLogin: signIn.devAuth || (signIn.autoLogin && decision.credentials != nil)),
-            isOnline: { !useCaptureFixture }
+            isOnline: { !useCaptureFixture },
+            isTokenStorageAvailable: tokenStorageAvailable
         )
         activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
