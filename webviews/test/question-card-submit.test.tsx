@@ -110,10 +110,10 @@ async function renderCard(): Promise<{ container: HTMLElement; replies: Question
 }
 
 const submitButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-question-submit")!;
-/// The button's words, without its keycap.
+/// The button's words, without its keycaps (⌘ and ↩ are one each, as the permission card's).
 const buttonLabel = (container: HTMLElement) => {
   const button = submitButton(container).cloneNode(true) as HTMLElement;
-  button.querySelector(".acpmux-keycap")?.remove();
+  for (const key of button.querySelectorAll(".acpmux-keycap")) key.remove();
   return button.textContent?.trim() ?? "";
 };
 const activeTab = (container: HTMLElement) =>
@@ -230,4 +230,19 @@ test("the button's label is drawn in a color the theme always sets", () => {
   const rule = css.match(/\.acpmux-question-submit\{[^}]*\}/)?.[0] ?? "";
   expect(rule).not.toBe("");
   expect(rule).not.toContain("--agent-page-bg");
+});
+
+// Leo 2026-11-05, of the pill, the option rows and the custom answer: "kind of ugly". The pill is the
+// one Needs you dot before a capsule with the words and the fold chevron, and Submit draws ⌘ and ↩ as
+// one keycap each, as the permission card does.
+test("the pill is the Needs you dot and a capsule, and Submit shows ⌘ and ↩ as two keycaps", async () => {
+  const { container } = await renderCard();
+  const pill = container.querySelector(".acpmux-question-status")!;
+  expect(pill.firstElementChild?.className).toBe("acpmux-needs-you-dot");
+  expect(pill.querySelector(".acpmux-question-status-pill")?.textContent).toBe("Needs your input");
+  expect(pill.querySelector(".acpmux-question-status-pill .acpmux-question-status-chevron")).not.toBeNull();
+  await click(submitButton(container));
+  const keys = [...submitButton(container).querySelectorAll(".acpmux-keycap")].map((key) => key.textContent);
+  expect(keys).toEqual(["⌘", "↩"]);
+  expect(submitButton(container).getAttribute("aria-keyshortcuts")).toBe("Meta+Enter");
 });
