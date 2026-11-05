@@ -24,22 +24,22 @@ public final class HomeChiefComputerPopup: NSView {
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = HomeChiefComputerSection.screenCorner + Self.inset
-        layer?.cornerCurve = .continuous
-        shadow = NSShadow()
-        layer?.shadowOpacity = 0.3
-        layer?.shadowRadius = 12
-        layer?.shadowOffset = CGSize(width: 0, height: -4)
         translatesAutoresizingMaskIntoConstraints = false
         section.translatesAutoresizingMaskIntoConstraints = false
         section.watchesScreen = false
         section.onStatus = { [weak self] in self?.update() }
         section.onResize = { [weak self] in self?.update() }
+        // The glass sits behind the screen; the screen's own height sizes the popup.
+        let card = Glass.makeOverlayPanel(cornerRadius: HomeChiefComputerSection.screenCorner + Self.inset)
+        addSubview(card)
         addSubview(section)
         addSubview(dismissButton)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.width),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor),
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor),
             section.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset),
             section.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset),
             section.topAnchor.constraint(equalTo: topAnchor, constant: Self.inset),
@@ -80,7 +80,6 @@ public final class HomeChiefComputerPopup: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        performWithTheme { layer?.backgroundColor = Palette.popupSurface.cgColor }
         if window != nil { follow(working: working) }
     }
 

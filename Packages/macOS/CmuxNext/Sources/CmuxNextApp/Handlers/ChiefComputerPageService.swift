@@ -31,13 +31,14 @@ final class ChiefComputerPageService: InternalPageProvider {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let service = ChiefComputerPageService(services: context.services)
         context.services.pages.register(service)
-        registry.bind(toggleActionID, run: { invocation in
-            guard let window = context.services.windows.active else { throw ActionWorkFailure(RefusalStrings.noWindowOpen) }
-            if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return }
+        registry.bindEffect(toggleActionID, requires: nil, effect: { invocation in
+            guard let window = context.services.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+            if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return .done }
             guard let conversation = invocation.arguments["conversation"]?.stringValue, !conversation.isEmpty,
                   service.open(conversation, in: window, focus: invocation.allowsViewChange) != nil else {
-                throw ActionWorkFailure(RefusalStrings.noWindowOpen)
+                return .refused(RefusalStrings.noWindowOpen)
             }
+            return .done
         })
     }
 

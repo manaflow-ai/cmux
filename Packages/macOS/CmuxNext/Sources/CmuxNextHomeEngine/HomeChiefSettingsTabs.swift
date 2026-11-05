@@ -150,7 +150,7 @@ final class HomeChiefSettingsTabs: NSStackView {
     private final class Pill: HomeChiefCardButton {
         static let height: CGFloat = 26
         static let padding: CGFloat = 8
-        static var font: NSFont { Typography.system(size: 14, weight: .regular) }
+        static var font: NSFont { Typography.system(size: TypeScale.field, weight: TypeScale.regular) }
         private let text: String
         var isChosen = false { didSet { applyTheme() } }
 

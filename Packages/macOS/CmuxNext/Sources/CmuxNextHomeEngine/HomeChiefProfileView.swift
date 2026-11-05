@@ -63,7 +63,7 @@ public final class HomeChiefProfileView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.home.chief.profile")
         avatar.isEnabled = false
-        nameLabel.font = Typography.system(size: 17, weight: .regular)
+        nameLabel.font = Typography.system(size: TypeScale.title, weight: TypeScale.regular)
         nameLabel.alignment = .center
         nameLabel.lineBreakMode = .byTruncatingTail
         placeLabel.font = Typography.body
@@ -171,7 +171,7 @@ public final class HomeChiefProfileView: NSView {
         gateBox.wantsLayer = true
         gateBox.layer?.cornerRadius = HomeChiefComputerSection.screenCorner
         gateBox.layer?.cornerCurve = .continuous
-        gateLabel.font = Typography.system(size: 14, weight: .regular)
+        gateLabel.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         gateLabel.alignment = .center
         gateButton.bezelStyle = .rounded
         gateButton.target = self

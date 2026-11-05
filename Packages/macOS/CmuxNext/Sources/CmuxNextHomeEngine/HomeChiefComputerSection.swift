@@ -83,7 +83,7 @@ public final class HomeChiefComputerSection: NSStackView {
         orientation = .vertical
         alignment = .centerX
         spacing = 10
-        caption.font = Typography.system(size: 12, weight: .regular)
+        caption.font = Typography.system(size: TypeScale.detail, weight: TypeScale.regular)
         caption.ink = .secondary
         caption.alignment = .center
         caption.lineBreakMode = .byTruncatingTail
@@ -97,7 +97,7 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.setAccessibilityRole(.image)
         screen.setAccessibilityIdentifier("cmux.home.chief.computer.screen")
         screen.translatesAutoresizingMaskIntoConstraints = false
-        message.font = Typography.system(size: 14, weight: .regular)
+        message.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         message.alignment = .center
         let note = NSStackView(views: [sleepFace, message])
         note.orientation = .vertical
