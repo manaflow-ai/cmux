@@ -222,7 +222,7 @@ impl LocalStore {
             // may hold nothing, and the record keeps it from passing for a purged chat's. Until it
             // says complete, a later pass compacts the log again. Only a commit that goes ahead
             // writes it, so a refused one leaves the chat's folder as it was.
-            write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+            write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
                 w.close(id, &self.sync_failed);
@@ -237,9 +237,42 @@ impl LocalStore {
         }
         sync_directory(&self.dir(id).join("events"))?;
         marker.complete = true;
-        write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+        write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)
     }
+}
+
+/// Writes `bytes` to `path` whole and durably, as `config::write_atomic` does, but a failed sync
+/// of the file or of its folder is an error (a [`SyncFailed`] for the folder's), not ignored: a
+/// compaction's record is what keeps a log that may hold nothing from passing for a purged chat's,
+/// and the journal store freezes on a failed sync of its files (#35905).
+fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
+    crate::config::refuse_lost_home(path)?;
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = (|| -> Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
+        file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
+        drop(file);
+        std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+        match path.parent() {
+            Some(dir) => sync_directory(dir).with_context(|| format!("sync {}", dir.display())),
+            None => Ok(()),
+        }
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// Which of Claude's raw `stream_event` lines a request's timing reads, as the tap keeps them
