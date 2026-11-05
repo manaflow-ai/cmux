@@ -159,7 +159,11 @@ export const Lines = memo(function Lines({
   return (
     <>
       {chunks.map((chunk) => (
-        <LineChunk key={chunk.offset} chunk={chunk} last={chunk.offset + chunk.lines.length === allLines.length} />
+        <LineChunk
+          key={chunk.offset}
+          chunk={chunk}
+          last={chunk.offset + chunk.lines.length === startLine + allLines.length}
+        />
       ))}
     </>
   );

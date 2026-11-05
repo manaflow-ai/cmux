@@ -261,6 +261,12 @@ test("ShellBlock keeps chunk identity when the live output tail slides", async (
   expect(line("line 200\n", "line 200")).toBe(middle);
 });
 
+test("a live suffix keeps its final line free of an extra newline", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
+  expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
+});
+
 test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {
   const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));

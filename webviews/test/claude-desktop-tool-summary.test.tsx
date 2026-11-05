@@ -137,10 +137,10 @@ test("a background command's end reads Background command completed, its command
   const html = renderToStaticMarkup(
     <BackgroundTaskNote task={{ toolCallId: "x", command: "pytest -x", state: "completed" }} />,
   );
-  expect(html).toMatch(/class="cv-bgtask__lead"[^>]*>Background command completed<\/span>/);
-  expect(html).toMatch(/class="cv-bgtask__title"[^>]*>pytest -x<\/span>/);
+  expect(html).toMatch(/class="cv-bgtask__state"[^>]*>Background command completed<\/span>/);
+  expect(html).toMatch(/class="cv-bgtask__command"[^>]*>pytest -x<\/code>/);
   const failed = renderToStaticMarkup(
     <BackgroundTaskNote task={{ toolCallId: "y", command: "pytest -x", state: "failed" }} />,
   );
-  expect(words(failed)).toContain("Background command failed pytest -x");
+  expect(words(failed)).toContain("pytest -x Background command failed");
 });
