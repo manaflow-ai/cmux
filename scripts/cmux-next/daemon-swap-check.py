@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import select
 import signal
 import socket
@@ -82,7 +83,7 @@ def wait_until(what: str, deadline: float, probe):
     while now() < deadline:
         try:
             value = probe()
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             last = error
             value = None
         if value:
@@ -209,21 +210,20 @@ class Daemon:
         self.proc: subprocess.Popen | None = None
 
     def start(self, binary: Path) -> None:
-        env = {
-            k: v for k, v in os.environ.items() if k not in ("CMUX_BUNDLE_ID", "CMUX_TAG", "ENV", "BASH_ENV")
-        }
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("ACPMUX_", "CMUX_")) and k not in ("ENV", "BASH_ENV")}
         env.update(
             CMUX_TUI_STATE_DIR=str(self.root / "cmux-tui" / "sessions"),
             CMUX_TUI_HOST_EXE_DIR=str(self.root / "host-exe"),
             CMUX_TUI_SHELL_INTEGRATION="none",
             SHELL="/bin/sh",
         )
-        log = open(self.root / f"daemon-{int(time.time() * 1000)}.log", "wb")
-        self.proc = subprocess.Popen(
-            [str(binary), "--headless", "--session", "swap-check", "--socket", str(self.socket),
-             "--state", str(self.state)],
-            env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-        )
+        with open(self.root / f"daemon-{int(time.time() * 1000)}.log", "wb") as log:
+            self.proc = subprocess.Popen(
+                [str(binary), "--headless", "--session", "swap-check", "--socket", str(self.socket),
+                 "--state", str(self.state)],
+                env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+            )
 
     def wait_ready(self, deadline: float) -> None:
         wait_until("daemon socket", deadline, lambda: data(self.socket, {"cmd": "identify"}))
@@ -276,6 +276,7 @@ def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
         return terminal_swap(daemon, old, new, count, started)
     finally:
         if daemon.proc is not None:
+            started.update(host_pids(daemon.state))
             daemon.shutdown_with_terminals(started)
 
 
@@ -336,7 +337,7 @@ def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dic
     hosts_after = host_pids(daemon.state)
     same_hosts = all(hosts_after.get(k) == v for k, v in hosts.items())
     started.update(hosts_after)
-    passed = alive_after_stop and same_hosts and all(
+    passed = alive_after_stop and same_hosts and before_id.get("build_commit") != after_id.get("build_commit") and all(
         c.get("adopted") and c.get("scrollback_kept") and c.get("same_shell_pid") for c in checks)
     return {
         "phase": "terminals", "passed": passed, "count": count,
@@ -416,9 +417,9 @@ class Acpmux:
         return json.loads(self.run(binary, "--json", "daemon", "status", timeout=10))
 
     def start(self, binary: Path) -> None:
-        log = open(self.root / f"acpmux-{int(time.time() * 1000)}.log", "wb")
-        self.proc = subprocess.Popen([str(binary), "daemon", "run"], env=self.env(), stdout=log,
-                                     stderr=subprocess.STDOUT, start_new_session=True)
+        with open(self.root / f"acpmux-{int(time.time() * 1000)}.log", "wb") as log:
+            self.proc = subprocess.Popen([str(binary), "daemon", "run"], env=self.env(), stdout=log,
+                                         stderr=subprocess.STDOUT, start_new_session=True)
 
     def host_records(self) -> list[dict]:
         records = []
@@ -433,7 +434,8 @@ class Acpmux:
 def agent_phase(old: Path, new: Path, work: Path) -> dict:
     mux = Acpmux(work / "agents")
     wrapper = mux.root / "fake-agent"
-    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} -I {Path(__file__).resolve()} --fake-agent\n")
+    script = shlex.quote(str(Path(__file__).resolve()))
+    wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I {script} --fake-agent\n")
     wrapper.chmod(0o755)
     mux.run(old, "harness", "add", "swapfake", "--command", str(wrapper))
     mux.start(old)
@@ -465,10 +467,21 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         except RuntimeError:
             pass
     finally:
+        # A CLI call can start its own daemon in this isolated home when the
+        # one started here died: ask whichever answers there to shut down
+        # with its agents (`daemon shutdown` never starts one).
+        for binary in (new, old):
+            try:
+                mux.run(binary, "daemon", "shutdown", "--end-agents", timeout=20)
+                break
+            except (RuntimeError, subprocess.TimeoutExpired):
+                pass
         if mux.proc and mux.proc.poll() is None:
             stop(mux.proc)
-        # Only the agent host and harness this check started.
-        for pid in pids:
+        # Only agent hosts and harnesses of this isolated home (its records,
+        # read again here, so a failure before the swap leaves none).
+        pids += [p for r in mux.host_records() for p in (r.get("host_pid"), r.get("harness_pid")) if p]
+        for pid in set(pids):
             if pid_alive(pid):
                 os.kill(pid, signal.SIGKILL)
     same_conversation = "turn=2" in second
@@ -524,6 +537,11 @@ def main() -> int:
         parser.error("give --old and --new, or --fetch")
     report["old"] = version(args.old)
     report["new"] = version(args.new)
+    if report["old"] == report["new"]:
+        # A restart of one build is not a swap: refuse instead of passing.
+        report.update(passed=False, error="old and new are the same build")
+        print(json.dumps(report, indent=2))
+        return 1
 
     work = Path(tempfile.mkdtemp(prefix="cmux-swap-", dir="/tmp"))
     phases = []
@@ -533,9 +551,9 @@ def main() -> int:
                 if phase == "terminals":
                     phases.append(terminal_phase(args.old, args.new, args.terminals, work))
                 elif phase == "agents":
-                    old_mux = args.old_acpmux or args.old
-                    new_mux = args.new_acpmux or args.new
-                    phases.append(agent_phase(old_mux, new_mux, work))
+                    if not (args.old_acpmux and args.new_acpmux):
+                        raise RuntimeError("the agents phase needs --old-acpmux and --new-acpmux (or --fetch)")
+                    phases.append(agent_phase(args.old_acpmux, args.new_acpmux, work))
                 else:
                     parser.error(f"unknown phase {phase}")
             except Exception as error:  # noqa: BLE001 - a failed phase is a red row, reported
