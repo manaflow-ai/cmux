@@ -20,7 +20,7 @@ struct PausedMachineWindowTests {
         session.machine.status = .paused
         session.machine.pauseReason = .idle
         var resumed: [String] = []
-        session.resumer = { resumed.append($0) }
+        session.resumer = { id, _ in resumed.append(id) }
         services.windows.registry.provisional["paused-machine-window"] = ["paused-machine-ws"]
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: "paused-machine-window"))
         defer {
@@ -53,7 +53,7 @@ struct PausedMachineWindowTests {
         let session = MachineIconTests.cloudMachine(services, id: "vm-live-\(UUID().uuidString.prefix(8))")
         session.machine.status = .running
         var resumed = 0
-        session.resumer = { _ in resumed += 1 }
+        session.resumer = { _, _ in resumed += 1 }
         services.windows.registry.provisional["live-machine-window"] = ["live-machine-ws"]
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: "live-machine-window"))
         defer {
