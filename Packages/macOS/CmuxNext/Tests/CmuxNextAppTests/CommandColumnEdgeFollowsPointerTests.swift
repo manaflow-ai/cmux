@@ -58,6 +58,27 @@ struct CommandColumnEdgeFollowsPointerTests {
         screen.release(view, at: CGPoint(x: from.x + dx, y: from.y), flags: .command)
     }
 
+    @Test func commandDraggingWhileTheCameraSpringsMeasuresThePointerWhereItShows() throws {
+        // Codex review of 667ef1ebb0c: the camera shows 0 pt on its way to 100 pt (a reveal in flight) when c0's edge is
+        // dragged 30 pt right with Command. c0 has no column before it, so no anchor shift: it grows by the pointer's
+        // 30 pt, as a plain drag does, not by the camera's 100 pt still to go as well.
+        let screen = Screen(DividerModifierDragTests.threeColumns([0.45, 0.45, 0.45]))
+        defer { screen.window.closeAfterTest() }
+        let view = screen.screen
+        try #require(view.geometry.maxOffset > 150, "the strip has \(view.geometry.maxOffset) pt of room")
+        let start = try #require(view.geometry.columns["c0"]).width
+        // The camera at rest at 0, its target 100 pt on: a spring the drag's frame steps.
+        view.scroll.target = 100
+        let (handle, from) = try screen.press(.columnEdge("c0"), flags: .command)
+        handle.mouseDragged(with: NSEvent.mouseEvent(with: .leftMouseDragged, location: CGPoint(x: from.x + 30, y: from.y), modifierFlags: .command,
+                                                     timestamp: 0, windowNumber: screen.window.windowNumber, context: nil, eventNumber: 0,
+                                                     clickCount: 1, pressure: 1)!)
+        _ = screen.root.advanceFrame(1.0 / 120)
+        let width = try #require(view.geometry.columns["c0"]).width
+        #expect(abs(width - (start + 30)) < 1, "c0 is \(width - start) pt wider for the pointer's 30 pt")
+        screen.release(handle, at: CGPoint(x: from.x + 30, y: from.y), flags: .command)
+    }
+
     @Test func commandDraggingTheSecondColumnsEdgeInAStripThatScrollsFollowsThePointerOverSeveralMoves() throws {
         // Three columns at 0.45 of the strip: it scrolls, the camera rests at its start with room to move.
         let screen = Screen(DividerModifierDragTests.threeColumns([0.45, 0.45, 0.45]))

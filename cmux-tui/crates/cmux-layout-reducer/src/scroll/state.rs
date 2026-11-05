@@ -531,9 +531,6 @@ impl ColumnScrollState {
     }
 }
 
-/// Swift's `samples.removeAll { time - $0.time > 0.1 }` keeps a sample whose
-/// age is not more than 0.1 s, a NaN age included.
-#[allow(clippy::neg_cmp_op_on_partial_ord)]
 /// The part of an anchor's shift `delta` a camera whose target is `target` can
 /// take in a strip with `max_offset` of room (Swift
 /// `ColumnScrollState.anchorShift`): all of it while the shifted target stays
@@ -547,6 +544,9 @@ fn anchor_shift(delta: f64, target: f64, max_offset: f64) -> f64 {
     }
 }
 
+/// Swift's `samples.removeAll { time - $0.time > 0.1 }` keeps a sample whose
+/// age is not more than 0.1 s, a NaN age included.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn kept_by_remove_all(age: f64) -> bool {
     !(age > 0.1)
 }
