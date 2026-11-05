@@ -1,0 +1,83 @@
+name: classic frozen guard
+
+# The files classic cmux customers depend on are frozen until Leo decides the migration
+# (.github/classic-frozen.txt). A pull request into feat-cmux-next or main that changes one fails
+# this check unless it carries the label `classic-migration`, which is Leo's to add. Adding or
+# removing a label re-runs it. scripts/ci/classic_frozen_guard.py decides, run from the base commit
+# with the base's manifest, never the pull request's code; the head is read only as a list of
+# changed paths. Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like
+# "classic, don't touch until we decide to do the migration"".
+on:
+  pull_request:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: classic-frozen-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classic-frozen:
+    name: classic-frozen-guard
+    # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the guard and the manifest from the base commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/classic_frozen_guard.py
+            .github/classic-frozen.txt
+          sparse-checkout-cone-mode: false
+
+      - name: Check the changed paths against the classic-frozen list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/classic_frozen_guard.py ] || [ ! -f .github/classic-frozen.txt ]; then
+            # The pull request that adds the guard: its base has no guard to run yet.
+            echo "::notice::The base has no classic-frozen guard yet; nothing to check."
+            exit 0
+          fi
+          # One record per changed file; a rename's old path also counts as changed, but not as a record.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"; then
+            # The REST listing shares the installation's rate limit. Read the same paths from the PR's
+            # merge commit (classic-api-guard.yml's fallback): its first parent is the base.
+            echo "::warning::The REST file listing failed; reading the changed paths from refs/pull/$PR/merge."
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            export GIT_CONFIG_VALUE_0
+            if git fetch --no-tags --filter=blob:none --depth=2 \
+                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
+               && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.tsv"; then
+              :
+            else
+              echo "::error::Could not list the changed paths; re-run this check."
+              exit 1
+            fi
+          fi
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          python3 scripts/ci/classic_frozen_guard.py --base "$BASE" \
+            --paths-file "$RUNNER_TEMP/paths.txt" --labels-json "$LABELS_JSON" \
+            --expected-files "$CHANGED_FILES" --listed-records "$records"

@@ -214,6 +214,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the classic-frozen guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_frozen_guard.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
