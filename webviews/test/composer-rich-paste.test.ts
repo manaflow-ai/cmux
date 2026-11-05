@@ -107,26 +107,15 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       };
     }, FIELD);
 
-  /// Selects the whole prompt and copies it: what the copy puts on the clipboard.
-  const copyPrompt = (page: Page) =>
-    page.evaluate((field) => {
-      const editable = document.querySelector<HTMLElement>(field)!;
-      const handle = (editable.closest(".acpmux-md-field") as HTMLElement & { acpmuxMarkdownField?: any })
-        .acpmuxMarkdownField!;
-      handle.focus();
-      handle.selectAll();
-      const data = new DataTransfer();
-      editable.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }));
-      return { plain: data.getData("text/plain"), html: data.getData("text/html") };
-    }, FIELD);
-
   /// The prompt's blocks, by tag and text.
   const blocks = (page: Page) =>
     page.evaluate(
       (field) =>
-        [...document.querySelector<HTMLElement>(field)!.querySelectorAll("ul > li, ol > li, h1, h2, h3, pre, p")].map(
-          (node) => `${node.tagName}:${(node.textContent ?? "").trim()}`,
-        ),
+        [
+          ...document
+            .querySelector<HTMLElement>(field)!
+            .querySelectorAll(":scope > p, ul > li, ol > li, h1, h2, h3, pre"),
+        ].map((node) => `${node.tagName}:${(node.textContent ?? "").trim()}`),
       FIELD,
     );
   const settled = (page: Page, text: string) =>

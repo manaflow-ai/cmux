@@ -746,8 +746,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (!disposed && field) field.scrollTop = field.scrollHeight;
         });
       };
-      // A paste read as Markdown (`richPasteMarkdown`) goes in as the blocks typing it would make, open
-      // at both ends so its first and last lines join the text around the caret. False when the
+      // A paste read as Markdown (`richPasteMarkdown`) goes in as the blocks typing it would make; a
+      // paragraph at either end joins the text around the caret. False when the
       // editor is not made yet or the Markdown does not parse: the paste goes in as plain lines.
       const insertMarkdown = (editorView: EditorView, markdown: string) => {
         const made = editor.current;
@@ -759,7 +759,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           return false;
         }
         if (!parsed?.content.size) return false;
-        const slice = Slice.maxOpen(withLineBreaks(parsed.content, editorView));
+        // Open only at an end that is a paragraph: a pasted list or heading after typed words stays a
+        // list or heading, never its first item joined to the words.
+        const content = withLineBreaks(parsed.content, editorView);
+        const paragraph = editorView.state.schema.nodes.paragraph;
+        const open = (node: ProseNode | null) => (node?.type === paragraph ? 1 : 0);
+        const slice = new Slice(content, open(content.firstChild), open(content.lastChild));
         editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView());
         return true;
       };
