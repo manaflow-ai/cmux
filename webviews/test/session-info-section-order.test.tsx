@@ -202,9 +202,12 @@ test("a section drags into another block, lifted while held, and the order stays
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, with Progress (no plan here, so not drawn) in its slot.
+  // The saved order is the drawn one, with Progress (no plan here) and Also working here (no other chat
+  // here) in their slots, neither drawn.
   expect(
-    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "progress"),
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
+      (id) => id !== "progress" && id !== "alsoHere",
+    ),
   ).toEqual(order(container));
   await act(async () => root.unmount());
 
@@ -313,6 +316,7 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "progress",
     "tasks",
     "subagents",
+    "alsoHere",
   ]);
   await act(async () => root.unmount());
 });
@@ -331,6 +335,7 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "outputs",
     "progress",
     "tasks",
+    "alsoHere",
     "subagents",
   ]);
   expect(parseOrder(JSON.stringify({ about: 3 }))).toEqual([]);
@@ -426,6 +431,7 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
     "progress",
     "usage",
     "tasks",
+    "alsoHere",
     "sources",
     "changes",
     "outputs",

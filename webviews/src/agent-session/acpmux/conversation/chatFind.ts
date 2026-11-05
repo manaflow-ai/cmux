@@ -8,12 +8,12 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
-import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { cleanText, mcpCall, mcpOutputResult, prettyOutput, type McpCall } from "./mcpCalls";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { agentMessage } from "./agentMessages";
-import { dispatchCall } from "./dispatchCalls";
+import { dispatchCall, dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { subsessionCall } from "./subsessionCalls";
-import { fieldsText, inputFields, opensToFields } from "./toolInputFields";
+import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
 import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
@@ -64,6 +64,12 @@ function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
   // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
   if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
+  // A dispatch or message card draws its words, never its call's input (DispatchCard.tsx,
+  // MessageCard.tsx): Find reads those, from either harness's shape.
+  const dispatch = dispatchCall(item);
+  if (dispatch) return dispatchText(dispatch);
+  const message = !tool.command && !acpmuxMcpSends(tool) ? agentMessage(tool) : undefined;
+  if (message) return [message.to, message.text].filter(Boolean).join("\n");
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
@@ -79,8 +85,9 @@ function drawnText(item: AcpmuxActivity): string {
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
     // Arguments that open as labeled fields are read as their values (ToolDetail.tsx); any other
     // shape, and a hook's refusal, as the pretty request.
-    const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args);
-    return [fields ? fieldsText(fields, plainText) : prettyValue(call.args), text].filter(Boolean).join("\n");
+    const source = argsSource(tool);
+    const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args, source);
+    return [fields ? fieldsText(fields, plainText) : requestText(call.args, source), text].filter(Boolean).join("\n");
   }
   // A subagent's card draws its report, then its prompt (AgentCallCard.tsx); its line is a summary.
   const agent = agentCall(tool);
@@ -123,12 +130,24 @@ function drawnText(item: AcpmuxActivity): string {
     .join("\n");
 }
 
-/** An MCP call a card draws instead of the MCP row (toolGroups.ts): a sub-session, a dispatch, a
- * sent or another agent's message. Its Raw keeps the request as it came, which Find reads. */
+/** An MCP call a card draws instead of the MCP row (toolGroups.ts): a sub-session, a sent or
+ * another agent's message. Its Raw keeps the request as it came, which Find reads. */
 const drawnAsCard = (item: AcpmuxActivity, call: McpCall) =>
-  Boolean(
-    dispatchCall(item) || acpmuxMcpSends(item.tool!) || agentMessage(item.tool!) || subsessionCall(item.tool!, call),
-  );
+  Boolean(acpmuxMcpSends(item.tool!) || agentMessage(item.tool!) || subsessionCall(item.tool!, call));
+
+/** A dispatch card's words, as DispatchCard.tsx draws them opened. */
+const dispatchText = (call: DispatchCall) =>
+  [
+    call.title ?? call.briefId,
+    call.text,
+    call.summary !== call.text && call.summary,
+    call.from,
+    dispatchDestination(call),
+    call.stopCondition,
+    call.briefId,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
 const diffText = (item: AcpmuxActivity) => (item.tool?.diffs ?? []).map((diff) => diff.newText).join("\n");

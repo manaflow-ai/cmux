@@ -1350,10 +1350,12 @@
         "CmuxNextActions",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextSidebar"
       ],
       "packages": []
     },
@@ -1415,6 +1417,15 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextLiveCodeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLiveCodeTests",
+      "targets": [
+        "CmuxNextLiveCode"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextMacScreen": {
       "kind": "regular",
@@ -1836,7 +1847,8 @@
         "CmuxNextCloud",
         "CmuxNextDesign",
         "CmuxNextIcons",
-        "CmuxNextRemote"
+        "CmuxNextRemote",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

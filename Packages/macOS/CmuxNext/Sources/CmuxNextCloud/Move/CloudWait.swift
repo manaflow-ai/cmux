@@ -109,4 +109,27 @@ extension CloudWait {
             return await group.next().flatMap { $0 } ?? true
         }
     }
+
+    /// A start's link wait: `linkUp` once and, when `updating` waited out an update of the machine that ran
+    /// meanwhile (it restarts the daemon the link reached), once more, so the agent starts on the new daemon.
+    public static func linked(within limit: Duration, _ linkUp: () async -> Bool,
+                              updating: @escaping @Sendable () async -> Bool) async -> Bool {
+        let up = await linkUp()
+        guard up, await ended(within: limit, updating) else { return up }
+        return await linkUp()
+    }
+
+    /// `start`, tried once more when its first try failed on a connection that closed (`closed`), once `relink`
+    /// says the link is back: a just-resumed machine's link can drop once under a start (prod, 2026-11-05: "started
+    /// but its agent didn't (cmux-tui connection closed: EOF)"). Any other failure, a second one, or a link that
+    /// does not come back throws as it is.
+    public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
+                                      relink: () async -> Bool) async throws -> T {
+        do {
+            return try await start()
+        } catch where closed(error) && !Task.isCancelled {
+            guard await relink() else { throw error }
+            return try await start()
+        }
+    }
 }
