@@ -12,6 +12,7 @@ import ObjectiveC
 /// `-[CAContext createFencePort]` puts a fence in the creating thread's current transaction on that context and returns
 /// a send right to it. Every transaction that takes the port (`-[CAContext setFencePort:]`) joins the fence. The render
 /// server holds the fenced transactions until every send right to the port is gone, then applies them together.
+// crash-allow: immutable after init (a CAContext and three function pointers); CAContext is thread-safe under CA's own lock.
 public nonisolated final class CoreAnimationFence: @unchecked Sendable {
     /// A fence port: a Mach send right.
     public typealias Port = mach_port_t
@@ -46,14 +47,14 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
     /// Puts a fence in this thread's current transaction on the context and returns its port, or nil
     /// (`MACH_PORT_NULL`). The caller owns the send right: ``release(_:)`` it once every joined transaction committed.
     public func createFencePort() -> Port? {
-        let port = create(context, NSSelectorFromString("createFencePort"))
+        let port = create(context, CoreAnimationFence.selector("createFencePort"))
         return port == 0 ? nil : port
     }
 
     /// Joins this thread's current transaction on the context to the fence `port` (call between
     /// `CATransaction.begin()` and `commit()`).
     public func join(_ port: Port) {
-        set(context, NSSelectorFromString("setFencePort:"), port)
+        set(context, CoreAnimationFence.selector("setFencePort:"), port)
     }
 
     /// Lets every fenced transaction on the context go (`-[CAContext invalidateFences]`), when this OS has it.
@@ -61,7 +62,7 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
     @discardableResult
     public func invalidateFences() -> Bool {
         guard let invalidate else { return false }
-        invalidate(context, NSSelectorFromString("invalidateFences"))
+        invalidate(context, CoreAnimationFence.selector("invalidateFences"))
         return true
     }
 
@@ -77,22 +78,22 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
         found["class CAContext"] = contextClass != nil
         for name in ["createFencePort", "setFencePort:", "setFencePort:commitHandler:", "invalidateFences", "contextId",
                      "setLayer:", "layer", "invalidate"] {
-            found["-[CAContext \(name)]"] = contextClass.map { class_getInstanceMethod($0, NSSelectorFromString(name)) != nil } ?? false
+            found["-[CAContext \(name)]"] = contextClass.map { class_getInstanceMethod($0, CoreAnimationFence.selector(name)) != nil } ?? false
         }
         for name in ["remoteContextWithOptions:", "contextWithCGSConnection:options:", "localContext", "allContexts",
                      "currentContext"] {
-            found["+[CAContext \(name)]"] = contextClass.map { class_getClassMethod($0, NSSelectorFromString(name)) != nil } ?? false
+            found["+[CAContext \(name)]"] = contextClass.map { class_getClassMethod($0, CoreAnimationFence.selector(name)) != nil } ?? false
         }
         for name in ["setFencePort:", "addCommitHandler:forPhase:", "activate", "synchronize"] {
-            found["+[CATransaction \(name)]"] = class_getClassMethod(CATransaction.self, NSSelectorFromString(name)) != nil
+            found["+[CATransaction \(name)]"] = class_getClassMethod(CATransaction.self, CoreAnimationFence.selector(name)) != nil
         }
-        found["-[CALayer context]"] = class_getInstanceMethod(CALayer.self, NSSelectorFromString("context")) != nil
+        found["-[CALayer context]"] = class_getInstanceMethod(CALayer.self, CoreAnimationFence.selector("context")) != nil
         let host: AnyClass? = NSClassFromString("CALayerHost")
         found["class CALayerHost"] = host != nil
-        found["-[CALayerHost setContextId:]"] = host.map { class_getInstanceMethod($0, NSSelectorFromString("setContextId:")) != nil } ?? false
+        found["-[CALayerHost setContextId:]"] = host.map { class_getInstanceMethod($0, CoreAnimationFence.selector("setContextId:")) != nil } ?? false
         found["symbol CGSMainConnectionID"] = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSMainConnectionID") != nil
         if let window: AnyClass = NSClassFromString("NSWindow") {
-            found["-[NSWindow _layerContext]"] = class_getInstanceMethod(window, NSSelectorFromString("_layerContext")) != nil
+            found["-[NSWindow _layerContext]"] = class_getInstanceMethod(window, CoreAnimationFence.selector("_layerContext")) != nil
         }
         if let layer {
             found["layer.context non-nil"] = object(layer, "context") != nil
@@ -100,14 +101,20 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
         return found
     }
 
+    /// The selector named `name`. Every caller checks it with `class_getInstanceMethod`, `class_getClassMethod` or
+    /// `responds(to:)` before it calls it, so a selector this OS lacks is never sent.
+    static func selector(_ name: String) -> Selector {
+        NSSelectorFromString(name) // crash-allow: callers check the selector exists before sending it (see above)
+    }
+
     static func object(_ target: NSObject, _ name: String) -> NSObject? {
-        let selector = NSSelectorFromString(name)
+        let selector = CoreAnimationFence.selector(name)
         guard target.responds(to: selector) else { return nil }
         return target.perform(selector)?.takeUnretainedValue() as? NSObject
     }
 
     static func instanceFunction<F>(_ target: NSObject, _ name: String, as _: F.Type) -> F? {
-        let selector = NSSelectorFromString(name)
+        let selector = CoreAnimationFence.selector(name)
         guard let method = class_getInstanceMethod(type(of: target), selector) else { return nil }
         return unsafeBitCast(method_getImplementation(method), to: F.self)
     }
@@ -116,6 +123,7 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
 /// SPIKE: a layer tree in its own CAContext, shown in a window's tree through a `CALayerHost`, as WebKit's and
 /// Chromium's remote layers are, in one process. A fence made from ``fence`` holds only this context's commits.
 /// nil when this OS lacks a selector or class.
+// crash-allow: immutable after init; the layers and the CAContext are only read, and CA locks its own state.
 public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
     /// The layer to add to the window's tree: it shows the context's root layer.
     public let hostLayer: CALayer
@@ -135,12 +143,12 @@ public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
         guard let contextClass = NSClassFromString("CAContext"), let hostClass = NSClassFromString("CALayerHost") as? CALayer.Type
         else { return nil }
         var made: NSObject?
-        let remote = NSSelectorFromString("remoteContextWithOptions:")
+        let remote = CoreAnimationFence.selector("remoteContextWithOptions:")
         if let method = class_getClassMethod(contextClass, remote) {
             let function = unsafeBitCast(method_getImplementation(method), to: RemoteFunction.self)
             made = function(contextClass, remote, NSDictionary())?.takeUnretainedValue()
         }
-        let cgs = NSSelectorFromString("contextWithCGSConnection:options:")
+        let cgs = CoreAnimationFence.selector("contextWithCGSConnection:options:")
         if made == nil, let method = class_getClassMethod(contextClass, cgs),
            let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSMainConnectionID") {
             let connection = unsafeBitCast(symbol, to: MainConnection.self)()
@@ -151,13 +159,13 @@ public nonisolated final class CoreAnimationHostedContext: @unchecked Sendable {
               let fence = CoreAnimationFence(context: context),
               let contextId = CoreAnimationFence.instanceFunction(context, "contextId", as: ContextIdFunction.self)
         else { return nil }
-        let setLayer = NSSelectorFromString("setLayer:")
+        let setLayer = CoreAnimationFence.selector("setLayer:")
         guard context.responds(to: setLayer) else { return nil }
         context.perform(setLayer, with: root)
         let host = hostClass.init()
-        let setContextId = NSSelectorFromString("setContextId:")
+        let setContextId = CoreAnimationFence.selector("setContextId:")
         guard let setId = CoreAnimationFence.instanceFunction(host, setContextId, as: SetContextIdFunction.self) else { return nil }
-        setId(host, setContextId, contextId(context, NSSelectorFromString("contextId")))
+        setId(host, setContextId, contextId(context, CoreAnimationFence.selector("contextId")))
         self.context = context
         self.fence = fence
         hostLayer = host

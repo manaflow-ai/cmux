@@ -1,12 +1,12 @@
 {
  "rust": {
   "exit": {
-   "acpmux": 5,
+   "acpmux": 4,
    "chatmux-relay": 12,
    "cmux-app-host": 2,
    "cmux-browser-host": 2,
    "cmux-mux2": 17,
-   "cmux-rd-host": 3,
+   "cmux-rd-host": 1,
    "cmux-tui": 1
   },
   "expect": {
@@ -30,7 +30,7 @@
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 25
+   "cmux-tui-core": 24
   },
   "unwrap": {
    "acpmux": 134,
@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1136,
+   "cmux-tui-core": 1133,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -139,6 +139,7 @@
     "CmuxNextAgentPane": 2,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
+    "CmuxNextCompat": 1,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 3,
     "CmuxNextPhone": 1,
@@ -159,7 +160,7 @@
     "CmuxNextApp": 4,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 10,
+    "CmuxNextCompat": 12,
     "CmuxNextCrashReporting": 11,
     "CmuxNextDesign": 6,
     "CmuxNextFiles": 2,
