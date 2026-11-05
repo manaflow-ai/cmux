@@ -1,0 +1,20 @@
+name: gallery health
+
+# Registration only. The real gallery health workflow lives on feat-cmux-next. GitHub resolves a
+# workflow by file name only when the file exists on the default branch, so without this file
+# cmux-next-gallery-health-dispatch.yml's dispatch 404s. A dispatch with ref feat-cmux-next runs
+# feat-cmux-next's own gallery-health.yml, never this one. This copy has no pull_request or push
+# trigger, so it never runs on main by itself, and a dispatch on main does nothing.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  registration:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - name: Nothing to do outside feat-cmux-next
+        run: echo "gallery health runs from feat-cmux-next's gallery-health.yml"
