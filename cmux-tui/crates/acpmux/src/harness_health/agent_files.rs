@@ -48,18 +48,19 @@ pub(super) fn file_auth(
     program: &str,
     env: &BTreeMap<String, String>,
 ) -> Option<(Auth, Option<String>)> {
-    // Only for the agent itself, not a wrapper that runs it elsewhere.
+    // Only for the agent itself (or its ACP adapter), by its exact program
+    // name: a wrapper (`my-gemini-wrapper`, `ssh`) may run it elsewhere.
     let names: &[&str] = match family {
         "gemini" => &["gemini"],
         "opencode" => &["opencode"],
-        "pi" => &["pi"],
-        "cursor" => &["cursor", "agent"],
+        "pi" => &["pi", "pi-acp"],
+        "cursor" => &["cursor-agent", "agent"],
         "copilot" => &["copilot"],
         "grok" => &["grok"],
-        "muse" => &["muse"],
+        "muse" => &["muse", "muse-acp"],
         _ => return None,
     };
-    if !names.iter().any(|name| program.contains(name)) {
+    if !names.contains(&program) {
         return None;
     }
     let var = |key: &str| env.get(key).is_some_and(|v| !v.trim().is_empty());
@@ -274,9 +275,13 @@ mod tests {
     #[test]
     fn a_wrapper_or_another_family_gets_no_answer() {
         let dir = home("wrapper");
-        let env = env(&dir, &[("GEMINI_API_KEY", "k")]);
-        assert_eq!(auth("gemini", "ssh", &env), None);
-        assert_eq!(auth("aider", "aider", &env), None);
+        let gemini = env(&dir, &[("GEMINI_API_KEY", "k")]);
+        assert_eq!(auth("gemini", "ssh", &gemini), None);
+        assert_eq!(auth("gemini", "my-gemini-wrapper", &gemini), None);
+        let cursor = env(&dir, &[("CURSOR_API_KEY", "k")]);
+        assert_eq!(auth("cursor", "agent-wrapper", &cursor), None);
+        assert_eq!(auth("cursor", "agent", &cursor), Some(Auth::SignedIn));
+        assert_eq!(auth("aider", "aider", &gemini), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
