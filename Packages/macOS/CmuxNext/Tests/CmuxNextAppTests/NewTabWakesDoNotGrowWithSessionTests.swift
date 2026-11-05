@@ -1,8 +1,11 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
+import CmuxNextFocus
 import Foundation
+import Observation
 import Testing
 
 /// TERMINAL CREATE COST (lead, STATUS 13444): a local change costs O(changed items), never O(session). Under STRESS
@@ -198,6 +201,59 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
         #expect(!small.isEmpty, "fixture: the new tab woke no observer (the counter is not wired)")
         #expect(grew.isEmpty, "per-site observer instances one new tab wakes, 2 x 6 against 14 x 6 (mixed tabs): \(grew)")
+    }
+
+    /// Names the reads of another pane's strip item that a new tab wakes (PaneController.tabItem, the 8 -> 56 site): each
+    /// read a browser tab's and an agent chat tab's item makes is tracked on its own in pane 2 of a 14 x 6 mixed session,
+    /// then New Terminal Tab's intent runs in pane 1. The whole item must not wake, and the woken reads name the cause.
+    @Test(.timeLimit(.minutes(2)))
+    func aNewTabInPaneOneWakesNoReadOfPaneTwosStripItems() async throws {
+        let woken = try await Self.withWindow(panes: 14, tabs: 6, mix: .stress) { store, content in
+            let services = content.services
+            let workspace = try #require(store.workspaces.first)
+            let pane2 = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 2) })
+            let pane1 = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
+            let browser = try #require(pane2.pane.tabs.first { $0.kind == .browser }, "fixture: pane 2 has a browser tab")
+            let chat = try #require(pane2.pane.tabs.first { $0.agentSession != nil }, "fixture: pane 2 has a chat tab")
+            let names = Mutex<[String]>([])
+            func track(_ name: String, _ read: @escaping @MainActor () -> Void) {
+                withObservationTracking { read() } onChange: { names.withLock { $0.append(name) } }
+            }
+            for (kind, tab) in [("browser", browser), ("chat", chat)] {
+                track("\(kind): whole item") { _ = pane2.tabItem(tab) }
+                track("\(kind): focus kind") { _ = FocusTopology.Kind.of(tab) }
+                track("\(kind): tab fields") { _ = (tab.title, tab.kind, tab.url, tab.faviconURL, tab.browserEngine, tab.agentSession, tab.page, tab.appTab, tab.tabGroup) }
+                track("\(kind): titles") {
+                    let titles = TabTitleResolver(services: services, workspace: workspace.handle)
+                    _ = (titles.isNewTabPage(tab), titles.untitled(tab, fallback: "~"), titles.page(tab))
+                }
+                track("\(kind): chat workspace name") { _ = AgentChatTabTitle.workspaceName(workspace) }
+                track("\(kind): restartsKeptTab") { _ = pane2.daemon.restartsKeptTab(tab) }
+                track("\(kind): item mapping") {
+                    _ = TabItemMapping.shared.item(tab, fallbackTitle: "~", isNewTabPage: false, restarting: false, harnessIcons: services.harnessIconLookup)
+                }
+                track("\(kind): user icon") {
+                    var item = StripTabItem(id: StripTabID(tab.id), title: "~")
+                    TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: pane2.daemon))
+                }
+                track("\(kind): home unread") { _ = services.home.unreadConversations.isEmpty }
+                track("\(kind): dormant") { _ = services.cache.dormantTabs.contains(tab.id) }
+                track("\(kind): machine badge") { _ = services.machines.tabBadge(pane2.daemon.machineID) }
+                track("\(kind): machine color name") { _ = services.machines.tabColorName(pane2.daemon.machineID, badge: "x") }
+                track("\(kind): incognito of its workspace") { _ = services.windows.isIncognito(workspace: workspace) }
+                track("\(kind): incognito by key") { _ = services.cache.browserTabs.isIncognitoTab(tab.id) }
+                track("\(kind): profile badge") { _ = services.browserProfiles.tabBadge(for: tab, workspaceID: workspace.id, room: nil) }
+                track("\(kind): title attention") { _ = services.cache.pageRequests.titleAttention.marks(tab, selected: false, in: services.cache) }
+                track("\(kind): favicon") { _ = services.browserFavicon(key: tab.id, recordFavicon: tab.faviconURL, known: (tab, false)) }
+                track("\(kind): live page") { _ = services.cache.existingBrowser(tab.id)?.tab.state }
+            }
+            store.intend(.createTab(pane: pane1.pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
+                         transaction: ClientTransactionID.generate())
+            await Self.drainMain()
+            return names.withLock { $0 }
+        }
+        print("woken reads of pane 2's strip items: \(woken)")
+        #expect(woken.isEmpty, "a new tab in pane 1 woke these reads of pane 2's strip items (14 x 6, mixed): \(woken)")
     }
 
     /// The observer instances one New Terminal Tab (the key's intent) in pane 1 wakes, counted per site.

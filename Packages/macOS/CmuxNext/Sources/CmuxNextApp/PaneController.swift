@@ -260,7 +260,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// Daemon tab `tab`'s strip item; observed one tab at a time (`tabItems`).
-    private func tabItem(_ tab: TabModel) -> StripTabItem {
+    func tabItem(_ tab: TabModel) -> StripTabItem {
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.tabBadge(daemon.machineID)
