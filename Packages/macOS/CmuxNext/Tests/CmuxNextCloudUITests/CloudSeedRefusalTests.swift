@@ -1,5 +1,5 @@
-@testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDesign
 import Testing
 
