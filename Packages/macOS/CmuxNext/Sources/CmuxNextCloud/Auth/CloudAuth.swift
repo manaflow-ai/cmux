@@ -172,13 +172,8 @@ public final class CloudAuth {
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
-            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory(),
-                                                         requireOwnedDirectories: signIn.memoryOnly) : (nil, nil)
+            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
         if let refusal = decision.refusal { Self.logRefusal(refusal) }
-        if signIn.memoryOnly, let credentials = decision.credentials {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "auth").notice(
-                "launch sign-in: \(Self.mask(credentials.email), privacy: .public) from CMUX_AUTH_CREDENTIALS_FILE, session in memory only")
-        }
         if let credentials = decision.credentials {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = credentials.email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = credentials.password
@@ -338,8 +333,6 @@ extension CloudAuth {
             logger.notice("dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)")
         case .accountMismatch(let found, let declared):
             logger.notice("dev auto sign-in off: \(mask(found), privacy: .public) is not the declared \(mask(declared), privacy: .public)")
-        case .unsafeCredentialsFile:
-            logger.notice("launch sign-in off: CMUX_AUTH_CREDENTIALS_FILE must be a regular 0600 file of this user, in directories only this user (or root) can write")
         }
     }
 

@@ -19,9 +19,6 @@ struct DogfoodCredentials: Equatable {
     enum Refusal: Equatable {
         case noDeclaredAccount
         case accountMismatch(found: String, declared: String)
-        /// The explicit file is not a regular 0600 file of this user, or sits under a directory another
-        /// account can write (``ownedDirectories(above:)``).
-        case unsafeCredentialsFile
     }
 
     static func resolve(environment: [String: String], home: String,
@@ -37,16 +34,11 @@ struct DogfoodCredentials: Equatable {
     /// (`CMUX_DEV_AUTH_ACCOUNT`, else `~/.config/cmux/dev-account`): a
     /// machine's secrets file can name another person (hmdm1 on
     /// cmux-lawrence-2, 2026-10-06).
-    /// `requireOwnedDirectories` (a shipped build's launch sign-in) also refuses a file under a shared or
-    /// world-writable directory, where another account could swap it.
-    static func decide(environment: [String: String], home: String, requireOwnedDirectories: Bool = false,
+    static func decide(environment: [String: String], home: String,
                        read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) })
         -> (credentials: DogfoodCredentials?, refusal: Refusal?) {
         let expected = environment["CMUX_DEV_AUTH_ACCOUNT"].flatMap { $0.isEmpty ? nil : $0 }
         if let explicit = environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty {
-            if requireOwnedDirectories, !(secure(explicit) && ownedDirectories(above: explicit)) {
-                return (nil, .unsafeCredentialsFile)
-            }
             guard secure(explicit), let text = read(explicit) else { return (nil, nil) }
             let values = parse(text)
             guard let found = pair(values, prefix: "CMUX_DOGFOOD_STACK") ?? pair(values, prefix: "CMUX_UITEST_STACK") else { return (nil, nil) }
@@ -106,26 +98,9 @@ struct DogfoodCredentials: Equatable {
     }
 
     /// The explicit file must be a regular file owned by this user, 0600 or stricter.
-    static func secure(_ path: String) -> Bool {
+    private static func secure(_ path: String) -> Bool {
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid() else { return false }
         return info.st_mode & 0o077 == 0
-    }
-
-    /// Whether every directory above `path` (symlinks resolved, up to `/`) belongs to this user or root and
-    /// no one else can write it: no `/tmp`, `/Users/Shared` or group-writable folder another account could
-    /// put a file in or rename one out of.
-    static func ownedDirectories(above path: String) -> Bool {
-        // realpath, not resolvingSymlinksInPath: Foundation drops `/private`, leaving `/var` and `/tmp` as symlinks.
-        guard let resolved = realpath((path as NSString).deletingLastPathComponent, nil) else { return false }
-        let directory = String(cString: resolved)
-        free(resolved)
-        let components = (directory as NSString).pathComponents
-        return components.indices.allSatisfy { end in
-            var info = stat()
-            let path = NSString.path(withComponents: Array(components[...end]))
-            return lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
-                && (info.st_uid == getuid() || info.st_uid == 0) && info.st_mode & 0o022 == 0
-        }
     }
 }
