@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextTabs
 import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation

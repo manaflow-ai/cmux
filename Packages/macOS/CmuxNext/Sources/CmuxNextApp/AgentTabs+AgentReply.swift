@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextTabs
 import Foundation
 
 /// The agent pane's reply in place to another agent's message (``AgentPaneAgentReply``): the

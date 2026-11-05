@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextTabs
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextResources
@@ -164,3 +165,4 @@ extension ResourceControl {
         }, uniquingKeysWith: { $1 })
     }
 }
+import CmuxNextTabs

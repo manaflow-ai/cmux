@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextTabs
 
 /// Which tabs show the New Tab page, for the names and badges the strip, the sidebar and Home
 /// give them: the pages this run opened (``AgentTabStore/newTabPages``), and the blank chat tabs
@@ -54,3 +55,4 @@ enum RestoredNewTabPages {
         return ids
     }
 }
+import CmuxNextTabs

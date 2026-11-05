@@ -319,7 +319,7 @@ final class AgentTabStore {
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates.bare, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+        return await relaunchWake.collect(held: wakeStates.bare, pages: views.map { (resolve($0.key), $0.value) }, live: { isAgentTab($0) })
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
@@ -423,7 +423,7 @@ final class AgentTabStore {
         candidates.formUnion(listTabsScoped().filter { tab in
             tab.key == key || resolve(tab.key, machine: tab.machine) == key
         }.map { AgentTabKey(machine: $0.machine, key: $0.key) })
-        return candidates.count == 1 ? candidates[0] : AgentTabKey(machine: "", key: resolve(key))
+        return candidates.count == 1 ? candidates.first! : AgentTabKey(machine: "", key: resolve(key))
     }
 
     func resolvedKey(_ key: AgentTabKey) -> AgentTabKey {
@@ -577,14 +577,22 @@ final class AgentTabStore {
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedKey(tabKey)) ?? remoteFolders?(resolveRemote(key)) ?? []
-                let machine = await remoteMachineFoldersScoped?(resolvedKey(tabKey)) ?? remoteMachineFolders?(resolveRemote(key)) ?? []
+                let machine: [String]
+                if let scopedFolders = remoteMachineFoldersScoped?(resolvedKey(tabKey)) {
+                    machine = await scopedFolders
+                } else {
+                    machine = remoteMachineFolders?(resolveRemote(key)) ?? []
+                }
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
             model.onShareMachineWithMe = { [weak self] in
                 guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
-                return await (shareMachineWithMeScoped?(resolvedKey(tabKey)) ?? shareMachineWithMe(resolveRemote(key)))
+                if let scopedShare = shareMachineWithMeScoped?(resolvedKey(tabKey)) {
+                    return await scopedShare
+                }
+                return await shareMachineWithMe(resolveRemote(key))
             }
         }
         guard let view = makeView(model) else {

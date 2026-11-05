@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextTabs
 import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
@@ -137,3 +138,4 @@ enum WorkspaceCreation {
         return key
     }
 }
+import CmuxNextTabs

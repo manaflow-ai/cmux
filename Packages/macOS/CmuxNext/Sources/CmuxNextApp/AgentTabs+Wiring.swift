@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import CmuxNextTabs
 import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
