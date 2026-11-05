@@ -7,16 +7,58 @@
    "shot": false
   },
   {
-   "title": "An agent chat in /tmp",
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Header"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Show the workspace, not Home (a new workspace takes no focus)",
+   "cmux": [
+    "workspace",
+    "name:Header",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Open agent chat",
    "cmux": [
     "agent",
-    "new-chat",
-    "--cwd",
-    "/tmp"
+    "new-chat"
    ],
    "wait": 5,
    "shot": false,
    "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "Close the machine picker",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "escape"
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "no picker open"
+  },
+  {
+   "title": "Close the terminal, which a new chat leaves focused (its prompt names the runner, which PR media refuses)",
+   "cmux": [
+    "action",
+    "run",
+    "closePane"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "closing the terminal asked to confirm"
   },
   {
    "title": "A turn that edits three files",
