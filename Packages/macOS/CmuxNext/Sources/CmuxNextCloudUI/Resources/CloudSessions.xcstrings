@@ -298,6 +298,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Truyền --cwd là đường dẫn tuyệt đối tới thư mục trên máy, ví dụ `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}}
       }
     },
+    "cloud.startSession.fromFolderAgent": {
+      "comment": "cmux cloud start-session or start-chat with --from-folder, refused because an agent or MCP tool asked. Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent cannot copy a folder from this Mac to a Cloud machine. The person starts that themselves: the composer's Cloud start, or `cmux cloud start-chat --from-folder` in their own terminal."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントはこの Mac から Cloud マシンへフォルダをコピーできません。本人が自分で開始します：コンポーザーの Cloud 開始、または自分のターミナルでの `cmux cloud start-chat --from-folder`。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Agent kann keinen Ordner von diesem Mac auf eine Cloud-Maschine kopieren. Das startet die Person selbst: über den Cloud-Start im Composer oder mit `cmux cloud start-chat --from-folder` im eigenen Terminal."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un agent ne peut pas copier un dossier de ce Mac vers une machine Cloud. La personne le lance elle-même : via le démarrage Cloud du compositeur, ou avec `cmux cloud start-chat --from-folder` dans son propre terminal."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un agente no puede copiar una carpeta de este Mac a una máquina Cloud. Lo inicia la propia persona: desde el inicio en Cloud del compositor o con `cmux cloud start-chat --from-folder` en su propia terminal."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يمكن للوكيل نسخ مجلد من هذا الـ Mac إلى جهاز Cloud. يبدأ الشخص ذلك بنفسه: من بدء Cloud في محرر الرسائل، أو بالأمر `cmux cloud start-chat --from-folder` في الطرفية الخاصة به."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트는 이 Mac의 폴더를 Cloud 머신으로 복사할 수 없습니다. 사용자가 직접 시작합니다: 작성기의 Cloud 시작 또는 자신의 터미널에서 `cmux cloud start-chat --from-folder`."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "代理无法将此 Mac 上的文件夹复制到 Cloud 机器。需由本人自行开始：使用编辑器的 Cloud 启动，或在自己的终端中运行 `cmux cloud start-chat --from-folder`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式無法將這台 Mac 上的資料夾複製到 Cloud 機器。需由本人自行開始：使用編輯器的 Cloud 啟動，或在自己的終端機中執行 `cmux cloud start-chat --from-folder`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agent ne može kopirati folder s ovog Maca na Cloud mašinu. Osoba to pokreće sama: Cloud pokretanjem u composeru ili s `cmux cloud start-chat --from-folder` u vlastitom terminalu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En agent kan ikke kopiere en mappe fra denne Mac til en Cloud-maskine. Personen starter det selv: med composerens Cloud-start eller `cmux cloud start-chat --from-folder` i sin egen terminal."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un agente non può copiare una cartella da questo Mac a una macchina Cloud. La persona lo avvia da sé: con l'avvio Cloud del compositore o con `cmux cloud start-chat --from-folder` nel proprio terminale."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្នាក់ងារមិនអាចចម្លងថតពី Mac នេះទៅម៉ាស៊ីន Cloud បានទេ។ មនុស្សនោះចាប់ផ្តើមវាដោយខ្លួនឯង៖ ការចាប់ផ្តើម Cloud របស់កម្មវិធីសរសេរ ឬ `cmux cloud start-chat --from-folder` នៅក្នុងទែមីណាល់ផ្ទាល់ខ្លួន។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En agent kan ikke kopiere en mappe fra denne Macen til en Cloud-maskin. Personen starter det selv: med Cloud-start i composeren eller `cmux cloud start-chat --from-folder` i sin egen terminal."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Agent nie może skopiować folderu z tego Maca na maszynę Cloud. Osoba uruchamia to sama: przez start Cloud w edytorze wiadomości albo `cmux cloud start-chat --from-folder` we własnym terminalu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um agente não pode copiar uma pasta deste Mac para uma máquina Cloud. A própria pessoa inicia isso: pelo início no Cloud do compositor ou com `cmux cloud start-chat --from-folder` no próprio terminal."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Агент не может скопировать папку с этого Mac на машину Cloud. Человек запускает это сам: через запуск Cloud в редакторе сообщений или командой `cmux cloud start-chat --from-folder` в своём терминале."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เอเจนต์คัดลอกโฟลเดอร์จาก Mac นี้ไปยังเครื่อง Cloud ไม่ได้ ผู้ใช้ต้องเริ่มเอง: ผ่านการเริ่ม Cloud ในช่องเขียนข้อความ หรือ `cmux cloud start-chat --from-folder` ในเทอร์มินัลของตนเอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajan bu Mac'ten bir Cloud makinesine klasör kopyalayamaz. Bunu kişi kendisi başlatır: oluşturucunun Cloud başlatmasıyla veya kendi terminalinde `cmux cloud start-chat --from-folder` ile."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Агент не може скопіювати папку з цього Mac на машину Cloud. Людина запускає це сама: через запуск Cloud у редакторі повідомлень або командою `cmux cloud start-chat --from-folder` у власному терміналі."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử không thể sao chép thư mục từ máy Mac này lên máy Cloud. Người dùng tự bắt đầu việc đó: bằng nút khởi động Cloud trong khung soạn hoặc `cmux cloud start-chat --from-folder` trong terminal của mình."}}
+      }
+    },
     "cloud.startSession.fromFolderWithCwd": {
       "comment": "cmux cloud start-session with both --from-folder and --cwd. Keep the flags as written.",
       "extractionState": "manual",

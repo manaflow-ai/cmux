@@ -76,6 +76,10 @@ public struct CloudStartSessionStrings {
         String(localized: "cloud.startSession.fromFolderWithCwd", defaultValue: "Pass --from-folder or --cwd, not both: with --from-folder the session starts in the folder's copy on the machine.", table: "CloudSessions", bundle: .module)
     }
 
+    public static var fromFolderAgent: String {
+        String(localized: "cloud.startSession.fromFolderAgent", defaultValue: "An agent cannot copy a folder from this Mac to a Cloud machine. The person starts that themselves: the composer's Cloud start, or `cmux cloud start-chat --from-folder` in their own terminal.", table: "CloudSessions", bundle: .module)
+    }
+
     public static var fromFolderInvalid: String {
         String(localized: "cloud.startSession.fromFolderInvalid", defaultValue: "Pass --from-folder as an absolute folder on this Mac, for example `cmux cloud start-chat --from-folder /Users/me/code/app --prompt 'Run the tests'`.", table: "CloudSessions", bundle: .module)
     }

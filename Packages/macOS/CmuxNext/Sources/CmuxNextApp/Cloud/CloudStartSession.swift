@@ -65,7 +65,10 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
-            guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
+            guard !Self.isAgent(invocation) else {
+                try Self.refuseAgentFolder(request)
+                return try Self.agentAsk(request, invocation, context)
+            }
             // A person's palette or menu run without a machine means the one they look at.
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
                 request.machineID = try CloudHandlers.machine(invocation, context).machineID
@@ -87,6 +90,13 @@ struct CloudStartSession {
     /// or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
         CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
+    }
+
+    /// An agent's run never copies a folder from this Mac: with the person's delegated starts it would go without a
+    /// card, and a card names only the machine. The person copies a folder themselves (the composer's Cloud start, or
+    /// `--from-folder` in their own terminal).
+    static func refuseAgentFolder(_ request: Request) throws {
+        if request.fromFolder != nil { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
     }
 
     /// Whether the run is the person's own, the only kind whose `--login` is kept or counts as their
@@ -227,6 +237,10 @@ struct CloudStartSession {
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
+        // The folder is checked on disk before any machine is created or connected; ``copied`` checks it again.
+        if let local = request.fromFolder, case .failure(let refusal) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) {
+            throw ActionFailure(message: Self.message(refusal, folder: local))
+        }
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
