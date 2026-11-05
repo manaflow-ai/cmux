@@ -150,5 +150,23 @@ struct FrameRateTests {
         #expect(ScreenCaptureBackend.queueDepth(for: 60) == 4)
         #expect(ScreenCaptureBackend.queueDepth(for: 120) == 6)
     }
+
+    /// Petal's dirty-rect skip gate: a complete frame ScreenCaptureKit says
+    /// has nothing changed stays out of the encoder, unless its dirty rects
+    /// are unknown, it is the first, its size changed or the pointer moved.
+    @Test func unchangedFramesStayOutOfTheEncoder() {
+        let size = CGSize(width: 3456, height: 2234)
+        let pointer = CGPoint(x: 100, y: 200)
+        let last = (size: size, pointer: Optional(pointer))
+        #expect(!ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: last), "nothing changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 1, size: size, pointer: pointer, last: last), "something changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: nil, size: size, pointer: pointer, last: last), "unknown counts as changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: nil), "the first frame")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: CGSize(width: 1920, height: 1080), pointer: pointer, last: last),
+                "another size")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: CGPoint(x: 101, y: 200), last: last),
+                "the pointer moved")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: nil, last: last), "pointer unknown")
+    }
     #endif
 }

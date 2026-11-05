@@ -203,6 +203,9 @@ public protocol ScreenBackend: AnyObject, Sendable {
     var maximumFrameRate: Int? { get }
     /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
+    /// Pictures the source held back since the last call because nothing in
+    /// them changed (0 for a source that holds none back).
+    func takeSkippedUnchangedFrames() -> Int
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -211,6 +214,7 @@ public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
+    func takeSkippedUnchangedFrames() -> Int { 0 }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -450,25 +454,33 @@ public final class ScreenStreamHost: @unchecked Sendable {
                     defer { session.captured = 0 }
                     return (session.captured, session.frameRate)
                 }
+                let skipped = session.backend.takeSkippedUnchangedFrames()
                 let seconds = max(Double(now - since) / 1e9, 0.001)
                 since = now
-                log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
+                log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps unchanged-skipped \(String(format: "%.1f", Double(skipped) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
-        // Idle refresh: capture sends nothing while the screen is still, but a
-        // lost keyframe or a quality step needs a frame to encode.
+        // Keep-alive: capture sends nothing while the screen is still, but a
+        // lost keyframe or a quality step needs a frame to encode. Once a
+        // second (Petal's static refresh floor), not twice: a still screen
+        // then costs one frame a second.
         session.tasks.append(Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500)) // idle refresh period
+                try? await Task.sleep(for: .milliseconds(ScreenStreamHost.keepAliveMilliseconds)) // keep-alive period
                 guard let self else { return }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
-                    guard let last = session.last, DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > 450_000_000 else { return nil }
+                    guard let last = session.last,
+                          DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > ScreenStreamHost.keepAliveMilliseconds * 900_000 else { return nil }
                     return (last.buffer, last.crop)
                 }
                 if let stale { push(stale.0, crop: stale.1, session: session) }
             }
         })
     }
+
+    /// How long a still screen goes without a frame before the host sends
+    /// the last one again (it was 500 ms).
+    static let keepAliveMilliseconds: UInt64 = 1000
 
     private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
         session.lock.withLock {

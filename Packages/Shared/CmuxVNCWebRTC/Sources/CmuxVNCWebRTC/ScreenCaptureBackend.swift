@@ -30,6 +30,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// The capture rate (``setFrameRate(_:)``).
     private var frameRate = ScreenQuality.baselineFrameRate
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
+    /// The size and pointer position of the last frame sent on (nil: none
+    /// yet, or the capture restarted).
+    private var lastDelivered: (size: CGSize, pointer: CGPoint?)?
+    /// Complete frames with nothing changed that were not sent on.
+    private var skippedUnchanged = 0
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
     /// Stopped by the viewer: no recovery after that.
@@ -217,6 +222,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                 self.stream = stream
                 streamDisplay = display
                 streamGeneration += 1
+                lastDelivered = nil
             }
             return (self.stream, false, frameRate, streamGeneration + 1)
         }
@@ -236,8 +242,42 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
-        let sink = lock.withLock { onFrame }
-        sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        let dirtyRects = (attachments.first?[.dirtyRects] as? [Any]).map { $0.count }
+        let pointer = CGEvent(source: nil)?.location
+        let sink = lock.withLock { () -> (@Sendable (CVPixelBuffer, CGRect) -> Void)? in
+            guard Self.delivers(dirtyRectCount: dirtyRects, size: size, pointer: pointer, last: lastDelivered) else {
+                skippedUnchanged += 1
+                return nil
+            }
+            lastDelivered = (size, pointer)
+            return onFrame
+        }
+        sink?(buffer, CGRect(origin: .zero, size: size))
+    }
+
+    /// Whether a complete frame goes to the encoder: not when ScreenCaptureKit
+    /// says nothing in it changed (no dirty rects), at the size and pointer
+    /// position of the frame before it. A frame whose dirty rects are unknown
+    /// (no attachment) counts as changed, as does the first one, another size
+    /// or a moved pointer (the cursor is drawn into the picture and may not
+    /// count as dirty). Petal's dirty-rect skip gate
+    /// (https://github.com/kiruna-labs/petal, Apache-2.0,
+    /// `apps/desktop/src-tauri/src/session/share.rs`). The host's keep-alive
+    /// still sends the last frame once a second.
+    static func delivers(dirtyRectCount: Int?, size: CGSize, pointer: CGPoint?,
+                         last: (size: CGSize, pointer: CGPoint?)?) -> Bool {
+        guard let dirtyRectCount, dirtyRectCount == 0, let last else { return true }
+        return last.size != size || last.pointer != pointer || pointer == nil
+    }
+
+    /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:)`` held
+    /// back since the last call (the host's 3 s video log line).
+    public func takeSkippedUnchangedFrames() -> Int {
+        lock.withLock {
+            defer { skippedUnchanged = 0 }
+            return skippedUnchanged
+        }
     }
 
     public func select(display index: Int) {
