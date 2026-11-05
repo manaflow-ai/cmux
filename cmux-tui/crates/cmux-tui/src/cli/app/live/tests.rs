@@ -109,6 +109,55 @@ fn rust_flags_need_rust_and_the_right_verb() {
 }
 
 #[test]
+fn chromium_passes_its_start_flags_through_with_the_build_host_first() {
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--chromium",
+            "--src",
+            "~/cef/chromium/src",
+            "--build-host",
+            "builder",
+            "--out=out/Debug_GN_arm64",
+            "--gpu",
+        ]))
+        .unwrap(),
+        Command::Chromium {
+            verb: RustVerb::Start,
+            worktree: None,
+            args: words(&[
+                "--build-host",
+                "builder",
+                "--src",
+                "~/cef/chromium/src",
+                "--out",
+                "out/Debug_GN_arm64",
+                "--gpu",
+            ]),
+        }
+    );
+    assert_eq!(
+        parse(&words(&["status", "--chromium", "--worktree", "/src/wt"])).unwrap(),
+        Command::Chromium {
+            verb: RustVerb::Status,
+            worktree: Some(PathBuf::from("/src/wt")),
+            args: vec![],
+        }
+    );
+}
+
+#[test]
+fn chromium_flags_need_chromium_and_start() {
+    assert!(parse(&words(&["start", "--src", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--rust", "--src", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--rust", "--chromium"])).is_err());
+    assert!(parse(&words(&["stop", "--chromium", "--out", "out/X"])).is_err());
+    assert!(parse(&words(&["start", "--chromium", "--port", "4300"])).is_err());
+    assert!(parse(&words(&["start", "--chromium", "--session", "s"])).is_err());
+    assert!(parse(&words(&["start", "--chromium=yes"])).is_err());
+}
+
+#[test]
 fn reads_the_tree_the_rust_loop_watches() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("watch.pid");

@@ -47,6 +47,15 @@ Mac). A one-line edit in cmux-tui-core takes tens of seconds, nearly all of it c
 (cmux-tui-core and cmux-tui are large crates); the swap itself is under a second. A build error
 leaves the running daemon as it was; `cmux live status` shows the error.
 
+## Chromium's renderer code
+
+`cmux live start --chromium --build-host HOST --src SRC` does the same for renderer-side code in the
+CEF fork: each file saved under `.cmux-dev/chromium/<chromium path>` builds `libcef` on HOST's warm
+tree, swaps Chromium Embedded Framework inside the app, ends the app's renderers and reloads its
+Chromium tabs. The app and every session stay up. Browser-process code still needs a relaunch, and
+each swap waits about a minute for the framework to relink. `cmux live stop --chromium` puts the
+tree back.
+
 Swift changes still need a build.
 
 ## When it does not change

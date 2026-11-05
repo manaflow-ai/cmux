@@ -277,6 +277,42 @@ daemon's process and its client connections, but on the same box it is slower: 6
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
 
+## Chromium's renderer code, live
+
+cmux's own pages and Chromium tabs run on the CEF fork (manaflow-ai/cef). An edit to Blink or other
+renderer code there can show in the running app without a relaunch: the app, its windows and every
+session stay up, and only the renderer processes start again on the new build.
+
+```sh
+cmux live start --chromium --build-host HOST --src ~/cef/chromium/src   # a warm CEF tree on HOST
+cmux live status                                                         # the last swap and its times
+cmux live stop --chromium                                                # put the tree back, stop watching
+```
+
+Put each file you edit under `.cmux-dev/chromium/<path in chromium/src>` in your checkout (or pass
+`--edits DIR`). On each save the loop (`scripts/cmux-next/chromium-live.py`):
+
+1. sends the file to the warm tree on the build host; the tree's own copy is kept and `stop` puts it
+   back;
+2. builds `libcef` incrementally (`--out`, `--target`), which relinks Chromium Embedded Framework;
+3. brings the framework back with rsync, so only the change crosses the network;
+4. signs the copy ad hoc and renames it over the framework inside the app. The app's browser process
+   keeps the file it mapped at launch; a helper started after the rename maps the new one;
+5. ends the app's renderer processes (and the GPU process with `--gpu`) and reloads every Chromium
+   tab with `cmux browser TAB reload`, which starts a renderer on the new code.
+
+Use it on a tagged DEV build, against a tree at the CEF commit the app was built with, so the new
+framework matches the app's CEF wrapper. Give the loop a tree of its own (an APFS clone of a warm
+tree with `cp -c -Rp`, which keeps the timestamps the build needs), never a CI worker's cache: the
+loop edits the tree while it runs. Browser-process code, and any edit that changes an interface both
+processes use, still needs a relaunch, because the browser process keeps the old framework.
+
+What sets the time is the relink of the one large framework, not the compile. On a fleet Mac (an
+M4 Pro) an incremental CEF build relinked Chromium Embedded Framework in 60 s, with its debug symbols,
+after a few seconds of compiling. Splitting Blink out of the framework in a development-only
+configuration is what would bring that down; see the notes for the CEF fork's owners in the PR that
+added this loop.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:
