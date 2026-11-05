@@ -102,11 +102,16 @@ async fn who_else_finds_the_session_that_edits_the_same_file_in_another_worktree
     assert_eq!(rows[0]["branch"], "lane/x");
 
     // Raw files from the local socket, and keyed ones from anyone; a raw path from a remote
-    // caller is not read.
+    // caller is refused, even beside a session whose own files would answer.
     let raw = json!({"files": [f.main.join("src/b.rs").to_str().unwrap()]});
     let local = f.hub.who_else(&raw, true, false).await.unwrap();
     assert_eq!(local["sessions"][0]["sessionId"], json!(b.id));
-    assert!(f.hub.who_else(&raw, false, false).await.is_err(), "nothing to look for");
+    let refused = f.hub.who_else(&raw, false, false).await.unwrap_err();
+    assert!(refused.message.contains("name keys"), "{}", refused.message);
+    let beside = json!({"sessionId": a.id, "files": raw["files"]});
+    assert!(f.hub.who_else(&beside, false, false).await.is_err());
+    let cwd = json!({"cwd": f.main.to_str().unwrap()});
+    assert!(f.hub.who_else(&cwd, false, false).await.is_err());
     let keyed = json!({"keys": [{"repo": "github.com/o/r", "path": "src/b.rs"}]});
     let remote = f.hub.who_else(&keyed, false, false).await.unwrap();
     assert_eq!(remote["sessions"][0]["sessionId"], json!(b.id));
