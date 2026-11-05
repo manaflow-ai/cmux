@@ -121,4 +121,3 @@ nonisolated struct RemoteDeviceKeys: DeviceKeyMaterial {
         return plain
     }
 }
-
