@@ -3,7 +3,8 @@
 
 Runs on any host (Linux included): no app, no fleet. A scratch repository stands in for the
 checkout; its web-overlay.sh `build` installs a generation the way the real one does (a
-generation folder, the surface links renamed over, manifest.json last).
+generation folder, the surface links renamed over, manifest.json last, and only the two newest
+generations kept besides the one a link names).
 
     python3 -m unittest scripts/cmux-next/tests/test_live_apply_loop.py
 """
@@ -22,6 +23,7 @@ STUB = textwrap.dedent("""\
     #!/usr/bin/env bash
     set -euo pipefail
     [[ "$1" == build ]]
+    [[ ! -f "$(dirname "$0")/../../webviews/broken" ]]
     stamp="$(date +%s%N)"
     gen="$CMUX_WEB_OVERLAY_DIR/.gen-$stamp"
     mkdir -p "$gen/pages"
@@ -29,6 +31,10 @@ STUB = textwrap.dedent("""\
     ln -sfn ".gen-$stamp/pages" "$CMUX_WEB_OVERLAY_DIR/.pages.next"
     mv -fT "$CMUX_WEB_OVERLAY_DIR/.pages.next" "$CMUX_WEB_OVERLAY_DIR/pages"
     printf '{"stamp": "%s"}\\n' "$stamp" > "$CMUX_WEB_OVERLAY_DIR/manifest.json"
+    live=" $(readlink "$CMUX_WEB_OVERLAY_DIR/pages" | cut -d/ -f1) "
+    ls -1d "$CMUX_WEB_OVERLAY_DIR"/.gen-* | sort -r | tail -n +3 | while read -r old; do
+      [[ "$live" == *" ${old##*/} "* ]] || rm -rf "$old"
+    done
     printf '{"overlay": "%s", "enabled": true}\\n' "$CMUX_WEB_OVERLAY_DIR" > "$(dirname "$CMUX_NEXT_CONFIG_FILE")/web-dev.json"
 """)
 
@@ -90,6 +96,25 @@ class LiveApplyLoopTests(unittest.TestCase):
         self.assertEqual(os.readlink(self.overlay / "pages"), first_link)
         self.assertEqual(self.served(), "first")
         self.assertIn("rolled_back_at", json.loads((self.overlay / "manifest.json").read_text()))
+
+    def test_two_failed_applies_in_a_row_still_roll_back_to_the_last_good_one(self):
+        (self.repo / "webviews/page.txt").write_text("good\n")
+        self.assertEqual(self.run_loop("--probe", "true")[0], 0)
+        good = os.readlink(self.overlay / "pages")
+        for text in ("bad one", "bad two"):
+            (self.repo / "webviews/page.txt").write_text(text + "\n")
+            code, verdict = self.run_loop("--probe", "exit 1", "--probe-seconds", "1")
+            self.assertEqual((code, verdict["rolled_back"]), (1, True), verdict)
+            self.assertEqual(os.readlink(self.overlay / "pages"), good)
+            self.assertEqual(self.served(), "good")
+        self.assertEqual(list(self.overlay.glob(".keep-*")), [])
+
+    def test_a_build_that_fails_changes_nothing(self):
+        (self.repo / "webviews/page.txt").write_text("new\n")
+        (self.repo / "webviews/broken").write_text("x\n")
+        code, verdict = self.run_loop("--probe", "true")
+        self.assertEqual((code, verdict["applied"], verdict["probe"]), (4, False, "none"))
+        self.assertFalse((self.overlay / "manifest.json").exists())
 
     def test_rollback_with_no_earlier_overlay_restores_the_bundled_pages(self):
         (self.repo / "webviews/page.txt").write_text("new\n")

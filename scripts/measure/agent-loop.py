@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import random
+import shlex
 import socket
 import string
 import subprocess
@@ -157,7 +158,8 @@ class Loop:
         subprocess.run(["git", "-C", str(self.tree), "checkout", "--", ENTRY], check=True)
         with entry.open("a") as handle:
             handle.write(snippet(word))
-        probe = f"{sys.executable} {Path(__file__).resolve()} probe --socket {self.sock} --word {expect}"
+        probe = shlex.join([sys.executable, str(Path(__file__).resolve()), "probe", "--socket", str(self.sock),
+                            "--word", expect])
         env = dict(os.environ, **self.overlay_env)
         done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo", str(self.tree),
                                "--base", self.commit, "--probe", probe, "--probe-seconds", str(probe_seconds)],
@@ -169,6 +171,14 @@ class Loop:
             return {"error": f"live-apply.py exited {done.returncode} with no verdict", "stderr": done.stderr[-2000:]}
 
     def __call__(self, process, socket_path, env, app, out, report):
+        """The smoke's AFTER_RENDER: the failures, never an exception (that would read as could-not-run)."""
+        try:
+            return self.loop(process, socket_path, app, out)
+        except Exception as error:  # noqa: BLE001 - any harness error is this run's failure, with its reason
+            self.step("harness", False, error=f"{type(error).__name__}: {error}")
+            return [f"agent loop: {name}" for name in self.result["failures"]]
+
+    def loop(self, process, socket_path, app, out):
         self.sock, self.out = socket_path, Path(out)
         info = smoke.plistlib.loads((Path(app) / "Contents" / "Info.plist").read_bytes())
         self.commit = info.get("CMUXCommit") or ""
@@ -180,7 +190,7 @@ class Loop:
         before = self.identity()
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
         time.sleep(3)  # harness: the Settings page loads
-        self.step("settings", "error" not in (opened or {}), reply=opened)
+        self.step("settings", isinstance(opened, dict) and "error" not in opened, reply=opened)
 
         first, never = nonce(), nonce()
         self.step("base", logged(self.sock, first) is False, word=first)

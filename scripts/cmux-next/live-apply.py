@@ -24,7 +24,8 @@ pass. The last line on stdout is the verdict, everything else goes to stderr:
                try-pr.sh names it), else null
 
 Exit 0: applied and the probe passed (or nothing in the app changed, or no --probe). 1: the probe
-did not pass. 3: no rung here takes the change. 2: usage.
+did not pass. 3: no rung here takes the change. 4: the bundles did not build (nothing changed in the
+app). 2: usage.
 
 --repo names the checkout to apply (default: this one); its own web-overlay.sh builds and installs
 its bundles. BASE is the commit the running app was built from (its CMUXCommit), by default the merge base of
@@ -46,6 +47,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,12 +96,27 @@ def overlay_paths() -> tuple[Path, Path]:
 
 
 def overlay_state() -> dict:
-    """What a rollback puts back: each surface's generation link, the manifest and web-dev.json."""
+    """What a rollback puts back: each surface's generation link, the manifest and web-dev.json.
+    The generations those links name are copied aside (`.keep-<pid>-<gen>`, a name web-overlay.sh
+    never prunes): an install keeps only its two newest, so after a rollback the next install can
+    delete the generation a second rollback needs."""
     overlay, web_dev = overlay_paths()
     links = {name: os.readlink(overlay / name) if (overlay / name).is_symlink() else None for name in SURFACES}
+    kept = {}
+    for target in links.values():
+        gen = target.split("/", 1)[0] if target else None
+        if gen and gen not in kept and (overlay / gen).is_dir():
+            kept[gen] = overlay / f".keep-{os.getpid()}-{gen}"
+            shutil.rmtree(kept[gen], ignore_errors=True)
+            shutil.copytree(overlay / gen, kept[gen], symlinks=True)
     manifest = overlay / "manifest.json"
-    return {"links": links, "manifest": manifest.read_text() if manifest.is_file() else None,
+    return {"links": links, "kept": kept, "manifest": manifest.read_text() if manifest.is_file() else None,
             "web_dev": web_dev.read_bytes() if web_dev.is_file() else None}
+
+
+def drop_kept(state: dict) -> None:
+    for path in state["kept"].values():
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def generation() -> str | None:
@@ -114,6 +131,9 @@ def restore(state: dict) -> None:
     """Puts STATE back the way web-overlay.sh installs: each link renamed over in one step, then the
     manifest (the app reloads on it, so it gets a new stamp), then web-dev.json."""
     overlay, web_dev = overlay_paths()
+    for gen, copy in state["kept"].items():
+        if not (overlay / gen).is_dir() and copy.is_dir():
+            os.replace(copy, overlay / gen)  # the install pruned it: the copy taken before goes back
     for name, target in state["links"].items():
         path = overlay / name
         if target is None:
@@ -121,7 +141,7 @@ def restore(state: dict) -> None:
                 path.unlink()
             continue
         if not (overlay / target).exists():
-            continue  # pruned: the surface keeps the newer generation rather than a dangling link
+            raise RuntimeError(f"{overlay / target} is gone: {name} stays on the new generation")
         temp = overlay / f".{name}.rollback"
         if temp.is_symlink() or temp.exists():
             temp.unlink()
@@ -213,23 +233,31 @@ def main(argv: list[str] | None = None) -> int:
     built = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "build"], stdout=sys.stderr, stderr=sys.stderr)
     phases["build_swap"] = round(time.monotonic() - t, 2)
     if built.returncode != 0:
+        drop_kept(before)
         result["needs"] = f"web-overlay.sh build exited {built.returncode}"
-        return done(1)
+        return done(4)
     result["applied"], result["generation"] = True, generation()
     if not args.probe:
+        drop_kept(before)
         return done(0)
 
     t = time.monotonic()
     result["probe"], result["probe_detail"] = run_probe(args.probe, args.probe_seconds)
     phases["probe"] = round(time.monotonic() - t, 2)
     if result["probe"] == "pass":
+        drop_kept(before)
         return done(0)
     if not args.no_rollback:
         t = time.monotonic()
-        restore(before)
-        result["rolled_back"] = True
+        try:
+            restore(before)
+            result["rolled_back"] = True
+            log(f"probe {result['probe']}: rolled back to {(before['links'].get('pages') or 'the bundled pages')}")
+        except (OSError, RuntimeError, ValueError) as error:
+            result["needs"] = f"rollback incomplete: {error}"
+            log(result["needs"])
         phases["rollback"] = round(time.monotonic() - t, 2)
-        log(f"probe {result['probe']}: rolled back to {(before['links'].get('pages') or 'the bundled pages')}")
+    drop_kept(before)
     return done(1)
 
 
