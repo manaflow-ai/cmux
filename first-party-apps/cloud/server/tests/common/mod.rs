@@ -139,6 +139,13 @@ impl FakeControlPlane {
         self.connect_info_error = Some(code);
     }
 
+    /// `vm-get-unbound` ends: the machine is bound and runs from now on
+    /// (every get and `connect_info` answers it running).
+    pub fn bind_now(&mut self) {
+        self.get_unbound = false;
+        self.get_any = true;
+    }
+
     /// True when nothing reached the backend.
     pub fn no_calls(&self) -> bool {
         self.wire.calls.is_empty()
