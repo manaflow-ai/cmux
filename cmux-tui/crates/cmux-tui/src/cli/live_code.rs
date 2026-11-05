@@ -319,9 +319,16 @@ pub(super) fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocati
         Invocation::Status { dir } => {
             let folder = folder(dir.as_deref());
             return match status(&folder) {
-                Some(status) => {
+                Some(status) if status.get("watching").and_then(Value::as_bool) == Some(true) => {
                     let text = status_text(&status);
                     print(output, &status, &text)
+                }
+                // An app that no longer runs: a person still sees its last status, then the error (3).
+                Some(status) => {
+                    if matches!(output, OutputMode::Human) {
+                        print(output, &status, &status_text(&status));
+                    }
+                    not_watching(output, &folder)
                 }
                 None => not_watching(output, &folder),
             };

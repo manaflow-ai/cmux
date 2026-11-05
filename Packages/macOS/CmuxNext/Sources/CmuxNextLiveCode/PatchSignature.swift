@@ -4,6 +4,12 @@
 // notarized nor distributed, and code of its user could rewrite it anyway) loads any validly signed
 // patch, ad hoc included, and says so in its log. Whether it has a team comes only from the running
 // process's own code signature, never from Info.plist, the environment or defaults.
+//
+// The check reads a file and dlopen maps it again later, so a process of the same user could swap
+// the file in between. A team's app therefore loads patches only while the kernel enforces library
+// validation on it (hardened runtime, no disable-library-validation entitlement): dyld then maps
+// only code of the app's own team, whatever file it opens, and this check is the early refusal with
+// a reason. A team's app without it refuses every patch.
 import Foundation
 import Security
 
@@ -14,6 +20,9 @@ nonisolated enum PatchSignature {
         case team(String)
         /// Unsigned or ad hoc: the signature names no team.
         case noTeam
+        /// Signed by a team, but library validation is off, so a patch swapped in after the check
+        /// would load: every patch is refused.
+        case unprotected(team: String, why: String)
         /// The app's own signature could not be read: every patch is refused.
         case unreadable(String)
     }
@@ -25,6 +34,8 @@ nonisolated enum PatchSignature {
         switch app {
         case .unreadable(let detail):
             throw LiveCodeError.notOurTeam("the app's own signature is unreadable: \(detail)")
+        case .unprotected(let id, let why):
+            throw LiveCodeError.notOurTeam("the app (team \(id)) runs without library validation (\(why))")
         case .noTeam:
             team = nil
         case .team(let id):
@@ -55,16 +66,40 @@ nonisolated enum PatchSignature {
         }
     }
 
-    /// The running app's signer, from its own code signature (SecCodeCopySelf).
+    /// The running app's signer, from its own code signature (SecCodeCopySelf) and the kernel's
+    /// status of this process.
     static func runningSigner() -> AppSigner {
         var running: SecCode?
         var code: SecStaticCode?
         var info: CFDictionary?
+        var dynamic: CFDictionary?
         guard SecCodeCopySelf([], &running) == errSecSuccess, let running else { return .unreadable("SecCodeCopySelf failed") }
         guard SecCodeCopyStaticCode(running, [], &code) == errSecSuccess, let code else { return .unreadable("no static code") }
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+        let wanted = SecCSFlags(rawValue: kSecCSSigningInformation | kSecCSRequirementInformation)
+        guard SecCodeCopySigningInformation(code, wanted, &info) == errSecSuccess,
               let values = info as? [String: Any] else { return .unreadable("no signing information") }
-        guard let team = values[kSecCodeInfoTeamIdentifier as String] as? String, !team.isEmpty else { return .noTeam }
+        let status: UInt32? = SecCodeCopySigningInformation(running, SecCSFlags(rawValue: kSecCSDynamicInformation), &dynamic) == errSecSuccess
+            ? ((dynamic as? [String: Any])?[kSecCodeInfoStatus as String] as? NSNumber)?.uint32Value : nil
+        return signer(team: values[kSecCodeInfoTeamIdentifier as String] as? String, status: status,
+                      entitlements: values[kSecCodeInfoEntitlementsDict as String] as? [String: Any] ?? [:])
+    }
+
+    /// The kernel's code signing status bits (`cs_blobs.h`): library validation required, and the
+    /// hardened runtime, which requires it unless an entitlement turns it off.
+    static let requireLibraryValidation: UInt32 = 0x2000
+    static let hardenedRuntime: UInt32 = 0x10000
+
+    /// The signer from what the signature says: its team, the process's status bits and the app's
+    /// entitlements. A team's app counts only with library validation on.
+    static func signer(team: String?, status: UInt32?, entitlements: [String: Any]) -> AppSigner {
+        guard let team, !team.isEmpty else { return .noTeam }
+        guard let status else { return .unprotected(team: team, why: "its code signing status is unreadable") }
+        if entitlements["com.apple.security.cs.disable-library-validation"] as? Bool == true {
+            return .unprotected(team: team, why: "it has the disable-library-validation entitlement")
+        }
+        guard status & (requireLibraryValidation | hardenedRuntime) != 0 else {
+            return .unprotected(team: team, why: "neither the hardened runtime nor library validation is on")
+        }
         return .team(team)
     }
 }

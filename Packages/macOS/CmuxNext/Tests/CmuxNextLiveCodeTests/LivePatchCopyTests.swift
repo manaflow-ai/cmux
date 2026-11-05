@@ -89,4 +89,30 @@ struct PatchSignatureTests {
         #expect(throws: LiveCodeError.self) { try PatchSignature.check(patch.path, app: .unreadable("test")) }
         #expect(throws: LiveCodeError.self) { try PatchSignature.check("/usr/bin/true", app: .team("ABC\" or 1")) }
     }
+
+    /// A team's app counts as one only while the kernel enforces library validation: otherwise a file
+    /// swapped in between the check and dlopen would load.
+    @Test func aTeamSignedAppCountsOnlyWithLibraryValidation() throws {
+        let runtime = PatchSignature.hardenedRuntime
+        #expect(PatchSignature.signer(team: "ABCDE12345", status: runtime, entitlements: [:]) == .team("ABCDE12345"))
+        #expect(PatchSignature.signer(team: "ABCDE12345", status: PatchSignature.requireLibraryValidation, entitlements: [:]) == .team("ABCDE12345"))
+        let off = ["com.apple.security.cs.disable-library-validation": true]
+        guard case .unprotected = PatchSignature.signer(team: "ABCDE12345", status: runtime, entitlements: off) else {
+            Issue.record("the disable-library-validation entitlement still counted as protected")
+            return
+        }
+        guard case .unprotected = PatchSignature.signer(team: "ABCDE12345", status: 0, entitlements: [:]),
+              case .unprotected = PatchSignature.signer(team: "ABCDE12345", status: nil, entitlements: [:]) else {
+            Issue.record("no hardened runtime, or no readable status, still counted as protected")
+            return
+        }
+        #expect(PatchSignature.signer(team: nil, status: 0, entitlements: off) == .noTeam)
+        #expect(PatchSignature.signer(team: "", status: runtime, entitlements: [:]) == .noTeam)
+    }
+
+    @Test func anUnprotectedTeamAppRefusesEvenItsOwnTeamsCode() throws {
+        #expect(throws: LiveCodeError.self) {
+            try PatchSignature.check("/usr/bin/true", app: .unprotected(team: "ABCDE12345", why: "test"))
+        }
+    }
 }

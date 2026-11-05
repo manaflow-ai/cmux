@@ -68,10 +68,12 @@ instant-create bench of both apps interleaved, compared with `scripts/measure/be
 `live_code_apply`, `live_code_undo`, `live_code_log`, for an agent in an acpmux session or any
 harness) work through the live folder, never the app's window or its main thread. A patch that
 wedged the UI can still be undone: the app's engine is an actor off the main thread, and only the
-redraw waits for the main thread. When the app does not answer at all (exit 4, or the tools'
+redraw waits for the main thread. `status` exits 3 when no app watches the folder, its last status still shown. When the app does not answer at all (exit 4, or the tools'
 `live_code.no_answer`), relaunch it: the next launch runs the code as built. Outside Debug and bench,
 an app signed by a team loads only a patch signed by that team (cmux#13742), and `status` says so
-as `team_signed_only`. An app with no team (unsigned or ad hoc, so never notarized or distributed)
+as `team_signed_only`. It loads one only while macOS enforces library validation on it (the hardened
+runtime, without the disable-library-validation entitlement), so the file dyld maps is checked too,
+not just the copy the app checked; without it, every patch is refused and the log says why. An app with no team (unsigned or ad hoc, so never notarized or distributed)
 loads any validly signed patch, ad hoc included, and its log says so when it starts watching.
 Whether the app has a team comes from its own running code signature only. `--dir` (or `CMUX_LIVE_CODE_DIR`) names another live folder.
 

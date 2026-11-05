@@ -133,6 +133,8 @@ actor LiveEngine {
             say("this app is unsigned (its signature names no team): any validly signed patch loads, ad hoc included")
         case .unreadable(let detail)?:
             say("this app's own signature is unreadable (\(detail)): every patch is refused")
+        case .unprotected(let team, let why)?:
+            say("this app (team \(team)) runs without library validation (\(why)): every patch is refused")
         case .team?, nil:
             break
         }
@@ -229,7 +231,7 @@ actor LiveEngine {
 
     private var teamSignedOnly: Bool {
         switch signer {
-        case .team?, .unreadable?: true
+        case .team?, .unprotected?, .unreadable?: true
         case .noTeam?, nil: false
         }
     }

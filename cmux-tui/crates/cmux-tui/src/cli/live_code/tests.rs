@@ -126,3 +126,14 @@ fn status_says_whether_the_app_still_runs() {
     assert_eq!(gone.get("watching"), Some(&Value::Bool(false)));
     assert!(status_text(&gone).contains("no patch applied"));
 }
+
+#[test]
+fn status_exits_3_when_no_app_watches() {
+    let live = tempfile::tempdir().expect("tempdir");
+    let status = |dir: &Path| run(OutputMode::Quiet, &GlobalArgs::default(), Invocation::Status { dir: Some(dir.to_path_buf()) });
+    assert_eq!(status(live.path()), 3, "no status.json");
+    std::fs::write(live.path().join("status.json"), json!({"pid": i32::MAX, "patches": []}).to_string()).expect("write");
+    assert_eq!(status(live.path()), 3, "a status.json whose app no longer runs");
+    std::fs::write(live.path().join("status.json"), json!({"pid": std::process::id(), "patches": []}).to_string()).expect("write");
+    assert_eq!(status(live.path()), 0, "a running app");
+}
