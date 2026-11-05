@@ -122,6 +122,23 @@ import Testing
         #expect(AgentIncoming.parse(text: "[inbox] New messages from other agents in 1 thread.", provenance: threads) == nil)
     }
 
+    /// A relayed message steered into a running turn shares its id: the person's prompt stays the
+    /// turn's prompt, never replaced by the steer's card.
+    @MainActor @Test func steerIntoATurnDoesNotTakeItsPrompt() throws {
+        let store = AgentChatStore(source: ChatPolishParityTests.Source())
+        store.apply(.userMessage(text: "Fix the grid", promptId: "p-1", turnId: "t-1", attachments: [], at: Date()))
+        store.apply(.turnStarted(turnId: "t-1", at: Date()))
+        let steer = relayed("Merged #36125")
+        store.apply(.userMessage(text: steer, promptId: "p-2", turnId: "t-1", attachments: [], at: Date()))
+        store.apply(.promptFrom(turnId: "t-1", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil))))
+        #expect(store.turns.first?.prompt == "Fix the grid")
+        #expect(store.turns.first?.incoming == nil)
+        // A turn the relayed message opened is its card.
+        store.apply(.userMessage(text: steer, promptId: "p-3", turnId: "t-2", attachments: [], at: Date()))
+        store.apply(.promptFrom(turnId: "t-2", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil))))
+        #expect(store.turns.last?.incoming?.text == "Merged #36125")
+    }
+
     @Test func personsPromptAndUnknownTextStayAsWritten() throws {
         #expect(AgentIncoming.parse(text: "Fix the grid", provenance: nil) == nil)
         let person = try json(#"{"kind":"person_message","from":"s-1","fromName":"Ana"}"#)
