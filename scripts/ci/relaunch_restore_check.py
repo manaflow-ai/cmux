@@ -337,9 +337,22 @@ def usable(inst: Instance, before: dict, chat: str) -> tuple[bool, dict | None, 
     return (not changed), now, ("changed: " + ", ".join(changed)) if changed else ""
 
 
+def front(topo: dict | None) -> list[dict]:
+    """What each visible window shows: its workspace's name and every pane's selected tab (kind, page)."""
+    shown = []
+    for window in (topo or {}).get("windows") or []:
+        if not (isinstance(window, dict) and window.get("visible")):
+            continue
+        ws = next((w for w in topo.get("workspaces") or [] if isinstance(w, dict) and w.get("id") == window.get("workspace")), {})
+        tabs = [{k: t.get(k) for k in ("kind", "page")} for s_ in ws.get("screens") or [] for p in (s_ or {}).get("panes") or []
+                for t in (p or {}).get("tabs") or [] if isinstance(t, dict) and t.get("id") == p.get("selected_tab")]
+        shown.append({"workspace": ws.get("name"), "selected": tabs})
+    return shown
+
+
 def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: dict, made: dict, args, out: Path):
     """One quit and relaunch; returns (row, the new process)."""
-    row: dict = {"round": n, "pid_before": process.pid}
+    row: dict = {"round": n, "pid_before": process.pid, "front_before": front(inst.topology())}
     asked = time.monotonic()
     reply = call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     row["quit_reply"] = reply.get("error") or "ok"
@@ -406,6 +419,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         except ValueError:
             pass
     row["marks"] = marks
+    row["front_after"] = front(inst.topology())
     row["usable"] = ok
     row["quit_to_usable_ms"] = round((done - asked) * 1000) if ok else None
     row["launch_to_usable_ms"] = round((done - launched) * 1000) if ok else None
