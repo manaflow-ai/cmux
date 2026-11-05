@@ -295,7 +295,12 @@ struct CloudMove {
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
-            guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
+            guard let session = machines.session(id) else {
+                // A Retry's pin (this app's own button) to a machine gone from the loaded list: deleted, and no
+                // Retry can reach it. A CLI's or agent's `--machine` keeps naming the id it asked for.
+                if invocation.origin == .user, services.cloud.hasLoadedMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
+                throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id))
+            }
             return try await Self.connected(session, invocation)
         }
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
