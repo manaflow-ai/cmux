@@ -259,6 +259,9 @@ pub(super) fn run(
         // A provider with no client sessions (a VM API machine): exec runs through the cmux
         // API's own machine exec route as the work user, with the same answer this command
         // prints for a direct exec. `new` has no such route: a session is what it makes.
+        // Only the machine's creator gets here: the platform refuses anyone else with
+        // not_creator (auth.forbidden) before it asks the provider (ClientSession.ts
+        // mintClientSessionOn), so this fallback never widens who may run a command.
         (Err(refusal), Verb::Exec { command: line, timeout_ms })
             if refusal.code == "cloud.provider.unsupported" =>
         {
