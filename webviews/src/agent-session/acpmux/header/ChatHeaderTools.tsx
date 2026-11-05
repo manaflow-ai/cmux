@@ -42,6 +42,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
+import { TopRightLayouts } from "./TopRightLayouts";
 import { useWorktree, WorktreePill } from "./WorktreePill";
 import type { MergeResult } from "./PullRequestMerge";
 import {
@@ -232,7 +233,7 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
+  const { lit, pullRequest, browserOpensPreview, topRightLayout } = useHeaderState();
   // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
   const quick = useQuickActions();
   const actions =
@@ -371,7 +372,10 @@ export function ChatHeaderTools({
     : undefined;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
-  const native = useNativeRowTools(nativeRowTools, tools, {
+  // A consolidated layout (Debug Settings `agentChat.topRight.consolidate`) draws its own web controls in
+  // place of the row, so the native row's copy of the buttons stays off while one is chosen.
+  const consolidated = topRightLayout !== "row" && tabTools && actions.length > 0 ? topRightLayout : undefined;
+  const native = useNativeRowTools(consolidated ? undefined : nativeRowTools, tools, {
     customize,
     extra: chatMenu
       ? [
@@ -398,9 +402,11 @@ export function ChatHeaderTools({
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && tabTools && actions.length > 0;
-  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
+  const fold = useHeaderFold(toolsRef, webButtons && !consolidated ? tools.length : 0);
   live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
-  const buttons =
+  const buttons = consolidated ? (
+    <TopRightLayouts layout={consolidated} tools={tools} shortcuts={shortcuts} />
+  ) : (
     webButtons &&
     tools.slice(0, tools.length - fold).map((tool) => (
       <button
@@ -415,9 +421,15 @@ export function ChatHeaderTools({
       >
         <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
       </button>
-    ));
+    ))
+  );
   return (
-    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div
+      ref={toolsRef}
+      className="acpmux-header-tools"
+      data-top-right={consolidated}
+      onPointerEnter={onPointerEnter}
+    >
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />

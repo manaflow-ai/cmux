@@ -506,6 +506,7 @@ public nonisolated struct AgentPaneTunables {
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
             browserOpensPreview.descriptor,
+            topRightLayout.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
