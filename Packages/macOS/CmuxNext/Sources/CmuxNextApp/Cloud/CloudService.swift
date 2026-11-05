@@ -12,6 +12,7 @@ import CmuxNextRemoteLocalhost
 import Foundation
 import Observation
 import os
+import CmuxNextHostedChief
 import CmuxNextWakeups
 
 /// Cloud orchestration: sign-in state, the configured machine list, and
@@ -132,6 +133,9 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
+    /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
+    @ObservationIgnored let computerControl = ChiefComputerControlStore()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
     /// What Retry does for each chat whose move stopped.

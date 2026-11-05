@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 
 extension InternalPageID {
     /// The Chief's profile page with its computer (cmux issue 31488): one pane tab per conversation.
@@ -53,7 +54,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         return .init(paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true },
                      chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
                      route: HomeChiefComputerRoute(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id },
-                                                   send: service.hostedChief.brainRoute))
+                                                   send: ChiefComputerControlClient.feeding(service.hostedChief.brainRoute, into: services.cloud.computerControl)))
     }
 
     /// The Home chat's avatar for its Chief, which the page shows too.

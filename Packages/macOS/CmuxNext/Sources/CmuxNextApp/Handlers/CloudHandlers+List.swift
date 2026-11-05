@@ -1,6 +1,9 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemonService
+import CmuxNextHomeEngine
+import CmuxNextHostedChief
+import CmuxNextSettings
 import Foundation
 
 // `cmux cloud list-machines`: the app's own Cloud machine list, the one the
@@ -112,5 +115,63 @@ extension CloudHandlers {
     /// shows "paused, click to resume" as a stopped stage).
     static func listedStatus(_ session: CloudMachineSession) -> String {
         session.effectiveStatus.rawValue
+    }
+}
+
+// `cmux cloud computer-control --machine <id> --action status|take_over|hand_back|request_human`
+// (Chief computer take-over): who drives the Chief's computer on a Cloud machine. The lease and its
+// rules live in ``ChiefComputerControlStore`` (CmuxNextHostedChief), this app's one owner of it; the
+// profile's Computer tab changes the same store (``AppServices/chiefComputerControlSource(agent:machine:)``).
+//
+// Trust: no new policy. `status` answers any local caller (the Chief's `cloud_computer` tool reads it
+// before each input). A change from another client (`remote`: a phone, another Mac) is refused,
+// default deny. Only the person's own gesture takes over or gives back a computer the person took
+// over (`computer.user_origin_required` otherwise), so a Chief cannot take control back from them;
+// a local caller may ask the person (request_human), and an automated hand_back ends only that ask.
+extension CloudHandlers {
+    static func bindComputerControl(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services, store = services.cloud.computerControl
+        store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
+        store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
+        let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
+            computerControlEffect(invocation, store: store, knows: { services.machines.session($0) != nil })
+        }
+        assert(bound, "cloud.computerControl is not in the action catalog")
+    }
+
+    /// One run: the change on this turn, then `{machine, holder, since_ms, reason?}` as the result.
+    static func computerControlEffect(_ invocation: ActionInvocation, store: ChiefComputerControlStore,
+                                      knows: (String) -> Bool) -> ActionEffect {
+        do throws(ChiefComputerControlStore.Refusal) {
+            let (machine, state) = try store.run(machine: invocation["machine"]?.stringValue, action: invocation["action"]?.stringValue,
+                                                 reason: invocation["reason"]?.stringValue, fromAnotherClient: origin(of: invocation) == .remote,
+                                                 // A nested run inside a CLI or agent run stays automation (the run scope's origin).
+                                                 byPerson: invocation.isPersonsOwnRun && origin(of: invocation) == .user, knows: knows)
+            var fields: [String: ActionResultValue] = ["machine": .string(machine), "holder": .string(state.holder.rawValue), "since_ms": .int(Int(state.sinceMs))]
+            if let reason = state.reason { fields["reason"] = .string(reason) }
+            return .applied(result: { [fields] in .success(fields) })
+        } catch {
+            return .refused(error.message)
+        }
+    }
+
+    /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,
+    /// sounds, Dock bounce), as hand-offs and Runs post theirs; withdrawn when the ask ends.
+    private static func postComputerAsk(_ services: AppServices, machine: String, reason: String?) {
+        let center = services.notifications
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.appActive = services.appActiveSource()
+        arrival.soundEvent = .message
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
+        guard !decision.acknowledge, center.desktopPostingEnabled else { return }
+        center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
+        let text = ChiefComputerControlStore.askText(machine: services.machines.session(machine)?.machine.title ?? machine, reason: reason)
+        if decision.desktop {
+            center.desktop.post(id: "chief-computer." + machine, title: text.title, body: text.body, surface: nil, workspace: nil, defaultSound: decision.sound == "default")
+        }
+        if let sound = decision.sound, !decision.desktop || sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop) }
+        if let mode = decision.bounce { center.dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 }
