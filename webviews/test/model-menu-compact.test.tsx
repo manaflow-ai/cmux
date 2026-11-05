@@ -1077,6 +1077,7 @@ test.each(["claude", "codex"])(
             kind: "direct-subscription",
             family,
             accountHome: "~/.cmux/accounts/work-login",
+            ...(family === "codex" ? { shadow: true } : {}),
           },
         },
       ]);

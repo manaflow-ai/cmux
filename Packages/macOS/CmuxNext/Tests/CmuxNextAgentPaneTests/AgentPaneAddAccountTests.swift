@@ -60,6 +60,14 @@ struct AgentPaneAddAccountTests {
         #expect(request?.fields["accountHome"] == (NSHomeDirectory() as NSString).appendingPathComponent(".cmux/accounts/work"))
     }
 
+    @Test func aShadowLoginIsAFlagAndNothingElse() {
+        let shadow = AgentPaneAddAccount(params: (params as [String: Any]).merging(["shadow": true]) { _, value in value })
+        #expect(shadow?.shadow == true)
+        #expect(shadow?.fields["shadow"] == nil)
+        #expect(AgentPaneAddAccount(params: params)?.shadow == false)
+        #expect(AgentPaneAddAccount(params: (params as [String: Any]).merging(["shadow": "yes"]) { _, value in value }) == nil)
+    }
+
     @Test func remoteChatCannotCreateLocalAccounts() async {
         let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
         model.remoteChat = true

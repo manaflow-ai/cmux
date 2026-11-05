@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -26,7 +27,7 @@ final class AppControl {
     private let frames: FrameBatcher
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
-    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -97,6 +98,7 @@ final class AppControl {
                 .map { ($0.socketPath, $0.home.path) }
         }])
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
@@ -132,6 +134,7 @@ final class AppControl {
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
+        terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in
                 .value(CmuxNextSettings.JSONValue(foundation: probe.handle(action: call.params["action"]?.stringValue, raw: call.params["raw"]?.boolValue == true)) ?? .null)
@@ -146,8 +149,12 @@ final class AppControl {
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
-            // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
-            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread time in Ghostty's display passes, and whether each shown terminal changes size with its pane in
+            // every frame (bench-terminal-resize.py).
+            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in
+                let report = probe.handle(action: call.params["action"]?.stringValue)
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(report))) ?? .null)
+            },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))

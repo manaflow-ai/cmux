@@ -161,10 +161,17 @@ class Loop:
         probe = shlex.join([sys.executable, str(Path(__file__).resolve()), "probe", "--socket", str(self.sock),
                             "--word", expect])
         env = dict(os.environ, **self.overlay_env)
-        done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo", str(self.tree),
-                               "--base", self.commit, "--probe", probe, "--probe-seconds", str(probe_seconds)],
-                              env=env, capture_output=True, text=True)
-        (self.out / f"live-apply-{word}.log").write_text(done.stderr)  # agent-loop.sh clears live-apply-*.log
+        log = self.out / f"live-apply-{word}.log"  # agent-loop.sh clears live-apply-*.log
+        try:
+            # stderr to the log as it runs, so a hung bundle build still leaves its output.
+            with log.open("w") as stderr:
+                done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo",
+                                       str(self.tree), "--base", self.commit, "--probe", probe,
+                                       "--probe-seconds", str(probe_seconds)],
+                                      env=env, stdout=subprocess.PIPE, stderr=stderr, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return {"error": "live-apply.py ran past 900 s", "stderr": log.read_text(errors="replace")[-2000:]}
+        done.stderr = log.read_text(errors="replace")
         try:
             return json.loads(done.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
@@ -185,8 +192,11 @@ class Loop:
         self.result["app"] = {"bundle_id": info.get("CFBundleIdentifier"), "version": info.get("CFBundleShortVersionString"),
                               "build": info.get("CFBundleVersion"), "commit": self.commit, "pid": process.pid}
         tree_head = subprocess.run(["git", "-C", str(self.tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        if not self.step("tree", bool(self.commit) and tree_head == self.commit, tree=tree_head, app_commit=self.commit):
+        # A nightly stamps the commit's first 7 hex; the tree holds the full one, which live-apply.py gets.
+        if not self.step("tree", len(self.commit) >= 7 and tree_head.startswith(self.commit), tree=tree_head,
+                         app_commit=self.commit):
             return self.result["failures"]
+        self.commit = tree_head
         before = self.identity()
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
         time.sleep(3)  # harness: the Settings page loads

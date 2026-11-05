@@ -26,6 +26,9 @@ where
     );
     #[cfg(target_vendor = "apple")]
     fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
