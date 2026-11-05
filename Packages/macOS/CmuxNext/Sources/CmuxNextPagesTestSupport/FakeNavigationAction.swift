@@ -39,6 +39,10 @@ public final class FakeNavigationAction: WKNavigationAction {
 
 /// A ``WKFrameInfo`` for a navigation delegate under test: a frame that shows `url`, the main
 /// frame or a frame inside the page.
+///
+/// It is never freed. WebKit's `-[WKFrameInfo dealloc]` destroys the `API::FrameInfo` that WebKit
+/// builds for its own frames; a test double made with `init` has none, and freeing it trapped
+/// the test process (signal 5, fleet step 157b7689cf8089fabb69f4b7). A test makes a few.
 @MainActor
 public final class FakeFrameInfo: WKFrameInfo {
     private let fakeRequest: URLRequest
@@ -48,6 +52,7 @@ public final class FakeFrameInfo: WKFrameInfo {
         fakeRequest = URLRequest(url: url)
         fakeMain = isMainFrame
         super.init()
+        _ = Unmanaged.passRetained(self)
     }
 
     override public var isMainFrame: Bool { fakeMain }
