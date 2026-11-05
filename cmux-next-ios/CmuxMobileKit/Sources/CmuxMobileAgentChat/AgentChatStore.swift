@@ -12,6 +12,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var prompt: String
     public var attachments: [AgentAttachment]
     public var promptAt: Date
+    /// Another agent's message, when the prompt is one (AgentIncoming): drawn as its card.
+    public var incoming: AgentIncoming?
     public var items: [TurnItem] = []
     public var status: Status = .running
     public var startedAt: Date?
@@ -790,6 +792,8 @@ public final class AgentChatStore {
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
+        case .promptFrom(let turnId, let incoming):
+            mutateTurn(turnId) { $0.incoming = incoming }
         case .promptSeq(let turnId, let seq):
             promptSeqs[turnId] = seq
         case .bookmarks(let seqs):

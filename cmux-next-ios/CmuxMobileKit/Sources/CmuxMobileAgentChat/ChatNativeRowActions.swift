@@ -29,6 +29,19 @@ enum ChatNativeRowActions {
                 items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
             }
+        case .incoming(let incoming, let at):
+            let turnID = row.turnID
+            actions.menu = { _ in
+                var items: [UIMenuElement] = [
+                    UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = incoming.text },
+                    UIAction(title: "Copy as Sent", image: UIImage(systemName: "envelope")) { _ in UIPasteboard.general.string = incoming.raw },
+                ]
+                if let id = incoming.messageID {
+                    items.append(UIAction(title: "Copy Message ID \(id)", image: UIImage(systemName: "number")) { _ in UIPasteboard.general.string = id })
+                }
+                items += ChatPolishMenus.promptItems(turnID: turnID, text: incoming.text, store: store)
+                return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
+            }
         case .tool(let call):
             let openFile = context.openFile
             actions.menu = { _ in

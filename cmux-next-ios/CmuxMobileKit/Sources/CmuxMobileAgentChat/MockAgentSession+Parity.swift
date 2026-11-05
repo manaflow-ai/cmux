@@ -6,6 +6,52 @@ import Foundation
 /// The mock session's history turn with subagents and artifacts, and its
 /// offline checkpoints and handoff (the acpmux shapes, local data).
 extension MockAgentSession {
+    /// Two turns other agents' messages started, as acpmux records them: a lane VM's report the
+    /// lane-gh broker relayed (its label left out of the card), then three that waited for the busy
+    /// chat and went in as one digest (a stack). Read by the same parser the live chat uses.
+    func replayAgentMessageTurns(at start: Date) {
+        let label = { (id: String, from: String, body: String) in
+            "[message \(id) from \(from) (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message \(id)]\"]\n\(body)\n[end of message \(id)]"
+        }
+        let report = label("4f4d68ff", "gcp-codex-swarm-11/claude-3",
+                           "**#36125 is green** at `64d6b1b`; the exact-head review is a SHIP.\n\n- the send relay lists other machines' sessions\n- the audit names sender and target, never the text")
+        let digest = """
+        3 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.
+
+        [agent message 1 of 3] from gcp-codex-swarm-11/claude-3
+
+        \(label("a1b2c3d4", "gcp-codex-swarm-11/claude-3", "Rebased on `feat-cmux-next`; CI is running."))
+
+        [agent message 2 of 3] from claude-sr2-coord
+
+        Take the iOS half next; the parser is shared.
+
+        [agent message 3 of 3] from gcp-codex-swarm-4/codex-1
+
+        \(label("9e8f7a6b", "gcp-codex-swarm-4/codex-1", "**Review:** SHIP at `64d6b1b`."))
+        """
+        let named: JSONValue = .object(["kind": .string("agent_message"), "from": .string("fromAgent"),
+                                        "fromName": .string("gcp-codex-swarm-11/claude-3")])
+        let digested: JSONValue = .object(["kind": .string("agent_digest"), "messages": .array([
+            .object(["from": .string("gcp-codex-swarm-11/claude-3")]), .object(["from": .string("claude-sr2-coord")]),
+            .object(["from": .string("gcp-codex-swarm-4/codex-1")]),
+        ])])
+        for (index, (text, provenance, answer)) in [
+            (report, named, "Noted: #36125 lands once its base-only reds are confirmed."),
+            (digest, digested, "Taking the iOS half; the review's SHIP is at the head."),
+        ].enumerated() {
+            let turnID = "history-agent-\(index)"
+            let at = start.addingTimeInterval(Double(index) * 120)
+            emit(.userMessage(text: text, promptId: "p-\(turnID)", turnId: turnID, attachments: [], at: at))
+            if let incoming = AgentIncoming.parse(text: text, provenance: provenance) {
+                emit(.promptFrom(turnId: turnID, incoming: incoming))
+            }
+            emit(.turnStarted(turnId: turnID, at: at))
+            emit(.update(.agentMessageChunk(text: answer, messageId: "\(turnID)-m")))
+            emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: at.addingTimeInterval(8)))
+        }
+    }
+
     /// A finished turn that fanned out to three subagents and left a report,
     /// a screenshot, a recording, a PDF and links behind.
     func replaySubagentTurn(at start: Date) {

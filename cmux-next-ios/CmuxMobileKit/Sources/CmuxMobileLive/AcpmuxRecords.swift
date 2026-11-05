@@ -71,6 +71,10 @@ struct AcpmuxRecords {
             }
             events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
                                  turnId: turnID, attachments: images, at: at))
+            if let incoming = AgentIncoming.parse(text: msg["text"]?.stringValue ?? "", provenance: msg["_meta"]?["provenance"],
+                                                  fromHarness: msg["fromHarness"]?.stringValue) {
+                events.append(.promptFrom(turnId: turnID, incoming: incoming))
+            }
             return events
         case "queued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
