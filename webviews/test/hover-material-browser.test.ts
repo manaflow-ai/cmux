@@ -49,6 +49,29 @@ await requireBrowserLane("hover-material-browser.test.ts", async () => {
                 (surface) => surface.getBoundingClientRect().width > 0,
               ).length,
           );
+          // Every ancestor that ends the backdrop a blur can read (a filter, opacity, a mask, a
+          // backdrop-filter of its own, will-change of one of them, mix-blend-mode).
+          const roots = await page.evaluate(() => {
+            const surface = document.querySelector<HTMLElement>(".hm-stage .ui-glass");
+            const found: string[] = [];
+            const own = surface ? getComputedStyle(surface) : undefined;
+            if (own) found.push(`surface backdrop-filter=${own.backdropFilter} background=${own.backgroundColor}`);
+            for (let node = surface?.parentElement; node; node = node.parentElement) {
+              const style = getComputedStyle(node);
+              const marks = [
+                style.filter !== "none" && `filter=${style.filter}`,
+                style.opacity !== "1" && `opacity=${style.opacity}`,
+                style.backdropFilter !== "none" && `backdrop-filter=${style.backdropFilter}`,
+                style.maskImage !== "none" && `mask=${style.maskImage}`,
+                style.mixBlendMode !== "normal" && `blend=${style.mixBlendMode}`,
+                style.willChange !== "auto" && `will-change=${style.willChange}`,
+                style.clipPath !== "none" && `clip-path=${style.clipPath}`,
+              ].filter(Boolean);
+              if (marks.length) found.push(`${node.tagName.toLowerCase()}.${[...node.classList].join(".")}: ${marks.join(" ")}`);
+            }
+            return found;
+          });
+          console.log(`[backdrop ${variant} ${colorScheme}] ${roots.join(" | ")}`);
           const captures = process.env.CMUX_HOVER_MATERIAL_CAPTURE_DIR || process.env.FAST_CHECKS_OUT;
           if (captures) {
             await mkdir(captures, { recursive: true });
