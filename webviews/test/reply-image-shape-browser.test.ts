@@ -40,6 +40,8 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
   const cases = [
     { entry: "agent-pane.reply-thumbs", variant: "wide-strip", image: ".cv-thumb__img", frame: ".cv-thumb" },
     { entry: "agent-pane.reply-thumbs", variant: "tall-phone", image: ".cv-thumb__img", frame: ".cv-thumb" },
+    // A row of a wide, a tall and a square image: each keeps its shape inside its share.
+    { entry: "agent-pane.reply-thumbs", variant: "shapes", image: ".cv-thumb__img", frame: ".cv-thumb" },
     { entry: "agent-pane.sent-images", variant: "wide-strip", image: "img.cv-user__image", frame: "button" },
     { entry: "agent-pane.sent-images", variant: "pasted", image: "img.cv-user__image", frame: "button" },
   ];

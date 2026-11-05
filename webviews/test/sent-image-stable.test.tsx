@@ -86,8 +86,10 @@ try {
     await flush();
     const image = host.querySelector<HTMLImageElement>(".cv-user__images img")!;
     expect(image.getAttribute("src")).toBe(src);
-    // 120px tall at 1.5:1, from the image's header, while no load event has fired.
-    expect(image.style.width).toBe("180px");
+    // Its own 150×100 from the image's header, while no load event has fired: never drawn larger than
+    // the image (UserBubble.tsx sentImageSize).
+    expect(image.style.width).toBe("150px");
+    expect(image.style.height).toBe("100px");
   });
 
   test("re-rendering a sent prompt keeps its <img> and src: no second read, no placeholder", async () => {
