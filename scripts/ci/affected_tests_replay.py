@@ -64,6 +64,21 @@ def gh(*args: str) -> str:
     return subprocess.run([*tool, *args], check=True, capture_output=True, text=True, env=env).stdout
 
 
+def cached_gh(cache: Path, key: str, *args: str) -> str | None:
+    """gh api through an on-disk cache, so a collect that stops partway resumes without re-reading.
+    None when the read fails (a log GitHub expired, a run deleted, the quota): that run is skipped."""
+    path = cache / key
+    if path.is_file():
+        return path.read_text()
+    try:
+        text = gh(*args)
+    except subprocess.CalledProcessError as error:
+        print(f"collect: skipped {key}: {(error.stderr or '').strip()[:160]}", file=sys.stderr)
+        return None
+    path.write_text(text)
+    return text
+
+
 def clean(line: str) -> str:
     return ANSI.sub("", STAMP.sub("", line.rstrip("\n")))
 
@@ -133,6 +148,8 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
     by_branch = {p["head"]["ref"]: p["number"] for p in prs}
     numbers = set(by_branch.values())
     print(f"collect: {len(prs)} PRs merged {since}..{until}", file=sys.stderr)
+    cache = out.parent / (out.stem + ".cache")
+    cache.mkdir(parents=True, exist_ok=True)
     failures, runs_read = [], 0
     for workflow in TEST_WORKFLOWS:
         for page in range(1, 11):
@@ -143,13 +160,13 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
                 if not pr or runs_read >= max_runs:
                     continue
                 runs_read += 1
-                jobs = json.loads(gh("api", f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100"))["jobs"]
+                text = cached_gh(cache, f"jobs-{run['id']}.json", "api", f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+                jobs = json.loads(text)["jobs"] if text else []
                 for job in jobs:
                     if job["conclusion"] != "failure" or any(x in job["name"] for x in NO_TESTS):
                         continue
-                    try:
-                        log = gh("api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['id']}/logs")
-                    except subprocess.CalledProcessError:
+                    log = cached_gh(cache, f"log-{job['id']}.txt", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['id']}/logs")
+                    if log is None:
                         continue
                     for f in failures_in_log(log):
                         failures.append({**f, "pr": pr, "head": run["head_sha"], "workflow": workflow,
