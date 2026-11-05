@@ -27,7 +27,9 @@ export const MAX_NEW_TAB_USES = 200;
 export function omnibarUses(value: unknown): Record<string, number> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const entries = Object.entries(value as Record<string, unknown>)
-    .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0)
+    .filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0,
+    )
     .sort((a, b) => b[1] - a[1])
     .slice(0, MAX_NEW_TAB_USES);
   return entries.length ? Object.fromEntries(entries) : undefined;

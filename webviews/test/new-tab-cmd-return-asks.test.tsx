@@ -128,7 +128,9 @@ const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="opt
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 const press = (field: HTMLElement, init: KeyboardEventInit) =>
   act(async () =>
-    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init })),
+    field.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init }),
+    ),
   );
 
 test('Return opens reddit.com for "reddit"; Cmd-Return asks the agent instead', async () => {
@@ -157,4 +159,3 @@ test("the Ask row shows Cmd-Return's keycap when another row leads", async () =>
   const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
   expect(ask.querySelector(".nt-row-action kbd")?.textContent).toBe("⌘↵");
 });
-
