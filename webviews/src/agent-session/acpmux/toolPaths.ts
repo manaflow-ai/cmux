@@ -5,7 +5,7 @@
 //                {changes: {<path>: …}} or {changes: [{path}]}
 //   opencode     write/edit/multiedit {filePath}, patch {patchText}
 //   pi           write/edit {path}
-//   Gemini       write_file/replace {file_path | absolute_path}
+//   Gemini       write_file/replace: no input, the file in locations or the title (toolNames.ts)
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
@@ -13,6 +13,7 @@ import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
 import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
+import { CANONICAL_VERB, canonicalCall, toolForName, type CanonicalCall } from "./toolNames";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -39,6 +40,11 @@ export function editedPaths(tool: Tool): string[] {
     // A summary that is not JSON: a cut-off input, or the path itself (`notes.txt`).
     if (/^\s*[[{]/.test(tool.inputSummary)) fromCutInput(tool.inputSummary, add);
     else add(looksLikePath(tool.inputSummary.trim()));
+  }
+  if (!found.length) {
+    // Gemini's write_file and replace send no input: their titles name the file ("Writing to a.py").
+    const call = canonicalCall(tool);
+    if (call?.tool === "edit" || call?.tool === "write") add(call.input.path);
   }
   if (!found.length) add(titlePath(tool.title));
   return found;
@@ -82,6 +88,11 @@ export function toolLabel(
   // An edit of several files keeps a title that says more than its verb ("Edit 2 files"): naming
   // the first file alone would read as an edit of that one file.
   if (paths.length > 1 && /\s/.test(title)) return title;
+  // A harness's built-in tool reads as every harness's does (toolNames.ts): Gemini's read_file
+  // "src/foo.ts" and opencode's read read "Read src/foo.ts", as Claude Code's Read does.
+  const canonical = canonicalCall(title ? tool : { ...tool, title: fallbackName });
+  const named = canonical && canonicalLabel(canonical, title, paths, cwd);
+  if (named) return named;
   if (paths.length) {
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
@@ -90,13 +101,47 @@ export function toolLabel(
   return harnessToolLabel(translatorFor(currentLanguage()), tool, title || fallbackName) ?? (title || fallbackName);
 }
 
+/// A canonical read, search, list or web call's label: its verb, then its file, pattern, page or
+/// words. The verb is the title's own when it is one already ("Read", "Grep", "Search": Claude Code's
+/// and Codex's titles read as they did), else the canonical one ("read_file" reads "Read"). Undefined
+/// for any other tool, or a call that names no subject yet.
+function canonicalLabel(
+  call: CanonicalCall,
+  title: string,
+  paths: readonly string[],
+  cwd?: string,
+): string | undefined {
+  const head = firstWord(title);
+  const own = /^[A-Z][A-Za-z]*$/.test(head) && toolForName(head) !== undefined;
+  const verb = own ? head : CANONICAL_VERB[call.tool];
+  switch (call.tool) {
+    case "read":
+    case "list":
+    case "edit":
+    case "write": {
+      const path = paths[0] ?? call.input.path;
+      if (!path) return undefined;
+      return own && title.includes(path) ? title : `${verb} ${fromFolder(path, cwd)}`;
+    }
+    case "search":
+    case "glob":
+      return call.input.pattern ? `${verb} ${call.input.pattern}` : undefined;
+    case "fetch":
+      return call.input.url ? `${verb} ${call.input.url}` : undefined;
+    case "websearch":
+      return call.input.query ? `${verb} ${call.input.query}` : undefined;
+    default:
+      return undefined;
+  }
+}
+
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.
 const BARE_SHELL_NAMES = /^(bash|shell|terminal|exec|exec_command|run_shell_command|local_shell|command)$/i;
 
 /// A call whose only name is its shell tool's (before its input arrives, or a harness that sends
 /// none): it reads as a command, not as "Bash".
 export function isBareShellName(tool: Tool, label: string): boolean {
-  return !tool.command?.trim() && BARE_SHELL_NAMES.test(label.trim());
+  return !tool.command?.trim() && (BARE_SHELL_NAMES.test(label.trim()) || toolForName(label) === "shell");
 }
 
 function fromFolder(path: string, cwd: string | undefined): string {

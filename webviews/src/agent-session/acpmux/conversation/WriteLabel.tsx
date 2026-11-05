@@ -16,6 +16,7 @@ import { toolFiles } from "../diff";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
+import { canonicalCall } from "../toolNames";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { fileName } from "./toolGroups";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
@@ -24,7 +25,8 @@ import { useTranscriptReadOnly } from "./readOnly";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 /// The names harnesses give a call that writes a whole file: Claude Code's Write (and acpmux's own
-/// "Write <file>" for a Codex patch that adds one), opencode's and pi's write, Gemini's write_file.
+/// "Write <file>" for a Codex patch that adds one), opencode's and pi's write, Gemini's write_file
+/// ("Writing to <file>", toolNames.ts).
 const WRITE_NAMES = /^(write|write_file|writefile|create_file)$/i;
 
 export type WriteCall = { path?: string; counts?: { additions: number; deletions?: number } };
@@ -36,7 +38,7 @@ export type WriteCall = { path?: string; counts?: { additions: number; deletions
 export function writeCall(tool: Tool): WriteCall | undefined {
   if (tool.kind !== "edit" && tool.kind !== "fileChange") return undefined;
   const name = tool.title.trim().split(/\s+/, 1)[0] ?? "";
-  if (!WRITE_NAMES.test(name)) return undefined;
+  if (!WRITE_NAMES.test(name) && canonicalCall(tool)?.tool !== "write") return undefined;
   const path = editedPaths(tool)[0] ?? tool.diffs?.[0]?.path;
   if (tool.status === "pending" && path) return undefined;
   if (tool.status !== "completed") return { path };
