@@ -1,6 +1,5 @@
 #if DEBUG
 public import AppKit
-import SwiftUI
 
 /// DEBUG ONLY: Debug > MCP Connect Card Playground (user 2026-11-03: "connect to a MCP server …
 /// have it open a card/button"; design playgrounds are Swift, user 2026-11-02). One window with
@@ -35,11 +34,11 @@ public final class McpConnectCardPlayground: NSObject, NSWindowDelegate {
         window.delegate = self
         let container = McpConnectPlaygroundContainer()
         container.owner = self
-        let hosting = NSHostingView(rootView: McpConnectPlaygroundView(model: model))
-        hosting.autoresizingMask = [.width, .height]
-        container.addSubview(hosting)
+        let page = McpConnectPlaygroundView(model: model)
+        page.autoresizingMask = [.width, .height]
+        container.addSubview(page)
         window.contentView = container
-        hosting.frame = container.bounds
+        page.frame = container.bounds
         window.center()
     }
 }
