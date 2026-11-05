@@ -74,7 +74,7 @@ async function render(queue: Parameters<typeof ComposerQueue>[0]["queue"]) {
 
 test("a video's frames are one tile, with its first frame and its length", () => {
   expect(LEOS.length).toBe(23);
-  const tiles = queuedTiles(LEOS, new Map([["Screen Recording 2.mov", 16_000]]));
+  const tiles = queuedTiles(LEOS, [{ name: "Screen Recording 2.mov", durationMs: 16_000, frames: 7 }]);
   expect(tiles.map((tile) => (tile.kind === "video" ? `video:${tile.name}` : `image:${tile.image.name}`))).toEqual([
     "image:Screenshot 1.png",
     "video:Screen Recording 1.mov",
@@ -91,6 +91,19 @@ test("a video's frames are one tile, with its first frame and its length", () =>
 test("two videos of one name stay two tiles", () => {
   const tiles = queuedTiles([...frames("clip.mov", 3), ...frames("clip.mov", 2)]);
   expect(tiles.map((tile) => (tile.kind === "video" ? tile.ids.length : 0))).toEqual([3, 2]);
+});
+
+test("two videos of one name stay two tiles, each with its own frames and length", () => {
+  // A 1-second clip.mov sampled at 0.2, 0.5 and 0.8 s, then a 16-second clip.mov whose frames start
+  // at 1 s: the times go on across the two, so only the prompt's own videos tell them apart.
+  const at = (id: string, time: string) => image(id, `clip.mov frame at ${time}`);
+  const images = [at("a0", "0:00.2"), at("a1", "0:00.5"), at("a2", "0:00.8"), at("b0", "0:01.0"), at("b1", "0:08.0")];
+  const video = (durationMs: number, times: number[]) => ({ name: "clip.mov", durationMs, frames: times.length });
+  const tiles = queuedTiles(images, [video(1_000, [200, 500, 800]), video(16_000, [1_000, 8_000])]);
+  expect(tiles.map((tile) => (tile.kind === "video" ? [tile.ids, tile.durationMs] : []))).toEqual([
+    [["a0", "a1", "a2"], 1_000],
+    [["b0", "b1"], 16_000],
+  ]);
 });
 
 test("Leo's queued message draws five tiles in one row, never its 23 frames", async () => {
