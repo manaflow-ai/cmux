@@ -82,6 +82,7 @@ extension SidebarListViewComponents {
     func drawsAsOneRow(_ id: GroupID, without payload: DragPayload) -> Bool {
         guard let group = groups[id] else { return false }
         var o = SidebarLayoutOptions()
+        o.excludedWorkspaces = leaving // as the shown layout leaves them out
         if case let .workspaces(ids) = payload { o.excludedWorkspaces.formUnion(ids) }
         if case let .item(item) = payload { o.excludedItem = item }
         let members = group.members.filter { member in

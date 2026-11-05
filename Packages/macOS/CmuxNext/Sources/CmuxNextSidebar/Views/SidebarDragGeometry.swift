@@ -32,14 +32,18 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         public var parent: String?
         public var frame: CGRect
         public var kind: Kind
+        /// A group header's slot whose group is collapsed (it may still show a kept member row under it).
+        public var collapsed: Bool
 
-        public init(key: String, item: String?, section: String, parent: String? = nil, frame: CGRect, kind: Kind) {
+        public init(key: String, item: String?, section: String, parent: String? = nil, frame: CGRect, kind: Kind,
+                    collapsed: Bool = false) {
             self.key = key
             self.item = item
             self.section = section
             self.parent = parent
             self.frame = frame
             self.kind = kind
+            self.collapsed = collapsed
         }
     }
 
@@ -71,7 +75,8 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     private var groupSlot: [String: Slot] = [:]
     /// The bottom of each group item's whole subtree (its rows and its subgroups' rows).
     private var subtreeBottom: [String: CGFloat] = [:]
-    /// Each open group's first member slot (the top one whose parent is the group), by the group's key.
+    /// Each open group's first member slot (the top one whose parent is the group), by the group's key. A collapsed
+    /// group has none: a member it keeps shown (the active one) does not open it.
     private var firstMember: [String: Slot] = [:]
     /// The outliner rule's indent (nested-groups prototype): at the bottom edge of a nested block the
     /// pointer's x picks the level the drop goes to. Nil keeps the y-only rule.
@@ -107,7 +112,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         groupHeaders = headers
         groupBlocks = blocks
         for slot in sorted where slot.kind == .row || slot.kind == .group {
-            if let parent = slot.parent, firstMember[parent] == nil { firstMember[parent] = slot }
+            if let parent = slot.parent, headers[parent]?.collapsed == false, firstMember[parent] == nil { firstMember[parent] = slot }
         }
         for slot in slots where slot.kind == .group {
             guard let item = slot.item else { continue }

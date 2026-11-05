@@ -44,6 +44,19 @@ import Testing
         #expect(geometry.hit(CGPoint(x: 100, y: 38))?.target == SidebarDocTarget(section: "s", after: "g"))
     }
 
+    /// A collapsed group that keeps its active member shown is still closed: its header's bottom quarter drops after
+    /// the group, not into it before the kept member (review of 121167f).
+    @Test func aCollapsedHeaderWithAKeptMemberStillDropsAfterTheGroup() {
+        let kept = Self.slots.filter { $0.key != "m2" }.map { slot -> Slot in
+            var slot = slot
+            if slot.key == "g" { slot.collapsed = true }
+            if slot.key == "w2" { slot.frame = Self.rect(60) }
+            return slot
+        }
+        let geometry = SidebarDragGeometry(slots: kept, acceptance: [:])
+        #expect(geometry.hit(CGPoint(x: 100, y: 38))?.target == SidebarDocTarget(section: "s", after: "g"))
+    }
+
     /// The group's first member lifted and nudged up: it stays first in its group, and the other member stays put.
     @Test func aFirstMemberNudgedUpStaysFirstInItsGroup() throws {
         let drops = SidebarRowEdgeReorderDocDragTests.Drops()
