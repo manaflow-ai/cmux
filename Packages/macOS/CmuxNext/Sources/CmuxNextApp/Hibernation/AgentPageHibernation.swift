@@ -8,9 +8,9 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextWakeups
 import os
-
 /// Lets hidden agent chat pages go and freezes them (cx-x15rz): the policy and its clocks are
 /// ``HiddenChatPages``; this is the App's side of it. Each chat tab's page is a web view with its own
 /// renderer allocation (WebKit may share a process across pages). A page let go
