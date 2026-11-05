@@ -49,6 +49,9 @@ extension AppActions {
         return true
     }
 
+    /// Open Chief Dock: the docked Chief's message box takes the keys.
+    static func focusDockComposer(_ services: AppServices) { withDock(services) { $0.focusPrimaryInput() } }
+
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
     /// (at once, or when the tab first shows). Refused (Home not ready) while the dock has no tab yet.
     static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
