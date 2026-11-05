@@ -610,6 +610,12 @@ def step_px_film(j, step):
             # failed film can still be watched; then report the step's error (cmux-ad m29: 20 films had no moov).
             stopped = _stop_failed_film(j, name)
             raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}" + stopped)
+        except BaseException:
+            # Any other way out (a NotRun such as a drag that did not reach the app, an interrupt): the recording is
+            # stopped and kept the same way, then the original exception goes on unchanged (ab-m28r2: a NotRun left the
+            # Reduce Motion movie without its moov).
+            _stop_failed_film(j, name)
+            raise
         if sub.get("keep"):
             # `keep` (a film's measurement read, e.g. debug.frames stop raw): the whole reply in its own file, so a long
             # array is not cut at RESULT_CHARS; result.json keeps the file name.
