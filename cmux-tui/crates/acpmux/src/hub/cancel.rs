@@ -471,6 +471,8 @@ impl Hub {
                         && replacement != Some(q.prompt_id.as_str())
                         && q.run.agent.is_none()
                         && !q.held_by_stop
+                        // A guest's prompt that waits for the owner is the owner's to decide.
+                        && !q.awaiting_owner
                 })
                 .map(|q| q.prompt_id.clone())
                 .collect();
