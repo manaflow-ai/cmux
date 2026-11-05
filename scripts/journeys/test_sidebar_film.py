@@ -88,6 +88,20 @@ class ProfileRowsTests(unittest.TestCase):
         self.assertEqual(rows[2][2], ["apply"])
 
 
+class SummaryTests(unittest.TestCase):
+    def test_main_ms_per_frame_and_missed_split_add_up_per_kind(self):
+        m = film.measure(frames())
+        presses = [{"kind": "insert", "measure": m, "workspaces_after": 2, "workspaces_before": 1,
+                    "frame_probe": {"main_ms": [2.0, 9.0, 30.0], "missed_split": {"main_late": 2, "commit_late": 1}}},
+                   {"kind": "insert", "measure": m, "workspaces_after": 3, "workspaces_before": 2,
+                    "frame_probe": {"main_ms": [1.0], "missed_split": {"main_late": 1, "presented_late": 0}}}]
+        s = film.summarize(presses)["insert"]
+        self.assertEqual(s["main_ms_per_frame"]["frames"], 4)
+        self.assertEqual(s["main_ms_per_frame"]["max"], 30.0)
+        self.assertEqual(s["main_ms_per_frame"]["over_8_3"], 2)
+        self.assertEqual(s["missed_split"], {"main_late": 3, "commit_late": 1, "presented_late": 0})
+
+
 class CallTreeTests(unittest.TestCase):
     def test_tree_under_a_root_adds_each_sample_once_per_path(self):
         main = [(5_000_000, ["leafA", "mid", "stepTransactionFlush", "run"]),

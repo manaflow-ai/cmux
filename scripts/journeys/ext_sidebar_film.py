@@ -8,7 +8,9 @@ its motion: `debug.sidebar_rows {"motion": "start"|"stop"}` (SidebarMotionProbe)
 presentation was read), `link` / `target` / `refresh` (the display link's tick: vsync time, show time, refresh period;
 null refresh = a synthesized frame), `revision` (the list's model structure), `views` {row key: [x, y, w, h,
 opacity]} (list coordinates, presented), `ids` {row key: view object id}, `selected` (the key of the row that draws
-the selection) and `selection` (its presented [x, y, w, h]); each press keeps the report's `scale` (device px per pt). Builds before the probe's `ids` / `link`
+the selection) and `selection` (its presented [x, y, w, h]); each press keeps the report's `scale` (device px per pt),
+the frame probe's reply (`frame_probe`: `debug.frames` raw, per frame interval_ms and main_ms, missed_split) and the
+app's work counters for the press (`counters`: debug.sidebar_perf, debug.layout_counters). Builds before the probe's `ids` / `link`
 fields give `t` only: the summary then says so and counts by `t`.
 
 This file films and measures; it judges nothing about where a row should be (the y oracle is pixel-perfect's PR).
@@ -173,9 +175,15 @@ def counters_read(j):
 
 
 def film_one(j, key, modifiers, record):
-    """One press under a film: counters reset, motion start, 0.15 s of still frames, the key, RECORD seconds,
-    motion stop, counters read (the press's own work, outside the film)."""
+    """One press under a film: counters reset, the frame probe and the motion probe start, 0.15 s of still frames,
+    the key, RECORD seconds, both stop, counters read (the press's own work, outside the film). The frame probe
+    (`debug.frames` raw) gives each display frame's interval and the main thread's busy ms in it, and why each
+    missed refresh was late (main work, the commit, or the presentation)."""
     counters_reset(j)
+    try:
+        j.app.rpc("debug.frames", {"action": "start"})
+    except (D.StepError, OSError, ValueError):
+        pass
     j.app.rpc("debug.sidebar_rows", {"motion": "start"})
     time.sleep(0.15)  # still frames before the press
     sent = now()
@@ -183,8 +191,13 @@ def film_one(j, key, modifiers, record):
     returned = now()
     time.sleep(record)
     stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
+    try:
+        frame_probe = j.app.rpc("debug.frames", {"action": "stop", "raw": True}, timeout=60) or {}
+    except (D.StepError, OSError, ValueError) as error:
+        frame_probe = {"error": str(error)[:200]}
     work = counters_read(j)
     return {"key": key, "modifiers": modifiers, "sent": sent, "returned": returned, "counters": work,
+            "frame_probe": frame_probe,
             "reply": reply if isinstance(reply, dict) else {"value": reply}, "scale": stopped.get("scale"),
             "frames": stopped.get("frames") or []}
 
@@ -317,6 +330,18 @@ def summarize(presses):
                      "presses_with_misses": sum(1 for m in missed if m),
                      "rebuilt_frames_total": sum(rebuilt) if rebuilt else (0 if ms and all(m["ids_known"] for m in ms) else None),
                      "motion_frames_p50": pct([m["motion_frames"] for m in ms], 0.5)}
+    for kind in ("insert", "remove"):
+        probes = [p.get("frame_probe") or {} for p in presses if p["kind"] == kind]
+        main = [ms for probe in probes for ms in (probe.get("main_ms") or [])]
+        split = {}
+        for probe in probes:
+            for name, value in (probe.get("missed_split") or {}).items():
+                if isinstance(value, (int, float)):
+                    split[name] = split.get(name, 0) + value
+        out[kind]["main_ms_per_frame"] = {"p50": pct(main, 0.5), "p95": pct(main, 0.95), "p99": pct(main, 0.99),
+                                          "max": max(main) if main else None, "frames": len(main),
+                                          "over_8_3": sum(1 for ms in main if ms > 1000 / 120)}
+        out[kind]["missed_split"] = split
     hz = sorted(p["measure"].get("hz") for p in presses if p["measure"].get("hz"))
     out["hz"] = hz[len(hz) // 2] if hz else None
     out["clock"] = presses[0]["measure"].get("clock") if presses else None
