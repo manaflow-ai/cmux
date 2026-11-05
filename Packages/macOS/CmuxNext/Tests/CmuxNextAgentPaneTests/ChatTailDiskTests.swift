@@ -114,7 +114,7 @@ struct ChatTailDiskTests {
     @Test func aSessionIdIsHashedIntoTheFileName() {
         let disk = AgentPaneTailDisk(directory: Self.folder())
         let url = disk.url(for: "../../peer/one")
-        #expect(url.deletingLastPathComponent() == disk.directory)
+        #expect(url.deletingLastPathComponent().standardizedFileURL.path == disk.directory.standardizedFileURL.path)
         #expect(url.lastPathComponent.count == 64 + ".json".count)
     }
 }
