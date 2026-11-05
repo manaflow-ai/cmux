@@ -289,11 +289,11 @@ final class CloudService {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
-        if configuration.apiBaseURL.isFileURL { return CloudStrings.localBackend }
         // The app server path needs no web backend (cx-t2rz).
         #if DEBUG
-        if debugBackendFixture { return nil }
+        if debugBackendFixture { return nil } // reachable even with no selected backend (DebugCloudMachineFixture)
         #endif
+        if configuration.apiBaseURL.isFileURL { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
     }

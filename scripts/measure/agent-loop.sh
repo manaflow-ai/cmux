@@ -56,7 +56,10 @@ bounded() {
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m
+  # Their own groups no longer see a signal sent to this script's group (a step cancel): pass it on.
+  trap 'kill -TERM -- "-$pid" "-$watchdog" 2>/dev/null; exit 143' TERM INT
   wait "$pid"; status=$?
+  trap - TERM INT
   kill -TERM -- "-$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
   echo "AGENT-LOOP setup: $name exit $status in $((SECONDS - started))s"
   return "$status"
