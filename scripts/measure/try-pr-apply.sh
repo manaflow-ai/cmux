@@ -155,16 +155,29 @@ defaults_tool="${TRY_PR_APPLY_DEFAULTS:-defaults}"  # the override is for its te
 lock_dir="${TRY_PR_APPLY_LOCK_DIR:-/tmp}" aside_lock="" aside=""
 # PID START: whether that process (same start time) still runs.
 alive() { [[ -n "$1" && "$(started "$1")" == "$2" ]]; }
-# Ends this run's instances (SIGTERM, then SIGKILL after 10 s); prints those still running after that.
+# Every process whose executable lies in this run's own temp folder: the instances it launched and
+# what they started from their copy (the detached terminal host, cmux-tui, helpers), which outlive the
+# app. By argv[0], a full path for these (ps comm is only a short name on some systems); the folder is
+# this run's mktemp, so nothing else runs from it.
+from_work() { ps -axo pid=,args= | while read -r p a; do [[ "$a" == "$work/"* && "$p" != "$$" ]] && echo "$p" || true; done; }
+# PID SIGNAL: SIGNAL only while PID still runs from this run's folder.
+signal_from_work() { [[ "$(ps -o args= -p "$1" 2>/dev/null)" == "$work/"* ]] && kill -"$2" "$1" 2>/dev/null || true; }
+# Ends this run's instances and everything running from its folder (SIGTERM, then SIGKILL after
+# 10 s); prints those still running after that.
 end_ours() {
   local p n
   for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}"; done
+  for p in $(from_work); do signal_from_work "$p" TERM; done
   for n in $(seq 1 150); do
-    [[ "$n" == 100 ]] && for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}" KILL; done
-    for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && continue 2; done; return 0
+    if [[ "$n" == 100 ]]; then
+      for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}" KILL; done
+      for p in $(from_work); do signal_from_work "$p" KILL; done
+    fi
+    for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && continue 2; done
+    [[ -z "$(from_work)" ]] && return 0
     sleep 0.1
   done
-  for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && echo "${p%%|*}"; done
+  { for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && echo "${p%%|*}"; done; from_work; } | sort -u
 }
 # REASON: the run failed after its result was written (cleanup): result.json says so, and the exit is 1.
 cleanup_failed() {
@@ -182,7 +195,7 @@ cleanup() {
   local rc=$? id left bad=""
   # Defaults go back only once every instance is gone, so none writes after the put-back; when one
   # will not end, they are not put back, and the copy stays for the next run (whose launch refuses
-  # while an app with the shipped id runs).
+  # while an app with the shipped id runs). The temp folder stays too while anything runs from it.
   left="$(end_ours | tr '\n' ' ' || true)"
   [[ -z "$left" ]] || bad="this run's instances $left would not end"
   if [[ "$aside_held" == copy ]]; then
@@ -192,7 +205,8 @@ cleanup() {
   [[ -z "$aside_held" ]] || rm -rf "$aside_lock"
   [[ -n "$left" ]] || for id in ${lab_ids[@]+"${lab_ids[@]}"}; do "$defaults_tool" delete "$id" >/dev/null 2>&1 || true; done
   [[ -z "$bad" ]] || { cleanup_failed "$bad"; rc=1; }
-  rm -f ${socks[@]+"${socks[@]}"}; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"
+  rm -f ${socks[@]+"${socks[@]}"}; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true
+  [[ -n "$left" ]] || rm -rf "$work"
   exit "$rc"
 }
 trap cleanup EXIT
@@ -372,7 +386,10 @@ fi
 # The shipped defaults domain, set aside for an installed run and put back after it (see "defaults").
 domain_empty() { local rc=0; "$defaults_tool" export "$bundle_id" "$aside.probe" >/dev/null 2>&1 \
   && python3 -c 'import plistlib, sys; sys.exit(1 if plistlib.load(open(sys.argv[1], "rb")) else 0)' "$aside.probe" || rc=1; rm -f "$aside.probe"; return $rc; }
-put_back() { "$defaults_tool" delete "$bundle_id" >/dev/null 2>&1 || true; "$defaults_tool" import "$bundle_id" "$aside" >/dev/null 2>&1 && rm -f "$aside"; }
+plist_ok() { python3 -c 'import plistlib, sys; d = plistlib.load(open(sys.argv[1], "rb")); sys.exit(0 if isinstance(d, dict) else 1)' "$1" 2>/dev/null; }
+# Only a copy that reads as a whole plist goes back; the domain is left as it is otherwise.
+put_back() { plist_ok "$aside" || return 1
+  "$defaults_tool" delete "$bundle_id" >/dev/null 2>&1 || true; "$defaults_tool" import "$bundle_id" "$aside" >/dev/null 2>&1 && rm -f "$aside"; }
 if [[ "$mode" == installed ]]; then
   aside_lock="$lock_dir/try-pr-apply-$bundle_id.lock" aside="$lock_dir/try-pr-apply-$bundle_id.aside.plist"
   if ! mkdir "$aside_lock" 2>/dev/null; then
@@ -380,12 +397,14 @@ if [[ "$mode" == installed ]]; then
     if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then result fail not_run "run $holder holds the $bundle_id defaults ($aside_lock)"; exit 1; fi
   fi
   echo $$ >"$aside_lock/pid"; aside_held=lock
+  # A killed export leaves only its scratch file (the copy is renamed into place once it reads whole).
+  rm -f "$aside.partial"
   if [[ -f "$aside" ]]; then
-    put_back || { result fail not_run "could not put back the $bundle_id defaults a killed run set aside ($aside stays)"; exit 1; }
+    put_back || { result fail not_run "could not put back the $bundle_id defaults a killed run set aside ($aside stays; unreadable or the import failed)"; exit 1; }
     note defaults_recovered "put back the copy a killed run left"
   fi
-  "$defaults_tool" export "$bundle_id" "$aside" >/dev/null 2>&1 && [[ -f "$aside" ]] \
-    || { rm -f "$aside"; result fail not_run "could not set aside the $bundle_id defaults"; exit 1; }
+  "$defaults_tool" export "$bundle_id" "$aside.partial" >/dev/null 2>&1 && plist_ok "$aside.partial" && mv "$aside.partial" "$aside" \
+    || { rm -f "$aside.partial"; result fail not_run "could not set aside the $bundle_id defaults"; exit 1; }
   aside_held=copy
   "$defaults_tool" delete "$bundle_id" >/dev/null 2>&1 || true
   domain_empty || { result fail not_run "could not clear the $bundle_id defaults (they are put back)"; exit 1; }
