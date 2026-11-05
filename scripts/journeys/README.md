@@ -357,8 +357,11 @@ the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNES
 each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
 frame (the tab strip), on the film's own clock. Its JSON has the m6 rows (`m6`) and the cmux-ad m14 rows (`m14`);
 `video-cases/judge_m14.py BASE ...` gives the m14 verdict per film (exit 0 every film passes, 1 a film fails, 2 a film
-is not judged). Each rule in `video-cases/test_judge_pixel.py` came as a red-then-green pair that the FRAME OWNER
-reviewed; a change to a rule does the same.
+is not judged and none fails; a usage error also exits 2). Each rule in `video-cases/test_judge_pixel.py` came as a
+red-then-green pair with an independent review (the FRAME OWNER's; m14's by R-HARNESS); a change to a rule does the
+same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
+the store: run them yourself after an m14 change.
 
 Every change to a judge reproduces the judge goldens. They have two tiers:
 
