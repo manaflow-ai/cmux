@@ -108,7 +108,10 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
       ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
       count,
-      preview: withoutRelayHead(text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? "")),
+      preview:
+        withoutRelayHead(text(p.preview).trim()) ||
+        withoutRelayHead(previewFromText(notice, threadId)) ||
+        firstLine(newest ?? ""),
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),

@@ -37,7 +37,8 @@ export function relayEnvelope(text: string): RelayEnvelope | undefined {
   const closing = `[end of message ${id}]`;
   if (!trimmed.endsWith(closing)) return undefined;
   const bodyEnd = trimmed.length - closing.length;
-  if (bodyEnd < headEnd) return undefined;
+  // The closing marker is a line of its own; one written inline is the body's own text.
+  if (bodyEnd <= headEnd || trimmed[bodyEnd - 1] !== "\n") return undefined;
   return { id, sender: head[2]!.trim(), relay: head[3]!.trim(), body: trimmed.slice(headEnd + 1, bodyEnd).trim() };
 }
 

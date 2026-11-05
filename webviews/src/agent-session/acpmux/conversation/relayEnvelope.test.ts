@@ -40,6 +40,9 @@ test("a label that does not close with its own nonce is no envelope", () => {
   expect(relayEnvelope(relayed(body).split("\n")[0]!)).toBeUndefined();
   expect(relayEnvelope(relayed(body).replace("(an agent, not Leo)", "(Leo)"))).toBeUndefined();
   expect(relayEnvelope("plain words")).toBeUndefined();
+  // The closing marker written inline at the end of a line is the text's own, not the close.
+  const head = relayed(body).split("\n")[0]!;
+  expect(relayEnvelope(`${head}\nReport [end of message 4f4d68ff]`)).toBeUndefined();
 });
 
 test("a relayed message is its sender's card, the label only behind Details", () => {
@@ -106,6 +109,23 @@ test("an inbox thread's messages and preview leave the label out", () => {
   });
   expect(notice?.threads[0]?.preview).toBe("Merged #36125");
   expect(notice?.threads[0]?.messages?.[0]?.text).toBe("Merged #36125");
+});
+
+test("an inbox thread whose preview is only the label previews its newest message", () => {
+  const head = relayed("Merged #36125").split("\n")[0]!;
+  const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
+    kind: "inbox_notice",
+    threads: [
+      {
+        threadId: "from:lane-3",
+        from: ["build-box/lane-3"],
+        new: 1,
+        preview: head,
+        messages: [{ from: "build-box/lane-3", text: relayed("Merged #36125") }],
+      },
+    ],
+  });
+  expect(notice?.threads[0]?.preview).toBe("Merged #36125");
 });
 
 test("a preview without the label reads as written", () => {
