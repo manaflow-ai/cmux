@@ -261,6 +261,21 @@ public final class JoinConsentModel {
     /// The Labs switch (`labs.machineJoin`).
     public var enabled: Bool { services.enabled() }
 
+    /// Computer Use on this Mac is refused by acpmux: the Mac is joined (the switches show) and its
+    /// record, as read, has Screen sharing or Control off. Unread or "not joined" is not blocked.
+    public var computerUseBlocked: Bool {
+        guard shown, let consent, consent.consentRequired != false else { return false }
+        return !(consent.screen && consent.control)
+    }
+
+    /// Computer Use setup's Turn On: Screen sharing, then Control, each through ``set(_:on:)`` (the
+    /// person path; each asks for Touch ID or the login password). Stops at the first that fails.
+    public func allowComputerUse() async {
+        for surface in JoinConsentSurface.allCases where consent?.allows(surface) != true {
+            guard await set(surface, on: true) == nil else { return }
+        }
+    }
+
     /// The switches show: the Labs switch is on and this Mac holds a join credential that is not revoked.
     public var shown: Bool { services.enabled() && status?.credentialPresent == true && status?.revoked != true }
 

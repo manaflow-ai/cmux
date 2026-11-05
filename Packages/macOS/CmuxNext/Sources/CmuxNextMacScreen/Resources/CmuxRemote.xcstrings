@@ -8253,6 +8253,530 @@
           }
         }
       }
+    },
+    "computerUse.remoteSetup.teamTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح باستخدام الكمبيوتر على جهاز Mac هذا التابع للفريق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli Computer Use na ovom timskom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad Computer Use på denne team-Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use auf diesem Team-Mac erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Computer Use on This Team Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir Computer Use en este Mac del equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser Computer Use sur ce Mac d’équipe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti Computer Use su questo Mac del team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチームの Mac で Computer Use を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាត Computer Use នៅលើ Mac ក្រុមនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 팀 Mac에서 Computer Use 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat Computer Use på denne team-Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na Computer Use na tym Macu zespołu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir Computer Use neste Mac da equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить Computer Use на этом командном Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาต Computer Use บน Mac ของทีมเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Ekip Mac’inde Computer Use’a İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити Computer Use на цьому командному Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép Computer Use trên máy Mac của nhóm này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许在此团队 Mac 上使用 Computer Use"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許在此團隊 Mac 上使用 Computer Use"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.teamIntro": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا منضم إلى فريق، لذا لا يمكن للوكلاء استخدامه إلا عند تشغيل مشاركة الشاشة والتحكم في الإعدادات > الأجهزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac je pridružen timu, pa ga agenti mogu koristiti samo dok su Dijeljenje ekrana i Kontrola uključeni u Postavke > Uređaji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er tilknyttet et team, så agenter kan kun bruge den, mens Skærmdeling og Styring er slået til i Indstillinger > Enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac gehört zu einem Team. Agents können ihn nur nutzen, solange Bildschirmfreigabe und Steuerung unter Einstellungen > Geräte aktiviert sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is joined to a team, so agents can use it only while Screen sharing and Control are on in Settings > Devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac está unido a un equipo, así que los agentes solo pueden usarlo mientras Compartir pantalla y Control estén activados en Ajustes > Dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac a rejoint une équipe : les agents ne peuvent l’utiliser que si Partage d’écran et Contrôle sont activés dans Réglages > Appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac fa parte di un team, quindi gli agenti possono usarlo solo mentre Condivisione schermo e Controllo sono attivi in Impostazioni > Dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はチームに参加しているため、「設定」>「デバイス」で画面共有とコントロールがオンのときだけエージェントが使用できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះបានចូលរួមក្រុម ដូច្នេះភ្នាក់ងារអាចប្រើវាបានតែពេលការចែករំលែកអេក្រង់ និងការគ្រប់គ្រងបើកនៅក្នុង ការកំណត់ > ឧបករណ៍។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 팀에 참여되어 있으므로 설정 > 기기에서 화면 공유와 제어가 켜져 있을 때만 에이전트가 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er med i et team, så agenter kan bare bruke den mens Skjermdeling og Kontroll er på i Innstillinger > Enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac dołączył do zespołu, więc agenci mogą z niego korzystać tylko wtedy, gdy Udostępnianie ekranu i Sterowanie są włączone w Ustawienia > Urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac faz parte de uma equipe, então os agentes só podem usá-lo enquanto Compartilhamento de tela e Controle estiverem ativados em Ajustes > Dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac присоединён к команде, поэтому агенты могут использовать его, только пока в Настройки > Устройства включены Демонстрация экрана и Управление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้เข้าร่วมทีมแล้ว เอเจนต์จึงใช้งานได้เฉพาะเมื่อเปิดการแชร์หน้าจอและการควบคุมใน การตั้งค่า > อุปกรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac bir ekibe katıldı; bu nedenle ajanlar onu yalnızca Ayarlar > Aygıtlar’da Ekran paylaşımı ve Denetim açıkken kullanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac приєднано до команди, тож агенти можуть ним користуватися, лише поки в Параметри > Пристрої увімкнено Спільний екран і Керування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đã tham gia một nhóm, nên tác tử chỉ dùng được khi Chia sẻ màn hình và Điều khiển đang bật trong Cài đặt > Thiết bị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 已加入团队，因此只有在“设置 > 设备”中打开“屏幕共享”和“控制”时，代理才能使用它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 已加入團隊，因此只有在「設定 > 裝置」中開啟「螢幕共享」和「控制」時，代理才能使用它。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.teamEffect": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيلهما يتيح أيضًا لأجهزة فريقك رؤية جهاز Mac هذا والتحكم فيه. يمكنك إيقافهما من هناك في أي وقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Njihovim uključivanjem i mašine vašeg tima mogu vidjeti i kontrolisati ovaj Mac. Možete ih isključiti tamo u bilo kojem trenutku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når de slås til, kan dit teams maskiner også se og styre denne Mac. Du kan slå dem fra der når som helst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit können auch die Rechner deines Teams diesen Mac sehen und steuern. Du kannst beides dort jederzeit wieder ausschalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning them on also lets your team's machines see and control this Mac. You can turn them off there at any time."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al activarlos, las máquinas de tu equipo también pueden ver y controlar este Mac. Puedes desactivarlos allí en cualquier momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les activer permet aussi aux machines de votre équipe de voir et de contrôler ce Mac. Vous pouvez les désactiver à tout moment au même endroit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivandoli, anche le macchine del tuo team possono vedere e controllare questo Mac. Puoi disattivarli lì in qualsiasi momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、チームのマシンもこの Mac を表示・操作できるようになります。同じ場所でいつでもオフにできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបើកពួកវាក៏អនុញ្ញាតឱ្យម៉ាស៊ីនរបស់ក្រុមអ្នកមើល និងគ្រប់គ្រង Mac នេះដែរ។ អ្នកអាចបិទពួកវានៅទីនោះបានគ្រប់ពេល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 팀의 기기도 이 Mac을 보고 제어할 수 있습니다. 언제든지 그곳에서 끌 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når de er på, kan også teamets maskiner se og styre denne Macen. Du kan slå dem av der når som helst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ich włączenie pozwala też maszynom Twojego zespołu widzieć tego Maca i nim sterować. Możesz je tam wyłączyć w dowolnej chwili."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativá-los também permite que as máquinas da sua equipe vejam e controlem este Mac. Você pode desativá-los lá a qualquer momento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После включения машины вашей команды тоже смогут видеть этот Mac и управлять им. Выключить их можно там же в любой момент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปิดยังทำให้เครื่องของทีมคุณเห็นและควบคุม Mac เครื่องนี้ได้ด้วย คุณปิดได้ที่นั่นทุกเมื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bunları açmak, ekibinizin makinelerinin de bu Mac’i görmesine ve denetlemesine izin verir. İstediğiniz zaman oradan kapatabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після ввімкнення машини вашої команди також зможуть бачити цей Mac і керувати ним. Вимкнути їх можна там же будь-коли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật chúng cũng cho phép các máy của nhóm bạn xem và điều khiển máy Mac này. Bạn có thể tắt chúng ở đó bất cứ lúc nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开后，你团队的机器也能查看和控制此 Mac。你可以随时在那里关闭它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，你團隊的機器也能檢視和控制此 Mac。你可以隨時在那裡關閉它們。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.turnOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

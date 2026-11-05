@@ -13,11 +13,14 @@ public nonisolated enum ComputerUseRemoteSetupCard: String, Sendable, Equatable 
     case accessibility
     /// Step 2: Screen Recording was requested.
     case screenRecording
+    /// Both grants are on; this Mac is on a team and its team consent is off.
+    case teamConsent
 
     public static let continueButton = "continue"
     public static let notNowButton = "notNow"
     public static let openSettingsButton = "openSettings"
     public static let closeButton = "close"
+    public static let turnOnTeamButton = "turnOnTeam"
 }
 
 /// Shows and closes the setup card (``ComputerUseApprovalCards``; tests record it).
@@ -55,6 +58,11 @@ extension ComputerUseApprovalCards: ComputerUseRemoteSetupPresenting {
             return CmuxDialogSpec(title: strings.askTitle, lines: strings.askLines,
                                   buttons: [CmuxDialogButton(id: ComputerUseRemoteSetupCard.notNowButton, title: strings.notNow, role: .cancel),
                                             CmuxDialogButton(id: ComputerUseRemoteSetupCard.continueButton, title: strings.proceed, role: .default)],
+                                  identifier: ComputerUseApprovalService.remoteSetupDialogIdentifier)
+        case .teamConsent:
+            return CmuxDialogSpec(title: strings.teamTitle, lines: strings.teamLines,
+                                  buttons: [CmuxDialogButton(id: ComputerUseRemoteSetupCard.notNowButton, title: strings.notNow, role: .cancel),
+                                            CmuxDialogButton(id: ComputerUseRemoteSetupCard.turnOnTeamButton, title: strings.turnOn, role: .default)],
                                   identifier: ComputerUseApprovalService.remoteSetupDialogIdentifier)
         case .accessibility, .screenRecording:
             let screen = card == .screenRecording
@@ -106,6 +114,20 @@ enum ComputerUseRemoteSetupStrings {
                                      defaultValue: "Step 1 of 2. When macOS asks for %@, open System Settings and turn on cmux Remote. This card closes by itself once it is on.",
                                      table: "CmuxRemote", bundle: .module), accessibilityName)]
     }
+
+    static var teamTitle: String {
+        String(localized: "computerUse.remoteSetup.teamTitle", defaultValue: "Allow Computer Use on This Team Mac", table: "CmuxRemote", bundle: .module)
+    }
+    /// Says plainly that the same switches let the team's machines in.
+    static var teamLines: [String] {
+        [String(localized: "computerUse.remoteSetup.teamIntro",
+                defaultValue: "This Mac is joined to a team, so agents can use it only while Screen sharing and Control are on in Settings > Devices.",
+                table: "CmuxRemote", bundle: .module),
+         String(localized: "computerUse.remoteSetup.teamEffect",
+                defaultValue: "Turning them on also lets your team's machines see and control this Mac. You can turn them off there at any time.",
+                table: "CmuxRemote", bundle: .module)]
+    }
+    static var turnOn: String { String(localized: "computerUse.remoteSetup.turnOn", defaultValue: "Turn On", table: "CmuxRemote", bundle: .module) }
 
     static var proceed: String { String(localized: "computerUse.remoteSetup.continue", defaultValue: "Continue", table: "CmuxRemote", bundle: .module) }
     static var notNow: String { String(localized: "computerUse.remoteSetup.notNow", defaultValue: "Not Now", table: "CmuxRemote", bundle: .module) }

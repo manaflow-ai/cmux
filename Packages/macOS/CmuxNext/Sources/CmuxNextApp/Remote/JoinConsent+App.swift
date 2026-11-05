@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
+import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextCompat
 import CmuxNextServer
@@ -238,5 +239,14 @@ nonisolated struct MachineConsentChanges: Sendable {
             source.resume()
             return source
         }
+    }
+}
+
+extension JoinConsentModel {
+    /// Computer Use setup's team step reads and turns on this Mac's join consent.
+    var computerUseTeamConsent: ComputerUseTeamConsent {
+        // task-owner: one consent write per press; the model serializes writes and asks for Touch ID.
+        ComputerUseTeamConsent(needed: { [weak self] in self?.computerUseBlocked ?? false },
+                               request: { [weak self] in Task { await self?.allowComputerUse() } })
     }
 }

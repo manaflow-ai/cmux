@@ -69,7 +69,8 @@ final class OnboardingService {
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
     /// cmux Remote's Computer Use setup card: asks for cmux Remote's grants when Computer Use is on.
     private(set) lazy var computerUseRemoteSetup = ComputerUseRemoteSetupFlow(source: computerUseSetup,
-                                                                            presenter: services.cmuxRemote.computerUseApprovals.cards)
+                                                                            presenter: services.cmuxRemote.computerUseApprovals.cards,
+                                                                            team: services.joinConsent.computerUseTeamConsent)
 
     init(services: AppServices) {
         self.services = services
