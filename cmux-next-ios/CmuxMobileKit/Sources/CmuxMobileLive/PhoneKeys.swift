@@ -71,7 +71,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
 
     /// Every stored key kind: `approval` is the enclave approval key of builds
     /// that asked for Face ID (and the software one of DEBUG and simulator builds).
-    private static let kinds = ["identity", "approval", Self.promptFreeApproval]
+    private static let kinds = ["identity", "approval", PhoneKeys.promptFreeApproval]
     /// The enclave approval key without user presence (no Face ID on use).
     private static let promptFreeApproval = "approval-np"
 
