@@ -595,6 +595,8 @@ impl Hub {
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
             self.append(session, "mux", "fork_child", json!({"childId": id}));
+            self.save_meta(&new);
+            creation_guard.disarm();
         } else {
             // Publish the durable result before any await can lose the reply. A partial
             // journal stays reserved and is never mistaken for a completed child on retry.
@@ -604,19 +606,15 @@ impl Hub {
                     "child journal could not be stored",
                 ));
             }
-            self.store
-                .flush_session(&new.id)
-                .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
-            let mut meta = new.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let mut ready = meta.clone();
-            if let Some(boundary) = ready.fork_before.as_mut() {
-                boundary.ready = true;
-            }
-            self.store
-                .save(&ready)
-                .and_then(|()| self.store.flush_session(&new.id))
-                .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
-            *meta = ready;
+            // Its syncs wait for the disk, so a blocking thread publishes it (#35971). That
+            // thread owns the creation guard and runs to its end: a request dropped at this
+            // await neither loses the reply nor purges a child the thread made durable.
+            let (hub, child) = (self.clone(), new.clone());
+            tokio::task::spawn_blocking(move || hub.publish_fork_before(&child, creation_guard))
+                .await
+                .unwrap_or_else(|e| {
+                    Err(super::fork_before::refused("fork.incomplete", &e.to_string()))
+                })?;
         }
         // The forked agent session lives in the parent's process. Load it in
         // its own process so one session keeps one child. Fork Conversation
@@ -624,8 +622,6 @@ impl Hub {
         // history are all in its meta and log by now, a harness start takes
         // seconds, and the fork's first prompt waits for this start (`child_for`
         // holds the spawn lock). A start that fails says why at that prompt.
-        self.save_meta(&new);
-        creation_guard.disarm();
         if start_later {
             let hub = self.clone();
             let fork = new.clone();
@@ -638,6 +634,34 @@ impl Hub {
             tracing::warn!(session = %new.id, "fork child start failed: {e}");
         }
         Ok(new)
+    }
+
+    /// The end of a fork before a prompt (`fork_before.rs`), on a blocking thread: the child's
+    /// journal synced, its boundary marked ready and synced, then its metadata committed and
+    /// its creation guard disarmed. An error drops the guard, which purges the child.
+    fn publish_fork_before(
+        &self,
+        new: &Session,
+        creation_guard: super::lifecycle::CreationGuard,
+    ) -> Result<(), RpcError> {
+        let incomplete =
+            |e: anyhow::Error| super::fork_before::refused("fork.incomplete", &e.to_string());
+        self.store.flush_session(&new.id).map_err(incomplete)?;
+        {
+            let mut meta = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ready = meta.clone();
+            if let Some(boundary) = ready.fork_before.as_mut() {
+                boundary.ready = true;
+            }
+            self.store
+                .save(&ready)
+                .and_then(|()| self.store.flush_session(&new.id))
+                .map_err(incomplete)?;
+            *meta = ready;
+        }
+        self.save_meta(new);
+        creation_guard.disarm();
+        Ok(())
     }
 }
 

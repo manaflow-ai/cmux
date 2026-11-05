@@ -145,7 +145,7 @@ async fn send(
         })
         .await
         .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
-    remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
+    remember_sender(hub, conn, &receipt.message_id, &wire_address).await?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
@@ -240,17 +240,32 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
 mod tests;
 
 /// Ownership comes from the proven connection and a local journal entry, never sender hints.
-pub(super) fn remember_sender(
-    hub: &Hub,
+/// Both records are synced to disk (the outbox file, a line in the sender's log), so a
+/// blocking thread writes them; the reply waits for it (#35971).
+pub(super) async fn remember_sender(
+    hub: &Arc<Hub>,
     conn: &Conn,
     id: &str,
     address: &str,
 ) -> Result<(), RpcError> {
-    if !hub.outbox.record_team_receipt(id, address, conn.caller().filter(|_| !conn.is_person())) {
-        return Err(RpcError::internal("team message sent, but its origin could not be persisted")
-            .with_data(json!({"messageId": id})));
+    let caller = conn.caller().filter(|_| !conn.is_person()).map(str::to_owned);
+    let (owner, receipt, to) = (hub.clone(), id.to_owned(), address.to_owned());
+    tokio::task::spawn_blocking(move || record_sender(&owner, caller.as_deref(), &receipt, &to))
+        .await
+        .unwrap_or_else(|_| Err(origin_not_persisted(id)))
+}
+
+fn origin_not_persisted(id: &str) -> RpcError {
+    RpcError::internal("team message sent, but its origin could not be persisted")
+        .with_data(json!({"messageId": id}))
+}
+
+/// [`remember_sender`]'s records, for the proven `caller` (None: the person).
+fn record_sender(hub: &Hub, caller: Option<&str>, id: &str, address: &str) -> Result<(), RpcError> {
+    if !hub.outbox.record_team_receipt(id, address, caller) {
+        return Err(origin_not_persisted(id));
     }
-    if let Some(caller) = conn.caller().filter(|_| !conn.is_person()) {
+    if let Some(caller) = caller {
         let session = hub.resolve(caller).map_err(|_| forbidden())?;
         if !hub.record_team_send(&session, id) {
             return Err(RpcError::internal(

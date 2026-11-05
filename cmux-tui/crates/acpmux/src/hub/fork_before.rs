@@ -69,9 +69,14 @@ impl Hub {
         // Reserve durably before any native copy or new session. The chat's ordered writer
         // commits it, so no older copy can be written after it. Keep the in-memory
         // reservation on an I/O error too: a failed write may have reached storage.
-        self.write_meta(source)
-            .and_then(|()| self.store.flush_session(&source.id))
-            .map_err(|e| refused("fork.incomplete", &e.to_string()))?;
+        // The commit and the sync wait for the disk, so a blocking thread does them (#35971).
+        let (hub, reserved) = (self.clone(), source.clone());
+        tokio::task::spawn_blocking(move || {
+            hub.write_meta(&reserved).and_then(|()| hub.store.flush_session(&reserved.id))
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.into()))
+        .map_err(|e| refused("fork.incomplete", &e.to_string()))?;
         let child = admitted
             .run(self.fork_with_boundary(
                 source,

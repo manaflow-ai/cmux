@@ -623,11 +623,7 @@ impl Hub {
                     None,
                     None,
                 );
-                let stored = appended
-                    && self.store.flush_session(&session.id).map(|()| true).unwrap_or_else(|error| {
-                        tracing::warn!(session = %session.id, "sync transferred_in receipt: {error:#}");
-                        false
-                    });
+                let stored = appended && self.sync_transferred_in(&session).await;
                 if !stored {
                     if source_store_backup.is_none() {
                         self.recover_staged_replacements();
@@ -687,6 +683,17 @@ impl Hub {
         self.resume_queues();
         let _ = std::fs::remove_dir_all(&dir);
         Ok(self.session_summary(&session))
+    }
+
+    /// The moved chat's `transferred_in` record synced to disk. The sync waits for the disk, so
+    /// a blocking thread does it (#35971).
+    async fn sync_transferred_in(self: &Arc<Self>, session: &Session) -> bool {
+        let (hub, id) = (self.clone(), session.id.clone());
+        let synced = tokio::task::spawn_blocking(move || hub.store.flush_session(&id)).await;
+        synced.unwrap_or_else(|e| Err(e.into())).map(|()| true).unwrap_or_else(|error| {
+            tracing::warn!(session = %session.id, "sync transferred_in receipt: {error:#}");
+            false
+        })
     }
 
     /// Drops every receive of move `transferId` and says whether its chat landed here.
