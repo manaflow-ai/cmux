@@ -9,6 +9,16 @@ import Foundation
 // (the ring), `debug.replay` (journal against the pure reducers), and in
 // DEBUG builds `debug.mouse` (synthesized mouse input).
 extension AppControl {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.mouse`: synthesized mouse input for one of this process's windows (`DebugMouse`).
+    static func debugMouseMethod(_ services: AppServices) -> ControlMethod {
+        .mainActor("debug.mouse") { [weak services] call in
+            guard let services else { return .value(.null) }
+            return .value(DebugMouse.send(call.params, services: services))
+        }
+    }
+    #endif
+
     func registerInputMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("debug.desync") { [weak services] call in
@@ -39,10 +49,7 @@ extension AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureBackdrop(call.params, pattern: pattern, image: image, services: services)
             },
-            .mainActor("debug.mouse") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugMouse.send(call.params, services: services))
-            },
+            Self.debugMouseMethod(services),
             // The cursor the app shows now, by name (NSCursor.debugName), and the window server's.
             .mainActor("debug.cursor") { _ in .value(.object(LayoutRootView.debugCursorReport().mapValues(JSONValue.string))) },
             // The Home data path (homeRouter) from the socket (DebugHomeAPI).
