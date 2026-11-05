@@ -12,7 +12,7 @@ name: classic frozen guard
 on:
   pull_request_target:
     branches: [main, feat-cmux-next]
-    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
 
 permissions: {}
 
