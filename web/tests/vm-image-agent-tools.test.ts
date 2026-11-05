@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdStaticCheckCommand, rdWorkUserCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdStaticCheckCommand, rdWorkUserCookieCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -31,7 +31,9 @@ import {
   daemonEnvLines,
   DISPLAY_UNIT,
   A11Y_UNIT,
+  RD_HOST_DIR,
   RD_OPENH264_UNIT,
+  RD_PEER_UID,
   RD_RUN_DIR,
   RD_SOCKET,
   RD_SOCKET_UNIT,
@@ -49,6 +51,7 @@ import {
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { DEVBOX_WORK_UID } from "../services/vms/images/workUser";
 import { runChild } from "./helpers/run-child";
 
 const lock = readInputsLock();
@@ -362,27 +365,31 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(rdHostPath(rdLock)).toBe(hostBin);
     });
 
-    test("the socket is root only (0600 in a dir the work user cannot traverse), enabled at boot, and starts the host service", () => {
+    test("the socket is root:cmux 0660 (the link receiver runs as cmux) in a 0711 root dir, enabled at boot, and starts the host service", () => {
       const socket = rdSocketUnit();
       expect(RD_SOCKET).toBe("/run/cmux-rd/desktop.sock");
       expect(socket).toContain(`ListenStream=${RD_SOCKET}\n`);
       expect(socket).toContain("SocketUser=root\n");
-      expect(socket).toContain("SocketGroup=root\n");
-      expect(socket).toContain("SocketMode=0600\n");
-      expect(socket).toContain("DirectoryMode=0710\n");
+      expect(socket).toContain("SocketGroup=cmux\n");
+      expect(socket).toContain("SocketMode=0660\n");
+      expect(socket).toContain("DirectoryMode=0711\n");
       expect(socket).toContain("Accept=no\n");
       expect(socket).toContain(`Service=${RD_UNIT}\n`);
       expect(socket).toContain("[Install]\nWantedBy=sockets.target\n");
       expect(socket).not.toMatch(/ListenStream=.*:\d+|ListenStream=\d/);
-      // The run dir is made at boot with the host's group only: root rwx, cmux-rd traverse, others nothing.
-      expect(rdTmpfiles()).toContain(`d ${RD_RUN_DIR} 0710 root ${RD_USER} -\n`);
+      // The socket dir: anyone may traverse to the socket by name, nobody but root lists or writes it.
+      expect(rdTmpfiles()).toContain(`d ${RD_RUN_DIR} 0711 root root -\n`);
     });
 
-    test("the host runs as cmux-rd on :99, socket-activated, with the root-only peer and no TCP or token", () => {
+    test("the host runs as cmux-rd on :99, socket-activated, accepting only the work user's uid, with no TCP or token", () => {
       const unit = rdUnit(hostBin);
       expect(RD_UNIT).toBe("cmux-agent-rd.service");
-      expect(unit).toContain(`ExecStart=${hostBin} host --listen-systemd --peer-uid 0 --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
-      expect(RD_XAUTHORITY).toBe("/run/cmux-rd/Xauthority-99");
+      expect(RD_PEER_UID).toBe(DEVBOX_WORK_UID);
+      expect(unit).toContain(`ExecStart=${hostBin} host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
+      // The cookie copy lives in the host's own runtime dir, not in the socket dir the work user can traverse.
+      expect(RD_HOST_DIR).toBe("/run/cmux-rd-host");
+      expect(RD_XAUTHORITY).toBe("/run/cmux-rd-host/Xauthority-99");
+      expect(unit).toContain("RuntimeDirectory=cmux-rd-host\nRuntimeDirectoryMode=0700\n");
       expect(unit).toContain("User=cmux-rd\n");
       expect(unit).toContain("Group=cmux-rd\n");
       expect(unit).not.toContain("User=cmux\n");
@@ -421,7 +428,12 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       const copy = rdCookieCopy();
       expect(copy).toContain(`timeout 5 setpriv --reuid=cmux --regid=cmux --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs /bin/sh -c "test -f ${AGENT_XAUTHORITY} && test ! -L ${AGENT_XAUTHORITY} && head -c 4097 ${AGENT_XAUTHORITY}" > ${RD_XAUTHORITY}.new`);
       expect(copy).toContain(`test "$(wc -c < ${RD_XAUTHORITY}.new)" -le 4096`);
-      expect(copy).toContain(`mv -f ${RD_XAUTHORITY}.new ${RD_XAUTHORITY}`);
+      expect(copy).toContain(`chown -h cmux-rd:cmux-rd ${RD_XAUTHORITY}.new && mv -f ${RD_XAUTHORITY}.new ${RD_XAUTHORITY}`);
+      // The host dir belongs to cmux-rd: root creates the temp file exclusively and never chmods through a link.
+      expect(copy.startsWith("umask 077; set -C; ")).toBe(true);
+      expect(copy).not.toContain("chmod");
+      // systemd expands % specifiers in Exec lines: the script has none.
+      expect(copy).not.toContain("%");
       // Root never names the source outside the work user's reader.
       expect(copy.replace(/setpriv [^"]*"[^"]*"/, "")).not.toContain(AGENT_XAUTHORITY);
       expect(copy).not.toMatch(/(^|; )(install|cp|cat) [^;]*\/home\//);
@@ -444,13 +456,14 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
         // As the probe would on the machine, minus what needs root: the reader runs as this user, no chown.
         const local = rdCookieCopy()
           .replace(/setpriv [^/]*\/bin\/sh/, "/bin/sh")
-          .replace(/install -d -m 0710 -o root -g cmux-rd [^;\s]+/, `mkdir -p ${run}`)
-          .replace(/chown [^;\s]+ [^;\s]+ && /, "")
+          .replace(/test -d \/run\/cmux-rd-host [^|]*\|\| \{[^}]*\}/, `mkdir -p ${run}`)
+          .replace(/chown -h [^;\s]+ [^;\s]+ && /, "")
           .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
           .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
           .replaceAll(AGENT_XAUTHORITY, src)
-          .replaceAll(RD_RUN_DIR, run);
+          .replaceAll(RD_HOST_DIR, run);
         expect(local).not.toContain("setpriv");
+        expect(local).not.toContain("chown");
         expect(local).toContain(`mkdir -p ${run}; for i in`);
         const copy = () => runChild("sh", ["-c", local], { timeout: 20_000 });
         const dest = path.join(run, "Xauthority-99");
@@ -483,6 +496,9 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(setup).toContain(`sudo -l -U ${RD_USER}`);
       expect(setup).toContain(`systemctl enable --now --quiet ${RD_SOCKET_UNIT}`);
       expect(setup).toContain(`! systemctl is-active --quiet ${RD_UNIT}`);
+      expect(setup).toContain(`test "$(stat -c '%a %U %G' ${RD_RUN_DIR})" = '711 root root'`);
+      expect(setup).toContain(`test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '660 root cmux'`);
+      expect(setup).toContain(`test "$(id -u cmux)" = ${DEVBOX_WORK_UID}`);
       expect(setup).not.toMatch(/usermod|-G cmux|sudoers/);
       await bashSyntax(setup);
       const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
@@ -496,7 +512,10 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     });
 
     test("probe: every desktop command parses, and the connect helper reports connected or the errno name", async () => {
-      for (const command of [rdStaticCheckCommand(), rdActivateCommand(), rdWorkUserCommand(), rdConnectCommand(0)]) await bashSyntax(command);
+      for (const command of [rdStaticCheckCommand(), rdActivateCommand(), rdOtherUserCommand(), rdWorkUserCookieCommand(), rdConnectCommand(0)]) await bashSyntax(command);
+      // The host is started by a connection as the work user, the link receiver's uid; another user is refused.
+      expect(rdActivateCommand()).toContain(`setpriv --reuid=cmux --regid=cmux --init-groups python3`);
+      expect(rdOtherUserCommand()).toContain("setpriv --reuid=nobody --regid=nogroup --clear-groups python3");
       const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-connect-"));
       try {
         const sock = path.join(dir, "s.sock");
