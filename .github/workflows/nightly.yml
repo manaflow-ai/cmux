@@ -5576,7 +5576,9 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
-    runs-on: *pub-runner
+    # Never vars.CI_NIGHTLY_SIGN_RUNNER: an upload holds the release App key but signs nothing, and as an exclusive
+    # publisher on the one signer's mini it held the whole Mac while the next signs waited (run 41900945757).
+    runs-on: &pub-next-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6' }}
     timeout-minutes: 150
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
@@ -5708,7 +5710,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
-    runs-on: *pub-runner
+    runs-on: *pub-next-runner
     timeout-minutes: 90
     env:
       NIGHTLY_FEEDS: *pub-feeds

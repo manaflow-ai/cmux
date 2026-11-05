@@ -14,6 +14,9 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
    lands before the glaeda hook reaches cmux15 and the variable is the switch and the rollback.
 2. Any other event or ref (a dispatch, main's schedule) keeps the job's earlier route: glaeda admits
    only the nightly-next push there, so the route never sends it a job it would refuse.
+3. The GitHub-release uploads (publish-nightly-next-github and its -names twin) never take the signer: they sign
+   nothing, and run 41900945757's held cmux15 whole while the next signs waited. They take the signing pick's pool,
+   then glaeda's signing label, which no trusted-only mini carries (glaeda refuses nightlySlot with trustedRef).
 """
 
 from __future__ import annotations
@@ -33,8 +36,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from signing_runner import SIGNING_JOBS  # noqa: E402
 
 LABEL = "glaeda-trusted-next-signing"
+# Upload-only exclusive publishers: they hold the release App key and sign nothing, so they stay off the signer.
+UPLOADS = ("publish-nightly-next-github", "publish-nightly-next-github-names")
 # signing_runner.SIGNING_JOBS names the keychain jobs; promote-nightly-next holds a release key too (glaeda SIGNING_JOBS)
-JOBS = ("promote-nightly-next", *SIGNING_JOBS["nightly.yml"])
+JOBS = tuple(name for name in ("promote-nightly-next", *SIGNING_JOBS["nightly.yml"]) if name not in UPLOADS)
 PREFIX = "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || "
 
 
@@ -45,7 +50,7 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_signs_on_cmux15_first(self) -> None:
-        self.assertEqual(len(JOBS), 8)
+        self.assertEqual(len(JOBS), 6)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
@@ -79,6 +84,26 @@ class SigningOnCmux15Test(unittest.TestCase):
                     with self.subTest(job=name, event=event, ref=ref):
                         self.assertEqual(route(name, context), expected)
                         self.assertNotEqual(route(name, context), LABEL)
+
+    def test_the_release_uploads_never_take_the_signer(self) -> None:
+        rng = random.Random(41900945757)
+        for name in UPLOADS:
+            source = manaflow_route(name)
+            with self.subTest(job=name):
+                self.assertNotIn("CI_NIGHTLY_SIGN_RUNNER", source)
+                self.assertTrue(source.rstrip(" }").endswith(
+                    "needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
+                    "needs.pick-nightly-sign-runner.outputs.sign_owned_pool || "
+                    "vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6'"), source)
+            for _ in range(200):
+                context = never_blacksmith.sample(source, rng)
+                context.update({"github.event_name": "push", "github.ref": "refs/heads/nightly-next",
+                                "github.ref_name": "nightly-next", "vars.CI_NIGHTLY_SIGN_RUNNER": LABEL})
+                value = route(name, context)
+                with self.subTest(job=name, context=context):
+                    self.assertNotEqual(value, LABEL)
+                    self.assertIn(value, ("glaeda-signing-xcode-26.6",
+                                          context.get("needs.pick-nightly-sign-runner.outputs.sign_owned_pool")))
 
 
 if __name__ == "__main__":
