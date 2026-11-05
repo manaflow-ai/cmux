@@ -199,19 +199,11 @@ def swap(app: Path, built: Path, gpu: bool = False) -> dict:
 
 BUILD_SCRIPT = r"""
 set -euo pipefail
-src="$1"; out="$2"; target="$3"; keep="$4"; list="$5"
+src="$1"; out="$2"; target="$3"; keep="$4"
 eval src="$src"; eval keep="$keep"
 mkdir -p "$keep/orig"
 cd "$src"
 case "$out" in out/*) ;; *) echo "out dir must be out/<name>" >&2; exit 64;; esac
-while IFS= read -r rel; do
-  [ -n "$rel" ] || continue
-  case "$rel" in /*|*..*) echo "refusing $rel" >&2; exit 64;; esac
-  if [ ! -e "$keep/orig/$rel" ] && [ ! -e "$keep/orig/$rel.absent" ]; then
-    mkdir -p "$(dirname "$keep/orig/$rel")"
-    if [ -e "$rel" ]; then cp -p "$rel" "$keep/orig/$rel"; else : > "$keep/orig/$rel.absent"; fi
-  fi
-done < "$list"
 bin="$out/$BINARY"
 before=$(stat -f '%m %z %i' "$bin" 2>/dev/null || stat -c '%Y %s %i' "$bin" 2>/dev/null || echo none)
 t0=$(date +%s)
@@ -226,6 +218,22 @@ if [ "$rc" = 0 ] && [ "$before" != "$after" ]; then
   sha=$(shasum -a 256 "$bin" 2>/dev/null | cut -c1-64 || sha256sum "$bin" | cut -c1-64)
 fi
 printf '{"rc": %d, "build_seconds": %d, "binary": "%s", "sha256": "%s"}\n' "$rc" $((t1 - t0)) "$bin" "$sha"
+"""
+
+KEEP_SCRIPT = r"""
+set -euo pipefail
+src="$1"; keep="$2"; shift 2
+eval src="$src"; eval keep="$keep"
+mkdir -p "$keep/orig"
+cd "$src"
+# The tree's own copy of each path, kept once and before the edit lands, so stop can put it back.
+for rel in "$@"; do
+  case "$rel" in /*|*..*) echo "refusing $rel" >&2; exit 64;; esac
+  if [ ! -e "$keep/orig/$rel" ] && [ ! -e "$keep/orig/$rel.absent" ]; then
+    mkdir -p "$(dirname "$keep/orig/$rel")"
+    if [ -e "$rel" ]; then cp -p "$rel" "$keep/orig/$rel"; else : > "$keep/orig/$rel.absent"; fi
+  fi
+done
 """
 
 RESTORE_SCRIPT = r"""
@@ -270,7 +278,7 @@ class Builder:
 
     def sync(self, edits: Path, rels: list[str]) -> None:
         listing = "\n".join(rels) + "\n"
-        run(self.ssh() + [f"mkdir -p {self.keep} && cat > {self.keep}/list"], input=listing.encode())
+        self.remote(KEEP_SCRIPT, self.src, self.keep, *rels)
         files_from = self.state / "sync.list"
         files_from.write_text(listing)
         rsh = shlex.join(self.ssh()[:-1])
@@ -279,7 +287,7 @@ class Builder:
 
     def build(self) -> dict:
         script = f"BINARY={shlex.quote(self.binary_rel)}\n" + BUILD_SCRIPT
-        text = self.remote(script, self.src, self.out, self.target, self.keep, f"{self.keep}/list")
+        text = self.remote(script, self.src, self.out, self.target, self.keep)
         line = [l for l in text.splitlines() if l.startswith("{")][-1]
         return json.loads(line)
 
