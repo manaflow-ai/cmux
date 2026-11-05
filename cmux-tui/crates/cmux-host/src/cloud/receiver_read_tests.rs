@@ -593,3 +593,14 @@ fn vm_receiver_client_admit_until_runs_authority_to_the_admission_end_within_an_
         assert!(client.receiving_policy(&wg, NOW).is_err(), "admit_until {bad}");
     }
 }
+
+#[test]
+fn vm_receiver_client_malformed_or_refused_keyset_refuses() {
+    use super::receiver::is_refusal;
+    let (mut client, wg, _) = setup(|_, keys| keys["value"]["version"] = "bad".into());
+    assert!(is_refusal(&client.receiving_policy(&wg, NOW).err().unwrap()));
+    let (mut client, wg, _) = setup(|_, keys| {
+        *keys = json!({"ok":true,"value":{"version":"0000000000000001","keys":{}}});
+    });
+    assert!(is_refusal(&client.receiving_policy(&wg, NOW).err().unwrap()));
+}

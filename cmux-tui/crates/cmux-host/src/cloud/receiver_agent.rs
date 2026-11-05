@@ -145,7 +145,10 @@ impl AgentReceiver {
         })?;
         let mut stream = connect(path, deadline).map_err(|_| UNAVAILABLE)?;
         check_peer(&stream, uid).map_err(|_| REFUSED)?;
-        let bytes = exchange(&mut stream, deadline).map_err(|_| UNAVAILABLE)?;
+        // A reply that is too large or not one line is malformed, not late.
+        let bytes = exchange(&mut stream, deadline).map_err(|error| {
+            if error.kind() == io::ErrorKind::InvalidData { REFUSED } else { UNAVAILABLE }
+        })?;
         let snapshot = ReceiverSnapshot::from_public_reply_for_refresh(
             &bytes,
             &self.binding,

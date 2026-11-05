@@ -274,8 +274,13 @@ impl<H: Http> CloudClient<H> {
         let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, &deadline)?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
-        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
-        let keys = read_answer(status, &[], &bytes).map_err(|_| UNAVAILABLE)?;
+        // A keyset that did not answer (5xx, 429) is no answer; an answered
+        // keyset that does not parse or validate refuses.
+        if status != 200 {
+            return Err(if status == 403 { REFUSED } else { UNAVAILABLE }.into());
+        }
+        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| REFUSED)?;
+        let keys = read_answer(status, &[], &bytes).map_err(|_| REFUSED)?;
         let snapshot = ReceiverSnapshot {
             policy: read.value.0,
             keys,

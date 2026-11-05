@@ -308,6 +308,9 @@ fn receiver_owner_agent_refusal_clears_existing_authority() {
         b"{\"ok\":false,\"error\":\"cloud.vm.network_policy.refused\"}\n".to_vec(),
         b"{\"ok\":false,\"error\":\"something else\"}\n".to_vec(),
         b"{\"ok\":true}\n".to_vec(),
+        // An answered reply that is too large, or more than one line, is malformed.
+        [vec![b' '; 1024 * 1024 + 2], b"\n".to_vec()].concat(),
+        b"{}\n{}\n".to_vec(),
     ] {
         let (binding, keys, reply) = admitting_reply();
         let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
@@ -315,7 +318,11 @@ fn receiver_owner_agent_refusal_clears_existing_authority() {
         let (_dir, path, task) = server(refused.clone());
         let error = receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2));
         task.join().unwrap();
-        assert!(error.is_err_and(|e| is_refusal(&e)), "{}", String::from_utf8_lossy(&refused));
+        assert!(
+            error.is_err_and(|e| is_refusal(&e)),
+            "{}",
+            String::from_utf8_lossy(&refused[..refused.len().min(80)])
+        );
         assert!(lease.deadline().is_none(), "a refusal kept an admitted stream");
     }
 }
@@ -399,4 +406,27 @@ fn receiver_owner_agent_response_body_and_deadline_are_bounded() {
     let _ = release.send(());
     task.join().unwrap();
     assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+/// An answered policy whose keyset or budget is malformed refuses: it must
+/// revoke a retained admission, never ride on it.
+#[test]
+fn receiver_owner_agent_malformed_keyset_or_budget_revokes_admission() {
+    for (field, value) in [
+        ("keyset", json!({"version":"bad","keys":{}})),
+        ("remaining_ms", json!(0)),
+        ("remaining_ms", json!(u64::MAX / 2)),
+    ] {
+        let (binding, keys, reply) = admitting_reply();
+        let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+        let lease = admitted_stream(&receiver, &binding, reply.clone());
+        let mut bad: Value = serde_json::from_slice(&reply[..reply.len() - 1]).unwrap();
+        bad["value"][field] = value;
+        let (_dir, path, task) =
+            server([serde_json::to_vec(&bad).unwrap(), b"\n".to_vec()].concat());
+        let error = receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2));
+        task.join().unwrap();
+        assert!(error.is_err_and(|e| is_refusal(&e)), "{field}");
+        assert!(lease.deadline().is_none(), "a malformed {field} kept an admitted stream");
+    }
 }
