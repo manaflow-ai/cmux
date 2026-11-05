@@ -1584,6 +1584,90 @@ class TenthReviewTests(unittest.TestCase):
         finally:
             w.close()
 
+    def test_a_pinned_film_deleted_by_hand_refuses_the_snapshot_and_no_table_pins_other_bytes(self):
+        # review of #36011, finding 1: the disk check looked only at pinned files still on disk; a film deleted by hand let
+        # another manifest store other bytes under the pinned name, and from then on every snapshot of every manifest
+        # stopped on the two tables' conflict
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            folder = w.store / "films" / "build-a-120x2"
+            os.chmod(folder, 0o755)
+            for path in sorted(folder.glob("col-drag.*")):
+                path.unlink()
+            os.chmod(folder, 0o555)
+            trace = w.gallery / "build-a-120x2" / "col-drag.trace.json"
+            trace.write_text(trace.read_text().replace("[", "[ ", 1))
+            second = w.root / "manifest-2"
+            code, out = SixthReviewTests.cli(w, second, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 2, out)
+            self.assertIn("build-a-120x2/col-drag.trace.json: a table pins it, and the store's copy is changed or gone", out)
+            self.assertEqual(w.snapshot()[0], 2)  # the first manifest's snapshot refuses the same folder, never a crash
+            pins = jg.store_pins(w.store)  # no two tables pin one name with other bytes
+            self.assertNotEqual(pins["build-a-120x2"]["col-drag.trace.json"][1], jg.sha256_file(trace))
+        finally:
+            w.close()
+
+    def test_another_manifests_pin_decides_the_plan_of_a_first_snapshot(self):
+        # finding 2: the gallery changes before the second manifest's FIRST snapshot, so only the first manifest's table
+        # can refuse it in the plan (a store_pins that returned nothing let the changed bytes through)
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            trace = w.gallery / "build-a-120x2" / "col-drag.trace.json"
+            trace.write_text(trace.read_text().replace("[", "[ ", 1))
+            second = w.root / "manifest-2"
+            code, out = SixthReviewTests.cli(w, second, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 2, out)
+            self.assertIn("build-a-120x2/col-drag.trace.json: differs from the stored copy", out)
+        finally:
+            w.close()
+
+    def test_another_manifests_table_that_does_not_hash_to_its_name_refuses(self):
+        # finding 2: store_pins' own hash check (the changed table is the first manifest's; the snapshot is the second's)
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            sha = json.loads((w.manifest / "films.json").read_text())["files_table"]
+            path = w.store / "tables" / f"{sha}.json"
+            doc = json.loads(path.read_text())
+            doc["folders"]["build-a-120x2"]["col-drag.trace.json"][0] += 1
+            os.chmod(path, 0o644)
+            path.write_text(jg.canonical(doc))
+            second = w.root / "manifest-2"
+            code, out = SixthReviewTests.cli(w, second, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 2, out)
+            self.assertIn("does not hash to its name", out)
+            self.assertFalse((second / "films.json").exists())
+        finally:
+            w.close()
+
+    def test_a_retry_after_a_failed_write_in_the_same_thread_succeeds(self):
+        # finding 4: a write that failed between chmod and the rename leaves its read-only part file; the same thread's
+        # next write of the same result needs a part name of its own (the clock in the name)
+        tmp = Path(tempfile.mkdtemp(prefix="judge-goldens-part-"))
+        real_replace, calls = os.replace, []
+        value = {"result": "retry"}
+
+        def replace(src, dst, *a, **k):
+            calls.append(src)
+            if len(calls) == 1:
+                raise OSError(28, "No space left on device")
+            return real_replace(src, dst, *a, **k)
+
+        try:
+            jg.os.replace = replace
+            with self.assertRaises(OSError):
+                jg.put_content(tmp, value)
+            sha = jg.put_content(tmp, value)
+            self.assertEqual(jg.get_content(tmp, sha), value)
+            self.assertNotEqual(str(calls[0]), str(calls[1]))
+        finally:
+            jg.os.replace = real_replace
+            for path in tmp.iterdir():
+                os.chmod(path, 0o644)
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_a_dotted_film_of_an_older_runner_names_itself_when_it_refuses_a_new_film(self):
         # an older runner stored row.v2.* (a dotted film name, refused since review 9): by the first-dot rule its files
         # are film row's, so a new film row is refused as a new input of row; the message names the stored files
