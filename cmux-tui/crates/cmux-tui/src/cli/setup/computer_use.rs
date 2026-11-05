@@ -260,6 +260,16 @@ fn next_step(status: &Value) -> Option<Value> {
             );
         }
         "starting" => return Some(wait_step()),
+        // cmux Remote's grants are read through its host: nothing to restart in the app.
+        "failed" if status["grant_holder"] == "cmux_remote" => {
+            return action(
+                "app",
+                "cmux Remote did not report its permissions yet; run `cmux remote-host status`, \
+                 then run `cmux setup computer-use` again",
+                Some("cmux remote-host status".into()),
+                None,
+            );
+        }
         "failed" => {
             return action(
                 "app",

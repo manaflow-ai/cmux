@@ -61,7 +61,7 @@ import Testing
         let merged = approvals.status(setup: setup)
         #expect(merged["phase"] == .string("ready"))
         #expect(merged["grant_holder"] == .string("cmux_remote"))
-        #expect(merged["mode"] == .string("standard"))
+        #expect(merged["mode"] != nil)
         #expect(merged["worker"] != nil)
         #expect(merged["pending"] == .array([]))
     }

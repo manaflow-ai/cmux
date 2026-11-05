@@ -16,7 +16,7 @@ public nonisolated enum ComputerUseRemoteSetupState: Sendable, Equatable {
     case notRemote
     /// Computer Use is off, turned off by policy, or cannot run: nothing to set up.
     case inactive
-    /// cmux Remote's grants are being read.
+    /// cmux Remote's grants are being read, or unknown for now (no answer yet).
     case reading
     /// cmux Remote answered.
     case granted(accessibility: Bool, screenRecording: Bool)
@@ -28,9 +28,9 @@ public protocol ComputerUseRemoteGrantSource: AnyObject {
     /// Read inside an observation: a change of it updates the flow.
     var remoteSetupState: ComputerUseRemoteSetupState { get }
     /// Asks macOS for `grant` in cmux Remote (the person's press only).
-    func requestGrant(_ grant: ComputerUseRemoteGrant)
+    func requestRemoteGrant(_ grant: ComputerUseRemoteGrant)
     /// Opens the System Settings pane of `grant` (the person's press only).
-    func openGrantSettings(_ grant: ComputerUseRemoteGrant)
+    func openRemoteGrantSettings(_ grant: ComputerUseRemoteGrant)
 }
 
 /// Computer Use setup when Computer Use runs in cmux Remote (driver upstream, the default).
@@ -126,7 +126,7 @@ public final class ComputerUseRemoteSetupFlow {
             guard !dismissed else { return presenter.withdrawSetup() }
             show(grant == .accessibility ? .accessibility : .screenRecording)
             // One request per grant: a refresh never asks macOS again.
-            if requested.insert(grant.rawValue).inserted { source.requestGrant(grant) }
+            if requested.insert(grant.rawValue).inserted { source.requestRemoteGrant(grant) }
         }
     }
 
@@ -139,7 +139,7 @@ public final class ComputerUseRemoteSetupFlow {
         switch button {
         case ComputerUseRemoteSetupCard.continueButton: continued = true
         case ComputerUseRemoteSetupCard.openSettingsButton:
-            if case .request(let grant) = step { source.openGrantSettings(grant) }
+            if case .request(let grant) = step { source.openRemoteGrantSettings(grant) }
         default: dismissed = true // Not Now, Close.
         }
         update()

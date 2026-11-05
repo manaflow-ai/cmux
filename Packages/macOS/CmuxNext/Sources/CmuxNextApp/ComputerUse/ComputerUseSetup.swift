@@ -229,6 +229,8 @@ final class ComputerUseSetup {
     /// Under the helper v2, `requestPermission` queues the grant on its control pipe instead.
     func open(_ pane: ComputerUsePermissionPane) {
         if remote, let remoteHost {
+            if phase == .off { return enableSetting() } // the setup card then asks; policy: never
+            guard phase != .disabledByPolicy else { return }
             // task-owner: one request in cmux Remote (macOS names it); the next read shows the answer.
             Task { await remoteHost.request(pane) }
             return
@@ -368,7 +370,7 @@ final class ComputerUseSetup {
                 case .noAnswer:
                     // A helper that answered before keeps its rows until a read succeeds.
                     let hasRetry = attempt + 1 < Self.maximumRetries
-                    if phase != .ready { settle(hasRetry ? .starting : .failed, running: nil) }
+                    if phase != .ready { settle(hasRetry || remote ? .starting : .failed, running: nil) }
                     guard hasRetry else { return }
                     // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
                     do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
@@ -446,7 +448,7 @@ extension ComputerUseSetup {
                               driver: driver,
                               consentHostUnverified: helper.consentHostUnverified != nil,
                               upstreamFallback: driver != chosen,
-                              remote: driver == .upstream && services?.cmuxRemote.started == true)
+                              remote: driver == .upstream && services?.cmuxRemote.serving.on == true)
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
@@ -522,19 +524,16 @@ extension ComputerUseSetup: ComputerUseRemoteGrantSource {
 
     nonisolated static func remoteSetupState(remote: Bool, phase: Phase, permissions: ComputerUsePermissions) -> ComputerUseRemoteSetupState {
         guard remote else { return .notRemote }
-        if phase == .starting { return .reading }
-        return phase == .ready ? .granted(accessibility: permissions.accessibility, screenRecording: permissions.screenRecording) : .inactive
+        if phase == .off || phase == .disabledByPolicy { return .inactive }
+        // Unknown (no answer yet, cmux Remote is still reading) keeps the person's answer.
+        return phase == .ready ? .granted(accessibility: permissions.accessibility, screenRecording: permissions.screenRecording) : .reading
     }
 
-    func requestGrant(_ grant: ComputerUseRemoteGrant) { open(grant == .accessibility ? .accessibility : .screenRecording) }
+    func requestRemoteGrant(_ grant: ComputerUseRemoteGrant) { open(grant == .accessibility ? .accessibility : .screenRecording) }
 
-    func openGrantSettings(_ grant: ComputerUseRemoteGrant) {
-        let pane: ComputerUsePermissionPane = grant == .accessibility ? .accessibility : .screenRecording
-        guard remote, let remoteHost else {
-            if let url = Self.settingsURL(pane) { openURL(url) }
-            return
-        }
+    func openRemoteGrantSettings(_ grant: ComputerUseRemoteGrant) {
+        guard remote, let remoteHost else { return }
         // task-owner: one host request from the person's press.
-        Task { await remoteHost.openSettings(pane) }
+        Task { await remoteHost.openSettings(grant == .accessibility ? .accessibility : .screenRecording) }
     }
 }

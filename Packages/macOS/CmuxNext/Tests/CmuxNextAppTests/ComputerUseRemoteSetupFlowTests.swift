@@ -118,6 +118,8 @@ struct ComputerUseRemoteSetupFlowTests {
         // Off or policy: nothing to set up.
         #expect(step(remote: true, phase: .off, permissions: .none, continued: false) == .none)
         #expect(step(remote: true, phase: .disabledByPolicy, permissions: .none, continued: false) == .none)
+        // cmux Remote not answering (yet) is still reading: it never drops the person's answer.
+        #expect(step(remote: true, phase: .failed, permissions: .none, continued: true) == .reading)
         // Both off: the card asks first, then Accessibility, then Screen Recording, one at a time.
         #expect(step(remote: true, phase: .ready, permissions: off, continued: false) == .ask)
         #expect(step(remote: true, phase: .ready, permissions: off, continued: true) == .request(.accessibility))

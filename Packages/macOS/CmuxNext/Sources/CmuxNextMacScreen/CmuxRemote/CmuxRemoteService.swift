@@ -7,6 +7,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import os
+public import Observation
 
 private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cmux-remote")
 
@@ -24,7 +25,12 @@ public final class CmuxRemoteService {
     /// The app socket's credentials, until the host restarts (a refusal asks again).
     private var grant: RemoteHostAppRequest.Response?
     /// Whether the daemon runs cmux Remote (`remote-host-v1` and an embedded bundle).
-    public private(set) var available = false
+    public private(set) var available = false {
+        didSet { serving.on = started && available }
+    }
+    /// Whether cmux Remote serves this app now (``started`` and ``available``), observable:
+    /// Computer Use Setup reads cmux Remote's grants while it is on.
+    public let serving = CmuxRemoteServing()
     /// The hub made with cmux Remote's device identity, while it is the one running.
     var remoteHub: DeviceHub?
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
@@ -46,7 +52,10 @@ public final class CmuxRemoteService {
         self.init { [weak daemon] in daemon?.supports(DaemonCapability.remoteHost.rawValue) == true ? daemon?.connection : nil }
     }
 
-    func markStarted() { started = true }
+    func markStarted() {
+        started = true
+        serving.on = available
+    }
 
     // MARK: Daemon
 
@@ -173,4 +182,10 @@ public final class CmuxRemoteService {
             self?.anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
         }
     }
+}
+
+/// ``CmuxRemoteService/serving`` as an observable value.
+@MainActor @Observable
+public final class CmuxRemoteServing {
+    public internal(set) var on = false
 }
