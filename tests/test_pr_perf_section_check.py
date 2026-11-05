@@ -165,7 +165,7 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(self.check("", paths=["scripts/bench.py", "docs/bench.md"])[0], 1)
 
     def test_workflow_lists_both_sides_of_a_rename(self):
-        workflow = (ROOT / ".github/workflows/pr-perf-section-check.yml").read_text()
+        workflow = (ROOT / ".github/workflows/pr-checks.yml").read_text()
         self.assertIn("--no-renames", workflow)
         self.assertIn("previous_filename", workflow)
 

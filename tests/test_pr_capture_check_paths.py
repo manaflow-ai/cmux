@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pr-capture-check and cmux-next-media's route list the changed paths from the merge commit, not the API.
+"""pr-capture-check (pr-checks.yml's body job) and cmux-next-media's route list the changed paths from the merge commit, not the API.
 
 The check runs on every push, label and description edit of a feat-cmux-next
 pull request, and each run paged through `pulls/N/files` on the repository's
@@ -24,8 +24,8 @@ import yaml
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-capture-check.yml").read_text())
-STEPS = WORKFLOW["jobs"]["capture"]["steps"]
+WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-checks.yml").read_text())
+STEPS = WORKFLOW["jobs"]["body"]["steps"]
 
 
 def step(name: str) -> dict:
@@ -115,7 +115,7 @@ class CapturePathsTests(MergeCommitFixture):
         result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA=self.head)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(outputs.get("listed"), "true")
-        listed = (self.temp / "paths.txt").read_text(encoding="utf-8").splitlines()
+        listed = (self.temp / "capture-paths.txt").read_text(encoding="utf-8").splitlines()
         self.assertEqual(set(listed), self.api_set)
         self.assertEqual(self.gh_calls(), [])
 

@@ -35,8 +35,8 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
     "merge-freeze.yml": ("freeze-ok",),
-    "pr-capture-check.yml": ("media-tour", "media-tour-mac"),
-    "pr-perf-section-check.yml": ("perf", "performance"),
+    # Its body job runs the capture check (media-tour labels) and the perf section check (perf labels).
+    "pr-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
@@ -104,11 +104,52 @@ def top_level_or(condition: str) -> bool:
     return False
 
 
+def top_level_terms(condition: str) -> list[str] | None:
+    """CONDITION's `&&` terms outside parentheses, or None when it has an `||` there."""
+    if top_level_or(condition):
+        return None
+    terms: list[str] = []
+    depth = start = 0
+    for index, char in enumerate(condition):
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0 and condition.startswith("&&", index):
+            terms.append(condition[start:index].strip())
+            start = index + 2
+    terms.append(condition[start:].strip())
+    return terms
+
+
+LABEL_ACTIONS = {"labeled", "unlabeled"}
+ACTION_IS = re.compile(r"^github\.event\.action == '([a-z_]+)'$")
+ACTION_IN = re.compile(r"^contains\(fromJSON\('(\[[^']*\])'\), github\.event\.action\)$")
+ACTION_IS_NOT = re.compile(r"^github\.event\.action != '(labeled|unlabeled)'$")
+
+
+def skips_label_actions(condition: str) -> bool:
+    """Whether CONDITION's own `&&` terms already rule out both label actions: an action it requires that is
+    not one, a list of actions without them, or both excluded by name."""
+    terms = top_level_terms(" ".join(condition.split()))
+    if terms is None:
+        return False
+    excluded: set[str] = set()
+    for term in terms:
+        if (match := ACTION_IS.match(term)) and match.group(1) not in LABEL_ACTIONS:
+            return True
+        if (match := ACTION_IN.match(term)) and not set(json.loads(match.group(1))) & LABEL_ACTIONS:
+            return True
+        if match := ACTION_IS_NOT.match(term):
+            excluded.add(match.group(1))
+    return excluded == LABEL_ACTIONS
+
+
 def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
-    status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
-    does one gated on a branch ref (pull_request only)."""
+    status function skips with them, one gated on push or dispatch never runs on a pull request, nor
+    does one gated on a branch ref (pull_request only), nor one whose condition rules out label actions."""
     if NOT_ON_PULL_REQUEST.match(condition):
+        return False
+    if skips_label_actions(condition):
         return False
     if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False
@@ -185,6 +226,18 @@ def main() -> int:
         for event, want in cases:
             if evaluate(expected, event) is not want:
                 failures.append(f"{name}: guard gives {not want} for {event}, want {want}")
+
+    for condition, want in (
+        ("github.event.action == 'synchronize'", True),
+        ("github.event.action == 'labeled'", False),
+        ("!cancelled() && contains(fromJSON('[\"opened\",\"edited\"]'), github.event.action)", True),
+        ("contains(fromJSON('[\"opened\",\"labeled\"]'), github.event.action)", False),
+        ("x && github.event.action != 'labeled' && github.event.action != 'unlabeled'", True),
+        ("x && github.event.action != 'labeled'", False),
+        ("github.event.action == 'synchronize' || x", False),
+    ):
+        if skips_label_actions(condition) is not want:
+            failures.append(f"skips_label_actions({condition!r}) is {not want}, want {want}")
 
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
