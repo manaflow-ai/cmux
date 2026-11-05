@@ -34,6 +34,14 @@
 //! process that resumed another, which keeps its process id) neither
 //! registers nor claims; it answers `stale` once [`SESSION_GRACE`] passes,
 //! which also lets a new session's start reach the fence first.
+//!
+//! The binding, the poller check, the person hold and the lease are one
+//! critical section under the hook-fence lock, the lock under which every
+//! fence move and agent state change commits (`agent_message_attempt`). A
+//! session change therefore lands wholly before a claim (the claim sees it)
+//! or wholly after its lease. After the lease it cannot be taken back: those
+//! messages went to the session that was live when they were leased, and
+//! its hook shows them to that session's process.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -82,9 +90,10 @@ struct WaitState {
 #[derive(Default)]
 pub(crate) struct AgentMessageWaits {
     state: Mutex<WaitState>,
-    /// Serializes claims, so two claimers never read the same queue page and
-    /// lease the same message.
-    claiming: Mutex<()>,
+    /// Runs inside a claim's critical section, after its checks and before
+    /// its lease (tests: a deterministic interleaving point).
+    #[cfg(test)]
+    pause_for_test: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// A wait's registration; dropping it unregisters the wake.
@@ -243,6 +252,20 @@ impl AgentMessageWaits {
         }
     }
 
+    /// Runs `pause` inside every claim's critical section from now on.
+    #[cfg(test)]
+    pub(crate) fn set_pause_for_test(&self, pause: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.pause_for_test.lock().unwrap_or_else(PoisonError::into_inner) = pause;
+    }
+
+    #[cfg(test)]
+    fn pause_point_for_test(&self) {
+        let pause = self.pause_for_test.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(pause) = pause {
+            pause();
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn waiter_count_for_test(&self, recipient: &str) -> usize {
         self.lock().waiters.get(recipient).map(HashMap::len).unwrap_or_default()
@@ -302,15 +325,15 @@ impl AgentMessageWait {
     }
 }
 
-/// Whether the terminal's hooks name the session a wait runs in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Binding {
-    /// The wait names no session (an older hook, a one-shot claim).
-    Unbound,
-    /// The fence names the wait's session.
-    Bound,
-    /// The fence names another session, or none yet.
+/// What one claim attempt found.
+#[derive(Debug)]
+enum Attempt {
+    /// Answer the wait with this.
+    Answer(Value),
+    /// The terminal's hooks name another session, or none yet.
     Unconfirmed,
+    /// Nothing to hand over now; why, when it is held back.
+    Nothing(Option<Holdback>),
 }
 
 /// Why a wait claims nothing now, if it does not.
@@ -368,8 +391,6 @@ impl Mux {
         let deadline = started + request.timeout;
         let unconfirmed_until = (started + SESSION_GRACE).min(deadline);
         let waits = self.agent_message_waits();
-        // A poller registers only once its session is bound: a stale wait
-        // must never supersede the live session's poller.
         let mut registered = request.poller.is_none();
         loop {
             if stopped() {
@@ -386,29 +407,18 @@ impl Mux {
             if request.agent_pid.is_some_and(|pid| !process_alive(pid)) {
                 return Ok(Some(json!({"status":"stale","reason":"agent_exited"})));
             }
-            if self.agent_message_binding(&terminal, request) == Binding::Unconfirmed {
-                if Instant::now() >= unconfirmed_until {
-                    return Ok(Some(json!({"status":"stale","reason":"session_replaced"})));
+            let holdback = match self.agent_message_attempt(&terminal, request, &mut registered)? {
+                Attempt::Answer(answer) => return Ok(Some(answer)),
+                Attempt::Unconfirmed => {
+                    if Instant::now() >= unconfirmed_until {
+                        return Ok(Some(json!({"status":"stale","reason":"session_replaced"})));
+                    }
+                    // The fence's change wakes this (agent_roster_fold.rs).
+                    subscription.wait_until(Some(unconfirmed_until));
+                    continue;
                 }
-                // The fence's change wakes this (agent_roster_fold.rs).
-                subscription.wait_until(Some(unconfirmed_until));
-                continue;
-            }
-            if !registered && let Some(poller) = &request.poller {
-                waits.register_poller(recipient, poller, request.register);
-                registered = true;
-            }
-            if let Some(poller) = &request.poller
-                && !waits.is_current_poller(recipient, poller)
-            {
-                return Ok(Some(json!({"status":"superseded"})));
-            }
-            let holdback = self.agent_message_holdback(&terminal, request);
-            if holdback.is_none()
-                && let Some(claim) = self.claim_agent_messages(recipient)?
-            {
-                return Ok(Some(claim));
-            }
+                Attempt::Nothing(holdback) => holdback,
+            };
             let now = Instant::now();
             if now >= deadline {
                 let mut answer = json!({"status":"timeout"});
@@ -427,25 +437,43 @@ impl Mux {
         }
     }
 
-    /// Whether the terminal's hook fence names the wait's session.
-    fn agent_message_binding(
+    /// One claim attempt, as one critical section under the hook-fence lock.
+    ///
+    /// Every change that decides eligibility commits under that lock: the
+    /// roster fold moves a terminal's fence and commits its agent state
+    /// (`blocked` included) while holding it, a direct report takes it before
+    /// the registry, and a poller registers only here. So the session
+    /// binding, the poller registration and check, the person hold, the queue
+    /// read and the lease all see one state; a transition commits wholly
+    /// before or wholly after the attempt, never between its check and its
+    /// lease. Lock order as the report path: fences, registry, agent records,
+    /// then this module's leaf state.
+    fn agent_message_attempt(
         &self,
         terminal: &TerminalPublicId,
         request: &AgentMessageWait,
-    ) -> Binding {
-        let Some(session) = request.agent_session_id.as_deref() else { return Binding::Unbound };
+        registered: &mut bool,
+    ) -> Result<Attempt, ResourceError> {
+        let recipient = terminal.as_str();
+        let waits = self.agent_message_waits();
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
-        match fences.get(terminal) {
-            Some(fence) if fence.session_id == session => Binding::Bound,
-            _ => Binding::Unconfirmed,
+        let fence = fences.get(terminal);
+        if let Some(session) = request.agent_session_id.as_deref()
+            && fence.is_none_or(|fence| fence.session_id != session)
+        {
+            return Ok(Attempt::Unconfirmed);
         }
-    }
-
-    fn agent_message_holdback(
-        &self,
-        terminal: &TerminalPublicId,
-        request: &AgentMessageWait,
-    ) -> Option<Holdback> {
+        // A poller registers only once its session is bound: a stale wait
+        // never supersedes the live session's poller.
+        if !*registered && let Some(poller) = &request.poller {
+            waits.register_poller(recipient, poller, request.register);
+            *registered = true;
+        }
+        if let Some(poller) = &request.poller
+            && !waits.is_current_poller(recipient, poller)
+        {
+            return Ok(Attempt::Answer(json!({"status":"superseded"})));
+        }
         if request.respect_hold
             && self
                 .agent_records
@@ -454,26 +482,26 @@ impl Mux {
                 .get(terminal)
                 .is_some_and(|record| record.state == AgentState::Blocked)
         {
-            return Some(Holdback::WaitingOnPerson);
+            return Ok(Attempt::Nothing(Some(Holdback::WaitingOnPerson)));
         }
         // A session that ended here may resume (its next SessionStart lifts
         // the fence), so this holds back instead of answering `stale`.
-        let ended = request.agent_session_id.as_deref().is_some_and(|session| {
-            self.agent_hook_fences
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(terminal)
-                .is_some_and(|fence| fence.ended && fence.session_id == session)
-        });
-        ended.then_some(Holdback::SessionEnded)
+        if request.agent_session_id.is_some() && fence.is_some_and(|fence| fence.ended) {
+            return Ok(Attempt::Nothing(Some(Holdback::SessionEnded)));
+        }
+        #[cfg(test)]
+        waits.pause_point_for_test();
+        let claim = self.claim_agent_messages(recipient)?;
+        drop(fences);
+        Ok(claim.map_or(Attempt::Nothing(None), Attempt::Answer))
     }
 
     /// Leases the oldest queued messages of `recipient` that no other claim
     /// holds and that fit one batch, and returns them; `None` when there are
-    /// none.
+    /// none. Only [`Self::agent_message_attempt`] calls it, under the
+    /// hook-fence lock, which also keeps two claimers from leasing one message.
     fn claim_agent_messages(&self, recipient: &str) -> Result<Option<Value>, ResourceError> {
         let waits = self.agent_message_waits();
-        let _claiming = waits.claiming.lock().unwrap_or_else(PoisonError::into_inner);
         let filter = AgentMessageFilter {
             recipient: Some(recipient.to_owned()),
             state: Some("queued".to_owned()),

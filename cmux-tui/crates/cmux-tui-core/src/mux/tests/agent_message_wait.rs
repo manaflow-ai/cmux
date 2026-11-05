@@ -438,3 +438,52 @@ fn the_router_answers_a_one_shot_claim_and_refuses_a_blocking_one() {
     );
     assert_eq!(blocking["ok"], false, "{blocking}");
 }
+
+/// Review P1 (TOCTOU), a fixed schedule: a claim stops inside its critical
+/// section, after its session, poller and hold checks and before its lease.
+/// A fence move (the roster fold commits the next session's fence and agent
+/// state, `blocked` included, under the fence lock) cannot commit there: the
+/// lock is held. The move commits after the lease, so the claim is the
+/// session's that was live through all of it; the replaced session's next
+/// wait is stale and the new session claims what came after. A move after
+/// the lease cannot take back what was handed over: that delivery went to
+/// the session that was live when it was leased.
+#[test]
+fn a_fence_or_hold_change_cannot_commit_between_a_claims_checks_and_its_lease() {
+    let mux = test_mux();
+    let (_, terminal) = terminal_of(&mux);
+    fence(&mux, &terminal, "s1", false);
+    let first = send(&mux, "send-1", &terminal, "for s1");
+    let (reached, reached_rx) = std::sync::mpsc::sync_channel::<()>(0);
+    let (go, go_rx) = std::sync::mpsc::sync_channel::<()>(0);
+    let go_rx = Mutex::new(go_rx);
+    mux.agent_message_waits().set_pause_for_test(Some(Arc::new(move || {
+        let _ = reached.send(());
+        let _ = go_rx.lock().unwrap().recv();
+    })));
+    let waiter = {
+        let (mux, terminal) = (mux.clone(), terminal.clone());
+        std::thread::spawn(move || wait(&mux, &bound(waiting(&terminal, "p1", true, 0), "s1")))
+    };
+    reached_rx.recv().unwrap();
+    assert!(
+        matches!(mux.agent_hook_fences.try_lock(), Err(std::sync::TryLockError::WouldBlock)),
+        "a fence or agent state transition could commit between the checks and the lease"
+    );
+    let transition = {
+        let (mux, terminal) = (mux.clone(), terminal.clone());
+        std::thread::spawn(move || fence(&mux, &terminal, "s2", false))
+    };
+    go.send(()).unwrap();
+    assert_eq!(claimed_ids(&waiter.join().unwrap()), [first]);
+    transition.join().unwrap();
+    mux.agent_message_waits().set_pause_for_test(None);
+
+    let second = send(&mux, "send-2", &terminal, "for s2");
+    let old = wait(&mux, &bound(waiting(&terminal, "p1", false, 0), "s1"));
+    assert_eq!(
+        (old["status"].as_str(), old["reason"].as_str()),
+        (Some("stale"), Some("session_replaced"))
+    );
+    assert_eq!(claimed_ids(&wait(&mux, &bound(waiting(&terminal, "p2", true, 0), "s2"))), [second]);
+}
