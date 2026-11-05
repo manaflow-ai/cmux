@@ -2337,9 +2337,17 @@ impl Hub {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        let Some(last) = live.map(|session| session.meta().last_seq) else {
+        let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
+        // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
+        // counted first, so the cap below leaves out only a line whose record is not appended
+        // yet. A caught-up chat takes no lock here (a replay never waits for an append).
+        if !session.caught_up.load(Ordering::SeqCst) {
+            self.catch_up(&session);
+        }
+        let last = session.meta().last_seq;
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 
