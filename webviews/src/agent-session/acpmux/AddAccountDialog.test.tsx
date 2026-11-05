@@ -122,5 +122,5 @@ test("the buttons are the shared controls, not bare buttons", async () => {
   const dialog = await render("claude", []);
   const buttons = [...dialog.querySelectorAll<HTMLButtonElement>("footer button")];
   expect(buttons.map((button) => button.dataset.variant)).toEqual(["subtle", "solid"]);
-  expect(buttons.every((button) => button.classList.contains("ui-btn"))).toBe(true);
+  expect(buttons.every((button) => button.classList.contains("ui-button") && button.classList.contains("ui-btn"))).toBe(true);
 });

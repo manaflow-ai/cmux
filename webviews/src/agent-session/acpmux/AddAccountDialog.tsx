@@ -207,7 +207,7 @@ export function AddAccountDialog({
         <footer>
           <DialogButton
             dialogKey="escape"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="subtle"
             data-size="md"
             disabled={pending}
@@ -218,7 +218,7 @@ export function AddAccountDialog({
           <DialogButton
             dialogKey="return"
             type="submit"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
             disabled={pending || !ready}
