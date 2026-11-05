@@ -256,8 +256,7 @@ try {
         row.draftKept &&
         row.transcriptKept &&
         row.turnFinished,
-    ) &&
-    errors.length === 0;
+    ) && errors.length === 0;
   process.exitCode = ok ? 0 : 1;
 } finally {
   await restore();
