@@ -18,6 +18,10 @@ concurrency:
 jobs:
   deleted-or-weakened-tests:
     name: deleted-or-weakened-tests
+    # Label churn unrelated to integrity must not replace the authoritative
+    # result with a new strict run. Approval-label add/remove events do run so
+    # a maintainer can grant or revoke the one-head override.
+    if: ${{ github.event_name != 'pull_request_target' || github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened' || ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name == 'test-integrity-approved') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

@@ -103,6 +103,10 @@ class TestIntegrity(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
         self.assertIn("github.event.action == 'labeled'", workflow)
         self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
+        self.assertIn("github.event.action == 'unlabeled'", workflow)
+        self.assertIn("github.event.action == 'opened'", workflow)
+        self.assertIn("github.event.action == 'synchronize'", workflow)
+        self.assertIn("github.event.action == 'reopened'", workflow)
         self.assertNotIn("github.event.action != 'synchronize'", workflow)
         self.assertNotIn("contains(github.event.pull_request.labels.*.name, 'test-integrity-approved')", workflow)
 
