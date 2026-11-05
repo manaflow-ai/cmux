@@ -33,7 +33,8 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
   `--target machine:vm-…` takes that machine. With neither it creates a new small
   machine with a new name (`chat-…`), one workspace per machine, so a chat never
   lands on a machine someone else uses.
-- `--cwd /home/cmux/work` starts the chat in that folder on the machine;
+- No folder is needed: without `--cwd` the chat starts in a new folder of its own under
+  `~/chats` on the machine; `--cwd FOLDER` starts it in that existing folder instead;
   `--timeout SECONDS` bounds `--wait` (default 900).
 - Follow-ups on the same chat, with `MACHINE_ID` and `SESSION_ID` from the answer (the
   answer's `follow_up` has them filled in):

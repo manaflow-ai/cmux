@@ -8,6 +8,7 @@ mod credentials;
 mod identity;
 pub(crate) mod info;
 pub mod invite;
+pub mod machine_join;
 pub(crate) mod messages;
 mod native;
 mod network;
@@ -50,6 +51,11 @@ pub trait Transport {
         _bearer: Option<&str>,
     ) -> Result<Value> {
         Err(Error::unreachable("server.pair.backend_unavailable"))
+    }
+    /// Redeems the join token an approval pushed (machine_join.rs) and says how
+    /// it went, for the result's `machine` field. Never fails the pairing.
+    fn machine_join(&self, _join: &enrollment::MachineJoin, _api: &str, _name: &str) -> Value {
+        machine_join::failed("server.pair.machine_join_unavailable")
     }
 }
 
@@ -139,6 +145,7 @@ pub fn enroll_with_invite(
     let invite = invite.map(invite::normalize).transpose()?;
     let invite = invite.as_deref();
     let api = api_origin(api)?;
+    let name = info.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
     if intent.is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 128 || s.contains('\0')) {
         return Err(Error::usage("server.pair.invalid_intent"));
     }
@@ -252,7 +259,8 @@ pub fn enroll_with_invite(
     }
     progress(&public_progress)?;
     match transport.wait(&api, &begun)? {
-        Waited::NetworkPaired { paired, grant } => {
+        Waited::NetworkPaired { mut paired, grant } => {
+            let join = paired.machine_join.take();
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
             if api_origin(grant.origin())? != grant.origin()
                 || !grant.matches_keys(&identity.public_jwk, &identity.wg_public()?)
@@ -264,14 +272,23 @@ pub fn enroll_with_invite(
             identity.save_native(&grant, transport.now_ms())?;
             native::validate(&identity)?;
             store.save(&identity)?;
-            native::finish(&mut identity, &store, transport)
+            let mut value = native::finish(&mut identity, &store, transport)?;
+            if let Some(join) = join {
+                value.set("machine", transport.machine_join(&join, &api, &name));
+            }
+            Ok(value)
         }
-        Waited::Paired(paired) => {
+        Waited::Paired(mut paired) => {
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
+            let join = paired.machine_join.take();
             identity.paired = Some(paired.clone());
             identity.attempt = None;
             store.save(&identity)?;
-            public_result(&paired)
+            let mut value = public_result(&paired)?;
+            if let Some(join) = join {
+                value.set("machine", transport.machine_join(&join, &api, &name));
+            }
+            Ok(value)
         }
         Waited::Refused => {
             let invited = identity.attempt.as_ref().is_some_and(|a| a.invite.is_some());

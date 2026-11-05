@@ -22,6 +22,14 @@ import type { AcpmuxRow } from "../model";
 /// The tallest room held, under WebKit's largest scrollable height with room to spare.
 export const OLDER_RESERVE_MAX = 1_000_000;
 
+/// How much taller than the loaded rows' average the unloaded history is assumed to be. The two
+/// errors cost differently: room that runs short makes every later page grow the content above the
+/// reader, so the thumb drops while they scroll up, page after page; room left over goes once, when
+/// the last page lands, and moves the thumb the way the reader is going. A chat's older turns are
+/// often taller than its newest (tool runs, code), so the estimate leans long (chat-scroll-nightly:
+/// newest turns shorter than the older ones left the room 8,000 px short, a 32 px drop of the thumb).
+export const OLDER_RESERVE_HEADROOM = 1.5;
+
 export type OlderReserve = {
   sessionId?: string;
   /// The row the room is held against, and where it was last found.
@@ -62,8 +70,8 @@ function firstPrompt(rows: readonly AcpmuxRow[]): number {
   return 0;
 }
 
-/// The height the unloaded history is estimated to take: the loaded rows' height per prompt, for
-/// every prompt not loaded. Undefined when the count of those is not known (no room, as before).
+/// The height the unloaded history is estimated to take: the loaded rows' height per prompt, with
+/// OLDER_RESERVE_HEADROOM, for every prompt not loaded. Undefined when the count of those is not known (no room, as before).
 export function estimateOlderHeight(input: OlderReserveInput): number | undefined {
   let loaded = 0;
   for (const row of input.rows) if (row.kind === "user") loaded += 1;
@@ -75,7 +83,7 @@ export function estimateOlderHeight(input: OlderReserveInput): number | undefine
         : 0;
   if (!(unloaded > 0) || input.rowsHeight <= 0) return undefined;
   const perPrompt = input.rowsHeight / Math.max(1, loaded);
-  return Math.min(OLDER_RESERVE_MAX, Math.round(unloaded * perPrompt));
+  return Math.min(OLDER_RESERVE_MAX, Math.round(unloaded * perPrompt * OLDER_RESERVE_HEADROOM));
 }
 
 /// The room for this pass, and the state the next pass reads.

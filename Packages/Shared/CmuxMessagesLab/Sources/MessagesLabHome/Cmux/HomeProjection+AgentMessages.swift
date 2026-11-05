@@ -20,15 +20,18 @@ extension HomeProjection {
         return ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") ? url : nil
     }
 
-    /// A click on an agents row toggles its group; a click on any other row is not ours.
+    /// A click on an agents row beside its pills is taken and opens nothing; a click on any other row is not ours.
+    ///
+    /// The row is drawn as one pill per agent, and a pill opens that agent's chat (`PaneHost`), where its task
+    /// and reports are. The row no longer expands into the Chief's raw task prompts under the pills (user
+    /// 2026-11-05, msg 22013: the "Chief → a1002" bubbles that dumped the whole prompt).
     func agentRowClicked(_ message: ID) -> Bool {
         guard !stopped, let row = shown.first(where: { HomeMapping.id($0, aliases: aliases) == message })?.agentMessage else {
             return false
         }
         switch row.kind {
-        case .fold: toggleAgentMessages(row.group)
+        case .fold: return true
         case .message, .note: return false
         }
-        return true
     }
 }

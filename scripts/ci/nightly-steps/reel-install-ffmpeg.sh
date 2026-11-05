@@ -11,6 +11,8 @@ if [ "$(uname -s)" = Darwin ]; then
   brew=$(command -v brew || echo /opt/homebrew/bin/brew)
   HOMEBREW_NO_AUTO_UPDATE=1 "$brew" install ffmpeg fontconfig >/dev/null
 else
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
+  # A slow mirror timed the step out at 6 min (run 42033609306); retry each request instead of hanging on it.
+  sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30
+  sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+    ffmpeg fontconfig fonts-dejavu-core >/dev/null
 fi

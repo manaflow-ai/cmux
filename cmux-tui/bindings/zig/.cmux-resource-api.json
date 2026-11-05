@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "d6d55a5b9278f52b2e937b57df0e8a675f62828f7ceeb9cfa9216ed6bedc98a9",
+  "catalog_sha256": "c126d5e424dd12a25dbd183631f6be0fcfbb9d2a896562e41607cca107f049c5",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -170,6 +170,12 @@
       "class": "mutation"
     },
     "column.update": {
+      "class": "mutation"
+    },
+    "conductor_import.plan": {
+      "class": "read"
+    },
+    "conductor_import.record": {
       "class": "mutation"
     },
     "conversation.draft": {

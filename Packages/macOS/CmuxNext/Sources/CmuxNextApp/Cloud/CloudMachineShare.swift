@@ -16,38 +16,19 @@ import CmuxNextPalette
 ///   `machine.share.self`): the same grant for the signed-in person, for a team admin.
 ///
 /// The server decides who may share (the machine's creator, or a team admin); this only forwards
-/// and words its refusals. The ownership answer is read at each link start (``CloudMachineLink``),
-/// so after a grant for the signed-in person the machine's link starts again before the reply.
+/// and words its refusals.
 @MainActor
 enum CloudMachineShare {
-    /// Share with Me: grants the signed-in person chats on `session`'s machine, then renews the
-    /// machine's link so its attach answer says `owner` before the page retries the start.
+    /// Share with Me: chat grants live on the classic Cloud API, and a machine on the Cloud app
+    /// server link has none yet, so this refuses (after the sign-in check) until the platform serves them.
     static func shareWithMe(_ session: CloudMachineSession, cloud: CloudService) async -> AgentPaneMachineShare {
-        guard let user = cloud.auth.user?.id else { return .refused(code: "not_signed_in", message: CloudStrings.signInFirst) }
-        // Grants live on the classic Cloud API; a machine on the Cloud app server link has none yet.
-        guard session.link != nil else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
-        do {
-            try await cloud.api.grantChat(session.machineID, to: user)
-        } catch {
-            // Not allowed to share, but the owner may already have shared it with this person (Ask
-            // the Owner): then this click only has to make the link ask for its owner answer again.
-            guard case .refused(CloudMachineShareRefusal.forbidden.code, _) = refusal(error),
-                  (try? await cloud.api.chatGrants(session.machineID))?.contains(where: { $0.userId == user }) == true else {
-                return refusal(error)
-            }
-        }
-        if let link = session.link {
-            await link.renew()
-            _ = try? await link.socketPath()
-        }
-        return .shared
+        guard cloud.auth.user?.id != nil else { return .refused(code: "not_signed_in", message: CloudStrings.signInFirst) }
+        return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
     }
 
     /// Shares `session`'s machine with `teammate`, or takes the share back.
     static func set(_ shared: Bool, teammate: String, on session: CloudMachineSession, cloud: CloudService) async throws {
         if shared { try await cloud.api.grantChat(session.machineID, to: teammate) } else { try await cloud.api.revokeChat(session.machineID, from: teammate) }
-        // Shared with oneself (a team admin on a teammate's machine): this Mac's link asks again.
-        if teammate == cloud.auth.user?.id, let link = session.link { await link.renew() }
     }
 
     /// The machine's team roster with each teammate's share, for the page and `cloud share-machine`.

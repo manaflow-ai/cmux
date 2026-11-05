@@ -33,7 +33,7 @@ export const KNOWN_PROGRAMS = [
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -258,6 +258,13 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   if (name === "chrome-for-testing" && typeof raw.version === "string") {
     const expected = chromeForTestingShape(raw.version).url;
     if (raw.url !== expected) problems.push(`${where}.url: must be ${expected}`);
+  }
+  if (name === "cmux-rd" && typeof raw.version === "string") {
+    const shape = cmuxRdReleaseShape(raw.version);
+    if (raw.url !== shape.url) problems.push(`${where}.url: must be ${shape.url}`);
+    if (raw.checksumsUrl !== shape.checksumsUrl || raw.checksumsName !== shape.checksumsName) problems.push(`${where}.checksumsUrl: must be ${shape.checksumsUrl} naming ${shape.checksumsName}`);
+    if (!Array.isArray(raw.roles) || !raw.roles.includes("desktop")) problems.push(`${where}.roles: cmux-rd is in the desktop role`);
+    if (raw.firstUse === true) problems.push(`${where}.firstUse: cmux-rd is baked (its socket unit starts it on the first desktop connection)`);
   }
 }
 
@@ -610,6 +617,33 @@ export function cmuxCuaReleaseShape(version: string, arch: CuaArch) {
     versionArgs: ["--version"],
     expect: version,
     roles: ["cua" as const],
+  };
+}
+
+/** The release of the `cmux.rd/1` Linux host (cmux-tui/crates/cmux-rd-host) the image pins: tag `cmux-rd-v<V>` on manaflow-ai/cmux. */
+export const CMUX_RD_TARGET = "x86_64-unknown-linux-gnu";
+
+/**
+ * The lock entry shape for a cmux-rd Linux release, as cmux-tui/crates/cmux-rd-host/scripts/release.py
+ * packs it: cmux-rd-<V>-x86_64-unknown-linux-gnu.tar.gz holds bin/cmux-rd, LICENSE (GPL-3.0-or-later)
+ * and THIRD_PARTY_LICENSES.md at the archive root, beside the release's checksums.txt. Role desktop,
+ * baked (agent-tools.ts rdUnit starts it). `cmux-rd` has no --version, so the smoke only checks it is
+ * executable. sha256 and size are added only from the published release.
+ */
+export function cmuxRdReleaseShape(version: string) {
+  const archive = `cmux-rd-${version}-${CMUX_RD_TARGET}.tar.gz`;
+  const base = `https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v${version}`;
+  return {
+    name: "cmux-rd" as const,
+    version,
+    url: `${base}/${archive}`,
+    format: "tar.gz" as const,
+    bin: { "cmux-rd": "bin/cmux-rd" },
+    versionArgs: [] as string[],
+    checksumsUrl: `${base}/checksums.txt`,
+    checksumsName: archive,
+    notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
+    roles: ["desktop" as const],
   };
 }
 

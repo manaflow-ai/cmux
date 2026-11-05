@@ -11,7 +11,7 @@ import Testing
 /// Since #30410 the `cmux-tui remote connect --headless --json` client stops redialing that
 /// session: it prints a `disconnected` snapshot, then `{"event":"session-unavailable"}`, and exits.
 ///
-/// Both app links over that client (SSH and the legacy Cloud link) must then leave the
+/// The SSH link over that client must then leave the
 /// reconnecting state, so the machine never reads "reconnecting" or "connecting" for ever, and
 /// the daemon loop's next endpoint call must start exactly one new link (a new logical session,
 /// which the daemon accepts) that comes up connected. A live link is never dialed again.
@@ -116,79 +116,5 @@ struct RemoteSessionGoneLinkTests {
         #expect(Self.runs(root) == 2, "the app redialed a live link")
         #expect(await link.status == .connected)
         await link.stop()
-    }
-
-    // MARK: Cloud (legacy `/api/vm` link)
-
-    @Test func aCloudLinkWhoseSessionIsGoneEndsAndTheNextConnectStartsOneNewSession() async throws {
-        let root = URL(fileURLWithPath: "/tmp/rsg-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let tui = try Self.executable(root, "cmux-tui", """
-            #!/bin/sh
-            case "$1" in
-            wg)
-              while [ $# -gt 0 ]; do [ "$1" = --socket ] && H=$2; shift; done
-              read -r token
-              cat > /dev/null
-              : > "$H"
-              printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
-              exec sleep 60 ;;
-            remote)
-              while [ $# -gt 0 ]; do [ "$1" = --local-socket ] && S=$2; shift; done
-              read -r token
-            \(Self.remoteConnect(root: root, provider: "cloud"))
-            esac
-
-            """)
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "http://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let urlSession = URLSessionConfiguration.ephemeral
-        urlSession.protocolClasses = [CloudLinkReconnectingTests.StandInVMAPI.self]
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { nil },
-                                 session: URLSession(configuration: urlSession))
-        let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: tui, deviceName: "cn-session-gone-test")
-        let link = CloudMachineLink(machineID: "vm-gone", api: api, hub: hub, paths: paths, binary: tui,
-                                    deviceName: "cn-session-gone-test")
-        func sidebar() -> SidebarMachine.Status {
-            SidebarMachine(id: MachineID("vm-gone"), name: "Gone VM", kind: .cloud, status: .connected)
-                .redialing(link.redial.isRedialing).status
-        }
-
-        _ = try await link.socketPath()
-        let firstPID = await link.pid
-        #expect(sidebar() == .connected)
-        #expect(await link.callerOwnsVM)
-        let ownership = link.ownership
-        #expect(await Self.waitFor({ ownership.callerOwnsVM }) { $0 } == true)
-
-        Self.mark(root, "drop")
-        // The link client exited on the typed end: the link handled it (its owner answer, which
-        // only the link's end clears on the main-actor mirror, is gone).
-        let ended = await Self.waitFor({ ownership.callerOwnsVM }) { !$0 }
-        #expect(!ended, "the link did not handle the end of its client")
-        #expect(!(await link.callerOwnsVM), "a link whose session is gone still reads as running")
-        // Nothing dials until the daemon loop asks for an endpoint: an app that redialed from the
-        // exit by itself would have asked for an attach endpoint and spawned a new client by now.
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(Self.runs(root) == 1, "the app redialed before its daemon loop asked for an endpoint")
-        #expect(await link.pid == firstPID, "a new link started with no endpoint call")
-
-        // The daemon loop's reconnect asks for the endpoint: one new link, a new session, up.
-        _ = try await link.socketPath()
-        let secondPID = await link.pid
-        #expect(secondPID != nil && secondPID != firstPID)
-        #expect(Self.runs(root) == 2)
-        #expect(await Self.waitFor({ sidebar() }) { $0 == .connected } == .connected,
-                "the new link still reads as reconnecting")
-
-        // A live link is never dialed again: no redial loop.
-        _ = try await link.socketPath()
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(Self.runs(root) == 2, "the app redialed a live link")
-        #expect(sidebar() == .connected)
-        await link.stop()
-        await hub.stop()
     }
 }

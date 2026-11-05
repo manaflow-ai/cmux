@@ -573,11 +573,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a same-repository PR (#22303), a fork PR labeled full-ci and
-        # dispatches; a feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
+        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
+        # feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
+        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                      condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -609,8 +611,8 @@ class LinuxLaneTests(unittest.TestCase):
                           and not route_module.consumed(path, cls.tree_inputs, cls.read))
 
     def test_the_allowlist_comes_from_the_registry(self):
-        from test_execution_registry import load_registry
-        entries = load_registry(ROOT / "tests/test-execution.toml")
+        from test_execution_registry import load_tree
+        entries = load_tree(ROOT)
         expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
         self.assertEqual(set(self.linux), expected)
         self.assertGreater(len(self.linux), 100)
@@ -619,19 +621,21 @@ class LinuxLaneTests(unittest.TestCase):
         result = tiers([self.sample])
         self.assertEqual(mac_tiers(result), [], self.sample)
         self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+        self.assertEqual(tiers([self.sample, "tests/test-execution.d/ci.toml"])["native"], "false")
 
     def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
-        from test_execution_registry import load_registry
+        from test_execution_registry import load_tree
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
-                   for e in load_registry(ROOT / "tests/test-execution.toml")]
-        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+                   for e in load_tree(ROOT)]
+        with mock.patch("test_execution_registry.load_tree", return_value=entries):
             self.assertIn("native", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
-        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+        with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
             self.assertIn("native", mac_tiers(tiers([self.sample])))
             self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
