@@ -226,9 +226,9 @@ jobs:
           # A team image must also pass the /srv/team check.
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
-          # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; the weekly full
-          # bake keeps the two-minute sample.
-          IDLE_SECONDS: ${{ inputs.layered && '60' || '120' }}
+          # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; a full bake (the
+          # weekly run, and a dev tree bake, which the Bake step always runs in full) keeps the two-minute sample.
+          IDLE_SECONDS: ${{ (inputs.layered && !inputs.dev_tree) && '60' || '120' }}
         run: |
           set -euo pipefail
           # A layered bake left its builder for the SBOM and file manifest (inventory.ts); they run beside the
