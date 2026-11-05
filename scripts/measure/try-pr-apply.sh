@@ -95,7 +95,8 @@
 #                state under the account's real home (Application Support, ~/.cmux, Preferences, four
 #                levels deep: path, inode, size, mtime) are listed before the first launch and after
 #                the last probe; any change fails the run. This run's own defaults domains (its lab
-#                ids, or the shipped id it set aside) are left out of that list.
+#                ids, or the shipped id it set aside) and its own terminal-holder sockets (the hash of
+#                a holder.token folder under one of its instance homes) are left out of that list.
 #   cleanup      ends this run's instances (SIGTERM, SIGKILL after 10 s) before any defaults go back;
 #                an instance that will not end, or a put-back that fails, turns the result into a
 #                fail (`cleanup_failure`, exit 1) and leaves the copy for the next run.
@@ -445,6 +446,19 @@ others() { python3 - "$real_home" "$work" "$( [[ "$mode" == lab ]] && echo "${la
 import os, re, subprocess, sys
 home, ours, own_ids = sys.argv[1:]  # ours: this run's folder (its app, its instances' homes and helpers)
 own = [re.compile(re.escape(i) + r"(\.[0-9A-Fa-f-]{36})?\.plist(\..*)?$") for i in own_ids.split()]
+# This run's own terminal-holder sockets: /tmp/cmux-hd-<uid>/<fnv1a of the host root, 16 hex>.sock, the
+# host root being the folder of a holder.token under one of this run's instance homes
+# (cmux-tui-core holder_runtime/service.rs socket_path).
+def fnv1a(b):
+    h = 0xcbf29ce484222325
+    for x in b: h = ((h ^ x) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return h
+own_socks = set()
+for h in [os.path.join(ours, d) for d in os.listdir(ours) if d.startswith("home-")]:
+    for d, _, files in os.walk(h):
+        if "holder.token" in files:
+            for root in {d, os.path.realpath(d)}:
+                own_socks.add(f"/tmp/cmux-hd-{os.getuid()}/{fnv1a(root.encode()):016x}.sock")
 for l in subprocess.run(["ps", "-axo", "pid=,lstart=,comm="], capture_output=True, text=True).stdout.splitlines():
     if "/Contents/MacOS/" in l and "cmux" in l.lower() and ours not in l: print("proc", " ".join(l.split()))
 sup = os.path.join(home, "Library/Application Support")
@@ -452,6 +466,7 @@ roots = [os.path.join(home, ".cmux"), os.path.join(home, "Library/Preferences")]
 roots += [os.path.join(sup, d) for d in (os.listdir(sup) if os.path.isdir(sup) else []) if "cmux" in d.lower()]
 roots += ["/tmp/" + f for f in os.listdir("/tmp") if f.startswith("cmux")]
 def line(p):
+    if p in own_socks: return
     try: st = os.lstat(p)
     except OSError: return
     print("file", p, st.st_ino, st.st_size, st.st_mtime_ns)
