@@ -63,13 +63,9 @@ export function insertRunChange(changes: RunChange[], change: RunChange): boolea
     changes[at - 1] = change;
     return true;
   }
-  // The same run as the line before: nothing changed here. A later line facts-wise newer (a new
-  // version) still updates what the chat runs on now.
-  if (before && sameRun(before.start, change.start)) {
-    if (at < changes.length || sameSessionStart(before.start, change.start)) return false;
-    changes[at - 1] = { ...before, start: change.start };
-    return true;
-  }
+  // The same run as the line before: nothing changed here. A point's facts are those of the line
+  // that started its run; what the chat runs on now is the newest line (direct.ts `latestStart`).
+  if (before && sameRun(before.start, change.start)) return false;
   changes.splice(at, 0, change);
   // The next change point may now be the same run as this line: it is no change any more.
   const after = changes[at + 1];

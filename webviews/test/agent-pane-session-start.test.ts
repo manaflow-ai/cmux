@@ -259,11 +259,61 @@ test("change points stay right when an older page's init lines land after newer 
     [10, "claude-opus-5-5"],
     [30, "claude-sonnet-5-5"],
   ]);
-  // A newer version on the same run updates what it runs on now, not where it changed.
-  expect(add(60, "claude-sonnet-5-5", "2.1.304")).toBe(true);
-  expect(changes.map((change) => [change.seq, change.start.version])).toEqual([
-    [10, "2.1.303"],
-    [30, "2.1.304"],
+  // A newer version on the same run is no change point; what the chat runs on now is the client's
+  // newest line (below).
+  expect(add(60, "claude-sonnet-5-5", "2.1.304")).toBe(false);
+  expect(points()).toEqual([
+    [10, "claude-opus-5-5"],
+    [30, "claude-sonnet-5-5"],
+  ]);
+});
+
+test("an older page landing late never takes the summary back to an older version", async () => {
+  // The attach holds only the newest event; the rest come as an older page.
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      ["in", "session_info_update", init("2.1.303", "claude-opus-5-5")],
+      ["mux", "user_message", { text: "again" }],
+      ["in", "session_info_update", init("2.1.312", "claude-opus-5-5")],
+    ]),
+    "claude-sr2",
+    1,
+  );
+  const { client, summary } = await connect(daemon);
+  expect(summary()?.sessionStart?.version).toBe("2.1.312");
+  await client.loadOlder();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.sessionStart?.version).toBe("2.1.312");
+});
+
+test("a replay seeking back draws the change lines up to that point, and none after", () => {
+  const steps = record([
+    ["mux", "user_message", { text: "hello" }],
+    ["in", "session_info_update", init("2.1.303", "claude-opus-5-5")],
+    ["mux", "user_message", { text: "sonnet" }],
+    ["in", "session_info_update", init("2.1.303", "claude-sonnet-5-5")],
+    ["mux", "user_message", { text: "opus" }],
+    ["in", "session_info_update", init("2.1.303", "claude-opus-5-5")],
+  ]);
+  let rows: AcpmuxRow[] = [];
+  const client = AcpmuxDirectClient.replay(CHAT, steps as any, (snapshot: any) => {
+    rows = snapshot.rows;
+  });
+  const lines = () =>
+    rows.filter((row) => row.kind === "sessionStart").map((row) => [row.seq, row.sessionStart?.model]);
+  client.seekReplay(6);
+  client.seekReplay(Number.MAX_SAFE_INTEGER);
+  expect(lines()).toEqual([
+    [4, "claude-sonnet-5-5"],
+    [6, "claude-opus-5-5"],
+  ]);
+  client.seekReplay(5);
+  expect(lines()).toEqual([[4, "claude-sonnet-5-5"]]);
+  client.seekReplay(6);
+  expect(lines()).toEqual([
+    [4, "claude-sonnet-5-5"],
+    [6, "claude-opus-5-5"],
   ]);
 });
 

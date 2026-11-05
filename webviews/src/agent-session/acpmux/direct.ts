@@ -2130,9 +2130,12 @@ export class AcpmuxDirectClient {
   private stoppedTurnId?: string;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
-  /// Where the chat's init lines change its model or route (sessionStart.ts `insertRunChange`); the
-  /// last is what it runs on now, which Session Info and /status show.
+  /// Where the chat's init lines change its model or route (sessionStart.ts `insertRunChange`).
   private runChanges: RunChange[] = [];
+  /// The newest init line by seq: what the chat runs on now (version and folder included), which
+  /// Session Info and /status show. Kept apart from `runChanges`, whose points keep the facts of
+  /// where a run started.
+  private latestStart?: { seq: number; start: AcpmuxSessionStart };
   /// The ids of the transcript lines `drawRunChanges` drew.
   private runChangeRows = new Set<string>();
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -3012,6 +3015,7 @@ export class AcpmuxDirectClient {
     this.forkedAtSeq = undefined;
     this.runChanges = [];
     this.runChangeRows.clear();
+    this.latestStart = undefined;
     for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
     for (const id of this.clearedBySwitch) {
       if (this.clearedBySwitch.size <= 256) break;
@@ -5430,6 +5434,10 @@ export class AcpmuxDirectClient {
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
+    // Found again as the held init lines are reduced: a seek back keeps no later model or version.
+    this.runChanges = [];
+    this.runChangeRows.clear();
+    this.latestStart = undefined;
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
@@ -6256,6 +6264,7 @@ export class AcpmuxDirectClient {
         ? sessionStartOf(update, { harness: this.summary?.harness, cwd: this.summary?.cwd })
         : undefined;
     if (start) {
+      if (!this.latestStart || event.seq >= this.latestStart.seq) this.latestStart = { seq: event.seq, start };
       if (insertRunChange(this.runChanges, { seq: event.seq, at: event.at, start })) this.drawRunChanges();
       return;
     }
@@ -7270,7 +7279,7 @@ export class AcpmuxDirectClient {
     limits: ReturnType<typeof subsessionLimits>,
   ): AcpmuxSnapshot["summary"] {
     const kept = this.publishedSummaryOf;
-    const start = this.runChanges.at(-1)?.start;
+    const start = this.latestStart?.start;
     if (kept && kept.summary === summary && kept.usage === this.usage && kept.start === start) return kept.value;
     const value: AcpmuxSnapshot["summary"] = summary
       ? {
