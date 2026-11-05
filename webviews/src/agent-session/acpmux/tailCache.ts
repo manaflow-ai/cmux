@@ -214,6 +214,17 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
   }).catch(() => undefined);
 }
 
+/// A chat's tail handed to the host inside the request that opens a pane on it (`chat.subagentPane`
+/// `handOver`), as `chat.tail` hands it: one request, so the host holds the tail before it decides
+/// how the pane opens (#36650).
+export type TailHandOver = { sessionId: string; tail: KeptTail };
+
+/// `tail` as the host keeps it, under `writeHostTail`'s bounds; undefined when not one record fits.
+export function hostTailOf(tail: KeptTail): KeptTail | undefined {
+  void tail;
+  return undefined;
+}
+
 /// What `value` costs the host, measured the one way both bounds are measured: its JSON's length.
 function bytesOf(value: unknown): number {
   return JSON.stringify(value)?.length ?? 0;

@@ -33,6 +33,14 @@ extension AgentPaneTailCache {
         return reply(to: method, params: params)
     }
 
+    /// The chat's tail a `chat.subagentPane` carries (`handOver {sessionId, tail}`, subagentPanes.ts),
+    /// kept as `chat.tail` keeps it, in the request's own turn on either host and before the pane's
+    /// open reads the store (``AgentPaneSpareReadiness``): a `chat.tail` of its own was never
+    /// awaited, so it could land after that read and the pane opened cold (#36650). A page from
+    /// before a sign-out (`pageGeneration`) hands nothing over, as its `chat.tail` writes nothing.
+    static func keepHandOver(of method: String, params: [String: Any]?, pageGeneration: UInt64) {
+    }
+
     /// `chat.tail {sessionId, tail?}` and `chat.tail.get {sessionId}` from the pane's own host
     /// (``AgentPaneBridge``), which hands bridged Foundation values over: the same two ops the
     /// shared page host serves in `AgentPageProvider+Tail`. New agent tabs are on the pane's own

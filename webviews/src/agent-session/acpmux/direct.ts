@@ -77,6 +77,7 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  type TailHandOver,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -2416,6 +2417,14 @@ export class AcpmuxDirectClient {
   /// the flow this cache exists for.
   handOverCurrentTail(): void {
     this.rememberCurrentTail();
+  }
+
+  /// The chat on screen for a pane about to open on it (`chat.subagentPane`): kept on this page as
+  /// `handOverCurrentTail` keeps it, and returned for the request to carry (`handOver`) instead of
+  /// a `chat.tail` of its own, which could reach the host after the pane's open had read it (#36650).
+  tailHandOver(): TailHandOver | undefined {
+    this.rememberCurrentTail();
+    return undefined;
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it

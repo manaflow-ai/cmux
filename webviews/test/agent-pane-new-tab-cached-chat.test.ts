@@ -449,6 +449,26 @@ test("opening the chat on screen in a new tab hands it over, with no switch away
   expect(tab.last()!.sessionId).toBe(chat.a);
 });
 
+/// #36650: a subagent's pane takes the chat's tail inside its own request (`handOver`), not a
+/// `chat.tail` of its own that could reach the host after the pane's open read it. The page still
+/// keeps the chat, and what it returns is the chat's rows under the host's bounds.
+test("the hand-over for a subagent's pane returns the chat's tail and sends no chat.tail of its own", async () => {
+  const chat = new Fixture("pane-hand-over");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  const read = chat.tab(chat.a);
+  const client = await read.client;
+  await flush();
+  const wrote = chat.host.wrote.length;
+
+  const handOver = client.tailHandOver();
+  await flush();
+  expect(handOver?.sessionId).toBe(chat.a);
+  expect(JSON.stringify(handOver?.tail.events)).toContain("Retry added.");
+  expect(chat.host.wrote.length, "the hand-over also sent a chat.tail, which can land after the open").toBe(wrote);
+  expect(chat.host.tails.has(chat.a)).toBe(false);
+  client.close();
+});
+
 /// The wiring the test above cannot reach. It calls `handOverCurrentTail` itself, so it proves the
 /// client hands a chat over — not that anything in the product asks it to. The asking happens in
 /// `App.tsx`, in the two actions that open a chat in a tab, and it is React code no test here
@@ -482,7 +502,7 @@ test("opening a subagent in its own pane hands the chat over first", async () =>
   for (const site of sites) {
     const options = app.slice(site.index, site.index + 500);
     expect(
-      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.handOverCurrentTail\(\)/.test(options),
+      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.tailHandOver\(\)/.test(options),
       "showSubagent does not supply the shared helper's tail-handoff callback, so the pane opens cold (tailCache.ts).",
     ).toBe(true);
   }
