@@ -48,7 +48,7 @@ class AffectedTests(unittest.TestCase):
         self.assertNotIn("--shards", argv)
 
     def test_docs_run_only_the_guards(self):
-        result = plan(["cmux-tui/AGENTS.md"])
+        result = plan(["plans/cmux-next/STATUS.md"])
         self.assertFalse(result["all"])
         self.assertEqual(names(result), ["guards"])
 
@@ -99,6 +99,11 @@ class AffectedTests(unittest.TestCase):
 
     def test_a_cmux_tui_tree_input_outside_cmux_tui_sends_the_rust_step(self):
         self.assertIn("rust", names(plan(["scripts/ci/macos_stubs.py"])))
+
+    def test_a_skill_a_crate_embeds_sends_the_rust_step(self):
+        # acpmux include_str!s skills/cmux-cua/SKILL.md.
+        self.assertIn("rust", names(plan(["skills/cmux-cua/SKILL.md"])))
+        self.assertNotIn("rust", names(plan(["plans/cmux-next/STATUS.md"])))
 
     def test_no_merge_base_runs_everything(self):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "no-such-ref-zz", "--head", "HEAD",
@@ -198,7 +203,7 @@ class AffectedTests(unittest.TestCase):
 
     def test_cli_prints_json(self):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "HEAD", "--head", "HEAD",
-                              "--files", "cmux-tui/AGENTS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
+                              "--files", "plans/cmux-next/STATUS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
         data = json.loads(out)
         self.assertEqual([u["name"] for u in data["units"]], ["guards"])
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")

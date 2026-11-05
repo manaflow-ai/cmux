@@ -315,8 +315,9 @@ def rust_may_read(files: list[str], focused: dict) -> bool:
     """cmux-tui crates also read files outside cmux-tui/ (include_str! targets, cmux-tui-tree-inputs.txt):
     a changed path outside the docs, webviews, Swift packages and Native workspaces sends the Rust step,
     whose own cargo_affected.py says which crates (none: it passes with a notice)."""
-    docs = set(focused.get("docs", []))
-    return any(f not in docs and not f.startswith((focused_tests.WEB, "Packages/", "Native/")) for f in files)
+    # Docs count too, except plans/ and docs/: a skill or README can be an include_str! target
+    # (acpmux embeds skills/cmux-cua/SKILL.md).
+    return any(not f.startswith((focused_tests.WEB, "Packages/", "Native/", "plans/", "docs/")) for f in files)
 
 
 def everything_reasons(files: list[str], focused: dict) -> list[str]:
@@ -369,7 +370,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             p.web([f["path"] for f in focused["web"]] + named_web)
         lanes = python_lane_tests(root)
         lane_paths = [item["path"] for item in focused["python"]]
-        lane_paths += [t for t in web_python + named_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
+        lane_paths += [t for t in web_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
+        lane_paths += [t for t in named_python if t not in lane_paths]  # p.python lists off-lane ones as not run
         p.python(lane_paths)
         extra = extra_python(root, files)
         extra += [t for t in web_python if t not in lanes and t not in extra]
@@ -407,7 +409,13 @@ def main(argv: list[str]) -> int:
         result["reasons"] = [f"no merge base with {args.base or 'origin/feat-cmux-next'}"]
         print(json.dumps(result, indent=2))
         return 0
-    print(json.dumps(plan(root, base, head, files, args.shards, args.all), indent=2))
+    try:
+        result = plan(root, base, head, files, args.shards, args.all)
+    except subprocess.CalledProcessError:
+        # --base resolves but shares no history with HEAD: the diff is unknown, so every suite runs.
+        result = plan(root, head, head, files or [], args.shards, True)
+        result["reasons"] = [f"no diff between {base[:12]} and {head[:12]}"]
+    print(json.dumps(result, indent=2))
     return 0
 
 
