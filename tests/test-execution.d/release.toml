@@ -1,0 +1,39 @@
+# Python test execution registry: tests/test_release_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_release_changelog_lines.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_homebrew_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_notes_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_notes_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_scripts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_sign_app.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_thanks.py"
+lane = "manual"
+reason = "No new CI tests (CLAUDE.md, CI section); run python3 tests/test_release_thanks.py (under 1 s, no network) before changing scripts/ci/release_thanks.py."

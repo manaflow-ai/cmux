@@ -2141,6 +2141,11 @@ button.menu-disclosure {
 }
 
 /* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
+/* The download's bytes line counts with tabular digits, so nothing on it moves as it counts. */
+[data-card="app-update"] .row-help {
+  font-variant-numeric: tabular-nums;
+}
+
 .app-update-progress-row {
   padding: 0 8px 8px;
 }

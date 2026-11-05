@@ -27,14 +27,14 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu on every attempt, never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
-# They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
-# build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
+# They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
+# have their own routes, outside the 16/32 rule.
 # sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg',
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg',
                                    'sentry-dsyms-nightly')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
-    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+    'report-nightly-failure', 'close-nightly-failure-issue',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and GitHub-hosted Ubuntu.
@@ -50,7 +50,7 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # (test_nightly_owned_minis_only.py).
 HOSTED_SECRET_JOBS = ('promote-nightly-next-acked', 'keep-published-dsyms', 'sentry-dsyms-nightly',
                       'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-identity-legacy', 'republish-nightly-deltas', 'legacy-identity-target')
+                      'republish-nightly-deltas')
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -270,7 +270,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
         # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses).
         self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'promote-nightly-next', 'verify-final-dmg-nightly', 'verify-nightly-identity-legacy',
+                                'promote-nightly-next', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its

@@ -1,8 +1,8 @@
 import { conversation as homeConversation } from "@cmux/home-core"
-import type { OwnerFrame } from "@cmux/ownership"
 import { formatSlackMessage, isOwnSlackMessage, postSlackMessage, slackEnabled, validSlackInbound, type SlackInbound } from "../chief-slack.ts"
 import { sha256Hex } from "../ingress/verify.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
+import { declared } from "../do-stub.ts"
 
 export interface SlackWake { readonly agent: string; readonly conversation: string; readonly inbound: SlackInbound }
 export interface SlackOutbound { readonly root: string; readonly message: string; readonly text: string }
@@ -26,9 +26,7 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const proposedRoot = `msg_${(await sha256Hex(JSON.stringify([w.agent, w.conversation, i.slackTeamId, i.channelId, i.threadTs]))).slice(0, 32)}`
   b.sql.exec(`INSERT INTO cb_slack_threads (slack_team, channel, thread_ts, root) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`, i.slackTeamId, i.channelId, i.threadTs, proposedRoot)
   const root = b.sql.exec<{ root: string }>(`SELECT root FROM cb_slack_threads WHERE slack_team = ? AND channel = ? AND thread_ts = ?`, i.slackTeamId, i.channelId, i.threadTs).one().root
-  const conversation = b.doEnv.CONVERSATION_DO.get(b.doEnv.CONVERSATION_DO.idFromName(w.conversation)) as unknown as {
-    slackMessage(entity: string, input: { owner: string; agent: string; root: string; inbound: SlackInbound }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-  }
+  const conversation = declared(b.doEnv.CONVERSATION_DO.get(b.doEnv.CONVERSATION_DO.idFromName(w.conversation)))
   const res = await conversation.slackMessage(w.conversation, { owner: i.ownerUserId, agent: w.agent, root, inbound: i })
   const frame = res.frames.find((f) => f.t === "result" || f.t === "reject")
   if (!frame || frame.t === "reject") return { ok: false as const, code: frame?.t === "reject" ? frame.code : "owner.unreachable" }

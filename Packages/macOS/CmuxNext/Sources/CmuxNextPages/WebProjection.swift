@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
 public import Foundation
+import os
 public import WebKit
 
 /// Projection windows (manaflow-ai/cmuxterm-hq#7149 L10): one window of the running app whose pages
@@ -31,6 +32,8 @@ public final class WebProjection {
     public static let runTestID = "debug.projection.runTest"
     /// The port `web-overlay.sh server` uses; `projection.sh` passes its own.
     public static let defaultServer = "http://127.0.0.1:4200/"
+    /// Where each document load read from and each reload, for a check that sees only the app's log.
+    private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "projection")
 
     public struct Projection: Sendable, Equatable {
         public let windowID: String
@@ -103,6 +106,7 @@ public final class WebProjection {
                                     worktree: worktree.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath },
                                     test: test.flatMap { $0.isEmpty ? nil : $0 })
         projections.append(projection)
+        log.notice("open \(projection.windowID, privacy: .public) \(root.absoluteString, privacy: .public)")
         return projection
     }
 
@@ -124,7 +128,12 @@ public final class WebProjection {
     /// window reloads from its server.
     public func served(_ webView: WKWebView, isDocument: Bool) {
         guard !projections.isEmpty, isDocument else { return }
-        servedFrom.setObject(server(for: webView).map { $0.root as NSURL } ?? unbound, forKey: webView)
+        let from = server(for: webView)
+        let url = webView.url?.absoluteString ?? "-", window = webView.window.flatMap(windowID) ?? "none"
+        let read = from?.root.absoluteString ?? "bundle"
+        let open = projections.map { "\($0.windowID):\(isOpen($0.windowID))" }.joined(separator: ",")
+        log.notice("document \(url, privacy: .public) window \(window, privacy: .public) from \(read, privacy: .public) projections \(open, privacy: .public)")
+        servedFrom.setObject(from.map { $0.root as NSURL } ?? unbound, forKey: webView)
         guard webView.window == nil else { return }
         windowlessChecks = 0
         scheduleRecheck()
@@ -154,6 +163,7 @@ public final class WebProjection {
             stale.append(webView)
         }
         for webView in stale { webView.reload() }
+        if !stale.isEmpty { log.notice("reloaded \(stale.count) page(s) for their window's server") }
         return stale.count
     }
 

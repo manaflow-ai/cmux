@@ -78,9 +78,7 @@ export class SocketGate {
   seed(ws: WebSocket, p: Principal, owner: { cls: string; name: string }): void {
     if (!this.watched(p)) return
     this.checks.set(this.key(p), { active: true, at: Date.now() })
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as {
-      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean>
-    }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!))
     const expires = p.expires_at ?? Date.now() + 3600_000
     this.ctx.waitUntil(
       stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires, p.agent).then(
@@ -200,9 +198,7 @@ export class SocketGate {
     if (!placedChiefToken(p) || !p.user || !p.install) return true
     const frame = mutatingFrame(message)
     if (!frame) return true
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as {
-      installGrant(entity: string, install: string, grant: string | undefined, agent?: string): Promise<ChiefGrant>
-    }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user))
     const r = await stub.installGrant(p.user, p.install, p.grant, p.agent).catch(() => null)
     if (r === null) return "unreachable"
     if (r.ok && r.op_classes.includes("mutate-shared")) return true
@@ -232,7 +228,7 @@ export class SocketGate {
   }
 
   private ask(user: string, list: ReadonlyArray<InstallRef>): Promise<ReadonlyArray<boolean> | null> {
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { installsActive(entity: string, list: ReadonlyArray<InstallRef>): Promise<ReadonlyArray<boolean>> }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
     return stub.installsActive(user, list).catch(() => null)
   }
 
