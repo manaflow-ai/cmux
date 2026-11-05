@@ -232,6 +232,8 @@ def source_text(repo: str, ref: str, path: str, github) -> str:
     if text is not None:
         return text
     return github.blob(repo, ref, path)
+
+
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -256,8 +258,8 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 HOME_REPO = "manaflow-ai/cmux"
 # Rollups of the other repos this script judges (--repo), named the same way: (workflow file, job id). Their workflows
 # are not in this checkout, so the contract is derived when a red is judged, from the repo's own workflow files at the
-# base (derive_rollups over source_text: git, else GraphQL; load_rollups). A repo not named here has no rollups: every red job of it
-# is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
+# base (derive_rollups over source_text: git, else GraphQL; load_rollups). A repo not named here has no rollups: every
+# red job of it is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
 # refused on every HQ PR as "no failing test or error line to match" (2026-11-04: hq#7038, hq#7039).
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
