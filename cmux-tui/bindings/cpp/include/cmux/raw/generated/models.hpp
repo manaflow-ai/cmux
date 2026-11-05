@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea";
+inline constexpr std::string_view kProtocolIrSha256 = "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -142,6 +142,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -487,6 +488,10 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteHostAppRequest;
+struct RemoteHostCallRequest;
+struct RemoteHostConfigRequest;
+struct RemoteHostStatusRequest;
 struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
@@ -915,6 +920,7 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> replay_history_rows{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -4511,6 +4517,34 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoteHostAppRequest {
+    friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
+};
+
+struct RemoteHostAppResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const RemoteHostAppResult&, const RemoteHostAppResult&) = default;
+};
+
+struct RemoteHostCallRequest {
+    std::string method{};
+    Field<JsonValue> params{};
+    friend bool operator==(const RemoteHostCallRequest&, const RemoteHostCallRequest&) = default;
+};
+
+struct RemoteHostConfigRequest {
+    Field<bool> computer_use{};
+    Field<bool> headless{};
+    Field<bool> screen_sharing{};
+    friend bool operator==(const RemoteHostConfigRequest&, const RemoteHostConfigRequest&) = default;
+};
+
+struct RemoteHostStatusRequest {
+    friend bool operator==(const RemoteHostStatusRequest&, const RemoteHostStatusRequest&) = default;
+};
+
 struct RemoteTerminalSnapshotRequest {
     Id surface{};
     friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
@@ -6062,6 +6096,7 @@ struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     Base64 data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
@@ -6958,6 +6993,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostAppResult> {
+    static Result<Json> encode(const RemoteHostAppResult& value);
+    static Result<RemoteHostAppResult> decode(const Json& value);
 };
 
 template <>
@@ -9028,6 +9069,30 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostAppRequest> {
+    static Result<Json> encode(const RemoteHostAppRequest& value);
+    static Result<RemoteHostAppRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostCallRequest> {
+    static Result<Json> encode(const RemoteHostCallRequest& value);
+    static Result<RemoteHostCallRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostConfigRequest> {
+    static Result<Json> encode(const RemoteHostConfigRequest& value);
+    static Result<RemoteHostConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostStatusRequest> {
+    static Result<Json> encode(const RemoteHostStatusRequest& value);
+    static Result<RemoteHostStatusRequest> decode(const Json& value);
 };
 
 template <>

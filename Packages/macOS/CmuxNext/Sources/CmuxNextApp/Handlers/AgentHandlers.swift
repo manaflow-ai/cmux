@@ -79,6 +79,7 @@ enum AgentHandlers {
                       run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
         registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
                       run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
+        context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
@@ -243,7 +244,6 @@ enum AgentHandlers {
                 run(view)
             })
         }
-        registry.publishSideSessions()
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)

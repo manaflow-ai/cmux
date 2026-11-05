@@ -33,6 +33,7 @@ mod keybinding_tools;
 mod messages;
 mod open_tool;
 mod placement;
+mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
@@ -177,6 +178,14 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -342,6 +351,15 @@ impl Backend for LiveBackend {
             error,
             idempotency_key: idempotency_key.map(str::to_owned),
         })
+    }
+
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(1));
+        }
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
     }
 
     fn resource(
@@ -514,9 +532,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
-    // The client ends the server by closing stdin, then by SIGTERM; the
-    // blocking stdin read must not hide that signal.
+    // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
+    acpmux::parent_watch::exit_with_parent();
     let output = watch::Output::new(io::stdout());
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
@@ -732,7 +750,9 @@ impl<B: Backend> Server<B> {
                 let code_mode = self.code_mode && self.allowed.is_none();
                 let wrap_up = code_mode
                     && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
-                Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
+                let offers =
+                    code_mode && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
+                Ok(initialize(&params, self.list_changed, code_mode, wrap_up, offers))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
@@ -800,6 +820,7 @@ impl<B: Backend> Server<B> {
         tools.push(render_tool::descriptor());
         tools.push(open_tool::descriptor());
         tools.extend(video_tools::descriptors());
+        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(automation_tools::descriptors());
@@ -1052,6 +1073,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
+        }
+        if let Some(tool) = remote_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
@@ -1473,17 +1497,25 @@ impl<B: Backend> Server<B> {
 }
 
 /// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
-/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]).
-fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool) -> Value {
+/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]). `offers`: the chat's cmux-sessions server is
+/// folded in, so suggesting a new chat is steered to here too ([`code_mode::OFFER_INSTRUCTION`]).
+fn initialize(
+    params: &Value,
+    list_changed: bool,
+    code_mode: bool,
+    wrap_up: bool,
+    offers: bool,
+) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}{}",
+            "{} {}{}{}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
             acpmux::agent_tools::ASKING_RULE,
-            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" }
+            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" },
+            if offers { code_mode::OFFER_INSTRUCTION } else { "" }
         ),
     })
 }

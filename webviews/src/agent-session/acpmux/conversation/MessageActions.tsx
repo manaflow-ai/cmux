@@ -5,6 +5,7 @@
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
+import { PresentationContext } from "./PresentationContext";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -15,10 +16,12 @@ import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopRead
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
@@ -80,10 +83,20 @@ export function MessageDot() {
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
-/// row's compact size.
+/// row's compact size. The message goes as Claude's and ChatGPT's do: its Markdown as the plain text
+/// and its HTML beside it, so Notes, Slack, Docs and Mail paste its headings, bullets and code
+/// (richClipboard.ts).
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className="cv-iconbtn cv-iconbtn--compact"
+      size={ROW_ICON}
+      copy={copyMarkdownResult}
+    />
+  );
 }
 
 /// Use the live host action when the page has one: unlike the turn context's legacy callback, it
@@ -282,9 +295,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 }
 
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
-/// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
-/// `data-retryable`; conversation.css).
+/// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
+/// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
 /// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
 /// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
 /// while the steer still waits would reach the agent twice (cmux#34613, #34614).
@@ -323,18 +335,31 @@ export function PromptActions({
   text: string;
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
+  // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
+  // turn that ended well, so its prompts, sent or queued, keep Retry there; and a prompt whose turn's
+  // footer draws none keeps it too (turns.ts retryPlacement).
+  const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const canResend = Boolean(useContext(TurnActionsContext).retry);
+  const readOnly = useTranscriptReadOnly();
+  const promptRetry =
+    messagesView ||
+    (retryTarget?.promptId === row.id &&
+      retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      <PromptRetry rowId={row.id} prompt={prompt} />
+      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return (
     <div className="cv-user__actions">
-      {pending ? pending(actions, { retry: <PromptRetry rowId={row.id} prompt={prompt} held /> }) : actions}
+      {pending
+        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
+        : actions}
     </div>
   );
 }
@@ -352,7 +377,7 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// its age, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
 /// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
 /// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
 /// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
@@ -363,7 +388,6 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
           {more}
         </MessageFooterRow>
       </span>

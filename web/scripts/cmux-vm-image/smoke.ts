@@ -46,7 +46,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
+import { HOST_CLI, NATIVE_RECEIVER_SMOKE, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -210,6 +210,9 @@ const IDENTITY_PROBE = [
   `test -s ${REMOTE_IDENTITY} && echo identity-present=1`,
   "echo machineid=$(cat /etc/machine-id)",
   "echo bootid=$(cat /proc/sys/kernel/random/boot_id)",
+  // Clones of one memory snapshot start with the same kernel CRNG state; unless the kernel reseeds on restore
+  // (VM generation id) or new entropy arrives, both draw the same bytes.
+  "echo urandom=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n')",
 ].join("; ");
 
 function kv(stdout: string): Record<string, string> {
@@ -228,7 +231,10 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
   const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
   const clone = { vm, vmId, name };
   const firstExecMs = await firstExec(vm, t0);
-  const listen = await run(vm, LISTEN_POLL, 60_000);
+  // A smoke clone measures the snapshot as baked: the marker goes down with the first command,
+  // well before its updater's first check (30 s after cmux host run starts), which reads it
+  // again right before it changes anything.
+  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000);
   const listeningMs = Date.now() - t0;
   const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000);
   const readyMs = Date.now() - t0;
@@ -350,10 +356,21 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
  */
 async function daemonUptimeChecks(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
-  const hold = (HOLD_SECONDS + 60) * 1000;
-  const boot = await run(vm, daemonHoldCommand(), hold);
+  await daemonBootHold(vm, report, nativeReceiver);
+  await daemonRebindHold(vm, report, nativeReceiver);
+}
+
+const HOLD_TIMEOUT_MS = (HOLD_SECONDS + 60) * 1000;
+
+async function daemonBootHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+  const boot = await run(vm, daemonHoldCommand(), HOLD_TIMEOUT_MS);
   const bootProblems = daemonUptimeProblems(boot.stdout, nativeReceiver);
   check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
+}
+
+/** Last on its clone: the rebind restarts the session host and rewrites the bound id. */
+async function daemonRebindHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+  const hold = HOLD_TIMEOUT_MS;
   const rebind = await run(vm, forcedRebindCommand(), 120_000);
   const rebound = /^rebound=1$/m.test(rebind.stdout);
   const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
@@ -379,9 +396,10 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
   const kept: Clone[] = [];
   const rows: Array<Record<string, number | string>> = [];
   try {
+    // One at a time: creating them at once made every create wait about 13 s at the provider (run
+    // 42012003953, against about 0.5 s each one by one), and create latency is what this measures.
     for (let i = 1; i <= options.clones; i++) {
-      const name = `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`;
-      const { clone, row } = await measureClone(fs, ledger, name, options.snapshotId);
+      const { clone, row } = await measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`, options.snapshotId);
       rows.push(row);
       // Track the clone before the extra probe so a refused/failed exec still cleans it up.
       kept.push(clone);
@@ -390,7 +408,8 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
         check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
       }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
-      if (kept.length > 2) {
+      // Clones 1 and 2 carry the identity and idle checks; a third, when there is one, takes the rebind hold.
+      if (kept.length > 3) {
         await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
         kept.pop();
       }
@@ -398,36 +417,50 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     report.clones = rows;
     report.latency = summarize(rows);
     check(report, "daemon-listening", rows.every((r) => Number(r.createToListeningMs) > 0 && Number(r.createToReadyMs) > 0), JSON.stringify(report.latency));
-    const ids = await Promise.all(kept.map((c) => run(c.vm, IDENTITY_PROBE, 60_000).then((r) => kv(r.stdout))));
+    const ids = await Promise.all(kept.slice(0, 2).map((c) => run(c.vm, IDENTITY_PROBE, 60_000).then((r) => kv(r.stdout))));
     report.identity = ids.map((id) => ({ instance: id.instance, bound: id.bound, sshkey: id.sshkey, daemon: id.daemon?.slice(0, 12), machineid: id.machineid?.slice(0, 8), bootid: id.bootid?.slice(0, 8) }));
     check(report, "daemon-bound", ids.every((id) => id.instance && id.instance === id.bound && id["identity-present"] === "1"), JSON.stringify(report.identity));
     check(report, "daemon-identity-differs", ids.length === 2 && ids[0].daemon !== ids[1].daemon, `${ids[0]?.daemon?.slice(0, 12)} vs ${ids[1]?.daemon?.slice(0, 12)}`);
     check(report, "ssh-host-key-differs", ids.length === 2 && Boolean(ids[0].sshkey) && ids[0].sshkey !== ids[1].sshkey, `${ids[0]?.sshkey} vs ${ids[1]?.sshkey}`);
+    check(report, "urandom-differs", ids.length === 2 && Boolean(ids[0].urandom) && ids[0].urandom !== ids[1].urandom, "16 bytes of /dev/urandom on each clone");
+    report.bootIdShared = ids[0]?.bootid === ids[1]?.bootid;
     report.machineIdShared = ids[0]?.machineid === ids[1]?.machineid;
     console.log(`INFO machine-id ${report.machineIdShared ? "SHARED (regenerated by the bind agent, pending)" : "differs"}`);
-    await handshakeChecks(kept[1].vm, report, options.expectCapabilities);
-    if (options.teamVm) {
-      // The bake's own command is idempotent and verifies owner and mode; on a clone it must change nothing.
-      const before = await run(kept[1].vm, `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`);
-      const verify = await run(kept[1].vm, teamVmDirsCommand());
-      check(report, "team-files-root", before.code === 0 && verify.code === 0 && before.stdout.trim() === verify.stdout.trim().split("\n").at(-1), before.stdout.trim() || before.stderr.slice(-200));
-    }
-    await functionalChecks(kept[1].vm, lock, report);
-    await automationChecks(kept[1].vm, report);
-    await machineHealthChecks(kept[1].vm, report);
-    await resolverChecks(kept[1].vm, report);
-    if (options.agentProbe) {
-      const probe = await agentBindProbe(kept[1].vm);
-      check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
-    }
-    if (options.browserProbe) {
-      // After the roles-off checks: the probe installs the browser role on this clone.
-      const browser = await browserRoleProbe(kept[1].vm, { lockPath: options.lockPath });
-      report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
-      for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
-    }
-    // Separate clones: the hold and rebind on one run while the other idles.
-    await Promise.all([idlePhase(kept[0].vm, report, options.idleSeconds), daemonUptimeChecks(kept[1].vm, report, Boolean(options.nativeReceiver))]);
+    // The idle window on clone 1 runs while every check on clone 2 does: they share no machine, and the
+    // checks were the serial half of the smoke. The rebind hold runs on clone 3 at the same time when there is
+    // one (it restarts that clone's session host, so it goes nowhere near the other checks); with two clones
+    // it goes last on clone 2.
+    const rebindClone = kept[2];
+    const onClone2 = async () => {
+      await handshakeChecks(kept[1].vm, report, options.expectCapabilities);
+      if (options.teamVm) {
+        // The bake's own command is idempotent and verifies owner and mode; on a clone it must change nothing.
+        const before = await run(kept[1].vm, `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`);
+        const verify = await run(kept[1].vm, teamVmDirsCommand());
+        check(report, "team-files-root", before.code === 0 && verify.code === 0 && before.stdout.trim() === verify.stdout.trim().split("\n").at(-1), before.stdout.trim() || before.stderr.slice(-200));
+      }
+      await functionalChecks(kept[1].vm, lock, report);
+      await automationChecks(kept[1].vm, report);
+      await machineHealthChecks(kept[1].vm, report);
+      await resolverChecks(kept[1].vm, report);
+      if (options.agentProbe) {
+        const probe = await agentBindProbe(kept[1].vm);
+        check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
+      }
+      if (options.browserProbe) {
+        // After the roles-off checks: the probe installs the browser role on this clone.
+        const browser = await browserRoleProbe(kept[1].vm, { lockPath: options.lockPath });
+        report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
+        for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
+      }
+      if (rebindClone) await daemonBootHold(kept[1].vm, report, Boolean(options.nativeReceiver));
+      else await daemonUptimeChecks(kept[1].vm, report, Boolean(options.nativeReceiver));
+    };
+    const phases: Record<string, number> = {};
+    const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
+    await Promise.all([timed("idleClone1Ms", () => idlePhase(kept[0].vm, report, options.idleSeconds))(), timed("checksClone2Ms", onClone2)(),
+      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report, Boolean(options.nativeReceiver)))()] : [])]);
+    report.phasesMs = phases;
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
@@ -438,6 +471,15 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     console.error(`SMOKE FAILED: ${report.error}`);
   } finally {
     for (const c of kept) await deleteVm(c.vm, c.vmId, c.name, ledger);
+    // A clone whose worker failed after its create is in the ledger but not in `kept`.
+    for (const row of ledger.live().filter((r) => r.kind === "vm" && r.name.startsWith(`cmuxnp-dev-vmimg-${options.tag}-smoke-`))) {
+      try {
+        await fs.vms.delete(row.id);
+        ledger.record(row.id, row.kind, row.name, "deleted");
+      } catch (error) {
+        console.error(`could not delete ${row.id} (${row.name}): ${String(error)}; the run's cleanup retries it`);
+      }
+    }
   }
   for (const item of PENDING_BIND_AGENT_CHECKS) console.log(`PENDING ${item}`);
   report.passed = !report.error && Object.values(report.checks).every((c) => c.ok);

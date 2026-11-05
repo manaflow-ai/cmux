@@ -611,7 +611,10 @@ impl Hub {
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1561,11 +1564,20 @@ impl Hub {
                             o.insert("carriedTo".into(), to);
                         }
                     }
+                    // What the turn spent, where its harness says, for a goal's token budget.
+                    let spent = ["inputTokens", "outputTokens"]
+                        .iter()
+                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
+                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
+                    }
+                    // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
+                    if status == "completed" {
+                        self.continue_goal(session, spent);
                     }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
@@ -2158,6 +2170,8 @@ impl Hub {
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta_answered(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 

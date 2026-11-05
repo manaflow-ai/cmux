@@ -3,44 +3,19 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
 
-/// Which acpmux an agent tab's pane attaches to.
-enum AgentPaneHostKind: Equatable {
-    /// This Mac's own acpmux (the app's chats).
-    case local
-    /// This app's Chief home's acpmux, where the Chief host runs its subagents.
-    case chief
-    /// Another machine's, through that tab's session daemon.
-    case remote
-
-    /// The acpmux that runs `record`'s session: the record says who owns it, so a restored tab
-    /// attaches to the same daemon.
-    ///
-    /// - Parameter listedHere: whether this Mac's own tree lists the tab. Every `chief:<home id>`
-    ///   such a tab names is a Chief home of this Mac (#25262): the record keeps the home it was
-    ///   made under (NIGHTLY's per-build home before it moved to the shared one, a tagged build's
-    ///   home), so it may differ from `chiefHost` and is still never another machine's.
-    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?, listedHere: Bool) {
-        if let localHost, record.host == localHost {
-            self = .local
-        } else if let chiefHost, record.host == chiefHost {
-            self = .chief
-        } else if listedHere, record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix) {
-            self = .chief
-        } else {
-            self = .remote
-        }
-    }
-}
-
 extension AgentTabStore {
+    /// ``AgentPaneHostKind`` of `record` with this store's hosts, this Mac's former ones included for a tab its own tree lists.
+    func hostKind(_ record: AgentSessionRef, listedHere: Bool) -> AgentPaneHostKind {
+        AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: listedHere, formerLocalHosts: resolveFormerLocalHosts())
+    }
+
     /// The machine tab `key`'s chat runs on when that is another machine: the tab's pane attaches
     /// there (``view(for:)``'s `.remote`), through the daemon whose tree lists it. Nil for a chat on
     /// this Mac or its Chief home, whichever tree lists the tab: the composer strip's machine link
     /// and its Reconnect name this machine.
     func remoteMachineID(of key: String) -> String? {
         let key = resolve(key)
-        guard let (record, _) = lookup(key), let daemon = daemonForTab(key), !daemon.isLocal,
-              AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: false) == .remote else { return nil }
+        guard let (record, _) = lookup(key), let daemon = daemonForTab(key), !daemon.isLocal, hostKind(record, listedHere: false) == .remote else { return nil }
         return daemon.machineID
     }
 

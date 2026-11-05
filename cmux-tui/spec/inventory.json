@@ -60,6 +60,8 @@
     "closed.list",
     "closed.reopen",
     "column.update",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.draft",
     "conversation.events",
     "conversation.get",
@@ -614,7 +616,11 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "remote-host-status",
+      "remote-host-call",
+      "remote-host-config",
+      "remote-host-app"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

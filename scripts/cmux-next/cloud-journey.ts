@@ -10,6 +10,10 @@
  *   bun scripts/cmux-next/cloud-journey.ts --app-cli "$APP/Contents/Resources/bin/cmux" --socket /tmp/cmux-debug-TAG.sock
  *     (the commands a person runs, through a running NEXT build's CLI: list-machines, vm token create,
  *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
+ *   bun scripts/cmux-next/cloud-journey.ts --backend prod --credentials F --machine vm_... --keyed-start --model stub
+ *     (an existing machine, kept: no create, pause or delete; the dev machine of scripts/cmux-next/cloud-devloop.ts.
+ *     --keyed-start runs the app's keyed acpmux start (POST .../acpmux/keyed-start) and checks the keyed daemon still
+ *     serves after acpmux.service's restart delay: the take-over race of cmux-platform#845)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
  * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
@@ -490,6 +494,44 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
+export const REUSE_RESET =
+  // Only the stub an earlier run recorded (its launch writes journey-model-stub.pid), and only while that pid still runs it.
+  `p=$(cat /home/cmux/.cmux/journey-model-stub.pid 2>/dev/null); ` +
+  `[ -n "$p" ] && grep -qa journey-model-stub.py "/proc/$p/cmdline" 2>/dev/null && kill "$p" 2>/dev/null; ` +
+  `rm -f /home/cmux/.cmux/journey-model-stub.*; ` +
+  `python3 - <<'PY'\nimport json, pathlib\np = pathlib.Path('/home/cmux/.claude/settings.json')\nif p.exists() and not p.is_symlink():\n    c = json.loads(p.read_text())\n    if c.get('env', {}).pop('ANTHROPIC_BASE_URL', None) is not None:\n        p.write_text(json.dumps(c)); print('dropped the stub endpoint')\nPY`;
+
+/** How long --keyed-start waits after the start before it reads the daemon again (over acpmux.service's RestartSec=3). */
+export const KEYED_SETTLE_MS = 8_000;
+
+/**
+ * The app's keyed acpmux start (cmux-platform AcpmuxRoute.ts): a fresh one-run key K, 64 lowercase hex and a newline,
+ * as the octet-stream body. K is a throwaway made here and pushed to `secrets` before anything can print.
+ */
+async function keyedAcpmuxStart(api: Api, machine: string, secrets: string[]): Promise<{ ok: true; personInstance: string } | { ok: false; detail: string }> {
+  const key = randomBytes(32).toString("hex");
+  secrets.push(key);
+  const res = await fetch(`${api.origin}/v1/cloud/machines/${machine}/acpmux/keyed-start`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${api.bearer}`, "content-type": "application/octet-stream", ...(api.team ? { "x-cmux-team": api.team } : {}) },
+    body: `${key}\n`,
+    signal: AbortSignal.timeout(120_000),
+  });
+  const body: any = await res.json().catch(() => ({}));
+  const instance = body?.value?.personInstance ?? body?.personInstance;
+  if (res.status !== 200 || typeof instance !== "string") return { ok: false, detail: `HTTP ${res.status} ${short(body?.error ?? body)}` };
+  return { ok: true, personInstance: instance };
+}
+
+/** Why the daemon `acp --json daemon status` describes is not the keyed one the start made, or null. */
+export function keyedHoldProblem(personInstance: string, status: any): string | null {
+  if (!status || status.running === false || status.pid === undefined) return `no daemon serves after the keyed start: ${short(status)}`;
+  if (status.personKey !== true) return `an unkeyed daemon took the socket after the keyed start (acpmux.service restarted and took over): ${short(status)}`;
+  if (status.personInstance !== undefined && status.personInstance !== personInstance) return `another keyed daemon (${String(status.personInstance)}) serves, not the one this start made (${personInstance})`;
+  return null;
+}
+
 /** The ids of `cloud list-machines --json` rows that are not deleted. */
 export function machineIds(rows: any[]): string[] {
   return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
@@ -663,8 +705,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
   const cmux = argValue("--cmux", argv);
-  const keep = argv.includes("--keep");
+  // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
+  const reuse = argValue("--machine", argv);
+  const keyedStart = argv.includes("--keyed-start");
+  const keep = argv.includes("--keep") || Boolean(reuse);
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
+  if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
   const modelStub = argValue("--model", argv) === "stub";
@@ -785,11 +831,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
 
-    const created = await J.step("create machine", async () => {
-      const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
-      machine = v.machine.id as string;
-      return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
-    });
+    const created = reuse
+      ? await J.step("use machine", async () => {
+          const m = await api.read("cloud.machine.get", { machine: reuse });
+          if (m.status === "paused") await api.op("cloud.machine.start", { machine: reuse }, `${tag}-wake`);
+          return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
+        })
+      : await J.step("create machine", async () => {
+          const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          machine = v.machine.id as string;
+          return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
+        });
     const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
@@ -809,11 +861,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    if (reuse) {
+      // A kept machine still has the last run's model stub and its endpoint in Claude Code's settings, which the
+      // login installer refuses: put both back as a fresh machine has them.
+      await J.step("reset kept machine", async () => {
+        const r = await exec(REUSE_RESET);
+        if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: r.stdout.trim() || "clean" };
+      });
+    }
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+
+    if (keyedStart) {
+      await J.step("keyed acpmux start holds", async () => {
+        const status = async () => {
+          const r = await exec(`${GUEST}"$c" acp --json daemon status 2>&1`);
+          try { return JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))); } catch { return { raw: r.stdout.slice(-200) }; }
+        };
+        const r = await keyedAcpmuxStart(api, created.id, J.secrets);
+        if (!r.ok) throw new Error(`keyed-start: ${r.detail}`);
+        // acpmux.service is Restart=always with RestartSec=3: a unit the prepare step did not stop is back by now.
+        await sleep(KEYED_SETTLE_MS);
+        const after = await status();
+        const why = keyedHoldProblem(r.personInstance, after);
+        if (why) throw new Error(why);
+        return { value: null, detail: `the keyed daemon still serves ${KEYED_SETTLE_MS / 1000} s later (pid ${after.pid ?? "?"})` };
+      });
+    }
 
     if (!provider || only.has("chat") || only.has("login")) {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
@@ -858,6 +936,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
         const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+        const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
         for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
           const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
           if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
@@ -867,7 +946,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
           : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
+          `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
             `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
             `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
             `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +

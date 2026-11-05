@@ -223,6 +223,9 @@ struct CloudStartSession {
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
+        // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
+        services.cloud.startGate.enter(id)
+        defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
@@ -391,16 +394,22 @@ struct CloudStartSession {
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
-        try CloudHandlers.requireAttachableState(session)
+        // A machine that is resuming is waited for (within the start's own connect wait), never refused at once.
+        try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
-            try CloudHandlers.requireAttachableState(session)
+            try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
             // The resume or connect below changes the machine: only for the account that asked.
             try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
-        let up = await session.linkUp(within: Self.connectWait)
+        var up = await session.linkUp(within: Self.connectWait)
+        // The app's update of this machine already ran when the start came (a turn that begins later finds the
+        // start in ``CloudStartGate``): it restarts the daemon, so the agent starts once it ended and the link is back.
+        if up, await CloudWait.ended(within: Self.connectWait, { [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in
+            await policy.turnRunning(id)
+        }) { up = await session.linkUp(within: Self.connectWait) }
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up, session.resumeFailure == nil, session.daemon.connection != nil else { throw failure() }
@@ -457,7 +466,7 @@ extension CloudStartSession {
                 let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
                 return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
             }
-            let promptID = (invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
+            let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
             // A person's run waits for the whole turn and shows the reply, or why there is none.
             guard CloudHandlers.origin(of: invocation) != .user else {
                 return CloudHandlers.runTracked("cloud relay chat", context) {

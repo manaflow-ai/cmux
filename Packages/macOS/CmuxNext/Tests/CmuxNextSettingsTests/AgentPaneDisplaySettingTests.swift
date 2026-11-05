@@ -32,6 +32,12 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("top"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
+        // The whole chat's face: today's tuned Inter unless one of the candidates is picked.
+        Row(key: "agentPane.display.font.ui", fallback: .string("inter-tuned"),
+            accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
+                       .string("inter"), .string("system-ui"), .string("system-ui-tight"),
+                       .string("cmux-sans"), .string("hanken"), .string("atkinson")],
+            refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),
         Row(key: "agentPane.display.font.lineHeight", fallback: .number(1.625), accepted: [.number(1.2), .number(2.4)],
@@ -50,6 +56,10 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
             accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("thinking"),
+            accepted: [.string("thinking"), .string("custom")], refused: [.string("random"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.custom", fallback: nil,
+            accepted: [.string("Reading, Planning")], refused: [.number(3)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -161,10 +171,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
     }
 
+    @Test func statusVerbsReachThePageThroughDisplaySettings() {
+        let root: JSONValue = ["agentPane": ["display": ["statusVerbs": [
+            "mode": "custom", "custom": "Reading, Planning",
+        ]]]]
+        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        #expect(values["agentPane.display.statusVerbs.mode"] == .string("custom"))
+        #expect(values["agentPane.display.statusVerbs.custom"] == .string("Reading, Planning"))
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
         "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

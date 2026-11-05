@@ -1,0 +1,293 @@
+# Python test execution registry: tests/test_nightly_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_nightly_admission_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_artifact_alias.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_background_steps.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_src_worktree_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_builder.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_chief_cache_repair.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_cmux_tui_resolve.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_dedicated_mini.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_delivery_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_deltas_sparse_checkout.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that generate-nightly-deltas checks out only scripts/ of the build ref and that the reel's apt install retries; run python3 tests/test_nightly_deltas_sparse_checkout.py yourself after changing either (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_ghostty_helper_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_legacy_publish_linux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_mini_gate_timeouts.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that a job vars.CI_NIGHTLY_MINI sends to cmux15 has room in its timeout for glaeda's capacity wait; run python3 tests/test_nightly_mini_gate_timeouts.py yourself after changing a nightly.yml timeout or route (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_never_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_arm64_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_artifact_check.py"
+lane = "manual"
+reason = "Run by hand with python3 when nightly_next_artifact_check.py or the canary and launch-smoke workflows change; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_nightly_next_canary_mode.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_computer_use_helper.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_dev_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_rollback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_one_feed_readers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Keeps scripts/ off the retired nightly-next/next/ feed; run python3 tests/test_nightly_next_one_feed_readers.py yourself after changing a script that reads the nightly feed (under 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_next_fix_forward.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_identity_probe.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_launch_smoke.py"
+lane = "manual"
+reason = "Run by hand with python3 when nightly_next_launch_smoke.py or its workflow changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_nightly_next_live_feed_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_notary_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_post_publish.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_promotion_queue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_recovery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_release_notes_fetch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_rolling_dmg_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_source_archive.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_train.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_train_drive_pin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notarization_poll_loop.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notices_submodule.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_one_mini.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-mini routing (vars.CI_NIGHTLY_MINI) of nightly.yml and the tag permission probe; run python3 tests/test_nightly_one_mini.py yourself after changing either (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_owned_minis_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_promotion_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publication_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_republish_delta_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_resume_tracks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_yield.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signed_unnotarized_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signer_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signing_on_cmux15.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_step_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_stop_if_publish_doomed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tree_source_marker.py"
+lane = "manual"
+reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_nightly_trusted_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_live_code_variant.py"
+lane = "linux-guard"

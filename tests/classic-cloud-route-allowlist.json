@@ -38,26 +38,14 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 38,
+      "count": 25,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudNetworkPolicy.swift",
-      "pattern": "route:/api/vm",
-      "count": 2,
-      "reason": "debt: machine network policy get/set still goes through classic /api/vm/{id}/network"
     },
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift",
       "pattern": "route:/api/runs",
       "count": 1,
       "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineLink.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: the machine link's decode-error label names classic /api/vm/{id}/cmux-remote/approve; goes with the classic link path"
     },
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift",

@@ -71,6 +71,10 @@ struct AcpmuxRecords {
             }
             events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
                                  turnId: turnID, attachments: images, at: at))
+            if let incoming = AgentIncoming.parse(text: msg["text"]?.stringValue ?? "", provenance: msg["_meta"]?["provenance"],
+                                                  client: msg["client"]?.stringValue, fromHarness: msg["fromHarness"]?.stringValue) {
+                events.append(.promptFrom(turnId: turnID, incoming: incoming))
+            }
             return events
         case "queued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
@@ -126,7 +130,8 @@ struct AcpmuxRecords {
         }
         guard let toolCall = request["toolCall"], let call = try? Self.decode(ACPToolCall.self, toolCall) else { return nil }
         let options = (try? Self.decode([ACPPermissionOption].self, request["options"] ?? .array([]))) ?? []
-        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue))
+        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue,
+                                                       plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {

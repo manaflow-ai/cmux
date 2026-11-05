@@ -9,18 +9,22 @@ pub(crate) struct ServerMountText {
     pub server_global_option_refused: &'static str,
     /// `{verb}`: the old lifecycle verb, run as `cmux daemon {verb}`.
     pub daemon_lifecycle_deprecated: &'static str,
+    /// `cmux pair` without an invite code.
+    pub pair_needs_code: &'static str,
 }
 
 static ENGLISH: ServerMountText = ServerMountText {
     server_is_machine_server: "`cmux server` runs this machine as a cmux server (`cmux server --help`); the session daemon is `cmux daemon`",
     server_global_option_refused: "`cmux server` does not take {option}; its only global options are --json and --idempotency-key",
     daemon_lifecycle_deprecated: "`cmux server {verb}` for the session daemon is deprecated; running `cmux daemon {verb}` (use that from now on)",
+    pair_needs_code: "usage: cmux pair CODE [--name NAME] (CODE is the invite code from Pair Another Machine in the cmux app)",
 };
 
 static JAPANESE: ServerMountText = ServerMountText {
     server_is_machine_server: "`cmux server` はこのマシンを cmux サーバーとして動かします（`cmux server --help`）。セッションデーモンは `cmux daemon` です",
     server_global_option_refused: "`cmux server` は {option} を受け付けません。使えるグローバルオプションは --json と --idempotency-key だけです",
     daemon_lifecycle_deprecated: "セッションデーモンの `cmux server {verb}` は非推奨です。`cmux daemon {verb}` として実行します (今後はこちらを使ってください)",
+    pair_needs_code: "使い方: cmux pair CODE [--name NAME] (CODE は cmux アプリの「別のマシンをペアリング」に表示される招待コードです)",
 };
 
 /// The messages in the language of [`super::catalog`].
@@ -47,5 +51,9 @@ mod tests {
         assert!(ja.daemon_lifecycle_deprecated.contains("cmux daemon {verb}"));
         assert!(ja.server_global_option_refused.contains("{option}"));
         assert_ne!(en.server_is_machine_server, ja.server_is_machine_server);
+        assert!(
+            en.pair_needs_code.contains("cmux pair CODE")
+                && ja.pair_needs_code.contains("cmux pair CODE")
+        );
     }
 }

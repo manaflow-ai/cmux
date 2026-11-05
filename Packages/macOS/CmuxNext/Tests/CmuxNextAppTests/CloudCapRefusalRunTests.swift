@@ -24,8 +24,8 @@ struct CloudCapRefusalRunTests {
         #expect(!ActionInvocation(origin: .cli).isPersonsOwnRun)
     }
 
-    /// The service's classic create (``CloudService/createMachine``): the cap step around the legacy flow, its card
-    /// shown when `startedByPerson && capCard`, answered by `cards` (Not now).
+    /// The service's create (``CloudService/createMachine``): the cap step around a create the plan `gate` or the
+    /// server refuses, its card shown when `startedByPerson && capCard`, answered by `cards` (Not now).
     private func flow(_ creations: CloudCreations, capCard: Bool, gate: CloudMachineCreateFlow.Gate = .allowed, refusing error: any Error,
                       cards: Cards) -> CloudCreationFlow {
         CloudCreationFlow(
@@ -35,9 +35,8 @@ struct CloudCapRefusalRunTests {
                     guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
                     return CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: [], user: nil)
                 }, choose: { _ in cards.shown += 1; return nil }, pause: { _ in Issue.record("paused") }) { _ in
-                    try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { gate }, confirm: { _ in false }) { () async throws -> CloudMachineSession in
-                        throw error
-                    }
+                    if case .upgrade(let need) = gate { throw CloudMachineCreateFlow.Failure.upgradeRequired(need.reason) }
+                    throw error
                 }
             },
             open: { _ in "" },
@@ -60,7 +59,7 @@ struct CloudCapRefusalRunTests {
     @Test func aCLIRunRefusedByTheServerFailsAtOnceWithNoCard() async throws {
         let cards = Cards()
         let started = ContinuousClock.now
-        let failure = try await report { flow($0, capCard: false, refusing: CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "full"), cards: cards) }
+        let failure = try await report { flow($0, capCard: false, refusing: CloudMachineCreateFlow.Failure.upgradeRequired(.server), cards: cards) }
         #expect(cards.shown == 0, "a CLI's create showed the cap card")
         #expect(failure?.message.contains(CloudStrings.upgradeRequired) == true, "the refusal did not reach the caller: \(String(describing: failure))")
         #expect(ContinuousClock.now - started < .seconds(10), "the refusal waited instead of answering at once")
@@ -76,7 +75,7 @@ struct CloudCapRefusalRunTests {
 
     @Test func thePersonsRunRefusedByTheServerShowsTheCard() async throws {
         let cards = Cards()
-        let failure = try await report { flow($0, capCard: true, refusing: CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "full"), cards: cards) }
+        let failure = try await report { flow($0, capCard: true, refusing: CloudMachineCreateFlow.Failure.upgradeRequired(.server), cards: cards) }
         #expect(cards.shown == 1, "the person's own create showed no cap card")
         #expect(failure != nil, "Not now on the card leaves the create refused")
     }

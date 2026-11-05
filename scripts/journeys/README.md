@@ -209,7 +209,7 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
 | `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
 | `{"app_rows": {...}}` | app | the numbered rows the viewport shows (after any scroll): `pattern`, `min_rows`, `contiguous`; `top`/`last`: `{eq\|ne\|gt\|lt\|ge\|le: N, a bound NAME, or "daemon_oldest"}`; `bind` NAME (sets `${NAME_top}`, `${NAME_mid}`); `hold` makes it negative-style (read every poll and through `settle`) |
-| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text) |
+| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text); a `lacks` check is not judged on a band read in which a band that shows ink read no text (`driver.lacks_not_judged`); a `lacks` text that the read finds fails it; a band with no ink is blank and does not make the read partial |
 | `{"clipboard": "TEXT"}` | clipboard | the general pasteboard is exactly TEXT (`pbpaste`) |
 | `{"quit_leftovers": {"allow": [{"match": RE, "why": TEXT}]}}` | process | every process a `relaunch` with `leftovers_after` found after the quit matches an `allow` entry; the others are listed with their RSS |
 
@@ -352,6 +352,19 @@ press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run o
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
 
+`video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
+`ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
+each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
+frame (the tab strip), on the film's own clock, and from the film's trace each terminal's surface (held, stale) and a
+primary-screen terminal's text wrap. Its JSON has the m6 rows (`m6`) and the cmux-ad m14, m18 and m20 rows (`m14`,
+`m18`, `m20`); `video-cases/judge_m14.py BASE ...` gives the m20 verdict per film (`--contract m18` or `m14` for the
+older ones; m20 also judges the film's missed refreshes from its kept `debug.frames` read, and a film with none cannot
+pass) (exit 0 every film passes, 1 a film fails, 2 a film is not judged and none fails; a usage error also exits 2).
+Each rule in `video-cases/test_judge_pixel.py` came as a red-then-green pair with an independent review (the FRAME
+OWNER's and pixel-perfect's; m14's by R-HARNESS); a change to a rule does the same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
+the store: run them yourself after an m14 change.
+
 Every change to a judge reproduces the judge goldens. They have two tiers:
 
 - BASELINE: every gallery film, frozen read-only in `/work/goldens/judge-films` (sha256-pinned by
@@ -419,12 +432,16 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   store before it lands. `run` and `bless` check only the files their own table pins, and count the others in a note
   ("the store also holds N folder(s) and M file(s) this manifest does not pin"). No unpinned file decides a result:
   each judge reads only its folder's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
-  frames.json, and the drag need only a pinned events.json; `snapshot` plans each folder against everything the store
-  holds, whatever manifest stored it, so it never adds an input to a stored film. One snapshot runs at a time: it holds
-  a lock on the store (`<store>/.snapshot.lock`) and waits up to `--lock-seconds` (600) for it. A snapshot plans a
-  folder against the files some files table in `<store>/tables` pins, so the files of a snapshot killed in its copy
-  are taken again as the same bytes or refused; a file is linked into place, never replaced. A new film whose name has
-  a dot, or is a folder file's name (`display`, `diag-tiers`), is refused. The judges' unit tests read the store by name
+  frames.json, and the drag need only a pinned events.json. One snapshot runs at a time: it holds a lock on the store
+  (`<store>/.snapshot.lock`) while it plans, copies and writes `films.json`, and waits up to `--lock-seconds` (600) for
+  it. A snapshot plans a folder against the files some files table in `<store>/tables` pins, with the size and sha256
+  that the table pins (never the bytes on disk), so the files of a snapshot killed in its copy are taken again as the
+  same bytes or refused; a file is linked into place, never replaced. A table that does not hash to its name, two
+  tables that pin one file with other bytes, or a file another manifest's table pins whose store copy is changed or
+  gone refuse the snapshot: the store was changed by hand (a manifest's own pinned files are checked by `run` and
+  `bless`). A new film whose name has a dot, or is a folder file's name (`display`, `diag-tiers`), is refused.
+  A result file is written through a part file of its own, so two writes of one result at once both succeed, and the
+  part file a killed write leaves never blocks a later write. The judges' unit tests read the store by name
   (`JUDGE_GOLDENS_STORE`): a test reads only the pinned files of the film it names.
 
 ## Gate a dogfood build

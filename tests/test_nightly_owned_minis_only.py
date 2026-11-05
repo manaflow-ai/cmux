@@ -55,8 +55,7 @@ PENDING_GLAEDA = {
     "legacy-identity-target",
 }
 # Secret jobs glaeda's SIGNING_JOBS already gives the whole mini, that hold no signing keychain.
-EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github",
-                        "publish-nightly-next-github-names")
+EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github")
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")
@@ -153,9 +152,9 @@ class NoFleetLinuxAdmission(unittest.TestCase):
 
 class PublishersHoldTheWholeMini(unittest.TestCase):
     def test_route_is_the_owned_pool_held_to_its_attempt(self) -> None:
-        # promote-nightly-next runs alone (a main dispatch, no build): the owned signing pool. The nightly-only
+        # promote-nightly-next runs alone (a main dispatch, no build) and keeps its earlier route: the signer
+        # refuses a dispatch (test_nightly_signing_on_cmux15.test_promote_keeps_its_earlier_route). The nightly-only
         # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
-        # on a nightly-next push vars.CI_NIGHTLY_SIGN_RUNNER (cmux15) comes first: test_nightly_signing_on_cmux15
         self.assertEqual(manaflow_route("promote-nightly-next"),
                          "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
@@ -170,8 +169,9 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertNotRegex(route, NOT_OURS)
                 self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
                 self.assertNotIn("glaeda-nightly-only-m4pro", route)
-                self.assertTrue(route.rstrip(" }").endswith(
-                    "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6'"))
+                if name != "promote-nightly-next":
+                    self.assertTrue(route.rstrip(" }").endswith(
+                        "'glaeda-trusted-next-signing'"))
 
     def test_claim_gate_first_then_claim_and_clean_workdir_before_any_secret(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

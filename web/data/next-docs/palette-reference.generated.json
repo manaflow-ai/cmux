@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1293,
+    "entries": 1311,
     "shortcuts": 189
   },
   "sections": [
@@ -632,6 +632,30 @@
           "title": "Archive Idle Workspaces",
           "shortcut": null,
           "command": "cmux workspace archive-idle"
+        },
+        {
+          "id": "workspace.archiveOtherWorkspaces",
+          "title": "Archive Other Workspaces",
+          "shortcut": null,
+          "command": "cmux workspace archive-other"
+        },
+        {
+          "id": "workspace.archiveOthersInGroup",
+          "title": "Archive Other Workspaces in Group",
+          "shortcut": null,
+          "command": "cmux workspace archive-others-in-group"
+        },
+        {
+          "id": "workspace.archiveWorkspacesAbove",
+          "title": "Archive Workspaces Above",
+          "shortcut": null,
+          "command": "cmux workspace archive-above"
+        },
+        {
+          "id": "workspace.archiveWorkspacesBelow",
+          "title": "Archive Workspaces Below",
+          "shortcut": null,
+          "command": "cmux workspace archive-below"
         },
         {
           "id": "workspaceGroup.toggleArchive",
@@ -6898,6 +6922,42 @@
           "command": "cmux machine doctor"
         },
         {
+          "id": "remote.allowAccessibility",
+          "title": "cmux Remote: Allow Accessibility",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.allowScreenRecording",
+          "title": "cmux Remote: Allow Screen Recording",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.refreshPermissions",
+          "title": "cmux Remote: Refresh Permissions",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.restartComputerUse",
+          "title": "cmux Remote: Restart Computer Use",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.restartScreenSharing",
+          "title": "cmux Remote: Restart Screen Sharing",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.showStatus",
+          "title": "cmux Remote: Show Status",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "remote.connect",
           "title": "Connect to Machine…",
           "shortcut": null,
@@ -6982,10 +7042,28 @@
           "command": "cmux remote remove-group"
         },
         {
+          "id": "macScreen.deviceAccess",
+          "title": "Set Device Access to This Mac…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "workspace.setRemoteLocalhost",
           "title": "Set Workspace Localhost…",
           "shortcut": null,
           "command": "cmux workspace set-remote-localhost"
+        },
+        {
+          "id": "macScreen.shareThisMac",
+          "title": "Share This Mac",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "macScreen.stopSharingThisMac",
+          "title": "Turn Off Sharing This Mac",
+          "shortcut": null,
+          "command": null
         }
       ]
     },
@@ -7136,6 +7214,12 @@
           "title": "Don't Keep Neighbor Tabs Awake",
           "shortcut": null,
           "command": "cmux settings keep-no-neighbor-tabs-awake"
+        },
+        {
+          "id": "liveWeb.start",
+          "title": "Edit cmux Live…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "help.featureFlags",
@@ -7324,6 +7408,18 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
+          "id": "debug.projection",
+          "title": "Open Projection Window",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "server.pairAnotherMachine",
+          "title": "Pair Another Machine…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.display.railOnRight",
           "title": "Prompt Rail on Right Edge",
           "shortcut": null,
@@ -7394,6 +7490,12 @@
           "title": "Run App Command…",
           "shortcut": null,
           "command": "cmux app run-command"
+        },
+        {
+          "id": "debug.projection.runTest",
+          "title": "Run Projection Test",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.never",
@@ -7502,6 +7604,12 @@
           "title": "Sign-In Pages: Open in cmux Browser",
           "shortcut": null,
           "command": "cmux settings open-sign-in-pages-in-cmux"
+        },
+        {
+          "id": "liveWeb.stop",
+          "title": "Stop Editing cmux Live",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "server.stopServing",

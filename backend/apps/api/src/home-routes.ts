@@ -7,6 +7,7 @@ import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
 export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 import { acceptRequest, dismissRequest, linkedUserOf, listRequests, withSameDomainReach } from "./home-requests.ts"
+import { declared } from "./do-stub.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -45,10 +46,6 @@ export interface ConversationStub {
   homeDecided(entity: string, principal: Principal, key: string): Promise<boolean>
 }
 
-interface AddressStub {
-  stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string, inviter?: InviteSender): Promise<void>
-}
-
 /**
  * Who made an invite, for the team inviter rule (home-send.ts): a person's own Stack session, never
  * an install (a daemon install can run agents without a chief token) or an agent; the email only
@@ -62,8 +59,8 @@ export interface InviteSender {
 export const inviteSender = (p: Principal): InviteSender | undefined =>
   p.user && !p.agent && p.kind === "session" ? { user: p.user, email: p.email_verified === true && p.email ? p.email : null } : undefined
 
-export const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationStub
-const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as AddressStub
+export const conversationStub = (env: Env, id: string) => declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)))
+const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id))
 
 /** The conversation id a link code names, or null. */
 export const conversationForCode = (code: string): string | null => {
@@ -119,18 +116,18 @@ const createInvite = async (
  */
 const withOwnedAgents = async (env: Env, principal: Principal): Promise<Principal> => {
   if (!principal.user || principal.agent) return principal
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { chiefs?: Array<{ id: string; display_name: string }> } }> }
+  const stub = declared(env.USER_DO.get(env.USER_DO.idFromName(principal.user)))
   const r = await stub.readOp(principal.user, principal, "chief.list", {})
-  const chiefs = r.ok ? (r.value?.chiefs ?? []) : []
+  const chiefs = r.ok ? ((r.value as { chiefs?: Array<{ id: string; display_name: string }> } | undefined)?.chiefs ?? []) : []
   return { ...principal, owned_agents: chiefs.map((c) => ({ id: c.id, display_name: c.display_name })) }
 }
 
 /** The main conversation of one of the caller's chiefs, or null. */
 const ownChiefMain = async (env: Env, principal: Principal, agent: string): Promise<string | null> => {
   if (!principal.user || principal.agent) return null
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { chiefs?: Array<{ id: string; main_conversation: string | null }> } }> }
+  const stub = declared(env.USER_DO.get(env.USER_DO.idFromName(principal.user)))
   const r = await stub.readOp(principal.user, principal, "chief.list", {})
-  return (r.ok ? r.value?.chiefs ?? [] : []).find((c) => c.id === agent)?.main_conversation ?? null
+  return (r.ok ? (r.value as { chiefs?: Array<{ id: string; main_conversation: string | null }> } | undefined)?.chiefs ?? [] : []).find((c) => c.id === agent)?.main_conversation ?? null
 }
 
 /** The caller with the reach facts for the humans among `ids` (home-reach.ts). */
@@ -193,9 +190,9 @@ const reopenDm = async (env: Env, principal: Principal, frame: OpFrame): Promise
   const peer = (frame.params as { peer?: unknown } | undefined)?.peer
   // A chief never reopens through its owner's inbox (as resolveHumanReach): forbidden vs home.rate_limited would tell it whether the owner has that DM.
   if (frame.op !== "dm.open" || typeof peer !== "string" || !peer.startsWith("user_") || !principal.user || principal.agent) return null
-  const inbox = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readInbox(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { conversation?: string | null } }> }
+  const inbox = declared(env.USER_DO.get(env.USER_DO.idFromName(principal.user)))
   const found = await inbox.readInbox(principal.user, principal, "inbox.dm_peer", { peer })
-  const id = found.ok ? found.value?.conversation : null
+  const id = found.ok ? (found.value as { conversation?: string | null } | undefined)?.conversation : null
   return id ? conversationStub(env, id).submit(id, principal, dmReopenFrame(frame, id)) : null
 }
 

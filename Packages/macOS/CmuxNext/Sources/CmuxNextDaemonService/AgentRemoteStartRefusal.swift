@@ -21,8 +21,11 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// `AgentRemoteStartRefusal.folderNeededCode` (AgentTabs+RemoteStart.swift, where the defaults
     /// guard tracks it); AgentRemoteStartRefusalCodeTests keeps the two equal.
     static let appFolderNeeded = "app.folder_needed"
-    /// The tab's host names another machine than the store that lists it (MachineRegistry).
+    /// The tab's host names another machine than the store that lists it (MachineRegistry); `machine`
+    /// is the machine the chat belongs to.
     public static let hostMismatchCode = "app.host_mismatch"
+    /// A tab of this Mac's chat that another machine's store lists; `machine` is that machine.
+    public static let listedElsewhereCode = "app.listed_elsewhere"
 
     public static func folderNeeded(machine: String) -> Self { Self(code: appFolderNeeded, machine: machine) }
     /// The refusal of a start on a teammate's machine (the card's New Cloud Machine, startRefusal.ts).
@@ -31,10 +34,13 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     public var withoutTrust: Self { code == "agent_session.untrusted_folder" ? Self(code: "app.trust_update", machine: machine, folder: folder) : self }
     /// The refusals of a start that an older daemon on the machine gives where its current build
     /// would start the chat: a team VM's (`team_vm_blocked`, before cmux#29107) and an owner check
-    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word).
+    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word), and
+    /// the app's own `folder_needed` for a chat with no folder on a machine whose cmux-tui predates
+    /// no-folder starts (`agent-session-start-no-cwd-v1`; a current one starts it in `~/chats/<id>`).
     /// `AgentTabRemoteHost.updateMachine` runs only while the link's owner answer says the machine is the caller's,
-    /// so a teammate's machine is never retried (the app refuses that start before it is sent).
-    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"]
+    /// so a teammate's machine is never retried (the app refuses that start before it is sent), and an
+    /// SSH host, which has no update, keeps the folder refusal.
+    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
@@ -58,7 +64,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
         case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
-                                  "The cmux-tui on %@ cannot start agent chats yet. Update cmux-tui on that machine.", machine)
+                                  "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)
         case "agent_session.acpmux_unavailable":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.agentServiceDown",
                                   "The agent service on %@ did not start.", machine)
@@ -76,8 +82,11 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
             RefusalStrings.format("handlers.refusal.agentRemoteStart.folderNeeded",
                                   "%@ has no work folder to start in. Use Choose folder to pick one there.", machine)
         case Self.hostMismatchCode:
-            RefusalStrings.text("handlers.refusal.agentRemoteStart.hostMismatch",
-                                "This chat belongs to another machine, so it does not run here.")
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.belongsTo",
+                                  "This chat belongs to %@, so it does not run on this Mac.", machine)
+        case Self.listedElsewhereCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.listedElsewhere",
+                                  "This chat belongs to this Mac, so it does not run on %@.", machine)
         default:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.refused",
                                   "%1$@ refused to start the agent chat (%2$@).", machine, code)

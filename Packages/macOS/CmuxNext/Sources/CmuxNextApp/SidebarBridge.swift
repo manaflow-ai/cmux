@@ -165,6 +165,11 @@ final class SidebarBridge {
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
                       creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
+            // there on the next pass, its first frame.
+            for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
+                AgentSessionWorkspace.join(id, group: group, sidebar: self)
+            }
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
@@ -392,16 +397,16 @@ final class SidebarBridge {
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
                                                iconAsset: groupIcon, rowSource: rows, workspaceFilter: workspaceFilter,
                                                harnessIcons: harnessIcons)
-        let remotes: [(DaemonService, SidebarMachine, Bool)] = machines.cloud.map { ($0.daemon, CloudCreationRows.machine($0, compatibility: machines.compatibility(of: $0.daemon), limits: machines.cloudLimits,
-                                                                                 updates: machines.updates), showsUnread) }
-            + machines.ssh.map { ($0.daemon, sshMachine($0, machines: machines), true) }
-        for (daemon, header, unread) in remotes {
+        let remotes: [(DaemonService, SidebarMachine, Bool, String?)] = machines.cloud.map { ($0.daemon, CloudCreationRows.machine($0, compatibility: machines.compatibility(of: $0.daemon), limits: machines.cloudLimits,
+                                                                                 updates: machines.updates), showsUnread, Strings.untitledTerminal) }
+            + machines.ssh.map { ($0.daemon, sshMachine($0, machines: machines), true, String?.none) }
+        for (daemon, header, unread, terminalTitle) in remotes {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: daemon, room: profile, machines: machines, doc: doc),
                                                 machine: header, showsUnread: unread, muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab,
                                                 newTabPages: newTabPages, isNewTabPage: rowPages(false), newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: daemon), groupIconAsset: groupIcon,
-                                                rowSource: rows, workspaceFilter: workspaceFilter)
+                                                rowSource: rows, workspaceFilter: workspaceFilter, terminalTitle: terminalTitle)
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),

@@ -27,27 +27,30 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu on every attempt, never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
-# They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
-# build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
+# They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
+# have their own routes, outside the 16/32 rule.
 # sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg',
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg',
                                    'sentry-dsyms-nightly')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
-    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+    'report-nightly-failure', 'close-nightly-failure-issue',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
 NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
+# The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
+# jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
+SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
-OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, HOSTED}
+OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # Secret jobs that stay on GitHub-hosted Ubuntu until glaeda gives them the whole mini (its SIGNING_JOBS; the
 # glaeda signing-jobs patch), never Blacksmith. Every other nightly job runs on our own minis
 # (test_nightly_owned_minis_only.py).
 HOSTED_SECRET_JOBS = ('promote-nightly-next-acked', 'keep-published-dsyms', 'sentry-dsyms-nightly',
                       'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-identity-legacy', 'republish-nightly-deltas', 'legacy-identity-target')
+                      'republish-nightly-deltas')
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -264,17 +267,20 @@ class NightlyTrustedRouting(unittest.TestCase):
         # The owned-only Mac signing and verify jobs end on the owned nightly slot, then the side lane, then
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
-        # The four exclusive publishers end there too: the nightly-only minis refuse a signing-class job.
-        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'build-sign-notarize-nightly',
-                                'generate-nightly-deltas', 'promote-nightly-next', 'publish-nightly',
-                                'publish-nightly-next-github', 'publish-nightly-next-github-names',
-                                'recover-nightly-next-notarization', 'sign-nightly-identity-legacy',
-                                'verify-final-dmg-nightly', 'verify-nightly-identity-legacy',
+        # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses).
+        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
+                                'promote-nightly-next', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
-        # The verify jobs' owned pick (pick-nightly-sign-runner) and the recovery's owned pick
-        # (find-nightly-next-recovery) offer the same labels as the build's.
-        self.assertEqual(steps, ['find-nightly-next-recovery', 'pick-nightly-build-runner', 'pick-nightly-sign-runner'])
+        # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
+        # signing pick and the recovery's (find-nightly-next-recovery) offer only the signing label.
+        self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
+        # Their OWNED_LABELS is the signer's label as a literal: no variable chooses it.
+        signing = sorted(name for name, job in DOC['jobs'].items()
+                         if any((step.get('env') or {}).get('OWNED_LABELS') == SIGNING_SLOT for step in job.get('steps', [])))
+        self.assertEqual(signing, ['find-nightly-next-recovery', 'pick-nightly-sign-runner'])
+        self.assertNotIn('CI_NIGHTLY_SIGNING_POOL', str(DOC['jobs']))
 
     def test_ghostty_helper_takes_owned_macos_26_then_the_nightly_slot(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with
@@ -385,7 +391,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_publication_controls_reject_unavailable_dedicated_m4pro(self):
         # Publication cannot use the dedicated label: glaeda-nightly-only-admit refuses every signing-class job,
-        # since those minis have no exclusive-claim capacity. It takes the owned nightly slot, never Blacksmith.
+        # since those minis have no exclusive-claim capacity. It takes the signer's label, never Blacksmith.
         jobs = DOC["jobs"]
         dedicated = {
             "github.repository_owner": "manaflow-ai",
@@ -398,12 +404,12 @@ class NightlyTrustedRouting(unittest.TestCase):
             "needs.pick-nightly-sign-runner.outputs.attempt": "1",
             "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
         }
-        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+        for name in ("publish-nightly", "publish-nightly-next-github"):
             source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             expr = parse_expression(source)
             with self.subTest(job=name):
                 self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
-                self.assertEqual(evaluate(expr, dedicated), NIGHTLY_SLOT)
+                self.assertEqual(evaluate(expr, dedicated), SIGNING_SLOT)
                 self.assertNotEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
                                                    "github.repository_owner": "someone"}),
                                     "glaeda-nightly-only-m4pro")
@@ -481,7 +487,8 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]
         self.assertIn(
-            "github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id)",
+            "github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || "
+            "format('run-{0}', github.run_id))",
             group,
         )
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
@@ -498,8 +505,10 @@ class NightlyTrustedRouting(unittest.TestCase):
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
-        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-run-39124573091')
-        self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
+        # Every nightly-next push shares one group: a waiting push run is replaced by a newer one, so only the
+        # newest head builds (Leo, 2026-11-05: "why do multiple merges even build the f***ing nightlies anyway?").
+        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-push')
+        self.assertEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
     def test_every_nightly_build_has_its_own_slot(self):

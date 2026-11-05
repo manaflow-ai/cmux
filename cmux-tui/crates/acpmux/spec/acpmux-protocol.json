@@ -581,6 +581,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/goal/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/goal/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/goal/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/background",
       "params": {
         "$ref": "#/types/ProcessBackgroundParams"
@@ -977,6 +995,12 @@
     {
       "kind": "request",
       "name": "_acpmux/resolve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/who_else",
       "params": true,
       "result": true
     },
@@ -1538,6 +1562,18 @@
     {
       "kind": "request",
       "name": "_acpmux/chat/route.set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/accounts",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/set",
       "params": true,
       "result": true
     },

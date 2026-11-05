@@ -37,7 +37,7 @@ struct HomeAgentPills {
         for (i, peer) in p.peers.enumerated() {
             let title = titles[checked: i] ?? peer
             let state = p.states[checked: i] ?? "told"
-            let w = min(max(120, Self.contentWidth(title, shape: shape)), max(120, width - 8))
+            let w = min(Self.contentWidth(title, shape: shape), max(120, width - 8))
             // Chips keep one row (the row's height does not depend on its width): the rest are left out.
             if shape == .chip, x > 0, x + w > width - 8 { break }
             let unread = p.unread[checked: i] ?? (state == "reported")
@@ -51,20 +51,45 @@ struct HomeAgentPills {
 
     static func pillHeight(_ shape: Shape) -> CGFloat {
         switch shape {
-        case .pill: 36
+        // The compact pill of the user's target (2026-11-05, msg 22013): a 13 pt line in a 30 pt capsule.
+        case .pill: 30
         case .twoLine: 50
         case .chip: 26
         }
     }
 
-    private static func titleFont(_ shape: Shape) -> NSFont { HomeFonts.system(ofSize: shape == .chip ? 12 : 14, weight: .medium) }
+    private static func titleFont(_ shape: Shape) -> NSFont {
+        switch shape {
+        case .pill: HomeFonts.system(ofSize: 13, weight: .regular)
+        case .twoLine: HomeFonts.system(ofSize: 14, weight: .medium)
+        case .chip: HomeFonts.system(ofSize: 12, weight: .medium)
+        }
+    }
+
+    /// The pill's padding left of its icon and right of its chevron.
+    private static func side(_ shape: Shape) -> CGFloat {
+        switch shape {
+        case .pill: 11
+        case .twoLine: 14
+        case .chip: 10
+        }
+    }
+
+    /// The status icon's size.
+    private static func iconSize(_ shape: Shape) -> CGFloat {
+        switch shape {
+        case .pill: 15
+        case .twoLine: 18
+        case .chip: 14
+        }
+    }
 
     /// Icon, title, dot and chevron with their paddings.
     private static func contentWidth(_ title: String, shape: Shape) -> CGFloat {
         let text = NSAttributedString(string: title, attributes: [.font: titleFont(shape)])
-        let side: CGFloat = shape == .chip ? 10 : 14
-        let icon: CGFloat = shape == .chip ? 14 : 18
-        return side + icon + 8 + min(320, HomeTableGrid.lineWidth(text)) + 10 + 8 + 12 + side
+        let side = side(shape)
+        // Icon, gap, title, then the dot's and the chevron's room (``draw(_:origin:)``).
+        return side + iconSize(shape) + 8 + min(320, HomeTableGrid.lineWidth(text)) + 30 + side
     }
 
     /// The agent whose pill holds `point` (row coordinates), or nil.
@@ -78,14 +103,24 @@ struct HomeAgentPills {
         let muted = Fixture.secondaryText
         for pill in pills {
             let r = pill.rect.offsetBy(dx: origin.x, dy: origin.y)
+            // Pills are capsules (the concentric corner rule leaves capsules whole); the playground's
+            // two-line card keeps a fixed radius.
             let radius = shape == .twoLine ? 14 : r.height / 2
+            let path = CGPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), cornerWidth: radius - 0.5, cornerHeight: radius - 0.5, transform: nil)
             ctx.saveGState()
-            ctx.addPath(CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil))
-            ctx.setFillColor(fill.cgColor)
+            ctx.addPath(path)
+            ctx.setFillColor(fill.withAlphaComponent(shape == .pill ? 0.55 : 1).cgColor)
             ctx.fillPath()
+            if shape == .pill {
+                // The target's hairline edge: the pill reads as a control, not a bubble.
+                ctx.addPath(path)
+                ctx.setStrokeColor(muted.withAlphaComponent(0.32).cgColor)
+                ctx.setLineWidth(1)
+                ctx.strokePath()
+            }
             ctx.restoreGState()
-            let side: CGFloat = shape == .chip ? 10 : 14
-            let iconSize: CGFloat = shape == .chip ? 14 : 18
+            let side = Self.side(shape)
+            let iconSize = Self.iconSize(shape)
             let mid = shape == .twoLine ? r.minY + 18 : r.midY
             icon(ctx, state: pill.state, center: CGPoint(x: r.minX + side + iconSize / 2, y: mid), size: iconSize, color: muted)
             let textX = r.minX + side + iconSize + 8

@@ -492,7 +492,9 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
                 return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
             }
         };
-        if !resolved.info.allows(service) {
+        // connect_info never lists `desktop` (clients before it read that list
+        // strictly); the platform's link_token mint is its only authority.
+        if service != Service::Desktop && !resolved.info.allows(service) {
             let detail = format!("the machine's connect_info does not allow {service:?}");
             return refuse(&mut caller, host, service, DialError::NotAuthorized, &detail).await;
         }
@@ -541,6 +543,11 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
     if caller.write_all(line(&DialReply::connected(path_state)).as_bytes()).await.is_err() {
         return;
     }
+    // A machine that refuses the stream says why in its first line; name it
+    // here (link.log) and pass it on, so the caller reads more than an EOF.
+    let mut stream = super::refusal_watch::RefusalWatch::new(stream, |refusal| {
+        eprintln!("cmux link: {host} refused the {service:?} stream: {refusal}");
+    });
     let _ = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
 }
 

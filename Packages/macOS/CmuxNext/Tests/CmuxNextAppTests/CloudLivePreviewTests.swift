@@ -75,7 +75,6 @@ struct CloudLivePreviewTests {
             bundled: ["CMUX_VM_API_BASE_URL": "https://backend.fixture.invalid",
                       "CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.fixture.invalid"],
             process: [:], isDebugBuild: true)
-        #expect(configuration.linkSource == .appServer)
         #expect(configuration.platformPreviewAPIBaseURL() == URL(string: "https://platform.fixture.invalid"))
     }
 

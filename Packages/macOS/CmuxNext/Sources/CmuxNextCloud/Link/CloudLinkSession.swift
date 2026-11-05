@@ -110,7 +110,6 @@ public actor CloudLinkSession {
     /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
     /// it before it connects and again as it sends: a different answer means the link ended or a
     /// new connect asked the Cloud API again, so an owner answer never carries over to another link
-    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
     public var ownerLink: Int? {
         switch state {
         case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
@@ -145,6 +144,19 @@ public actor CloudLinkSession {
             throw error
         case .idle, .connecting:
             throw CloudLinkError.disconnected(reason: "not connected")
+        }
+    }
+
+    /// The ticket's socket for one more connection to the machine's daemon (an agent chat's attach,
+    /// the history reader): each connection to the carrier's socket is its own dial, so this neither
+    /// attaches nor ends the link. Only the daemon connection's own redial goes through
+    /// ``endpoint(_:)``, whose second call is that connection dropping.
+    public func streamEndpoint(_ ticket: CloudLinkTicket) throws -> String {
+        guard ticket.id == attempt else { throw Self.superseded }
+        switch state {
+        case .ready(let socket), .attached(let socket): return socket.path
+        case .ended(let error): throw error
+        case .idle, .connecting: throw CloudLinkError.disconnected(reason: "not connected")
         }
     }
 
