@@ -191,6 +191,22 @@ class LiveModeTests(unittest.TestCase):
             live_mode.account_home = saved
             os.environ["HOME"] = home or ""
 
+    def test_the_watcher_skips_its_build_once_a_stop_took_the_lock(self):
+        root = Path(self.dir) / "cache"
+        saved = live_mode.build_optimized_locked
+        live_mode.build_optimized_locked = lambda *a: self.fail("built after live mode ended")
+        try:
+            self.assertIsNone(live_mode.build_optimized(Path(self.dir), "mine", root, "/x.app", root / "log",
+                                                        wanted=lambda: False))
+        finally:
+            live_mode.build_optimized_locked = saved
+
+    def test_state_is_written_whole_by_a_rename(self):
+        root = Path(self.dir) / "cache" / "mine"
+        live_mode.write_state(root, {"mode": "live", "binary": "b"})
+        self.assertEqual(live_mode.read_state(root), {"mode": "live", "binary": "b"})
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ["state.json"])
+
     def test_a_scan_hashes_only_files_whose_mtime_moved(self):
         tree = Path(self.dir) / "tree"
         source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"

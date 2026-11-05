@@ -346,7 +346,10 @@ def read_state(root):
 
 def write_state(root, state):
     root.mkdir(parents=True, exist_ok=True)
-    (root / "state.json").write_text(json.dumps(state, indent=2) + "\n")
+    # A temporary file renamed over state.json: a reader (stop, watch, status) never sees half of it.
+    temp = root / f"state.json.{os.getpid()}.tmp"
+    temp.write_text(json.dumps(state, indent=2) + "\n")
+    os.replace(temp, root / "state.json")
     # `cmux live stop|status --swift` finds this checkout's script from here when run elsewhere.
     (root.parent / "tree").write_text(str(TREE) + "\n")
 
@@ -507,28 +510,38 @@ class BuildLock:
         self.file.close()
 
 
-def build_optimized(tree, tag, root, installed, log):
+def build_optimized(tree, tag, root, installed, log, wanted=None):
+    """The normal build of the edited checkout, under the tag's build lock. `wanted()`, asked once
+    the lock is held, says whether it is still worth making (the watcher's: live mode still on, since
+    a stop holds the lock until its swap is done). None when it was not."""
+    with BuildLock(root):
+        if wanted and not wanted():
+            return None
+        return build_optimized_locked(tree, tag, root, installed, log)
+
+
+def build_optimized_locked(tree, tag, root, installed, log):
     """The normal build of the edited checkout (scripts/reload.sh --tag TAG --build-only), in the
     tag's own derived data, so it is the incremental build a reload of this checkout is, kept beside
-    the installed app as edited.app with the tree it was built from. At background priority."""
-    with BuildLock(root):
-        tree_id = tree_hash(tree)
-        if tree_id and read_json(root / "edited.json").get("tree") == tree_id and (root / "edited.app").is_dir():
-            return {"tree": tree_id, "built_s": 0}
-        building = root / "edited-building.app"
-        env = dict(os.environ, CMUX_RELOAD_INSTALLED_APP=str(installed))
-        started = time.monotonic()
-        with open(log, "a") as out:
-            out.write(f"\n== {now()} optimized build of {tree_id[:12]}\n")
-            out.flush()
-            done = subprocess.run(["nice", "-n", "10", "bash", str(Path(tree) / "scripts/reload.sh"), "--tag", tag,
-                                   "--build-only", "--keep-app", str(building)],
-                                  cwd=tree, env=env, stdout=out, stderr=subprocess.STDOUT)
-        if done.returncode != 0 or not building.is_dir():
-            raise Refused(f"the optimized build of your edits failed; its log is {log}")
-        move(building, root / "edited.app")
-        (root / "edited.json").write_text(json.dumps({"tree": tree_id, "built": now()}) + "\n")
-        return {"tree": tree_id, "built_s": round(time.monotonic() - started, 1)}
+    the installed app as edited.app with the tree it was built from. At background priority. The
+    caller holds the tag's BuildLock."""
+    tree_id = tree_hash(tree)
+    if tree_id and read_json(root / "edited.json").get("tree") == tree_id and (root / "edited.app").is_dir():
+        return {"tree": tree_id, "built_s": 0}
+    building = root / "edited-building.app"
+    env = dict(os.environ, CMUX_RELOAD_INSTALLED_APP=str(installed))
+    started = time.monotonic()
+    with open(log, "a") as out:
+        out.write(f"\n== {now()} optimized build of {tree_id[:12]}\n")
+        out.flush()
+        done = subprocess.run(["nice", "-n", "10", "bash", str(Path(tree) / "scripts/reload.sh"), "--tag", tag,
+                               "--build-only", "--keep-app", str(building)],
+                              cwd=tree, env=env, stdout=out, stderr=subprocess.STDOUT)
+    if done.returncode != 0 or not building.is_dir():
+        raise Refused(f"the optimized build of your edits failed; its log is {log}")
+    move(building, root / "edited.app")
+    (root / "edited.json").write_text(json.dumps({"tree": tree_id, "built": now()}) + "\n")
+    return {"tree": tree_id, "built_s": round(time.monotonic() - started, 1)}
 
 
 def read_json(path):
@@ -616,7 +629,9 @@ def stop(args):
     ident = identify(path)
     tag = ident.get("tag") or args.tag or os.environ.get("CMUX_TAG") or ""
     root = cache_root(slug(tag))
-    with SwapLock(root):
+    # The build lock too, from stop's build to the end of its swap: the watcher never replaces
+    # edited.app while stop installs it.
+    with SwapLock(root), BuildLock(root):
         return stop_locked(args, path, identify(path), tag, root)
 
 
@@ -636,7 +651,7 @@ def stop_locked(args, path, ident, tag, root):
     else:
         print("live mode: making the optimized build of your edits (the background one, if it is current)",
               file=sys.stderr, flush=True)
-        built = build_optimized(tree, tag, root, app, log)
+        built = build_optimized_locked(tree, tag, root, app, log)
         into, what = root / "edited.app", "the optimized build of your edits"
     setting = "skipped" if args.setting_done else live_code_setting(path, False)
     off = {"mode": "normal", "commit": state["commit"], "tag": tag, "app": app, "since": now(),
@@ -706,7 +721,12 @@ def watch(args):
             tree_id = tree_hash(tree)
             if tree_id and tree_id != built_tree and read_json(root / "edited.json").get("tree") != tree_id:
                 try:
-                    built = build_optimized(tree, tag, root, app, root / "live-mode.log")
+                    def still_live():
+                        fresh = read_state(root)
+                        return fresh.get("mode") == "live" and fresh.get("binary") == state.get("binary")
+                    built = build_optimized(tree, tag, root, app, root / "live-mode.log", wanted=still_live)
+                    if built is None:
+                        break  # a stop ran while this waited for the lock: live mode is off
                     print(f"{now()} optimized build of {built['tree'][:12]} ready in {built['built_s']} s", flush=True)
                 except Refused as failure:
                     print(f"{now()} {failure}", flush=True)
