@@ -23,6 +23,12 @@ downloads both pairs from files.cmux.com (the Linux musl daemons every
 trusted feat-cmux-next push publishes) into `--cache`. `--fetch nightly`
 takes the two newest NEXT NIGHTLYs from the feed and swaps the daemon the
 older one bundles for the newer one's, so a scheduled run swaps real builds.
+Old and new must differ in bytes; two local builds may report the same
+version and no commit stamp, so the new daemon is recognized by its process.
+
+Cleanup SIGKILLs only host processes this check claimed from their records:
+a process that started after its record was written, or whose start time
+has changed since, holds a reused pid and is left alone.
 
 Prints one JSON report and exits 0 only when every check passed and every
 phase's swap took less than `--budget` seconds (10).
@@ -31,6 +37,7 @@ phase's swap took less than `--budget` seconds (10).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -110,6 +117,58 @@ def kill(pid: int) -> None:
         pass
 
 
+def process_start(pid: int) -> float | None:
+    """When a process started, in seconds since the epoch; None once it is gone."""
+    if Path("/proc/self/stat").exists():
+        try:
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            return None
+        boot = next(float(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                    if line.startswith("btime "))
+        return boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
+    out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+    try:
+        return time.mktime(time.strptime(out.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+    except ValueError:
+        return None
+
+
+def claim(owned: dict[int, float], pid: int | None, recorded_at: float) -> None:
+    """Remember a recorded host process with its start time. A process that
+    started after its record was written is a reused pid, not ours."""
+    if not pid or pid in owned:
+        return
+    start = process_start(pid)
+    if start is not None and start <= recorded_at + 1:
+        owned[pid] = start
+
+
+def kill_owned(owned: dict[int, float]) -> None:
+    """SIGKILL each claimed process that is still the same process (its start
+    time unchanged); a pid the system has since given to another process is left alone."""
+    for pid, start in owned.items():
+        pidfd = None
+        if hasattr(os, "pidfd_open"):
+            try:
+                pidfd = os.pidfd_open(pid)  # pins this process: the pid can't be reused while open
+            except OSError:
+                continue
+        try:
+            if process_start(pid) != start:
+                print(f"daemon-swap-check: left pid {pid}: not the recorded process", file=sys.stderr)
+                continue
+            if pidfd is not None:
+                signal.pidfd_send_signal(pidfd, signal.SIGKILL)
+            else:
+                kill(pid)
+        except ProcessLookupError:
+            pass
+        finally:
+            if pidfd is not None:
+                os.close(pidfd)
+
+
 def stop(proc: subprocess.Popen) -> float:
     """SIGTERM a daemon this script started; returns the time it took to exit."""
     start = now()
@@ -120,6 +179,10 @@ def stop(proc: subprocess.Popen) -> float:
         proc.kill()
         proc.wait()
     return now() - start
+
+
+def digest(binary: Path) -> str:
+    return hashlib.sha256(binary.read_bytes()).hexdigest()
 
 
 def version(binary: Path) -> str:
@@ -264,7 +327,7 @@ class Daemon:
     def screen(self, surface: int) -> str:
         return data(self.socket, {"cmd": "read-screen", "surface": surface}).get("text") or ""
 
-    def shutdown_with_terminals(self, hosts: dict[str, int]) -> None:
+    def shutdown_with_terminals(self, hosts: dict[int, float]) -> None:
         """End the daemon and every terminal this check started."""
         try:
             ident = data(self.socket, {"cmd": "identify"})
@@ -274,9 +337,8 @@ class Daemon:
                 self.proc.wait(timeout=20)
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
             stop(self.proc)
-        # Only the hosts this check started (their pids are recorded above).
-        for pid in hosts.values():
-            kill(pid)
+        # Only the hosts this check started (claimed from their records above).
+        kill_owned(hosts)
 
 
 def host_pids(state: Path) -> dict[str, int]:
@@ -293,6 +355,16 @@ def host_pids(state: Path) -> dict[str, int]:
     return found
 
 
+def claim_hosts(state: Path, owned: dict[int, float]) -> None:
+    for path in state.rglob("*.json"):
+        try:
+            record = json.loads(path.read_text())
+            if isinstance(record, dict) and "host_pid" in record:
+                claim(owned, int(record["host_pid"]), path.stat().st_mtime)
+        except (OSError, ValueError, TypeError):
+            continue
+
+
 def shell_pid(screen: str, tag: str) -> int | None:
     for line in reversed(screen.splitlines()):
         line = line.strip()
@@ -303,16 +375,16 @@ def shell_pid(screen: str, tag: str) -> int | None:
 
 def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
     daemon = Daemon(work / "terminals")
-    started: dict[str, int] = {}
+    started: dict[int, float] = {}
     try:
         return terminal_swap(daemon, old, new, count, started)
     finally:
         if daemon.proc is not None:
-            started.update(host_pids(daemon.state))
+            claim_hosts(daemon.state, started)
             daemon.shutdown_with_terminals(started)
 
 
-def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dict[str, int]) -> dict:
+def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dict[int, float]) -> dict:
     daemon.start(old)
     daemon.wait_ready(now() + 30)
     before_id = data(daemon.socket, {"cmd": "identify"})
@@ -333,7 +405,8 @@ def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dic
                             lambda t=t: (s := daemon.screen(t["surface"])) and t["marker"] in s and shell_pid(s, "PID0") and s)
         t["shell_pid"] = shell_pid(screen, "PID0")
     hosts = wait_until("host records", now() + 15, lambda: (h := host_pids(daemon.state)) and len(h) >= count and h)
-    started.update(hosts)
+    claim_hosts(daemon.state, started)
+    old_pid = daemon.proc.pid
 
     t0 = now()
     stop_secs = stop(daemon.proc)
@@ -368,8 +441,11 @@ def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: dic
     swap_secs = now() - t0
     hosts_after = host_pids(daemon.state)
     same_hosts = all(hosts_after.get(k) == v for k, v in hosts.items())
-    started.update(hosts_after)
-    passed = alive_after_stop and same_hosts and before_id.get("build_commit") != after_id.get("build_commit") and all(
+    claim_hosts(daemon.state, started)
+    # The new build answers: its own process, not the old one (two unstamped
+    # local builds report the same build_commit; main() refuses identical bytes).
+    new_daemon = after_id.get("pid") == daemon.proc.pid != old_pid == before_id.get("pid")
+    passed = alive_after_stop and same_hosts and new_daemon and all(
         c.get("adopted") and c.get("scrollback_kept") and c.get("same_shell_pid") for c in checks)
     return {
         "phase": "terminals", "passed": passed, "count": count,
@@ -453,6 +529,17 @@ class Acpmux:
             self.proc = subprocess.Popen([str(binary), "daemon", "run"], env=self.env(), stdout=log,
                                          stderr=subprocess.STDOUT, start_new_session=True)
 
+    def claim_hosts(self, owned: dict[int, float]) -> None:
+        for path in (self.home / "hosts").glob("*.json"):
+            try:
+                record = json.loads(path.read_text())
+                recorded_at = path.stat().st_mtime
+            except (OSError, ValueError):
+                continue
+            for key in ("host_pid", "harness_pid"):
+                if isinstance(record.get(key), int):
+                    claim(owned, record[key], recorded_at)
+
     def host_records(self) -> list[dict]:
         records = []
         for path in (self.home / "hosts").glob("*.json"):
@@ -471,7 +558,7 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
     wrapper.chmod(0o755)
     mux.run(old, "harness", "add", "swapfake", "--command", str(wrapper))
     mux.start(old)
-    pids: list[int] = []
+    owned: dict[int, float] = {}
     try:
         old_status = wait_until("acpmux daemon", now() + 30, lambda: (s := mux.status(old)).get("build") and s)
         mux.run(old, "new", "-m", "swapfake", "-n", "swap", "-d", "--cwd", str(mux.root), "hello")
@@ -480,13 +567,15 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
         before_pid = _agent_pid(first)
         hosts = mux.host_records()
         pids = [p for r in hosts for p in (r.get("host_pid"), r.get("harness_pid")) if p]
+        mux.claim_hosts(owned)
+        claim(owned, before_pid, now())  # the harness that just answered
 
         t0 = now()
         stop_secs = stop(mux.proc)
         alive = bool(pids) and all(pid_alive(p) for p in pids)
         mux.start(new)
         new_status = wait_until("new acpmux daemon", t0 + 60,
-                                lambda: (s := mux.status(new)).get("build") not in (None, old_status["build"]) and s)
+                                lambda: (s := mux.status(new)).get("pid") == mux.proc.pid and s)
         ready_secs = now() - t0
         mux.run(new, "send", "swap", "again")
         second = wait_until("reply after swap", t0 + 60,
@@ -512,9 +601,8 @@ def agent_phase(old: Path, new: Path, work: Path) -> dict:
             stop(mux.proc)
         # Only agent hosts and harnesses of this isolated home (its records,
         # read again here, so a failure before the swap leaves none).
-        pids += [p for r in mux.host_records() for p in (r.get("host_pid"), r.get("harness_pid")) if p]
-        for pid in set(pids):
-            kill(pid)
+        mux.claim_hosts(owned)
+        kill_owned(owned)
     same_conversation = "turn=2" in second
     return {
         "phase": "agents",
@@ -568,9 +656,13 @@ def main() -> int:
         parser.error("give --old and --new, or --fetch")
     report["old"] = version(args.old)
     report["new"] = version(args.new)
-    if report["old"] == report["new"]:
-        # A restart of one build is not a swap: refuse instead of passing.
-        report.update(passed=False, error="old and new are the same build")
+    # A restart of one build is not a swap: refuse identical bytes instead of
+    # passing. Two local builds can report the same version and no commit.
+    same = [name for name, a, b in (("cmux-tui", args.old, args.new),
+                                    ("acpmux", args.old_acpmux, args.new_acpmux))
+            if a and b and digest(a) == digest(b)]
+    if same:
+        report.update(passed=False, error=f"old and new {' and '.join(same)} are the same build")
         print(json.dumps(report, indent=2))
         return 1
 
