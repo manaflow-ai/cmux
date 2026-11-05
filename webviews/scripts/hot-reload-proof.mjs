@@ -5,17 +5,16 @@
 //   node scripts/hot-reload-proof.mjs [--audit] [out dir]
 // --audit also touches every component file the pane loaded and reports which ones hot-swap
 // and which ones reload the page (a reload drops the draft and the scroll position).
-// The edits go to a copy of the committed tree in a temporary directory, never to this checkout:
+// The edits go to a copy of this checkout in a temporary directory, never to the checkout itself:
 // a save you make while it runs is never touched. The copy is deleted before the script exits.
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium } from "playwright";
 
-const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ownWebviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // What the pane's dev server reads from the repository: webviews and the files outside it that
 // its runtime imports.
 const SOURCES = [
@@ -28,7 +27,7 @@ const SOURCES = [
 ];
 const args = process.argv.slice(2);
 const audit = args.includes("--audit");
-const out = path.resolve(args.find((arg) => !arg.startsWith("--")) ?? path.join(checkout, "dist/hot-reload-proof"));
+const out = path.resolve(args.find((arg) => !arg.startsWith("--")) ?? path.join(ownWebviews, "dist/hot-reload-proof"));
 const pane = "src/agent-session/acpmux";
 const DRAFT = "laying track while the train moves";
 const PROMPT = "add punctuation to greet";
@@ -51,7 +50,8 @@ const PROBES = [
   },
 ];
 
-// The copy: HEAD's SOURCES, with this checkout's installed node_modules linked in.
+// The copy: the checkout's SOURCES as they are now, generated files included, with its installed
+// node_modules linked in.
 const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "cmux-hot-reload-proof-")));
 const remove = () => fs.rm(scratch, { recursive: true, force: true });
 for (const [signal, code] of [
@@ -82,9 +82,14 @@ let server;
 let browser;
 const results = [];
 try {
-  const root = execFileSync("git", ["-C", checkout, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-  execFileSync("bash", ["-c", 'git -C "$1" archive HEAD -- "${@:3}" | tar -x -C "$2"', "archive", root, scratch, ...SOURCES]);
-  await fs.symlink(path.join(checkout, "node_modules"), path.join(webviews, "node_modules"), "dir");
+  const root = path.dirname(ownWebviews);
+  const skip = new Set([path.join(ownWebviews, "node_modules"), path.join(ownWebviews, "dist")]);
+  for (const source of SOURCES)
+    await fs.cp(path.join(root, source), path.join(scratch, source), {
+      recursive: true,
+      filter: (from) => !skip.has(from),
+    });
+  await fs.symlink(path.join(ownWebviews, "node_modules"), path.join(webviews, "node_modules"), "dir");
   server = await createServer({
     configFile: path.join(webviews, "vite.config.ts"),
     root: webviews,
@@ -94,7 +99,7 @@ try {
       port: 0,
       strictPort: false,
       host: "127.0.0.1",
-      fs: { allow: [scratch, path.join(checkout, "node_modules")] },
+      fs: { allow: [scratch, path.join(ownWebviews, "node_modules")] },
     },
     logLevel: "warn",
   });
