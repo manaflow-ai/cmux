@@ -67,6 +67,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 980, height: 820 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // Vite's client logs each hot update and each full reload, with the module that caused it.
+  const vite = [];
+  page.on("console", (message) => message.text().startsWith("[vite]") && vite.push(message.text()));
   let loads = 0;
   page.on("load", () => (loads += 1));
   await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`);
@@ -81,7 +84,18 @@ try {
   await page.keyboard.type(DRAFT);
   await page.evaluate(() => (window.__hotReloadProbe = "same page"));
   const loadsBefore = loads;
-  const state = () =>
+  // A full reload destroys the page's context mid-read: wait for the new page, then read it.
+  const state = async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await read();
+      } catch (error) {
+        if (attempt === 3) throw error;
+        await page.waitForLoadState("load");
+      }
+    }
+  };
+  const read = () =>
     page.evaluate(
       ({ draft, prompt }) => ({
         samePage: window.__hotReloadProbe === "same page",
@@ -98,11 +112,14 @@ try {
     const edited = probe.edit(original, n);
     if (edited === original) throw new Error(`${probe.name}: the edit no longer applies to ${probe.file}`);
     const started = performance.now();
+    const viteBefore = vite.length;
     await write(probe.file, edited);
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
     const ms = Math.round(performance.now() - started);
-    results.push({ probe: probe.name, file: probe.file, shown, ms, ...(await state()) });
+    // Let a reload that follows the update land before reading the page.
+    await page.waitForEvent("load", { timeout: 1_500 }).catch(() => {});
+    results.push({ probe: probe.name, file: probe.file, shown, ms, ...(await state()), vite: vite.slice(viteBefore) });
   }
   // The turn that was streaming when the code changed still finishes in the same page.
   let turnFinished = true;
@@ -135,12 +152,13 @@ try {
     }
   }
 
-  const report = { port, live, audit: auditRows, pageErrors: errors };
+  const report = { port, live, audit: auditRows, pageErrors: errors, vite };
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   for (const row of results)
     console.log(
       `${row.probe} (${row.file}): ${row.shown ? `shown in ${row.ms} ms` : "never shown"}, ` +
-        `same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}`,
+        `same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
+        (row.vite.length ? `\n    ${row.vite.join("\n    ")}` : ""),
     );
   console.log(`streaming turn finished after the edits: ${turnFinished}; page reloads: ${live.reloads}`);
   if (audit) {
