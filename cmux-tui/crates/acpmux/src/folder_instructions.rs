@@ -86,7 +86,10 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
         while !text.is_char_boundary(end) {
             end -= 1;
         }
-        format!("{}\n\n[cut: {name} is {bytes} bytes; read the file for the rest]", &text[..end])
+        format!(
+            "{}\n\n[cut: {name} is {bytes} bytes; read the file for the rest]",
+            text.get(..end).unwrap_or_default()
+        )
     } else {
         text
     };
