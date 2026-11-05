@@ -268,5 +268,87 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertIsNone(receipt)
 
 
+
+class HostedLightJobsGuardTests(unittest.TestCase):
+    """check_no_github_hosted_runners admits hosted Ubuntu only for the jobs `hosted_light_jobs` declares.
+
+    Leo, 2026-11-01: hosted Ubuntu for declared light jobs. A declaration never admits hosted macOS or Windows,
+    or a job that builds, signs, notarizes, publishes or releases.
+    """
+
+    def run_guard(self, workflow: str, declare: dict | None) -> subprocess.CompletedProcess[str]:
+        root = WORKFLOW.parents[2]
+        guard = (root / "tests/test_ci_self_hosted_guard.sh").read_text()
+        function = guard.split("check_no_github_hosted_runners() {", 1)[1].split(
+            "\ncheck_no_self_hosted_fleet_runners() {", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp)
+            shutil.copytree(root / ".github/workflows", target / ".github/workflows")
+            runners = json.loads((root / ".github/runners.json").read_text())
+            if declare is not None:
+                runners["hosted_light_jobs"]["light-probe.yml:probe"] = declare
+            (target / ".github/runners.json").write_text(json.dumps(runners))
+            (target / ".github/workflows/light-probe.yml").write_text(workflow)
+            env = os.environ.copy()
+            env["ROOT_DIR"] = str(target)
+            return subprocess.run(["bash", "-c", "set -euo pipefail\ncheck_no_github_hosted_runners() {"
+                                   + function + "\ncheck_no_github_hosted_runners"],
+                                  env=env, capture_output=True, text=True)
+
+    LIGHT = """\
+        name: light probe
+        on: workflow_dispatch
+        permissions: {}
+        jobs:
+          probe:
+            runs-on: RUNNER
+            steps:
+              - run: STEP
+        """
+
+    def workflow(self, runner: str = "ubuntu-24.04", step: str = "echo ok") -> str:
+        return textwrap.dedent(self.LIGHT).replace("RUNNER", runner).replace("STEP", step)
+
+    def test_a_declared_light_job_passes(self) -> None:
+        result = self.run_guard(self.workflow(), {"runner": "ubuntu-24.04", "why": "reads one file"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_undeclared_hosted_job_fails(self) -> None:
+        result = self.run_guard(self.workflow(), None)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("light-probe.yml", result.stdout)
+
+    def test_a_declared_build_or_release_job_fails(self) -> None:
+        for step in ("xcodebuild -scheme cmux build", "cargo build --release", "swift build -c release",
+                     "./scripts/ci/release-cut.sh", "xcrun notarytool submit x.zip", "gh release create v1"):
+            with self.subTest(step=step):
+                result = self.run_guard(self.workflow(step=step), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL: hosted light job", result.stdout)
+
+    def test_hosted_macos_or_windows_fails_even_when_declared(self) -> None:
+        for runner in ("macos-15", "windows-2025"):
+            with self.subTest(runner=runner):
+                result = self.run_guard(self.workflow(runner=runner), {"runner": runner, "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL:", result.stdout)
+
+    def test_a_declared_job_with_write_permission_or_an_environment_fails(self) -> None:
+        for before, after in (("permissions: {}", "permissions:\n  contents: write"),
+                              ("    runs-on:", "    environment: release\n    runs-on:")):
+            with self.subTest(change=after):
+                result = self.run_guard(self.workflow().replace(before, after, 1), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_copied_declared_line_on_another_job_fails(self) -> None:
+        text = self.workflow() + "  other:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
+        result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_the_declared_screen_stream_eval_stub_passes_on_main(self) -> None:
+        runners = json.loads((WORKFLOW.parents[2] / ".github/runners.json").read_text())
+        self.assertIn("screen-stream-eval.yml:eval", runners["hosted_light_jobs"])
+
+
 if __name__ == "__main__":
     unittest.main()
