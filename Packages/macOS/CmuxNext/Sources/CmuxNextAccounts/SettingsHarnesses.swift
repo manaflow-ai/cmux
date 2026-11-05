@@ -34,6 +34,10 @@ public final class SettingsHarnesses {
     private(set) var problem: String?
     /// `_acpmux/accounts` (SettingsHarnesses+Accounts.swift); nil from a daemon without it.
     var accounts: [SettingsProviderAccount]?
+    /// Each account's plan usage limits read at rest, by id (SettingsHarnesses+AccountUsage.swift).
+    var accountUsage: [String: JSONValue] = [:]
+    /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
+    @ObservationIgnored var usageReading: Set<String> = []
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
@@ -115,7 +119,8 @@ public final class SettingsHarnesses {
 
     /// Reads the daemon's harnesses again, and their health (`recheck`: the daemon checks again
     /// instead of answering its last check). Only the newest read writes the rows. `plans`: each
-    /// Claude login's plan from `claude auth status`; false for a health-only read (onboarding).
+    /// Claude login's plan (`claude auth status`) and each account's usage; false for a health-only
+    /// read (onboarding).
     func refresh(recheck: Bool = false, plans: Bool = true) async {
         await refreshUpdates?()
         guard let environment = environment() else {
@@ -132,6 +137,7 @@ public final class SettingsHarnesses {
         loading = false
         guard let fresh else {
             problem = "unreachable"
+            if recheck { forgetHealth() }
             return
         }
         rows = fresh
@@ -139,22 +145,34 @@ public final class SettingsHarnesses {
         // Accounts first: they answer from the daemon's state, a health check may take a while.
         await readAccounts(environment, generation: mine)
         guard mine == generation else { return }
-        // The rows show first: a check can take a while. A failed read (an older daemon without
-        // the method, a timeout) keeps the health already shown; a failed recheck clears it, so
-        // the states it would have replaced do not show as current.
+        // Usage beside health: each starts a process of its own and either may take a while.
+        // A health-only read (onboarding) runs neither usage nor `claude auth status`.
+        guard plans else { return await readHealth(environment, recheck: recheck, plans: false, generation: mine) }
+        async let usage: Void = readAccountUsage(environment, generation: mine)
+        await readHealth(environment, recheck: recheck, plans: true, generation: mine)
+        await usage
+    }
+
+    /// The rows show first: a check can take a while. A failed read (an older daemon without the
+    /// method, a timeout) keeps the health already shown; a failed recheck clears it, so the states
+    /// it would have replaced do not show as current.
+    private func readHealth(_ environment: AcpmuxEnvironment, recheck: Bool, plans: Bool, generation mine: Int) async {
         let checked = try? await fetchHealth(environment, recheck)
         guard mine == generation else { return }
         guard let checked, let read = AgentCLIUpdateActions.healthRows(checked) else {
-            if recheck {
-                health = [:]
-                healthAnswered = false
-            }
+            if recheck { forgetHealth() }
             return
         }
         health = read
         healthAnswered = true
         // The health check names the `claude` it found; each Claude login's plan comes from it.
         if plans { await readClaudePlans(generation: mine) }
+    }
+
+    /// A recheck that got no answer: no sign-in state shows as current.
+    private func forgetHealth() {
+        health = [:]
+        healthAnswered = false
     }
 
     /// Types `line` into a new terminal tab; refuses a line that could not be typed safely, and

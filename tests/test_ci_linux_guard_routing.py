@@ -701,9 +701,36 @@ class FeatGuardRoutingTests(unittest.TestCase):
         routed = detect_linux_guard_changes.FEAT_ROUTED
         self.assertEqual(
             set(routed),
-            (set(GROUPS) - {"ci", "release-notary", "release-ios"})
+            (set(GROUPS) - {"ci", "release-ios"})
             | {"workflow-guard-history", "workflow-guard-source-lints"},
         )
+
+    def test_release_notary_runs_only_on_its_inputs(self):
+        """release-notary ran on every pull request: about 200,000 runner-minutes in 14 days, and none of its 18
+        PR failures was the change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md)."""
+        for path in (
+            ".github/workflows/nightly.yml", ".github/warm-sources.json", ".github/nightly-step-coverage.json",
+            "scripts/ci/nightly-sparkle-key.sh", "scripts/ci/resume-stapled-app-notarization.sh",
+            "scripts/ci/poll-notary-submission.py", "scripts/ci/nightly-steps/release-notes-sign.sh",
+            "tests/test_nightly_next_identity.py", "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py",
+            "scripts/whats-new/validate.py", "scripts/cmux-next/release-notes.py",
+            "release-notes/next/highlights/x.md", "release-notes/next/retired-feed-announcements.json",
+            "cmux.nightly.entitlements", "cmux-helper.entitlements", "Resources/cmux.entitlements",
+            "cmux-next-ios/App/CmuxMobileApp-Production.entitlements",
+            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
+            "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
+            "Resources/Info.plist", "Config/Release.xcconfig", "new-area/input",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("release-notary", self.feat([path]))
+        for paths in (
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], ["webviews/src/x.ts"],
+            ["cmux-tui/crates/a/src/lib.rs"], ["backend/x.ts"], ["docs/guide.md", "AGENTS.md"],
+            ["Packages/macOS/CmuxNext/Package.resolved"], ["Native/OptChat/x.swift"],
+        ):
+            with self.subTest(paths=paths):
+                self.assertNotIn("release-notary", self.feat(paths))
 
     def test_a_change_to_a_groups_paths_runs_that_group(self):
         for path, group in (
@@ -740,7 +767,9 @@ class FeatGuardRoutingTests(unittest.TestCase):
         self.assertEqual(self.feat(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"]),
                          ("workflow-guard-source-lints",))
         self.assertEqual(self.feat(["webviews/src/x.ts", "cmux-tui/crates/a/src/lib.rs", "Native/OptChat/x.swift",
-                                    "backend/x.ts", "schemas/settings/x.json", "release-notes/next/x.md"]), ())
+                                    "backend/x.ts", "schemas/settings/x.json"]), ())
+        # The What's New highlights validator in release-notary reads release-notes/.
+        self.assertEqual(self.feat(["release-notes/next/x.md"]), ("release-notary",))
 
     def test_docs_only_runs_no_extra_group(self):
         self.assertEqual(self.feat(["docs/guide.md", "plans/x.md", "AGENTS.md"]), ())

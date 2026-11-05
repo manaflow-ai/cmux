@@ -47,8 +47,6 @@ SHARED_NIGHTLY_GROUPS = {
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
     "republish-nightly-deltas": "release-",
-    # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
-    "publish-nightly-next-github-names": "nightly-next-github-names",
 }
 
 

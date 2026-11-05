@@ -42,7 +42,12 @@ How it is enforced:
   `thread-doc` (a new thread, queue or `BlockingAllowance` whose literal label this page's "Registered threads
   and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
-  ratchet's `blocking_allow_escapes` row: to come, PL-arch).
+  ratchet's `blocking_allow_escapes` row: to come, PL-arch). It also refuses `main-hop` (cmux-ad m35): a new
+  direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target, which runs outside
+  the main-thread scheduler; use `FrameBatchQueue.enqueue`, `MainDelivery().run`, `AfterFrameCommit().run` or an
+  `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
+  the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
+  prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
 
 ## Threads and queues
 
@@ -173,7 +178,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
-- Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
+- Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
+  serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
+  20 files of 1 MiB, and a read waits only behind the saves queued before it),
+  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one

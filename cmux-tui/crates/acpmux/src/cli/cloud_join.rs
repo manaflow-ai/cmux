@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
 
@@ -48,6 +49,15 @@ pub struct MachineCredential {
     /// nothing automatically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
+    /// The box this credential was joined on (`host_fingerprint`). None on a record joined
+    /// before it existed: the first daemon start adopts the box it runs on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_fingerprint: Option<String>,
+    /// This record was copied here from the box that joined it. The credential is never used
+    /// here again (it stays the original box's, untouched on the hub); a new join line gives
+    /// this box its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cloned: bool,
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
@@ -61,6 +71,23 @@ pub(crate) fn safe_id(value: &str) -> Option<String> {
                 && !s.chars().any(char::is_control)
         })
         .map(str::to_owned)
+}
+
+/// What `host join --status` says to a copied box.
+pub const CLONED_HINT: &str = "this machine's acpmux state was copied from another machine; its credential stays with that machine. Paste a new join line here to join this one.";
+
+/// What the start-of-daemon clone check found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloneCheck {
+    NotJoined,
+    /// No fingerprint here (no OS identity): nothing to compare.
+    Unknown,
+    Same,
+    /// An older record with no fingerprint takes this box's.
+    Adopted,
+    /// Found now: marked cloned and given a fresh node key.
+    Cloned,
+    AlreadyCloned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -128,8 +155,86 @@ fn local_name(name: Option<String>) -> String {
 }
 
 fn save(record: &MachineCredential) -> Result<()> {
-    crate::config::private_state_dir(&state_dir())?;
-    recovery::write_durable(&credential_path(), &serde_json::to_vec_pretty(record)?, true)
+    save_at(&state_dir(), record)
+}
+
+fn save_at(home: &std::path::Path, record: &MachineCredential) -> Result<()> {
+    crate::config::private_state_dir(home)?;
+    recovery::write_durable(&home.join(CREDENTIAL_FILE), &serde_json::to_vec_pretty(record)?, true)
+}
+
+/// Whether `record`, read from `home`, was copied here from another box: marked so, or joined
+/// on a box whose fingerprint differs from this one's. A record or a box with no fingerprint
+/// is no clone.
+fn copied_here(home: &std::path::Path, record: &MachineCredential, current: Option<&str>) -> bool {
+    record.cloned
+        || matches!((record.host_fingerprint.as_deref(), current), (Some(joined), Some(here)) if !host_fingerprint::same_box(home, joined, here))
+}
+
+/// At daemon start, before the WireGuard transport and the mesh relay: a record joined on
+/// another box is marked `cloned` and this box gets a fresh `node.wg.key`, so it never answers
+/// with the original's credential or key. The hub is not called: the original box's credential
+/// stays as it is. An older record with no fingerprint adopts this box's.
+pub(crate) fn settle_clone_at_start() -> Result<CloneCheck> {
+    let home = state_dir();
+    if load_at(&home)?.is_none() {
+        return Ok(CloneCheck::NotJoined);
+    }
+    // A `host join` or `machine leave` may hold the lock for a moment: wait a bounded while
+    // rather than skip the check (the caller keeps a still-unsettled copy off WireGuard).
+    let mut tries = 0;
+    let _lock = loop {
+        match join_lock() {
+            Ok(lock) => break lock,
+            Err(_) if tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(e),
+        }
+    };
+    settle_clone_at(&home, host_fingerprint::current().as_deref())
+}
+
+/// Whether this home's record was joined on another box (marked or not yet marked).
+pub(crate) fn copied_from_another_box() -> bool {
+    let current = host_fingerprint::current();
+    load()
+        .ok()
+        .flatten()
+        .is_some_and(|record| copied_here(&state_dir(), &record, current.as_deref()))
+}
+
+/// [`settle_clone_at_start`] in `home`, as the box whose fingerprint is `current`. The caller
+/// holds the join lock.
+pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> Result<CloneCheck> {
+    let Some(mut record) = load_at(home)? else { return Ok(CloneCheck::NotJoined) };
+    if record.cloned {
+        return Ok(CloneCheck::AlreadyCloned);
+    }
+    let Some(current) = current else { return Ok(CloneCheck::Unknown) };
+    match record.host_fingerprint.as_deref() {
+        Some(joined) if joined == current => Ok(CloneCheck::Same),
+        // Joined before cmux-host bound this box's instance id: the same box, now under it.
+        Some(joined) if host_fingerprint::same_box(home, joined, current) => {
+            record.host_fingerprint = Some(current.to_owned());
+            save_at(home, &record)?;
+            Ok(CloneCheck::Adopted)
+        }
+        None => {
+            record.host_fingerprint = Some(current.to_owned());
+            save_at(home, &record)?;
+            Ok(CloneCheck::Adopted)
+        }
+        Some(_) => {
+            // The key first: a start cut short before the mark finds the mismatch again and
+            // replaces the key once more, never keeps the original's key under a cloned mark.
+            crate::cli::mesh_node_key::replace_at(home)?;
+            record.cloned = true;
+            save_at(home, &record)?;
+            Ok(CloneCheck::Cloned)
+        }
+    }
 }
 
 fn configure_mesh_relay(hub: &str) -> Result<()> {
@@ -190,14 +295,18 @@ fn load() -> Result<Option<MachineCredential>> {
 
 /// The joined machine credential, for the vault pull (`crate::vault`), which
 /// sends it only as the bearer of its own hub request.
+///
+/// A record copied from another box is no credential of this one: None, as if not joined.
 pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
-    load()
+    let current = host_fingerprint::current();
+    Ok(load()?.filter(|record| !copied_here(&state_dir(), record, current.as_deref())))
 }
 
 /// The person this machine recorded at join, for `controlFrom`'s `sameUser` entry. None when
 /// the machine is not joined, is revoked, or recorded no person.
 pub(crate) fn machine_user_id() -> Option<String> {
-    let record = load().ok().flatten()?;
+    // A copy of another box's join speaks for nobody here.
+    let record = machine_credential().ok().flatten()?;
     (!record.revoked).then_some(record.user_id?).and_then(|user| safe_id(&user))
 }
 
@@ -237,6 +346,10 @@ pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential
 pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
     let record = load()?.ok_or_else(|| anyhow!("machine credential is missing"))?;
     anyhow::ensure!(!record.revoked, "revoked: run machine add again");
+    anyhow::ensure!(
+        !copied_here(&state_dir(), &record, host_fingerprint::current().as_deref()),
+        "cloned: this machine's state was copied from another machine; paste a new join line"
+    );
     anyhow::ensure!(
         origin(Some(record.hub_origin.clone()))? == origin(Some(hub_origin.to_owned()))?,
         "machine credential belongs to another hub"
@@ -304,12 +417,21 @@ impl Drop for HeldLock {
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
-    load().map(|value| value.is_some()).map_err(|_| store_error().into())
+    let current = host_fingerprint::current();
+    load()
+        .map(|value| {
+            value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
+        })
+        .map_err(|_| store_error().into())
 }
 
 pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
-    if replace || join_incomplete()? {
+    // A copy of another box's join is no join of this one: the new join line makes one.
+    if replace
+        || join_incomplete()?
+        || copied_here(&state_dir(), &record, host_fingerprint::current().as_deref())
+    {
         return Ok(false);
     }
     // No released build created pre-marker credentials. Even branch-only local
@@ -384,6 +506,8 @@ pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) ->
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let pending_origin = recovery::pending_origin()?;
     let fallback_hub = pending_origin.clone().unwrap_or(origin(hub)?);
+    // Report-only: a copy is found from the fingerprint (`copied_here`); marking it and the
+    // fresh node key are the daemon start's and `host join`'s.
     let record = load()?.unwrap_or(MachineCredential {
         name: local_name(None),
         hub_origin: fallback_hub,
@@ -395,12 +519,21 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     )
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "userId": record.user_id, "build": crate::hub::build(), "channel":null});
+    let cloned = copied_here(&state_dir(), &record, host_fingerprint::current().as_deref());
+    // A copy holds no credential of this box: not present, and the copied public key is not
+    // this box's (its own appears with its new join).
+    let wg_public_key = (!cloned).then_some(record.wg_public_key.clone());
+    let mut out = json!({"credentialPresent": !record.credential.is_empty() && !cloned, "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() || cloned { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "userId": record.user_id, "build": crate::hub::build(), "channel":null});
     out["joinIncomplete"] = json!(pending_origin.is_some());
+    // The copy's own answer: its credential is the original box's and is never sent from here.
+    out["cloned"] = json!(cloned);
+    if cloned {
+        out["hint"] = json!(CLONED_HINT);
+    }
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
     out["lastRefusal"] = consent_status()["lastRefusal"].clone();
-    if !record.credential.is_empty() {
+    if !record.credential.is_empty() && !cloned {
         // GET is read-only: doctor must never replace the daemon's live sessions.
         let hub = origin(Some(record.hub_origin.clone()))?;
         let answer = hub_client(&hub, Some(&record.credential))?.machine_redeem_self().await;
@@ -434,6 +567,8 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
         crate::cli::output::print_json(&out);
     } else if out["joinIncomplete"] == true {
         println!("join incomplete, rerun join");
+    } else if cloned {
+        println!("cloned: {CLONED_HINT}");
     } else if out["revoked"] == true {
         println!("revoked: run machine add again");
     } else {
@@ -528,6 +663,168 @@ mod tests {
             "https://example.com"
         );
         assert!(origin(Some("http://127.0.0.1:1234".to_owned())).is_ok());
+    }
+
+    #[cfg(unix)]
+    fn joined_on(home: &std::path::Path, fingerprint: Option<&str>) -> Vec<u8> {
+        let record = super::MachineCredential {
+            credential: "cmm_original".into(),
+            machine_id: "machine_original".into(),
+            team_id: "team".into(),
+            name: "original".into(),
+            hub_origin: "https://example.com".into(),
+            wg_public_key: "original-key".into(),
+            credential_generation: 1,
+            host_fingerprint: fingerprint.map(str::to_owned),
+            ..Default::default()
+        };
+        super::save_at(home, &record).unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
+        std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_box_that_joined_keeps_its_credential_and_key() {
+        let home = tempfile::tempdir().unwrap();
+        let key = joined_on(home.path(), Some("box-a"));
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
+            super::CloneCheck::Same
+        );
+        let record = super::load_at(home.path()).unwrap().unwrap();
+        assert!(!record.cloned && !super::copied_here(home.path(), &record, Some("box-a")));
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_copied_home_is_marked_cloned_with_a_fresh_key_and_the_credential_left_as_it_was() {
+        let home = tempfile::tempdir().unwrap();
+        let key = joined_on(home.path(), Some("box-a"));
+        let before = super::load_at(home.path()).unwrap().unwrap();
+        assert!(
+            super::copied_here(home.path(), &before, Some("box-b")),
+            "a mismatch is a copy before any start"
+        );
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("box-b")).unwrap(),
+            super::CloneCheck::Cloned
+        );
+        let record = super::load_at(home.path()).unwrap().unwrap();
+        assert!(record.cloned);
+        // Nothing of the original's enrollment changes: no hub call, the same credential and id.
+        assert_eq!(record.credential, before.credential);
+        assert_eq!(record.machine_id, before.machine_id);
+        assert_eq!(record.host_fingerprint.as_deref(), Some("box-a"));
+        let fresh = std::fs::read(home.path().join("node.wg.key")).unwrap();
+        assert_ne!(fresh, key, "the copy has its own node key");
+        // Sticky: the next start finds it cloned and keeps the new key.
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("box-b")).unwrap(),
+            super::CloneCheck::AlreadyCloned
+        );
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), fresh);
+        assert!(
+            super::copied_here(home.path(), &record, Some("box-b"))
+                && super::copied_here(home.path(), &record, None)
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_older_record_adopts_the_box_it_starts_on_and_no_identity_compares_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let key = joined_on(home.path(), None);
+        let before = super::load_at(home.path()).unwrap().unwrap();
+        assert!(
+            !super::copied_here(home.path(), &before, Some("box-a")),
+            "no fingerprint is no clone"
+        );
+        assert_eq!(super::settle_clone_at(home.path(), None).unwrap(), super::CloneCheck::Unknown);
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
+            super::CloneCheck::Adopted
+        );
+        let record = super::load_at(home.path()).unwrap().unwrap();
+        assert_eq!(record.host_fingerprint.as_deref(), Some("box-a"));
+        assert!(!record.cloned);
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
+            super::CloneCheck::Same
+        );
+        // A box with no OS identity never marks a fingerprinted record cloned.
+        let other = tempfile::tempdir().unwrap();
+        joined_on(other.path(), Some("box-a"));
+        assert_eq!(super::settle_clone_at(other.path(), None).unwrap(), super::CloneCheck::Unknown);
+        assert!(!super::load_at(other.path()).unwrap().unwrap().cloned);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(
+            super::settle_clone_at(empty.path(), Some("box-a")).unwrap(),
+            super::CloneCheck::NotJoined
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_instance_id_bound_after_the_join_is_the_same_box_not_a_clone() {
+        use super::host_fingerprint::TEST_MACHINE_ONLY;
+        let home = tempfile::tempdir().unwrap();
+        // Joined on machine id "mid-a" before cmux-host bound an instance id.
+        let key = joined_on(home.path(), Some("mid-a"));
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-a".into())));
+        let before = super::load_at(home.path()).unwrap().unwrap();
+        assert!(!super::copied_here(home.path(), &before, Some("inst-1")));
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("inst-1")).unwrap(),
+            super::CloneCheck::Adopted
+        );
+        let record = super::load_at(home.path()).unwrap().unwrap();
+        assert_eq!(record.host_fingerprint.as_deref(), Some("inst-1"));
+        assert!(!record.cloned);
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+        // A copy onto another box: another machine id, and a record bound to another instance.
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-b".into())));
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("inst-2")).unwrap(),
+            super::CloneCheck::Cloned
+        );
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = None);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_cloud_fork_still_on_the_originals_machine_id_is_a_clone() {
+        use super::host_fingerprint::TEST_MACHINE_ONLY;
+        // Joined on "mid-a" before a bind, then forked: the fork keeps machine id "mid-a" until
+        // it is rekeyed, but cmux-host marked its home with `clone-boot` before this start.
+        for marker in [crate::hub::clone_boot::MARKER, crate::hub::clone_boot::DONE] {
+            let home = tempfile::tempdir().unwrap();
+            let key = joined_on(home.path(), Some("mid-a"));
+            std::fs::write(home.path().join(marker), r#"{"from":"m1","to":"m2"}"#).unwrap();
+            TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-a".into())));
+            let before = super::load_at(home.path()).unwrap().unwrap();
+            assert!(super::copied_here(home.path(), &before, Some("inst-2")), "{marker}");
+            assert_eq!(
+                super::settle_clone_at(home.path(), Some("inst-2")).unwrap(),
+                super::CloneCheck::Cloned,
+                "{marker}"
+            );
+            assert_ne!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+            TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = None);
+        }
+    }
+
+    #[test]
+    fn an_older_record_reads_unfingerprinted_and_not_cloned() {
+        let old = serde_json::json!({"credential":"cmm_x","machine_id":"m","team_id":"t","name":"n",
+            "hub_origin":"https://example.com","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"});
+        let record: super::MachineCredential = serde_json::from_value(old).unwrap();
+        assert_eq!(record.host_fingerprint, None);
+        assert!(!record.cloned);
+        let written = serde_json::to_value(&record).unwrap();
+        assert!(written.get("cloned").is_none() && written.get("host_fingerprint").is_none());
     }
 
     #[test]

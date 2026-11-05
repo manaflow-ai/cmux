@@ -9,6 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
+import { AgentCallCard } from "./AgentCallCard";
 import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -63,6 +64,7 @@ import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./PresentationContext";
 import { useTranscriptReadOnly } from "./readOnly";
+import { useTurnWaterfall } from "./TurnWaterfall";
 
 /// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
 export { runStretches, type RunStretch } from "./toolGroups";
@@ -192,6 +194,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "agentCall":
+      return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -316,6 +320,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // The turn's Timeline (TurnWaterfall.tsx): a clock button, closed until the reader opens it.
+  const timeline = useTurnWaterfall(row);
   // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
   // a turn of tool calls alone draws no Copy and no Read aloud.
   const turnCopy = row.turnCopy;
@@ -497,6 +503,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
             {!messages && <PinButton rowId={row.id} />}
+            {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
@@ -534,6 +541,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
+      {!messages && timeline.panel}
     </>
   );
 }

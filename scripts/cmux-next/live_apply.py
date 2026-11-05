@@ -10,7 +10,7 @@ Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heavies
   daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
   swift-live  plus app Swift changed only inside function bodies and computed properties, or new
               Swift files (the patch carries them: Prototypes/ViewShell/inject.sh), in a module the
-              live code build patches (LIVE_MODULES)
+              live code build patches (LIVE_MODULE)
   rebuild     a new binary: a stored property, a changed signature, a new type, conformance or
               enum case in an existing file, a new entry point (`@main`), a resource, manifest,
               plist or entitlement, or Swift in a module live code does not patch
@@ -41,10 +41,12 @@ STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|i
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
 ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
-# The modules a patch can replace code in: the app's live code build makes only CmuxNextApp's
-# symbols interposable (docs/cmux-next/live-code.md, scripts/reload.sh), and the view shell's
-# inject.sh patches its own module. Every other module is linked into the app as it was built.
-LIVE_MODULES = {"CmuxNextApp", "ViewShell"}
+# The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
+# symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
+# CmuxNext targets of Packages/macOS/CmuxNext/Package.swift), and the view shell's inject.sh patches
+# its own module. Third-party modules are linked into the app as they were built.
+LIVE_MODULE = re.compile(r"^(CmuxNext[A-Za-z0-9_]*|ViewShell)$")
+LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Prototypes/ViewShell/Sources/")
 SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 
@@ -113,7 +115,8 @@ def classify(files, diffs):
             if status == "A" and os.path.basename(path) == "main.swift":
                 why = ["new entry point"]
             module = SWIFT_MODULE.search(path)
-            if status != "D" and not why and (module.group(1) if module else None) not in LIVE_MODULES:
+            live = module is not None and LIVE_MODULE.match(module.group(1)) and LIVE_PACKAGE.search(path)
+            if status != "D" and not why and not live:
                 why = [f"outside the live code modules ({module.group(1) if module else path})"]
             for reason in why:
                 note("rebuild", path, reason)

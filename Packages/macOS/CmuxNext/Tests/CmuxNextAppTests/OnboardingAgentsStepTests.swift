@@ -18,6 +18,8 @@ import Testing
     /// The daemon's `_acpmux/harness/health` answer; nil fails the call.
     @MainActor final class Health {
         var answer: String?
+        /// False fails `_acpmux/harnesses` itself.
+        var listed = true
         init(_ answer: String?) { self.answer = answer }
     }
 
@@ -52,7 +54,10 @@ import Testing
             .init(id: "mine", name: "My Agent", kind: "acp", source: "user-file"),
         ]
         let harnesses = SettingsHarnesses(environment: { environment },
-            fetch: { _ in rows },
+            fetch: { _ in
+                guard await health.listed else { throw AcpmuxRPCError(code: -32000, message: "daemon gone") }
+                return rows
+            },
             fetchHealth: { _, _ in
                 guard let answer = await health.answer else { throw AcpmuxRPCError(code: -32601, message: "method not found") }
                 return Data(answer.utf8)
@@ -120,6 +125,17 @@ import Testing
         #expect(rechecked.map(\.id) == ["claude", "codex", "gemini", "mine"])
         #expect(rechecked.allSatisfy { $0.auth == .unknown })
         #expect(harnesses.health.isEmpty)
+    }
+
+    /// A recheck whose harness list fails also leaves no sign-in state showing as current.
+    @Test func aRecheckWithNoHarnessListForgetsTheLastHealth() async {
+        let health = Health(#"{"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","auth":"signedIn"}]}"#)
+        let (harnesses, _) = await make(health: health)
+        #expect(await harnesses.agentSignIns(recheck: false).map(\.auth) == [.signedIn])
+        health.listed = false
+        _ = await harnesses.agentSignIns(recheck: true)
+        #expect(harnesses.health.isEmpty)
+        #expect(!harnesses.healthAnswered)
     }
 
     @Test func aSignInThatOpensNoTerminalFails() async {

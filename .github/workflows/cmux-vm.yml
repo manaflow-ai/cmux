@@ -440,6 +440,9 @@ jobs:
         working-directory: .
         env:
           JOURNEY_PHASE: baseline
+          # The shared model stub, not a real Claude login: a used-up test-account quota must never fail
+          # (or roll back) a deploy. The real model has its own six-hourly canary (cloud-journey-prod.yml).
+          JOURNEY_MODEL: stub
           TARGET: staging
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -505,6 +508,7 @@ jobs:
         if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
         env:
           JOURNEY_PHASE: after
+          JOURNEY_MODEL: stub
           TARGET: staging
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -663,6 +667,9 @@ jobs:
         working-directory: .
         env:
           JOURNEY_PHASE: baseline
+          # The shared model stub, not a real Claude login: a used-up test-account quota must never fail
+          # (or roll back) a deploy. The real model has its own six-hourly canary (cloud-journey-prod.yml).
+          JOURNEY_MODEL: stub
           TARGET: prod
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
@@ -728,6 +735,7 @@ jobs:
         if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
         env:
           JOURNEY_PHASE: after
+          JOURNEY_MODEL: stub
           TARGET: prod
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}

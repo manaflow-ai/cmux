@@ -239,9 +239,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
+    /// The Commands palette's pick history (its `FrecencyStore`) for the rows the bar lists, by the palette's usage
+    /// key (`tab:ID`, `workspace:ID`, `action:ID`): each key's decayed use count. The bar orders matches of one kind
+    /// by it, so what the person picks often and lately comes first here as in the palette (cmuxterm-hq lenses
+    /// slack-firefox-frecency.md). Only keys with uses; at most ``maximumUses``.
+    public var uses: [String: Double]
+
+    /// Bound for ``uses``: the most-used keys only.
+    public static let maximumUses = 200
 
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = []) {
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:]) {
         let cap = Self.maximumEntries
         self.tabs = tabs
         self.workspaces = workspaces
@@ -250,9 +258,12 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
+        self.uses = uses.count > Self.maximumUses
+            ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
+            : uses
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -263,7 +274,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             projects: try values.decodeIfPresent([String].self, forKey: .projects) ?? [],
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
-            history: try values.decodeIfPresent([Page].self, forKey: .history) ?? []
+            history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
+            uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:]
         )
     }
 
@@ -286,6 +298,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
+            "uses": uses,
         ]
     }
 }

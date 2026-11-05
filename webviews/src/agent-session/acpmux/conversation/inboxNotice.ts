@@ -86,20 +86,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     if (!threadId) continue;
     const promptIds = strings(p.promptIds);
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
-    const messages = Array.isArray(p.messages)
-      ? p.messages.flatMap((m): InboxMessage[] => {
-          const r = m as Record<string, unknown> | null;
-          if (!r || typeof r.text !== "string") return [];
-          return [
-            {
-              from: text(r.from),
-              text: withoutRelayEnvelope(r.text),
-              ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-              ...(typeof r.at === "number" && { at: r.at }),
-            },
-          ];
-        })
-      : undefined;
+    const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
     const newest = messages?.at(-1)?.text;
     threads.push({
       threadId,
@@ -118,6 +105,23 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     });
   }
   return threads.length ? { threads } : undefined;
+}
+
+/// A thread's messages as acpmux records them (a notice's `messages`, `_acpmux/inbox_thread`), each
+/// without the broker label it came in (relayEnvelope.ts): every one is another agent's.
+export function inboxMessages(records: unknown[]): InboxMessage[] {
+  return records.flatMap((m): InboxMessage[] => {
+    const r = m as Record<string, unknown> | null;
+    if (!r || typeof r.text !== "string") return [];
+    return [
+      {
+        from: text(r.from),
+        text: withoutRelayEnvelope(r.text),
+        ...(typeof r.promptId === "string" && { promptId: r.promptId }),
+        ...(typeof r.at === "number" && { at: r.at }),
+      },
+    ];
+  });
 }
 
 /// Whether the notice's text tags a thread a blocker (one logged before `blocker` was a part).
