@@ -96,6 +96,7 @@ public final class AgentPaneView: NSView {
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
     var deliveredThemeScript: String?
+    let themeEvents = AgentPaneThemeEvents()
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
@@ -604,7 +605,7 @@ public final class AgentPaneView: NSView {
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {
-            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+            guard let event = themeEvents.event(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
             deliveredThemeEvent = event
             if !pageEvents.publish(event), let connection = model.transport.connection {
                 model.transport.close(connection: connection)
