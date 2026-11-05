@@ -54,4 +54,20 @@ struct CloudSeedRefusalTests {
         }
         #expect(asked == [.ask], "a refusal with no window to ask in copied")
     }
+
+    /// The refusal names the seed plan's code (`not_git`, `submodule_local_work`, ...) so the log says why.
+    @Test func aRefusedSeedCarriesThePlansFallbackCodeFromTheCLIAnswer() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-seed-refusal-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let binary = dir.appendingPathComponent("cmux")
+        let line = #"{"ok":false,"error_code":"seed_refused","error":"why","fallback_code":"not_git","copy_files":2,"copy_bytes":5}"#
+        try "#!/bin/sh\necho '\(line)'\nexit 1\n".write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let (answer, _) = try await CloudMoveCLI(binary: binary, timeout: .seconds(20))
+            .startChatCopy(key: "k", account: "a/", machine: "vm", socket: "/s", local: "/l", subpath: "", workRoots: ["/w"], acpmuxHome: nil, onSeedRefusal: .ask)
+        #expect(answer.fallbackCode == "not_git")
+        #expect(CloudSeedRefusal(answer, machine: "vm")?.fallbackCode == "not_git")
+    }
 }
+
