@@ -149,7 +149,7 @@ set -e
 if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
-  bash scripts/ci/nightly-steps/release-build-summary.sh "$RUNNER_TEMP/nightly-release-build-retry.log" fallback
+  bash scripts/ci/nightly-steps/release-build-summary.sh "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
   bash scripts/ci/nightly-steps/release-build-summary.sh "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
