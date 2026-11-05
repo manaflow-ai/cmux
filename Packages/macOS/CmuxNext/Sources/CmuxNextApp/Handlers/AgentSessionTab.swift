@@ -26,10 +26,8 @@ enum AgentSessionTab {
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
-        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession).
-        // A host this Mac had under an earlier Cloud backend is still this Mac's (isLocalHost, #36015).
-        let localHost = services.agentTabs.isLocalHost(host) ? host : services.agentTabs.localHost
-        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: localHost) } catch { throw ActionFailure(message: error.description) }
+        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession); a host this Mac had under an earlier Cloud backend is still this Mac's (isLocalHost, #36015).
+        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: services.agentTabs.isLocalHost(host) ? host : services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = services.agentTabs.tab(showing: session, host: host) {
