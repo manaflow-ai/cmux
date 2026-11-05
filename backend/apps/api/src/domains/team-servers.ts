@@ -44,13 +44,15 @@ export interface ServerRevocation {
 }
 
 /**
- * The pairing that made a server: its 8-symbol code and the invite it came through. Kept only
- * while that code's or invite's object can still answer (both end within PAIRING_TTL_MS of the
- * approval), so a revoke can spend them: pair-invite-routes.ts revokeServerPairing.
+ * The pairing that made a server, as the Durable Object ids of its PairingDO record and of the
+ * invite it came through: opaque, so team state and events never carry a usable pairing code or
+ * invite (a member could otherwise race the box's begin with them). Kept only while those objects
+ * can still answer (both end within PAIRING_TTL_MS of the approval), so a revoke can spend them:
+ * pair-invite-routes.ts revokeServerPairing.
  */
 export interface ServerPairing {
-  readonly code: string
-  readonly invite: string | null
+  readonly pairing_object: string
+  readonly invite_object: string | null
   readonly at: number
 }
 
@@ -61,14 +63,15 @@ const livePairings = (state: TeamState, now: number): Record<string, ServerPairi
   Object.fromEntries(Object.entries(state.server_pairings ?? {}).filter(([, p]) => p.at > now - SERVER_PAIRING_KEEP_MS))
 
 /** The pairing that made `host` (if still live), and the kept set without it. */
-const takePairing = (state: TeamState, host: string, now: number): { pairing: { code: string; invite: string | null } | undefined; rest: Record<string, ServerPairing> } => {
+const takePairing = (state: TeamState, host: string, now: number): { pairing: { pairing_object: string; invite_object: string | null } | undefined; rest: Record<string, ServerPairing> } => {
   const { [host]: taken, ...rest } = livePairings(state, now)
-  return { pairing: taken ? { code: taken.code, invite: taken.invite } : undefined, rest }
+  return { pairing: taken ? { pairing_object: taken.pairing_object, invite_object: taken.invite_object } : undefined, rest }
 }
 
-const validPairing = (p: unknown): p is { code: string; invite: string | null } => {
-  const v = p as { code?: unknown; invite?: unknown } | null
-  return typeof v?.code === "string" && /^[0-9A-Z]{8}$/.test(v.code) && (v.invite === null || (typeof v.invite === "string" && /^[0-9A-Z]{10}$/.test(v.invite)))
+const OBJECT_ID = /^[0-9a-f]{64}$/
+const validPairing = (p: unknown): p is { pairing_object: string; invite_object: string | null } => {
+  const v = p as { pairing_object?: unknown; invite_object?: unknown } | null
+  return typeof v?.pairing_object === "string" && OBJECT_ID.test(v.pairing_object) && (v.invite_object === null || (typeof v.invite_object === "string" && OBJECT_ID.test(v.invite_object)))
 }
 
 /**
@@ -77,12 +80,12 @@ const validPairing = (p: unknown): p is { code: string; invite: string | null } 
  * is ignored. Its own op, so `server.enrolled`'s params (and their replays) stay as they were.
  */
 export const reduceServerPairingRecorded = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
-  const v = params as { host?: unknown; install?: unknown; code?: unknown; invite?: unknown }
+  const v = params as { host?: unknown; install?: unknown; pairing_object?: unknown; invite_object?: unknown }
   const { host, install } = v
   if (typeof host !== "string" || typeof install !== "string" || !validPairing(v)) return reject("validation.invalid", "invalid server pairing")
   if (!serverPlacementActive(state, ctx.rows, host, install)) return { ok: true, state, value: { host, recorded: false }, changed: false }
   const pairings = livePairings(state, ctx.now)
-  pairings[host] = { code: v.code, invite: v.invite, at: ctx.now }
+  pairings[host] = { pairing_object: v.pairing_object, invite_object: v.invite_object, at: ctx.now }
   return { ok: true, state: { ...state, server_pairings: pairings }, value: { host, recorded: true } }
 }
 

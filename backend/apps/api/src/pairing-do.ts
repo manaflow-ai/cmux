@@ -161,9 +161,9 @@ export class PairingDO extends DurableObject<Env> {
    * and the waiting box (now or on a later wait) hears `refused {reason:"revoked"}` instead of the
    * paired result. The row stays as a tombstone until the code's alarm. Idempotent.
    */
-  async serverRevoked(code: string, now: number): Promise<{ ok: boolean }> {
+  async serverRevoked(now: number): Promise<{ ok: boolean }> {
     const r = this.row(now, true)
-    if (!r || r.code !== code) return { ok: false }
+    if (!r) return { ok: false }
     if (r.refused === "revoked") return { ok: true }
     this.ctx.storage.sql.exec(`UPDATE pairing SET refused = 'revoked' WHERE id = 1`)
     for (const ws of this.ctx.getWebSockets()) {
@@ -198,6 +198,10 @@ export class PairingDO extends DurableObject<Env> {
   }
   async inviteVoid(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
     return this.invites.void(invite, reason, now)
+  }
+  /** The server this invite paired was revoked; addressed by object id (the caller never holds the code). */
+  async inviteRevoked(now: number): Promise<{ ok: boolean }> {
+    return this.invites.revoked(now)
   }
   async invitePaired(invite: string, code: string, host: string, now: number): Promise<{ ok: boolean }> {
     return this.invites.paired(invite, code, host, now)

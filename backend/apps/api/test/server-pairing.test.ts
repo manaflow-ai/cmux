@@ -58,7 +58,7 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     const ADMIN = "user_00000000000000000003"
     const start = { ...base(), members: { ...base().members, [ADMIN]: { user: ADMIN, role: "admin", display_name: "a" } } } as TeamState
     rows = new MemoryRows()
-    const pairing = { code: "7KQ4M2XD", invite: "ABCDE12345" }
+    const pairing = { pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
     const r = reduce(start, "server.enrolled", { ...enrolled, owner_user: ADMIN, approved_by: ADMIN }, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const host = (r.value as { id: string }).id
@@ -79,15 +79,15 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const host = (r.value as { id: string }).id
-    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, code: "7KQ4M2XD", invite: null }, ctx(null))
+    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }, ctx(null))
     if (!rec.ok) throw new Error(rec.message)
     const late = { ...ctx(OWNER), now: 1_000_000 + txn + 20 * 60_000 + 1 }
     const gone = reduce(rec.state as TeamState, "server.revoke", { host }, late)
     if (!gone.ok) throw new Error(gone.message)
     expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
-    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, code: "nope", invite: "x" }, ctx(null))).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, pairing_object: "7KQ4M2XD", invite_object: null }, ctx(null))).toMatchObject({ ok: false, code: "validation.invalid" })
     // Another install's host, or a host that is gone: nothing recorded.
-    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: "inst_00000000000000000077", code: "7KQ4M2XD", invite: null }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { recorded: false } })
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: "inst_00000000000000000077", pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { recorded: false } })
   })
 
   it("drops the replica of a server that signed itself out, as for a revoke; a sign-out that found no host drops nothing", () => {
@@ -100,7 +100,7 @@ describe("servers in the team directory (TeamDO reducer)", () => {
   })
 
   it("server.signed_out (the box's own install signed out) removes its host without queueing a revocation; a repeat changes nothing", () => {
-    const pairing = { code: "7KQ4M2XD", invite: null }
+    const pairing = { pairing_object: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invite_object: null }
     const enr = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!enr.ok) throw new Error(enr.message)
     const host = (enr.value as { id: string }).id

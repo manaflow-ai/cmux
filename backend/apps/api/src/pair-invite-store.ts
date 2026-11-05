@@ -181,6 +181,14 @@ export class InviteStore {
     return { ok: true, code: this.voidRow(r, reason) }
   }
 
+  /** The server this object's invite paired was revoked: void it `revoked`, whatever its state. Idempotent. */
+  async revoked(now: number): Promise<{ ok: boolean }> {
+    const r = this.row(now)
+    if (!r) return { ok: false }
+    if (r.state !== "voided") this.voidRow(r, "revoked")
+    return { ok: true }
+  }
+
   /** The inviter approved the box bound to this invite: tell the watcher. Idempotent. */
   async paired(invite: string, code: string, host: string, now: number): Promise<{ ok: boolean }> {
     const r = this.row(now)

@@ -134,11 +134,20 @@ export const beginWithInvite = async (
   return redeemed.reason === "unknown" ? notFound() : used()
 }
 
-/** Which pairing made a server: TeamDO keeps it a while after `server.enrolled` (domains/team-servers.ts). */
+/**
+ * Which pairing made a server, as the Durable Object ids of its PairingDO record and its invite
+ * (never the codes: TeamDO state and events reach every member). TeamDO keeps it a while after
+ * `server.enrolled` (domains/team-servers.ts).
+ */
 export interface ServerPairingRef {
-  readonly code: string
-  readonly invite: string | null
+  readonly pairing_object: string
+  readonly invite_object: string | null
 }
+
+export const serverPairingObjects = (env: Env, code: string, invite: string | null): ServerPairingRef => ({
+  pairing_object: env.PAIRING_DO.idFromName(code).toString(),
+  invite_object: invite ? env.PAIRING_DO.idFromName(`invite:${invite}`).toString() : null
+})
 
 /**
  * A server was revoked (server.revoke, or its box signed itself out): spend the pairing code that
@@ -147,8 +156,8 @@ export interface ServerPairingRef {
  * inviter's watcher hears `voided {reason:"revoked"}`. Both are idempotent.
  */
 export const revokeServerPairing = async (env: Env, pairing: ServerPairingRef, now = Date.now()): Promise<void> => {
-  await pairingStub(env, pairing.code).serverRevoked(pairing.code, now)
-  if (pairing.invite) await inviteStub(env, pairing.invite).inviteVoid(pairing.invite, "revoked", now)
+  await env.PAIRING_DO.get(env.PAIRING_DO.idFromString(pairing.pairing_object)).serverRevoked(now)
+  if (pairing.invite_object) await env.PAIRING_DO.get(env.PAIRING_DO.idFromString(pairing.invite_object)).inviteRevoked(now)
 }
 
 /** After an approval of an invited record completed: the inviter's watcher hears `paired`. */

@@ -594,7 +594,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; pairing?: { code: string; invite: string | null } },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; pairing?: { pairing_object: string; invite_object: string | null } },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
@@ -613,7 +613,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     // record only means a later revoke leaves those to expire on their own (minutes).
     if (pairing) {
       try {
-        this.submitSystem("server.pairing.recorded", { host: value.id, install: params.install, code: pairing.code, invite: pairing.invite }, `${idempotencyKey}:pairing`)
+        this.submitSystem("server.pairing.recorded", { host: value.id, install: params.install, pairing_object: pairing.pairing_object, invite_object: pairing.invite_object }, `${idempotencyKey}:pairing`)
       } catch (e) {
         console.error(JSON.stringify({ msg: "server pairing record failed", host: value.id, error: String(e) }))
       }
@@ -626,12 +626,12 @@ export class TeamDO extends OwnerDO<TeamState> {
    * committed by UserDO): its host leaves the directory (`server.signed_out`). Answers the host and
    * the pairing that made it, if it is still live, so the Worker can spend that code and invite.
    */
-  async serverSignedOut(entity: string, install: string): Promise<{ host: string | null; pairing?: { code: string; invite: string | null } }> {
+  async serverSignedOut(entity: string, install: string): Promise<{ host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }> {
     this.bind(entity)
     const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") throw new Error(reply && reply.t === "reject" ? `${reply.code}: ${reply.message}` : "server.signed_out: no reply")
-    return reply.value as { host: string | null; pairing?: { code: string; invite: string | null } }
+    return reply.value as { host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */

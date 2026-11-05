@@ -449,10 +449,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-shared",
       target: "host",
       principals: ["system"],
-      params: Schema.Struct({ host: HostId, install: InstallId, code: Schema.String, invite: Schema.NullOr(Schema.String) }),
+      params: Schema.Struct({ host: HostId, install: InstallId, pairing_object: Schema.String, invite_object: Schema.NullOr(Schema.String) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: the pairing code and invite that made a server, kept a while so a revoke can spend them.",
+      docs: "Internal: the Durable Object ids of the pairing record and invite that made a server (never the codes), kept a while so a revoke can spend them.",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

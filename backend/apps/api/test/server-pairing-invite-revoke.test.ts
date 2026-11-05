@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { b64u, beginPairing, call, op, read, sessionToken, waitFor, worker } from "./pairing-harness.ts"
+import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
 
 /**
  * Unpair and revoke for servers paired through an invite (workerd): `server.revoke` (the inviter,
@@ -100,6 +100,11 @@ describe("server.revoke of a server paired through an invite", { timeout: 60_000
     await before.until(() => before.closes.length > 0)
     expect(before.frames.at(-1)).toMatchObject({ t: "paired", host: p.result.host })
 
+    // TeamDO keeps only opaque object ids for the revoke: no team state carries the code or invite.
+    const kept = JSON.stringify(await (testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any).debug(p.owner.team))
+    expect(kept).not.toContain(p.code)
+    expect(kept).not.toContain(p.minted.invite)
+    expect(kept).toContain("server_pairings")
     const revoked = await op(p.owner.token, "server.revoke", { host: p.result.host })
     expect(revoked.json).toMatchObject({ ok: true, value: { host: p.result.host, install_revoked: true } })
     expect(revoked.json.value.pairing).toBeUndefined()
