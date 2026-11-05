@@ -100,9 +100,30 @@ impl WorkspaceRegistry {
         let Some(fold) = self.public_fold.as_ref() else { return Ok(deltas.clone()) };
         let changes = deltas.as_array().context("resource deltas are not an array")?;
         let mut kept = Vec::with_capacity(changes.len());
+        let mut diag_kinds: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut diag_sample: Option<String> = None;
         for change in changes {
             if fold.states(change) {
                 continue;
+            }
+            let key = format!(
+                "{}:{}",
+                change["kind"].as_str().unwrap_or("?"),
+                change["resource"].as_str().unwrap_or("?")
+            );
+            *diag_kinds.entry(key).or_default() += 1;
+            if diag_sample.is_none()
+                && change["kind"] == "upsert"
+                && matches!(change["resource"].as_str(), Some("tab") | Some("browser"))
+                && let (Some(resource), Some(id)) =
+                    (change["resource"].as_str(), change["id"].as_str())
+            {
+                let old = fold.values.get(&(resource.to_string(), id.to_string()));
+                diag_sample = Some(format!(
+                    "{resource} {id} old={} new={}",
+                    old.map(|v| v.to_string()).unwrap_or("NONE".into()),
+                    change["value"]
+                ));
             }
             let mut change = change.clone();
             if let Some(object) = change.as_object_mut()
@@ -111,6 +132,14 @@ impl WorkspaceRegistry {
                 object.insert("sequence".into(), Value::from(kept.len()));
             }
             kept.push(change);
+        }
+        if kept.len() > 20 {
+            eprintln!(
+                "DIAGFOLD in={} kept={} kinds={diag_kinds:?} sample={}",
+                changes.len(),
+                kept.len(),
+                diag_sample.unwrap_or_default()
+            );
         }
         Ok(Value::Array(kept))
     }
