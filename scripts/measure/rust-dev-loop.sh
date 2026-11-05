@@ -46,11 +46,19 @@ scratch="${CMUX_DEVLOOP_SCRATCH:-$HOME/.cache/cmux-rust-dev-loop}/run-$$"
 # A blaze daemon of that run can outlive its shell: stop it with its own binary and home first.
 for old in "${scratch%/*}"/run-*; do
   if [[ -d "$old" ]] && ! kill -0 "${old##*/run-}" 2>/dev/null; then
-    old_blaze="$(find "$old/blaze/bin" -type f -name blaze -perm -u+x 2>/dev/null | head -1)"
+    old_blaze=""
+    if [[ -d "$old/blaze/bin" ]]; then
+      old_blaze="$(find "$old/blaze/bin" -type f -name blaze -perm -u+x | head -1)"
+    fi
+    stopped=1
     for old_home in "$old"/cmux-rust-dev-loop-blaze-home-*; do
-      if [[ -n "$old_blaze" && -d "$old_home" ]]; then BLAZE_HOME="$old_home" timeout 30 "$old_blaze" stop || true; fi
+      if [[ -n "$old_blaze" && -d "$old_home" ]] \
+        && ! BLAZE_HOME="$old_home" "$root/scripts/blacksmith-bounded-command.sh" 30 "$old_blaze" stop; then
+        stopped=0
+      fi
     done
-    rm -rf "$old"
+    # A daemon that would not stop keeps its home: removing it under a live daemon is the bug.
+    if (( stopped )); then rm -rf "$old"; else echo "warning: kept $old: its blaze daemon did not stop"; fi
   fi
 done
 mkdir -p "$scratch"
