@@ -77,6 +77,8 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  hostTailOf,
+  type KeptTail,
   type TailHandOver,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
@@ -2423,7 +2425,12 @@ export class AcpmuxDirectClient {
   /// `handOverCurrentTail` keeps it, and returned for the request to carry (`handOver`) instead of
   /// a `chat.tail` of its own, which could reach the host after the pane's open had read it (#36650).
   tailHandOver(): TailHandOver | undefined {
-    this.rememberCurrentTail();
+    const kept = this.rememberCurrentTail(true, false);
+    const tail = kept && hostTailOf(kept.tail);
+    if (kept && tail) return { sessionId: kept.sessionId, tail };
+    // Nothing to carry, or nothing fits the host's bound: the host hears it as before (a tail cut
+    // to nothing forgets what it held).
+    if (kept) this.rememberCurrentTail();
     return undefined;
   }
 
@@ -3083,11 +3090,12 @@ export class AcpmuxDirectClient {
   /// (`replayThrough`, a fork's preview), would be kept half-read.
   ///
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
-  /// host alone and not into this page's map (tailCache.ts `rememberTail`).
-  private rememberCurrentTail(forThisPage = true): void {
+  /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
+  /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
-    if (this.attachedGeneration !== this.selectionGeneration) return;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
+    if (this.attachedGeneration !== this.selectionGeneration) return undefined;
     const events = this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
@@ -3104,22 +3112,20 @@ export class AcpmuxDirectClient {
         }
       }
     }
-    rememberTail(
-      sessionId,
-      {
-        events,
-        // The machine and session its rows are of, which the attach's detail does not name
-        // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
-        summary: this.provenSummary(),
-        turnOpener,
-        // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-        historyExhausted: this.historyExhausted && events.length === this.events.length,
-        queue: this.queue,
-        configSeq: this.configSeq,
-        usageFromSeq: this.usageFromSeq,
-      },
-      forThisPage,
-    );
+    const tail: KeptTail = {
+      events,
+      // The machine and session its rows are of, which the attach's detail does not name
+      // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
+      summary: this.provenSummary(),
+      turnOpener,
+      // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
+      historyExhausted: this.historyExhausted && events.length === this.events.length,
+      queue: this.queue,
+      configSeq: this.configSeq,
+      usageFromSeq: this.usageFromSeq,
+    };
+    rememberTail(sessionId, tail, forThisPage, toHost);
+    return { sessionId, tail };
   }
 
   /// The summary a kept tail carries: the row as listed now, but naming only the machine and the

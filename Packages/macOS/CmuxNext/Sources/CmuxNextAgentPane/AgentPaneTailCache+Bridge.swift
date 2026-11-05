@@ -39,6 +39,9 @@ extension AgentPaneTailCache {
     /// awaited, so it could land after that read and the pane opened cold (#36650). A page from
     /// before a sign-out (`pageGeneration`) hands nothing over, as its `chat.tail` writes nothing.
     static func keepHandOver(of method: String, params: [String: Any]?, pageGeneration: UInt64) {
+        guard method == "chat.subagentPane", let handOver = params?["handOver"] as? [String: Any],
+              handOver["tail"] != nil, pageGeneration == shared.generation else { return }
+        _ = reply(to: "chat.tail", params: handOver)
     }
 
     /// `chat.tail {sessionId, tail?}` and `chat.tail.get {sessionId}` from the pane's own host

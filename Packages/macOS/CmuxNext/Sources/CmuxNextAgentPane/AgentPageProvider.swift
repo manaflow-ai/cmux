@@ -386,6 +386,7 @@ public final class AgentPageProvider: PageProvider {
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        AgentPaneTailCache.keepHandOver(of: method, params: params.foundationObject as? [String: Any], pageGeneration: tailGeneration)
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

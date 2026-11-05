@@ -83,13 +83,14 @@ export async function openSubagentPane(
   tone?: number,
   handOver?: unknown,
 ): Promise<boolean> {
-  void handOver;
   try {
     const reply = await call("chat.subagentPane", {
       subagent: id,
       focus,
       ...(title ? { title } : {}),
       ...(tone !== undefined ? { tone } : {}),
+      // The chat's tail, kept by the host before it opens the pane (tailCache.ts `TailHandOver`).
+      ...(handOver && typeof handOver === "object" ? { handOver } : {}),
     });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {

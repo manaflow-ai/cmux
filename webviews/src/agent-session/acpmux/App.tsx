@@ -8292,8 +8292,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         here: setSubagentView,
         title: subagentTitleRef.current(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
-        // Seed a new pane from this chat's kept tail before its own attach answers.
-        beforeOpen: () => directClient.current?.handOverCurrentTail(),
+        // Seed a new pane from this chat's kept tail before its own attach answers: carried on the
+        // pane's request, so the host holds it before it decides how the pane opens (#36650).
+        beforeOpen: () => directClient.current?.tailHandOver(),
       }),
     [autoOpenSubagents],
   );
