@@ -172,6 +172,15 @@ public final class CornerChaosView: NSView {
     /// The gutter between the sidebar and the card (at least 4 pt, so the marks have a lane).
     private var gutter: CGFloat { max(4, Metrics.mainPaneGutter) }
 
+    /// The tangent point: where the sidebar's edge (the middle of the gutter, or the divider when the
+    /// pane is flush) meets the bottom of the tab strip along the card's top. Lines turn here.
+    private func junction(_ card: CGRect) -> CGPoint {
+        CGPoint(x: px(card.minX - max(1, Metrics.mainPaneGutter / 2)), y: px(card.minY + Metrics.tabStripHeight))
+    }
+
+    /// The radius lines turn the corner with: the card's own, or the tab's when the card is square.
+    private func turnRadius(_ geometry: Geometry) -> CGFloat { max(8, geometry.cardRadius) }
+
     // MARK: Liquid
 
     /// The selected row's fill flows across the gutter into the card: a band as tall as the row,
@@ -185,12 +194,12 @@ public final class CornerChaosView: NSView {
         }
         let rowRadius = min(geometry.rowRadius, row.height / 2)
         let edge = geometry.card.minX
-        let flare = min(row.height / 2, max(6, gutter + 2))
+        let flare = min(row.height / 2, max(10, gutter + 4))
         // Local coordinates: x as in the view, y from the row's top.
         let height = row.height
         let start = row.maxX - rowRadius
         let width = max(0, edge - flare - start)
-        let pinch = height * 0.16
+        let pinch = height * 0.2
         let path = CGMutablePath()
         path.move(to: CGPoint(x: start, y: 0))
         path.addCurve(to: CGPoint(x: edge - flare, y: 0), control1: CGPoint(x: start + width * 0.45, y: pinch),
@@ -203,9 +212,10 @@ public final class CornerChaosView: NSView {
         path.addCurve(to: CGPoint(x: start, y: height), control1: CGPoint(x: edge - flare - width * 0.3, y: height - pinch),
                       control2: CGPoint(x: start + width * 0.45, y: height - pinch))
         path.closeSubpath()
-        // Leave out the row's own rounded fill and everything from the card's edge on.
-        let rowShape = CGPath(roundedRect: CGRect(x: row.minX, y: 0, width: row.width, height: height),
-                              cornerWidth: rowRadius, cornerHeight: rowRadius, transform: nil)
+        // Leave out the row's own rounded fill (all but a half-point overlap, so the two antialiased
+        // edges never leave a light seam) and everything from the card's edge on.
+        let rowShape = CGPath(roundedRect: CGRect(x: row.minX, y: 0, width: row.width, height: height).insetBy(dx: 0.5, dy: 0.5),
+                              cornerWidth: max(0, rowRadius - 0.5), cornerHeight: max(0, rowRadius - 0.5), transform: nil)
         let cardSide = CGPath(rect: CGRect(x: edge, y: -flare - 2, width: 4, height: height + 2 * flare + 4), transform: nil)
         liquid.path = path.subtracting(rowShape).subtracting(cardSide)
         liquid.fillColor = Palette.selectionFill.cgColor
@@ -217,14 +227,13 @@ public final class CornerChaosView: NSView {
 
     // MARK: Circuit
 
-    /// One line that runs up the gutter beside the sidebar, turns the corner concentric with the
-    /// card's, and runs along the gutter above the tab strip: the vertical and the horizontal as a
-    /// single path. A radial gradient lights it brightest at the tangent point and lets both ends
+    /// One line that runs up the sidebar's edge, turns the corner at the bottom of the tab strip and
+    /// runs along it: the vertical and the horizontal as a single path. A radial gradient lights it brightest at the tangent point and lets both ends
     /// fade out, with a soft glow under a sharp core; a node rides the line at the selected row.
     private func drawCircuit(_ geometry: Geometry, animated: Bool) {
-        let card = geometry.card, inset = px(gutter / 2)
-        let lineX = card.minX - inset, lineY = card.minY - inset
-        let radius = geometry.cardRadius + inset
+        let card = geometry.card, point = junction(card)
+        let lineX = point.x, lineY = point.y
+        let radius = turnRadius(geometry)
         let path = CGMutablePath()
         path.move(to: CGPoint(x: lineX, y: card.maxY))
         path.addLine(to: CGPoint(x: lineX, y: lineY + radius))
@@ -263,15 +272,14 @@ public final class CornerChaosView: NSView {
 
     // MARK: Bracket
 
-    /// A HUD corner, as a game's target reticle or a Teenage Engineering panel: two legs in the
-    /// gutter joined by a 45° chamfer tangent to the card's corner, with measured ticks that step
+    /// A HUD corner, as a game's target reticle or a Teenage Engineering panel: a leg up the
+    /// sidebar's edge and a leg along the bottom of the tab strip, joined by a 45° chamfer, with measured ticks that step
     /// out along each leg and a chamfered pointer that marks the selected row.
     private func drawBracket(_ geometry: Geometry, animated: Bool) {
-        let card = geometry.card, inset = px(gutter / 2)
-        let lineX = card.minX - inset, lineY = card.minY - inset
-        // The chamfer touches the concentric arc of radius cardRadius + inset at 45°.
-        let arcRadius = geometry.cardRadius + inset
-        let cut = px(max(4, 2 * geometry.cardRadius - arcRadius * 2.squareRoot() + 2 * inset))
+        let card = geometry.card, point = junction(card)
+        let lineX = point.x, lineY = point.y
+        // The chamfer cuts the turn at 45°, as long as the turn's radius.
+        let cut = px(turnRadius(geometry))
         let leg: CGFloat = 64, tick: CGFloat = 4, step: CGFloat = 8
         let path = CGMutablePath()
         path.move(to: CGPoint(x: lineX, y: lineY + cut + leg))
@@ -313,17 +321,15 @@ public final class CornerChaosView: NSView {
 
     // MARK: Seal
 
-    /// The corner as a live element: a round seal on the tangent point, filled with the selected
+    /// The corner as a live element: a round seal on the sidebar's edge beside the tab strip, filled with the selected
     /// workspace's color (else the accent) and lettered with its initial, ringed in the chrome color
     /// so it reads as the joint between the sidebar and the strip, with a hairline orbit around it.
     /// A new workspace pops it (`Motion.sidebar`, `appear`).
     private func drawSeal(_ geometry: Geometry, animated: Bool) {
-        let card = geometry.card, inset = gutter / 2
-        let arcRadius = geometry.cardRadius + inset
-        let arcCenter = CGPoint(x: card.minX + geometry.cardRadius, y: card.minY + geometry.cardRadius)
-        let diagonal = arcRadius / 2.squareRoot()
-        let center = CGPoint(x: px(arcCenter.x - diagonal), y: px(arcCenter.y - diagonal))
-        let diameter: CGFloat = 20, ring: CGFloat = 2, orbit: CGFloat = 30
+        let card = geometry.card, point = junction(card)
+        // On the sidebar's edge, level with the middle of the tab strip: the joint the strip hangs from.
+        let center = CGPoint(x: point.x, y: px(card.minY + Metrics.tabStripHeight / 2))
+        let diameter: CGFloat = 18, ring: CGFloat = 2, orbit: CGFloat = 26
         seal.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
         seal.position = center
         seal.path = CGPath(ellipseIn: seal.bounds.insetBy(dx: ring / 2, dy: ring / 2), transform: nil)
