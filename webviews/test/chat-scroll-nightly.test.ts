@@ -393,6 +393,8 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       await startWatch(page);
       // A trackpad's uneven steps, in rounds so older pages land while the wheel is moving.
       const traces = [];
+      const driftLog: string[] = [];
+      const roundLog: string[] = [];
       try {
         // On up to the chat's first prompt: every older page lands under the wheel, the last one
         // included, which gives back whatever room the estimate left over.
@@ -401,6 +403,19 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
             await page.evaluate(traceUpwardAnchors, {
               steps: Array.from({ length: 90 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!),
               restFrames: 6,
+            }),
+          );
+          const trace = traces.at(-1)!;
+          for (const sample of trace.samples)
+            if (sample.drift !== null && Math.abs(sample.drift) > 1 && driftLog.length < 8)
+              driftLog.push(
+                `round ${round} frame ${sample.frame}: ${sample.anchorId} moved ${sample.drift.toFixed(2)} px (wheel ${sample.wheelPixels.toFixed(1)}, top ${Math.round(sample.scrollTop)})`,
+              );
+          roundLog.push(
+            await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              const room = document.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? "0";
+              return `room ${room} top ${Math.round(scroller.scrollTop)} height ${scroller.scrollHeight}`;
             }),
           );
           if (await page.evaluate(atFirstPrompt)) break;
@@ -429,6 +444,8 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         engine: name,
         pages,
         reachedFirst,
+        driftLog,
+        roundLog,
         streamed,
         anchors,
         ...seen,
