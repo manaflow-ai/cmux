@@ -12,6 +12,7 @@ import WebKit
 /// background of its own looks as before. While the loading background holds (`WebKitTab+LoadingBackground`) WebKit paints
 /// that layer clear whatever this color is.
 extension WebKitTab {
+    // crash-allow: a string selector traps only when sent unanswered; every send below checks responds(to:) first and skips it on a WebKit without the setter (as WebKitGestureFreeEvaluation).
     private static var setBackgroundColor: Selector { NSSelectorFromString("_setBackgroundColor:") }
 
     /// The document's background as `[r, g, b]` (0-255): the root element's, else the body's; null when neither has one

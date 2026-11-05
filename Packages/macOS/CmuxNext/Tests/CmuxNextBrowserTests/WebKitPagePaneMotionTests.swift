@@ -129,6 +129,9 @@ import WebKit
                                baseURL: URL(string: "https://gap.example/"))
         try #require(await Self.poll { !webView.isLoading && webView.url?.host == "gap.example" },
                      "SETUP: the page did not load")
+        // The read at the load applies first, so only the read when the key resize starts can show the new color.
+        try #require(await Self.poll { Self.isColor(webView.layer?.backgroundColor, [250, 250, 250]) },
+                     "SETUP: the color read at the load did not apply")
         _ = try await webView.evaluateJavaScript("document.documentElement.style.background = 'rgb(16, 48, 80)'; 0")
 
         pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
@@ -171,10 +174,13 @@ import WebKit
                 "the page shown again is \(parked.frame.size), not its page area \(pane.chrome.contentContainer.bounds.size)")
     }
 
-    static func isPageColor(_ color: CGColor?) -> Bool {
+    static func isPageColor(_ color: CGColor?) -> Bool { isColor(color, [16, 48, 80]) }
+
+    /// Whether `color` is `rgb` (0-255 sRGB), within 2 per channel.
+    static func isColor(_ color: CGColor?, _ rgb: [Double]) -> Bool {
         guard let srgb = CGColorSpace(name: CGColorSpace.sRGB),
               let parts = color?.converted(to: srgb, intent: .defaultIntent, options: nil)?.components, parts.count >= 3 else { return false }
-        return zip(parts.prefix(3), [16.0, 48, 80]).allSatisfy { abs($0 * 255 - $1) <= 2 }
+        return zip(parts.prefix(3), rgb).allSatisfy { abs($0 * 255 - $1) <= 2 }
     }
 
     /// Polls `condition` every 20 ms for up to `seconds`, letting the run loop turn between checks.
