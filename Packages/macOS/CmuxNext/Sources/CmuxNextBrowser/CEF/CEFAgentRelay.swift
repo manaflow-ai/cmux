@@ -87,6 +87,13 @@ public final class CEFAgentRelay {
         tab.host.ensureCreated(tab)
     }
 
+    /// Creates the browser in the background when it has none (``createBrowser()``) and awaits it
+    /// (``browserCreated()``): true once it exists. Agents drive hidden tabs.
+    public func started() async -> Bool {
+        if !hasBrowser { createBrowser() }
+        return await browserCreated()
+    }
+
     /// Resumes with true once the browser exists, false when its creation
     /// failed, the tab closed, or the waiting task was cancelled.
     public func browserCreated() async -> Bool {

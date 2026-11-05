@@ -26,6 +26,7 @@ pub mod op_names {
     pub const CALENDAR_EVENT_CREATE: &str = "calendar.event.create";
     pub const CALENDAR_EVENT_RESPOND: &str = "calendar.event.respond";
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
+    pub const CHANNEL_CREATE: &str = "channel.create";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
     pub const CHIEF_DELETE: &str = "chief.delete";
@@ -251,6 +252,7 @@ pub mod op_names {
         CALENDAR_EVENT_CREATE,
         CALENDAR_EVENT_RESPOND,
         CALENDAR_EVENTS_LIST,
+        CHANNEL_CREATE,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
         CHIEF_DELETE,
@@ -479,6 +481,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "calendar.event.create" => visitor.visit::<CalendarEventCreateOp>(),
         "calendar.event.respond" => visitor.visit::<CalendarEventRespondOp>(),
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
+        "channel.create" => visitor.visit::<ChannelCreateOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
         "chief.delete" => visitor.visit::<ChiefDeleteOp>(),

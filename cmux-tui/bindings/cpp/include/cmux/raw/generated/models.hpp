@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
+inline constexpr std::string_view kProtocolIrSha256 = "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -920,6 +920,7 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> replay_history_rows{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -6095,6 +6096,7 @@ struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     Base64 data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};

@@ -32,6 +32,7 @@ cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
+cmux-conductor-import.workspace = true
 cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true

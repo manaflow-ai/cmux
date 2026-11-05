@@ -6,8 +6,10 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// No agent starts here; the sign-in CLIs are the stand-ins below.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// No agent starts here; the sign-in CLIs are the stand-ins below. ACPMUX_HOT_MODULE passes through so
+// crates/acpmux-hot/bench.sh can run this sign-in with the parser from a dev module (it does nothing
+// unless the `hot-modules` feature is on).
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX_HOT_MODULE"]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

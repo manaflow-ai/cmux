@@ -175,6 +175,9 @@ fn a_message_deleted_while_the_chief_was_down_leaves_its_memory_on_reconnect_and
 
     // The owner puts the text back in the Memory Inspector; the next
     // reconnect does not delete it again.
+    // As the Memory Inspector does: an undo while the delete's summaries rebuild answers
+    // 409 "try again" (Editor::undo), so the owner's undo comes once they are rebuilt.
+    assert!(editor.wait_rebuilt(WAIT), "the delete's summaries rebuild");
     let change = editor.changes()["changes"][0]["id"].as_u64().unwrap();
     editor
         .answer("/api/memory/undo", &[("change".into(), change.to_string())])

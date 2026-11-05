@@ -6146,6 +6146,57 @@
         ]
       }
     },
+    "/v1/machines/credentials/self/revoke": {
+      "post": {
+        "description": "Revoke the calling machine credential using its own bearer, and drop the machine's rows from the mesh address book. Repeating it answers 401 machine.revoked. A hub that does not offer it answers 404; revoke the machine from a signed-in device instead.",
+        "operationId": "machineRedeem.revokeSelf",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "<No Content>"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "machine.unknown: the machine credential is unknown. machine.revoked: the machine credential is revoked. machine.unauthorized: the replacement proof is invalid."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinNotFoundEncoded"
+                }
+              }
+            },
+            "description": "machine.not_found: the machine was not found; check the machine id."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnavailableEncoded"
+                }
+              }
+            },
+            "description": "machine.join.unavailable: machine onboarding is unavailable; retry later."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "Revoke the calling machine credential",
+        "tags": [
+          "Machine join redemption"
+        ]
+      }
+    },
     "/v1/machines/credentials/{machineId}/revoke": {
       "post": {
         "description": "Revoke an enrolled machine credential so it can no longer authenticate. Repeating the operation is idempotent for an existing machine; redeem a new join credential to re-enroll it.",

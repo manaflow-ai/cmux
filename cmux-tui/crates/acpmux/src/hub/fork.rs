@@ -331,11 +331,14 @@ impl Hub {
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            Some(crate::folder_instructions::retarget(
-                crate::context_inventory::snapshot(&cfg, &cwd),
-                &family,
-                &cwd,
-            ))
+            let parts = crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness);
+            // A native fork's agent keeps the parent's transcript, the old folder's
+            // instructions in it: the new ones say those no longer apply.
+            if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
+                Some(crate::folder_instructions::moved(parts, &family, &cwd, &parent_meta.cwd))
+            } else {
+                Some(crate::folder_instructions::retarget(parts, &family, &cwd))
+            }
         } else {
             parent_meta.cmux_context.clone()
         };
@@ -459,6 +462,7 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             pull_requests: vec![],
+            touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
             } else {
