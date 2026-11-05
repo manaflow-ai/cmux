@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -156,5 +157,30 @@ struct AcpmuxLaunchSecurityTests {
         let systemBinary = URL(fileURLWithPath: "/bin/ls")
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
+    }
+
+    /// The nightly hang reports of 2026-11-05: `resolve`'s signature check read the whole acpmux
+    /// file on the main thread (1.7-2.1 s each, `GitHubAppLease` and `QuitAgents` callers). The
+    /// check `resolve` makes now reads the signed code directory only, so a copy whose code pages
+    /// changed after signing still passes it, and the launch gate (`.strict`) still refuses it.
+    @Test func resolvesCheckReadsTheCodeDirectoryAndTheLaunchGateReadsEveryPage() throws {
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-sig-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: copy)
+        var requirement: SecRequirement?
+        #expect(SecRequirementCreateWithString("anchor apple" as CFString, [], &requirement) == errSecSuccess)
+        let anchor = try #require(requirement)
+        #expect(AcpmuxServerPeer.signatureValid(copy, requirement: anchor, validation: .strict))
+        // One byte of the first slice's code (its second 16 KiB page), past the headers and well
+        // before the signature at the slice's end.
+        var bytes = try Data(contentsOf: copy)
+        let fat = bytes.prefix(4).elementsEqual([0xCA, 0xFE, 0xBA, 0xBE])
+        let slice = fat ? bytes[16..<20].reduce(0) { $0 << 8 | Int($1) } : 0
+        bytes[slice + 0x4100] ^= 0xFF
+        try bytes.write(to: copy)
+
+        #expect(!AcpmuxServerPeer.signatureValid(copy, requirement: anchor, validation: .strict))
+        #expect(AcpmuxServerPeer.signatureValid(copy, requirement: anchor, validation: .codeDirectory))
+        #expect(AcpmuxEnvironment.resolveValidation == .codeDirectory)
     }
 }
