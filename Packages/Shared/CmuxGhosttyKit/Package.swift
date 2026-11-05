@@ -124,9 +124,9 @@ import PackageDescription
 // empty transaction on the GPU completion thread), and one shared drop rule
 // with its test (#77).
 //
-// Since 12ec155e1..706c6963a (ghostty-next PR #74 and its sync-line ports
-// #76, #78, #80 of #75, #77, #79; same source tree as the sync head
-// 30db97abe): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// Since 12ec155e1..383b27d73 (ghostty-next main after PR #74, which merged
+// both the release line up to 12ec155e1 and its sync-line ports #76, #78,
+// #80; same source tree as 706c6963a): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
 // after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
 // start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
 // a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
@@ -156,8 +156,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-706c6963a17d1861f2bcc44257f735e543d559f8-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "b6c617d988219fc8e8876938b9d97adf952baf578d8a49e792c193971de473c6"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-383b27d73717a538af3c8b1e21a39995517cb3bd-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "2fb83b927e21c98846060d6b85f8517e8de7ff688c9f715af6dba1f4d0050e3d"
         ),
     ]
 )
