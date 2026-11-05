@@ -35,6 +35,11 @@ const CLI_FLAGS: &[&str] = &[
     "session", "timeout",
 ];
 
+/// Flags a CLI scope takes for itself before the words reach the app: `chat
+/// send`'s `--from`/`--as` (the sender label) and `--class` are read by
+/// chief/chat_scope.rs, which rewrites the words without them.
+const SCOPE_FLAGS: &[(&str, &[&str])] = &[("chat send", &["from", "as", "class"])];
+
 struct Action {
     id: String,
     cli_name: String,
@@ -314,6 +319,11 @@ fn cli_name_at(
     index: usize,
     by_cli: &BTreeMap<String, usize>,
 ) -> Option<(usize, usize)> {
+    // A call's words start its list (`["cloud", "relay-chat", ..]`); words in the middle of one
+    // (`["screen", SCREEN, "layout", "undo"]`) are some other command's.
+    if index > 0 && !matches!(tokens.get(index - 1), Some((Token::Punct('[' | '('), _))) {
+        return None;
+    }
     let mut words = Vec::new();
     let mut probe = index;
     while words.len() < 4 {
@@ -434,7 +444,10 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
             Token::Str(text) if is_flag(text) => {
                 if let Some((action, _)) = current {
                     let flag = &text[2..];
-                    if !CLI_FLAGS.contains(&flag) {
+                    let scope_flag = SCOPE_FLAGS.iter().any(|(name, flags)| {
+                        *name == actions[action].cli_name && flags.contains(&flag)
+                    });
+                    if !CLI_FLAGS.contains(&flag) && !scope_flag {
                         report(*line, action, wire_name(flag), &mut drift);
                     }
                 }
