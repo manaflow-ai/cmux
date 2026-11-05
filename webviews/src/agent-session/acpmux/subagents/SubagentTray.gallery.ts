@@ -437,6 +437,21 @@ const runningStopChat = chat(
   { isWorking: true },
 );
 
+const harnessIdentityChat = chat(
+  [
+    user("Keep the harness identities visible while the checks run", 4),
+    group(
+      [
+        agent("Review Claude", 3.2, "running", { harness: "claude", action: "Read the review" }),
+        agent("Review Codex", 2.4, "running", { harness: "codex", action: "Check the diff" }),
+        agent("Unknown helper", 1.8, "completed", { action: "Summarize the result" }),
+      ],
+      3.2,
+    ),
+  ],
+  { isWorking: true },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -585,6 +600,19 @@ export default agentPaneEntry({
       note: 'The default running line (Leo, 2026-11-03: "do we really need a running symbol vs just having the time and a square stop button?"): its own mark, its task, its ticking time and a filled square Stop in the text colour, as Claude Desktop\'s Background tasks rows read; no spinner, no Running word. The done line keeps Done · its time.',
       play: runningStop("solid"),
       snapshot: runningStopChat,
+    },
+    "harness-identity": {
+      note: "The dock keeps Claude and Codex harness marks in each row and the stacked header, with a stable toned sparkle fallback for an unknown harness.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const marks = tray.querySelectorAll('.acpmux-agent-line .acpmux-lineage__icon [data-identity-look="tint"]');
+        if (marks.length !== 3) throw new Error(`expected three toned identity marks, got ${marks.length}`);
+        const stack = tray.querySelector(".acpmux-running-tray__stack");
+        if (!stack || stack.querySelectorAll(".acpmux-running-tray__stack-mark").length !== 3)
+          throw new Error("the stacked header does not retain all three identity marks");
+      },
+      snapshot: harnessIdentityChat,
     },
     "running-stop-muted": {
       note: "The same running lines with the filled square Stop muted, the time's tone.",

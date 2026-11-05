@@ -50,6 +50,10 @@
 .acpmux-summary-subsession__unread{flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-text)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:.5px solid var(--agent-border)}
 .acpmux-summary-title{margin:0;padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail);font-weight:var(--weight-emphasis);line-height:16px;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-summary-subagents-heading{display:flex;align-items:center;gap:var(--grid-gap);padding:var(--grid-gap) var(--grid-gap) var(--grid-base);line-height:var(--text-detail--line-height)}
+.acpmux-summary-subagents-heading .acpmux-summary-title__button{gap:var(--grid-gap);margin:calc(-1 * var(--grid-base) / 2) calc(-1 * var(--grid-base));padding:calc(var(--grid-base) / 2) var(--grid-base)}
+.acpmux-summary-subagents-heading__marks{display:inline-flex;flex:none;align-items:center}
+.acpmux-summary-subagents-heading__text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* A section title with a control at its end (Sources' +): the title keeps its padding, the button its close button's look. */
 .acpmux-summary-heading{display:flex;align-items:center;justify-content:space-between;padding-right:2px}
 .acpmux-summary-add{flex:none;display:grid;place-items:center;width:22px;height:22px;margin-top:var(--ds-space-1);padding:0;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -70,13 +74,12 @@
 .acpmux-summary-link[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-summary-link[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-summary-more{display:block;width:100%;height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-summary-stack{flex:none;display:flex;padding-left:var(--ds-space-1)}
-.acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}
-.acpmux-summary-dot[data-tone="1"]{background:var(--agent-ansi-2,#3fb950)}
-.acpmux-summary-dot[data-tone="2"]{background:var(--agent-ansi-6,#39c5cf)}
-.acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
-.acpmux-summary-dot[data-state=failed]{background:var(--agent-status-failure)}
-.acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
+.acpmux-summary-subagents{height:var(--grid-row);gap:var(--grid-gap);padding-inline:var(--grid-gap)}
+.acpmux-summary-stack{flex:none;display:flex;align-items:center}
+/* Reserve a scaled box; scale the whole mark, including custom artwork and its identity badge. */
+.acpmux-summary-mark,.acpmux-summary-subagents-heading__mark{position:relative;display:inline-flex;flex:none;width:var(--grid-icon-box);height:var(--grid-icon-box);align-items:center;justify-content:center;box-sizing:border-box}
+.acpmux-summary-mark+.acpmux-summary-mark,.acpmux-summary-subagents-heading__mark+.acpmux-summary-subagents-heading__mark{margin-inline-start:calc(-1 * var(--grid-base))}
+.acpmux-summary-mark>.acpmux-agent-identity,.acpmux-summary-subagents-heading__mark>.acpmux-agent-identity{transform:scale(var(--cmux-interface-scale,1));transform-origin:center}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:var(--ds-space-1);margin:-2px -4px;padding:2px 4px;border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
@@ -107,13 +110,12 @@
 .acpmux-lineage__icon{position:relative;flex:none;display:inline-flex;color:var(--agent-muted)}
 /* The card slides in from the pane's right edge and back out (ui/presence.ts, data-presence): the inline column travels its own width inside the pane (the shell clips it), so the chat lays out once, not on every frame; the popover travels the shared few points. */
 .acpmux-summary-card[data-placement=inline]{--ui-enter-distance:100%}
-/* Static status indicators (cx-sya4n): a shape per state, not color alone. A subagent dot carries
-   a check when done and a cross when it failed. */
-:root[data-status-indicators=static] .acpmux-summary-dot{position:relative}
-:root[data-status-indicators=static] .acpmux-summary-dot::after{position:absolute;inset:0;display:grid;place-items:center;font-size:var(--text-caption);transform:scale(.75);font-weight:var(--weight-emphasis);line-height:1;color:var(--surface-popup);letter-spacing:var(--text-caption--letter-spacing)}
-:root[data-status-indicators=static] .acpmux-summary-dot[data-state=done]::after{content:"✓"}
-:root[data-status-indicators=static] .acpmux-summary-dot[data-state=failed]::after{content:"✕"}
-:root[data-status-indicators=static] .acpmux-summary-dot[data-state=running]::after{content:"";inset:var(--ds-space-1);border-radius:50%;background:var(--surface-popup)}
+/* Static status keeps its check, cross and running ring as a small corner cue. It is overlaid in
+   the reserved mark box, so status updates never move the stack or hide custom identity artwork. */
+:root[data-status-indicators=static] .acpmux-summary-mark::after{position:absolute;inset-inline-end:calc(-1 * var(--grid-base) / 2);top:50%;width:calc(2 * var(--grid-base));height:calc(2 * var(--grid-base));box-sizing:border-box;display:grid;place-items:center;transform:translateY(-50%);font-size:var(--text-caption);font-weight:var(--weight-emphasis);line-height:1;color:var(--agent-muted)}
+:root[data-status-indicators=static] .acpmux-summary-mark[data-state=done]::after{content:"✓"}
+:root[data-status-indicators=static] .acpmux-summary-mark[data-state=failed]::after{content:"✕";color:var(--agent-status-failure)}
+:root[data-status-indicators=static] .acpmux-summary-mark[data-state=running]::after{content:"";border:var(--cmux-hairline) solid currentColor;border-radius:50%}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--cmux-surface-solid,var(--agent-page-bg)) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 /* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */

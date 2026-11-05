@@ -206,7 +206,8 @@ const workflow: WorkflowSummary = {
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
 const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(GALLERY_NOW), "gallery-session");
 
-/// Two subagents, one still running, for the Subagents title and tab.
+/// Three subagents with two harness families, for the Subagents title and tab. The same identity
+/// marks are shown in the inline dock and the popover, with the legacy summary fallback below.
 const liveSubagentRows = [
   ...rows,
   row("subagents", 1, {
@@ -218,6 +219,7 @@ const liveSubagentRows = [
         parent: null,
         state: "running",
         startedAt: minutesAgo(3),
+        harness: "claude",
       },
       {
         id: "check-links",
@@ -227,6 +229,17 @@ const liveSubagentRows = [
         state: "completed",
         startedAt: minutesAgo(3),
         endedAt: minutesAgo(1),
+        harness: "codex",
+      },
+      {
+        id: "run-tests",
+        name: "Run tests",
+        task: "Run the focused tests",
+        parent: null,
+        state: "completed",
+        startedAt: minutesAgo(2),
+        endedAt: minutesAgo(1),
+        harness: "claude",
       },
     ],
   }),
@@ -249,7 +262,12 @@ export default componentEntry<Props>({
   pane: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/session-info/ChildSessionRows.tsx"],
+  covers: [
+    "agent-session/acpmux/summary/SummaryTasks.tsx",
+    "agent-session/acpmux/session-info/ChildSessionRows.tsx",
+    "agent-session/acpmux/summary/SubagentStack.tsx",
+    "agent-session/acpmux/summary/SubagentStatusList.tsx",
+  ],
   load: async () => GallerySummaryCard,
   variants: {
     "nested-sources-menu": {
@@ -275,11 +293,11 @@ export default componentEntry<Props>({
       props: { popover: true, rows: legacySubagentRows, background: background(processes.slice(0, 2)) },
     },
     "popover-subagents": {
-      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
+      note: "A narrow pane's popover with three live/done subagents across Claude and Codex: the Subagents header keeps its real harness stack and opens the tab.",
       props: { popover: true, rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
     },
     "inline-subagents": {
-      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary.",
+      note: "The inline Summary column with the same Claude/Codex subagents: its header keeps the same real harness marks before the counts.",
       props: { rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
     },
     "preview-tab-row": {

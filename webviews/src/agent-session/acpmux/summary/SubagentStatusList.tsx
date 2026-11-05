@@ -29,13 +29,46 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { orderedSubagents } from "./subagentOrder";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_STACK: readonly SummarySubagent[] = [];
+
+function subagentHeading(
+  heading: string,
+  agents: readonly Subagent[],
+  stack: readonly SummarySubagent[],
+  chatHarness: string | undefined,
+) {
+  const marks = agents.length > 0 ? agents.slice(0, 4) : stack.slice(0, 4);
+  return (
+    <>
+      {marks.length > 0 && (
+        <span className="acpmux-summary-subagents-heading__marks" data-subagent-heading-marks aria-hidden="true">
+          {marks.map((agent, index) => (
+            <span
+              key={agent.id}
+              className="acpmux-summary-subagents-heading__mark"
+              style={{ zIndex: marks.length - index }}
+            >
+              <AgentIdentity
+                harness={agent.harness ?? chatHarness}
+                tone={agentTone(agent.id)}
+                size={ROW_ICON}
+                fallback={SUBAGENT_FALLBACK}
+                look="tint"
+              />
+            </span>
+          ))}
+        </span>
+      )}
+      <span className="acpmux-summary-subagents-heading__text">{heading}</span>
+    </>
+  );
+}
 
 /// What a row says of its subagent: a subagent that asks the user for a permission or an answer
 /// is waiting on them, not running; a cancelled (stopped by the person) or disconnected (lost by
@@ -196,14 +229,14 @@ export function SubagentStatusList({
       : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
-      <h3 className="acpmux-summary-title">
+      <h3 className="acpmux-summary-title acpmux-summary-subagents-heading">
         {onShowAll ? (
           <button type="button" className="acpmux-summary-title__button" onClick={onShowAll}>
-            <span className="acpmux-summary-title__text">{heading}</span>
+            {subagentHeading(heading, agents, stack, chatHarness)}
             <Icon name="disclosure.collapsed" size={12} />
           </button>
         ) : (
-          heading
+          subagentHeading(heading, agents, stack, chatHarness)
         )}
       </h3>
       <ul className="acpmux-summary-list">
@@ -216,7 +249,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={foreignHarness(agent.harness, chatHarness)}
+                mark={agent.harness ?? chatHarness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

@@ -17,7 +17,13 @@ export type { PullRequestState, SummaryPullRequest } from "./transcriptPullReque
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
+export type SummarySubagent = {
+  id: string;
+  title: string;
+  state: "running" | "done" | "failed";
+  /** The harness mark survives the legacy summary fallback, when the record carries one. */
+  harness?: string;
+};
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp" | "image";
 /// `image`: a pasted image's id in its prompt, and its bytes when the prompt carried them.
@@ -61,6 +67,7 @@ function subagents(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummarySub
       id: agent.id,
       title: agent.name,
       state: agent.state === "running" ? "running" : agent.state === "completed" ? "done" : "failed",
+      harness: agent.harness,
     }));
   const tasks = all
     .filter((tool) => tool.kind === "think" && tool.title.trim() !== "")

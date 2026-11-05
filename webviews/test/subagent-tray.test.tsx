@@ -1685,10 +1685,11 @@ describe("the tray lists only the chat's own work", () => {
 });
 
 // Leo, 2026-11-04: "didn't we see better stacked subagents or whatever earlier idk these all being
-// claude". Under a Claude chat its own subagents draw the subagent sparkle in each one's tone, never the
-// Claude mark on every line; only a subagent of another family (Codex) draws its harness's mark.
-describe("a subagent of the chat's own family draws its toned sparkle, not the chat's mark", () => {
-  test("Claude subagents under a Claude chat are toned sparkles; a Codex one keeps its mark", async () => {
+// claude". The dock keeps each known harness mark, including same-family Claude, while an unknown
+// harness keeps the stable task sparkle fallback. The transcript's own-family sparkle rule remains
+// covered by the separate AgentIdentity/foreignHarness tests.
+describe("the dock retains each subagent harness mark with a stable tone", () => {
+  test("known Claude and Codex marks survive in rows and the collapsed stack", async () => {
     const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
     const items = trayItems(
       [
@@ -1711,14 +1712,84 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
     try {
       const icons = [...root.querySelectorAll(".acpmux-agent-line .acpmux-lineage__icon")];
       expect(icons.length).toBe(3);
-      const sparkles = icons.filter((icon) => icon.querySelector('[data-agent-tone] [data-icon="task.ai"]'));
-      expect(sparkles.length).toBe(2);
-      // The header stacks the same three marks: two toned sparkles and the Codex mark.
+      expect(
+        icons.filter((icon) => icon.querySelector('.acpmux-agent-identity[data-identity-look="tint"]')).length,
+      ).toBe(3);
+      expect(icons.filter((icon) => icon.querySelector('[data-icon="task.ai"]')).length).toBe(0);
+      expect(icons.filter((icon) => icon.querySelector('[data-agent="claude"]')).length).toBe(2);
+      expect(icons.filter((icon) => icon.querySelector('[data-agent="openai"]')).length).toBe(1);
+      // The header stacks the same three marks: fallback sparkle, Claude and Codex.
       const stack = root.querySelector(".acpmux-running-tray__stack")!;
       expect(stack.querySelectorAll(".acpmux-running-tray__stack-mark").length).toBe(3);
-      expect(stack.querySelectorAll('[data-icon="task.ai"]').length).toBe(2);
+      expect(stack.querySelectorAll('[data-icon="task.ai"]').length).toBe(0);
+      expect(stack.querySelectorAll('[data-agent="claude"]').length).toBe(2);
+      expect(stack.querySelectorAll('[data-agent="openai"]').length).toBe(1);
     } finally {
       await done();
+    }
+  });
+
+  test("reordering rows keeps each identity tone keyed by subagent id", async () => {
+    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+    const agents = [
+      agent("Reviewer", { startedAt: at(10), harness: "claude" }),
+      agent("Porter", { startedAt: at(11), harness: "codex" }),
+      agent("Unknown", { startedAt: at(12) }),
+    ];
+    const props = (ordered: Subagent[]) =>
+      createElement(
+        SubagentHarnessContext.Provider,
+        { value: "claude" },
+        createElement(SubagentTray, {
+          items: trayItems(ordered, [], NONE, true),
+          working: true,
+          waiting: new Set<string>(),
+          onOpen: () => {},
+        }),
+      );
+    const shown = await render(props(agents), { open: true });
+    const tones = () =>
+      Object.fromEntries(
+        [...shown.root.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((line) => [
+          line.querySelector(".acpmux-summary-agent__name")?.textContent,
+          line.querySelector<HTMLElement>(".acpmux-lineage__icon [data-agent-tone]")?.dataset.agentTone,
+        ]),
+      );
+    try {
+      const before = tones();
+      const unknown = [...shown.root.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find(
+        (line) => line.querySelector(".acpmux-summary-agent__name")?.textContent === "Unknown",
+      );
+      expect(unknown?.querySelector('[data-agent="claude"]')).not.toBeNull();
+      await shown.show(props([agents[2]!, agents[0]!, agents[1]!]));
+      expect(tones()).toEqual(before);
+    } finally {
+      await shown.done();
+    }
+  });
+
+  test("legacy summary stacks keep tones when the source order changes", async () => {
+    const { SubagentStack } = await import("../src/agent-session/acpmux/summary/SubagentStack");
+    const legacy = [
+      { id: "legacy-a", title: "Claude", state: "running" as const, harness: "claude" },
+      { id: "legacy-b", title: "Codex", state: "done" as const, harness: "codex" },
+      { id: "legacy-c", title: "Unknown", state: "failed" as const },
+    ];
+    const props = (subagents: typeof legacy) => createElement(SubagentStack, { subagents });
+    const shown = await render(props(legacy));
+    const tones = () =>
+      Object.fromEntries(
+        [...shown.root.querySelectorAll<HTMLElement>(".acpmux-summary-mark")].map((mark) => [
+          mark.getAttribute("title")?.split(" · ", 1)[0],
+          mark.querySelector<HTMLElement>("[data-agent-tone]")?.dataset.agentTone,
+        ]),
+      );
+    try {
+      const before = tones();
+      await shown.show(props([legacy[2]!, legacy[0]!, legacy[1]!]));
+      expect(tones()).toEqual(before);
+    } finally {
+      await shown.done();
     }
   });
 });
