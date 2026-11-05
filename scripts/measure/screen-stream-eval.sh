@@ -50,6 +50,12 @@ peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+# The rd host takes options it does not know without a word, so input-frame-now=1 at a commit whose host
+# lacks --input-frame-now (before #36690) would measure the default and call it the bypass: refuse it.
+if [[ "$input_frame_now" == 1 ]] && ! grep -q 'flag("input-frame-now")' cmux-tui/crates/cmux-rd-host/src/host.rs 2>/dev/null; then
+  echo "screen-stream-eval.sh: input-frame-now=1, but this commit's rd host has no --input-frame-now" >&2
+  exit 2
+fi
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
