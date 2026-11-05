@@ -243,6 +243,96 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await waiting.close();
   });
 
+  /// The app host holds `chat`'s tail as another tab or the last launch read it (tailCache.ts
+  /// `chat.tail.get`; the host forwards a miss to acpmux's disk copy): its one prompt says `text`.
+  async function withHostTail(page: Page, chat: string, text: string) {
+    await page.addInitScript(
+      ({ chat, text, at }) => {
+        const tail = {
+          events: [{ sessionId: chat, seq: 1, at, dir: "mux", kind: "user_message", msg: { text } }],
+          summary: {
+            sessionId: chat,
+            title: `Chat ${chat}`,
+            cwd: "/home/dev/atlas",
+            harness: "claude",
+            peer: "build-box",
+          },
+        };
+        const host = {
+          "chat.tail.get": async (params: { sessionId?: string }) => (params?.sessionId === chat ? tail : null),
+        };
+        let actions: Record<string, unknown> = { ...host };
+        Object.defineProperty(window, "cmuxAcpmuxActions", {
+          configurable: true,
+          get: () => actions,
+          set: (value) => {
+            actions = Object.assign(value ?? {}, host);
+          },
+        });
+      },
+      { chat, text, at: START },
+    );
+  }
+
+  // Leo, 2026-11-05: "It should take a lot faster of a time to be loading, like within a few seconds,
+  // really." A restored tab whose chat's machine is still connecting drew an empty area for up to the
+  // 30 s grace although the app host held the chat's rows; they draw on the open's first frames now.
+  test("a tab whose machine is still connecting draws the chat's kept rows at once, then opens it live", async () => {
+    scenario = {
+      sessions: [summary("chat-other")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await watchForUnavailable(page);
+    await withHostTail(page, "chat-on-box", "Kept chat-on-box");
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    const started = Date.now();
+    await page.goto(
+      `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
+    );
+    await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
+    const drawnMs = Date.now() - started;
+    console.log(`chat-unavailable: kept rows of a chat whose machine is connecting drawn ${drawnMs} ms after open`);
+    expect(drawnMs).toBeLessThan(3_000);
+    // Still loading: no line over the rows, and no centered state in their place.
+    expect(await page.locator("[data-unavailable]").count()).toBe(0);
+    // The machine connects and acpmux lists the chat: it opens live in place of the kept rows.
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    const listed = summary("chat-on-box", { peer: "build-box" });
+    scenario.sessions = [...scenario.sessions, listed];
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(page)).sessionId).toBe("chat-on-box");
+    expect(await page.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
+    await page.close();
+  });
+
+  test("a tab whose machine is down shows its kept rows under one Reconnecting line with every action", async () => {
+    scenario = {
+      sessions: [summary("chat-other")],
+      peers: [
+        { name: "build-box", transport: "ssh", connected: false, state: "offline", attempts: 6, lastSeen: START },
+      ],
+    };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await withHostTail(page, "chat-on-box", "Kept chat-on-box");
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(
+      `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
+    );
+    await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
+    const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
+    await line.waitFor({ timeout: 25_000 });
+    // One state: the line over the rows, never the centered state as well.
+    expect(await page.locator("[data-unavailable]").count()).toBe(1);
+    expect(await line.innerText()).toContain("Reconnecting…");
+    for (const action of ["reconnect", "resume", "close"])
+      expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
+    await page.close();
+  });
+
   test("loading stays an empty transcript area above the composer as the pane resizes", async () => {
     scenario = {
       sessions: [summary("chat-other", { peer: "build-box" })],
