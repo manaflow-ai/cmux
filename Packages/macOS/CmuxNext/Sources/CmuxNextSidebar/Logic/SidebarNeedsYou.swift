@@ -54,7 +54,9 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
             let before = trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
             let after = trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
             guard before == after else { return true }
-            guard after != nil else { return false }
+            // An ancestor's title appears in a blocked child's path, even while that ancestor is
+            // idle. Keep the path current without walking the tree for every status tick.
+            guard after != nil else { return change.before.title != change.after.title }
             return change.before.title != change.after.title
                 || change.before.activity.blockedKind != change.after.activity.blockedKind
         }

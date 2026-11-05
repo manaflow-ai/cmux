@@ -108,6 +108,13 @@ import Testing
         #expect(model.patchWorkspaces([ready]))
         #expect(changed.count == 1)
         #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        let parent = WorkspaceID("parent"), child = WorkspaceID("child")
+        let oldParent = SidebarWorkspace(id: parent, title: "old parent")
+        var newParent = oldParent
+        newParent.title = "new parent"
+        let lineage = SidebarSessionTreeState(parents: [child: parent], states: [child: .blocked])
+        #expect(SidebarNeedsYou.shouldRefresh(for: [(before: oldParent, after: newParent)], tree: lineage))
     }
 
     @Test func withoutTheTreeTheTrayIsEmpty() {
