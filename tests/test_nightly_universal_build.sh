@@ -1415,7 +1415,7 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly, build-sign-notarize-nightly]" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
@@ -1488,7 +1488,7 @@ for expected in \
   grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
 done
 for expected in \
-  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]" \
+  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner, build-sign-notarize-nightly]" \
   "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
@@ -1500,7 +1500,7 @@ if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || grep -Ev '^[[:space:]]*
   exit 1
 fi
 for expected in \
-  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner]" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, pick-nightly-sign-runner, build-sign-notarize-nightly]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
