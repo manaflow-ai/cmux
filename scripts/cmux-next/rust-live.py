@@ -418,9 +418,13 @@ class Swapper:
         owner = self.owner(cli)
         return owner[1] if owner else None
 
-    def owner(self, cli: Path) -> tuple[int, Path] | None:
-        """The running owner's pid and executable, from `server status`; None when none answers."""
-        status = self.cli(cli, "server", "status")
+    def owner(self, cli: Path, timeout: float = 60) -> tuple[int, Path] | None:
+        """The running owner's pid and executable, from `server status`; None when none answers in
+        `timeout` seconds."""
+        try:
+            status = self.cli(cli, "server", "status", timeout=max(timeout, 0.1))
+        except subprocess.TimeoutExpired:
+            return None
         match = re.search(r'"pid"\s*:\s*(\d+)', status.stdout) or re.search(r"pid\D{0,3}(\d+)", status.stdout)
         if not match:
             return None
@@ -459,13 +463,10 @@ class Swapper:
         shutil.copy2(new, staged)
         staged.chmod(0o755)
         os.replace(staged, target)  # the running owner keeps the file it mapped
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        self.terminate_owner(new, pid)
         if self.wait_for_new_owner(new, pid) is None:
             os.replace(before, target)  # the app's next ensure runs the build that ran before
-            late = self.owner(target)
+            late = self.owner(target, timeout=10)
             if late and late[0] != pid:
                 # An owner that came up after the last poll runs the new build, and while it answers the
                 # app's ensure starts nothing: hand off once more, to the file that is back.
@@ -475,16 +476,25 @@ class Swapper:
 
     def handoff_to_file(self, pid: int, target: Path) -> None:
         """SIGTERM to the owner `pid`; the app's reconnect starts the next one from `target`."""
+        self.terminate_owner(target, pid)
+        self.wait_for_new_owner(target, pid)
+
+    def terminate_owner(self, cli: Path, pid: int) -> None:
+        """SIGTERM to `pid` only while it is still the session's owner: the copies before this can take
+        seconds, and a pid that exited in that time can belong to another process (or the app's next
+        owner) by now."""
+        current = self.owner(cli, timeout=10)
+        if not current or current[0] != pid:
+            return
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        self.wait_for_new_owner(target, pid)
 
     def wait_for_new_owner(self, cli: Path, old: int) -> int | None:
         deadline = time.monotonic() + APP_OWNER_SECS
         while time.monotonic() < deadline:
-            owner = self.owner(cli)
+            owner = self.owner(cli, timeout=deadline - time.monotonic())
             if owner and owner[0] != old:
                 return owner[0]
             time.sleep(0.05)

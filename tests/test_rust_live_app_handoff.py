@@ -74,7 +74,7 @@ class AppHandoffTests(unittest.TestCase):
 
     def swapper(self, app: FakeApp):
         swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
-        swapper.owner = lambda _cli: app.status()
+        swapper.owner = lambda _cli, **_k: app.status()
         swapper.cli = lambda *_a, **_k: self.fail("an app's daemon must not go through server restart/stop/ensure")
         return swapper
 
@@ -102,7 +102,7 @@ class AppHandoffTests(unittest.TestCase):
         self.assertTrue(marker.is_file())
         # A new watcher (the old one died) still knows the app's own build.
         later = rust_live.Swapper(None, "/fake.sock", state=self.state)
-        later.owner = lambda _cli: app.status()
+        later.owner = lambda _cli, **_k: app.status()
         self.assertEqual(later.restore_app(), str(app.file))
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertEqual(app.builds_run[-1], "base build\n")
@@ -126,7 +126,7 @@ class AppHandoffTests(unittest.TestCase):
         self.swapper(app).swap({"cmux-tui": self.new})
         swapped_owner = app.owner.pid
         other = rust_live.Swapper(None, "/other.sock", state=self.state)
-        other.owner = lambda _cli: app.status()
+        other.owner = lambda _cli, **_k: app.status()
         self.assertIsNone(other.restore_app())
         self.assertEqual(app.owner.pid, swapped_owner)
         self.assertEqual(app.file.read_text(), "pr build\n")
@@ -153,13 +153,32 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertEqual(app.builds_run, ["base build\n", "pr build\n", "base build\n"])
 
+    def test_a_pid_that_is_no_longer_the_owner_gets_no_signal(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        stranger = subprocess.Popen(["sleep", "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(stranger.wait)
+        self.addCleanup(stranger.kill)
+        self.swapper(app).terminate_owner(app.file, stranger.pid)
+        time.sleep(0.1)
+        self.assertIsNone(stranger.poll())
+
+    def test_a_status_that_hangs_counts_as_no_owner(self):
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+
+        def hang(*words, timeout):
+            raise subprocess.TimeoutExpired(words, timeout)
+
+        swapper.cli = lambda _bin, *words, timeout=60: hang(*words, timeout=timeout)
+        self.assertIsNone(swapper.owner(self.new, timeout=0.5))
+
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)
         loose = self.tmp / "target" / "cmux-tui"
         loose.parent.mkdir()
         loose.write_text("x")
         calls = []
-        swapper.owner = lambda _cli: (os.getpid(), loose)
+        swapper.owner = lambda _cli, **_k: (os.getpid(), loose)
         swapper.cli = lambda _bin, *words, **_k: calls.append(words) or subprocess.CompletedProcess(words, 0, "", "")
         self.assertEqual(swapper.swap({"cmux-tui": self.new})["cmux-tui"], "server restart")
         self.assertEqual(calls, [("server", "restart")])
