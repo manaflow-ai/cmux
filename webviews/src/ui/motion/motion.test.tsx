@@ -353,6 +353,7 @@ test("every motion-off and Reduce Motion rule outranks the depth layer's drift a
   // The drift itself waits for a full motion reading.
   for (const move of moving.filter((selector) => selector.includes("drift")))
     expect(move).toContain('[data-motion="full"]');
+});
 
 test("a control that is both revealed and hover-filled keeps both fades", () => {
   const sheet = readFileSync(new URL("./motion.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
