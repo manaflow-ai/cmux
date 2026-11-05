@@ -249,6 +249,13 @@ test("longer words push the clock out of their way as they rise in", async () =>
   const grow = (28 - 18) * 7;
   expect(time!.frames[0]).toEqual({ transform: `translateX(${-grow}px)` });
   expect(incoming!.frames[0]).toMatchObject({ opacity: 0 });
+  // The clock slides right across where the new words land: they stay unseen until it has landed
+  // (router review F1), not from TEXT_SWAP_SHOW_FROM while it still crosses them.
+  const reveal = incoming!.frames.find((frame) => frame.offset !== undefined)!;
+  expect(reveal.opacity).toBe(0);
+  expect(Number(reveal.offset) * Number(incoming!.timing.duration)).toBeGreaterThanOrEqual(
+    Number(time!.timing.duration),
+  );
   expect(ghosts(mount)).toHaveLength(1);
 });
 
@@ -292,6 +299,17 @@ test("motion off: the new words show in one frame, with no copy and no animation
     expect(ghosts(mount)).toEqual([]);
     expect(played).toEqual([]);
   }
+});
+
+test("motion turned off mid-change clears the old words still on the line", async () => {
+  const mount = await mountLine();
+  await act(async () => say("Running a command"));
+  expect(ghosts(mount)).toHaveLength(1);
+  mount.ownerDocument.documentElement.dataset.cmuxMotion = "off";
+  await act(async () => say("Checking time"));
+  // Router review F2: the earlier change's copy goes too, not only the animations it tracks.
+  expect(ghosts(mount)).toEqual([]);
+  expect(mount.querySelector(".words")!.textContent).toBe("Checking time");
 });
 
 test("a hidden page changes the words with no motion", async () => {
