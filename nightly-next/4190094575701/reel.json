@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "build": "4190094575701",
+  "notes": "notes/4190094575701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35844,
+      "title": "fix(ci): base_red_excuse falls back for an old gh behind a wrapper's notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35828,
+      "title": "cmux-rd: one typed app line for cmux rd serve|connect, read back through a C line reader (ABI 5; Mac Screen step A)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35819,
+      "title": "test(r2): the slow-PUT test stops depending on the host's socket buffer sizes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35823,
+      "title": "blob fetch: keep a job that wrote until it is forgotten",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35821,
+      "title": "base red: a tab moved to the place it holds keeps its pane's stored active tab (layout_ops_conserve_tabs)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35803,
+      "title": "base red: history's journal fold reads the database while the ring trails an acknowledged commit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35822,
+      "title": "ci(nightly-next): the sign yield also reads newer runs that wait on a gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35635,
+      "title": "ci: name every GitHub API call in the feat-cmux-next PR workflows until 2026-11-05 00:00Z",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35735,
+      "title": "ci(nightly): a republished nightly-next build follows its source's CEF pack and source archive; report a failed fetch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35762,
+      "title": "ci(signing): trust glaeda runner hook f9666752",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35767,
+      "title": "cloud-journey: --app-cli creates its machine without --name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33314,
+      "title": "Session Info Background tasks: ended waits fold into finished, an icon per kind, cron in words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35799,
+      "title": "link sync store: fence when identify gives no capability list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35758,
+      "title": "fix(cloud-journey): Codex stub turns get a tool and keep the made-up sign-in local",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35626,
+      "title": "Customize app: extension templates and your own actions from a button",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/35626/cap-e3386bee-tour-customize-templates.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 35752,
+      "title": "ci(nightly-next): an older build hands its sign slot to a newer build whose sign job is queued",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35334,
+      "title": "cmux-tui: no request waits for a roster fold another thread runs (cmux-ad m11 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35789,
+      "title": "base red: Chromium ObjC contract for cef-156.0.15-cmux.44",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35768,
+      "title": "ci: clear nine guard-group tip reds on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35713,
+      "title": "api: GitHub Actions jobs sign in as one test account by OIDC token (prod Cloud journey, no stored password)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35641,
+      "title": "R-INPUT S2b (FFI step A): the app's one input handle cmux_input_* over the input router, with no copy per focus event",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35521,
+      "title": "perf(layout): New Column, New Row and Cmd-D adopt pane views made ahead (no pane view built in the key's turn)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35759,
+      "title": "live-code-shell measurement: a new-file step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35717,
+      "title": "ci: the backend secret-route guard covers the Cloud journey jobs; the production journey names its runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35756,
+      "title": "fix(model-stub): GET /v1/models also answers Codex's models shape",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35757,
+      "title": "base red: web-lint format of runBlocks (#34510)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35538,
+      "title": "ci(signing): trust glaeda runner hook 4aff2741 (glaeda #1837)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35695,
+      "title": "base red: arch app_lines +3 from #34604",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35716,
+      "title": "cloud journey: run exec through the machine route when the cmux CLI has none for a VM API machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35625,
+      "title": "relaunch bench: the overlay plane moving into the page overlay panel at its place is no change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35403,
+      "title": "Agent pane: an agent run is one transcript line, like a sub-session start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35739,
+      "title": "fix(cli): --confirm takes no value, so a following --json still applies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35572,
+      "title": "feat(gallery): theme propagation matrix and the full app theme payload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35710,
+      "title": "measure: fresh-home launch can run under agent-like load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35402,
+      "title": "Agent pane: the composer hat tucks away to a pull tab at the composer's top middle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34510,
+      "title": "Home Channels: model grouped tool summaries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35694,
+      "title": "test(cmux-tui-core): the wait-for capacity test checks a later queued request, not identify",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35727,
+      "title": "ci(backend): preview and staging Cloud journeys need no Claude login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35707,
+      "title": "cloud-journey: wait for the guest's bind before the login preflight, name the failing check",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
