@@ -81,11 +81,16 @@ const START = {
 };
 
 test("an object input reads as one field per argument, in the order it came, by how each reads", () => {
-  expect(inputFields(JSON.stringify({ ...START, empty: "", none: null }))).toEqual([
+  expect(inputFields(JSON.stringify({ ...START, empty: "", none: null, tags: [], meta: {} }))).toEqual([
     { key: "title", text: "Hydrate the landing page", look: "prose" },
     { key: "prompt", text: START.prompt, look: "markdown" },
     { key: "options", text: JSON.stringify(START.options, null, 2), look: "tree" },
     { key: "priority", text: "2", look: "value" },
+    // Every argument the agent passed is named, an empty one as the JSON it is.
+    { key: "empty", text: '""', look: "value" },
+    { key: "none", text: "null", look: "value" },
+    { key: "tags", text: "[]", look: "value" },
+    { key: "meta", text: "{}", look: "value" },
   ]);
   // Anything but an object with a field in it is shown as it came.
   expect(inputFields("ls -la")).toBeUndefined();
@@ -95,7 +100,7 @@ test("an object input reads as one field per argument, in the order it came, by 
     { key: "labels", text: "bug, frontend", look: "prose" },
   ]);
   expect(inputFields({ edits: [{ a: 1 }] })?.[0]?.look).toBe("tree");
-  expect(inputFields({ empty: "" })).toBeUndefined();
+  expect(inputFields({})).toBeUndefined();
 });
 
 test("a generic call opens to Input fields over Output with a copy button; closed, it is one row", async () => {

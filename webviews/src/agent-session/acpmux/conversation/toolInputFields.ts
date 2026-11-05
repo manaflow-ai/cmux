@@ -29,14 +29,18 @@ export function opensToFields(
 }
 
 /// The fields of a call's input, in the order the harness sent them, or nil when the input is not
-/// an object with at least one field worth showing (the caller then shows it as it came).
+/// an object with at least one argument (the caller then shows it as it came).
 export function inputFields(args: unknown): InputField[] | undefined {
   const input = typeof args === "string" ? parseObject(args) : args;
   if (!isRecord(input)) return undefined;
   const fields: InputField[] = [];
   for (const [key, value] of Object.entries(input)) {
-    if (value === undefined || value === null || value === "") continue;
-    if (typeof value === "string") {
+    if (value === undefined) continue;
+    // An empty argument is still one the agent passed: it shows as the JSON it is, so the opened
+    // call names every argument (generic calls have no Raw to fall back on).
+    if (value === null || value === "" || (typeof value === "object" && Object.keys(value).length === 0)) {
+      fields.push({ key, text: JSON.stringify(value), look: "value" });
+    } else if (typeof value === "string") {
       const text = value.replace(/\n$/, "");
       fields.push({
         key,
