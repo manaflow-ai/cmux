@@ -106,6 +106,39 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
     print("  " + reason + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
 ' <<<"$result"
 
+# The verdict above sorts the PR against its own base. A web-live verdict must also hold for the app
+# it patches: the PR's web UI can lean on Swift that came into the base after APP was built, and
+# that Swift is not in APP. So the change is sorted again from APP's commit (CMUXCommit) when APP is
+# older than the PR's base; anything but web UI from there means the PR's Swift side is not in that
+# build, and the live apply is refused for the dev build. An APP at or after the PR's base has all
+# the Swift the PR was written against.
+if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
+  recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
+  if [[ -z "$app_commit" ]]; then
+    echo "web-live, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
+    verdict=rebuild
+  elif git -C "$ROOT" merge-base --is-ancestor "$base" "$app_commit"; then
+    :
+  elif git -C "$ROOT" merge-base --is-ancestor "$app_commit" "$base"; then
+    against="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$app_commit" "$head")"
+    again="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' <<<"$against")"
+    if [[ "$again" != web-live && "$again" != no-app ]]; then
+      echo "web-live against its base, but $from was built at ${app_commit:0:12}, before it: from there the change is $again, so the PR's Swift side is not in that build. No live apply: the dev build instead"
+      python3 -c '
+import json, sys
+for kind, paths in sorted(json.load(sys.stdin)["files"].items()):
+    if kind not in ("web-live", "no-app"):
+        print("  " + kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
+' <<<"$against"
+      verdict=rebuild
+    fi
+  else
+    echo "web-live, but $from was built at ${app_commit:0:12}, on another line than the PR's base: whether it has the PR's Swift side is unknown, so the dev build instead"
+    verdict=rebuild
+  fi
+fi
+
 # Makes the side instance from APP (again when it was made from another app, APP updated since, or
 # it was made with another --live-code), then opens it.
 open_side() {

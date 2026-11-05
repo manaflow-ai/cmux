@@ -191,5 +191,81 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
 
 
+class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
+    """A web-only PR is sorted again from the app's own commit (CMUXCommit) when the app is older
+    than the PR's base: the PR's web UI must not load into an app that lacks its Swift side."""
+
+    WEB_FILE = "webviews/src/greeting.ts"
+
+    # The base's tests run once, in TryPrLiveCodeTests.
+    test_a_body_change_loads_with_no_build = None
+    test_a_refused_patch_falls_back_to_the_dev_build = None
+    test_no_answer_removes_the_patch_and_takes_the_dev_build = None
+    test_a_new_file_takes_the_dev_build = None
+    test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build = None
+
+    def advance_base(self, edit):
+        """A commit on the base after the app was built; returns it."""
+        git(self.work, "checkout", "-q", "feat-cmux-next")
+        edit(self.work)
+        git(self.work, "add", "-A")
+        git(self.work, *self.ident, "commit", "-q", "-m", "base moves on")
+        subprocess.run(["git", "-C", str(self.work), "push", "-q", str(self.origin), "HEAD:feat-cmux-next"],
+                       check=True, capture_output=True)
+        return git(self.work, "rev-parse", "HEAD")
+
+    def push_web_pr(self, start):
+        git(self.work, "checkout", "-q", "-b", "pr", start)
+        (self.work / self.WEB_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (self.work / self.WEB_FILE).write_text("export const greeting = 'hi'\n")
+        git(self.work, "add", "-A")
+        git(self.work, *self.ident, "commit", "-q", "-m", "pr")
+        subprocess.run(["git", "-C", str(self.work), "push", "-q", str(self.origin), "HEAD:refs/pull/1/head"],
+                       check=True, capture_output=True)
+
+    def set_app_commit(self, commit):
+        with open(self.app / "Contents/Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.nightly", "CFBundleVersion": "1",
+                           "CMUXCommit": commit[:7]}, f)
+
+    def test_a_web_pr_on_the_apps_own_commit_stays_live(self):
+        self.push_web_pr(self.base)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web only: no build", out.stdout)
+        self.assertNotIn("Swift side", out.stdout)
+
+    def test_swift_the_base_gained_after_the_build_refuses_the_live_apply(self):
+        moved = self.advance_base(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hey"')))
+        self.push_web_pr(moved)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("#1 at", out.stdout)
+        self.assertIn("web-live", out.stdout.splitlines()[0])
+        self.assertIn(f"built at {self.base[:12]}, before it: from there the change is swift-live", out.stdout)
+        self.assertIn("the PR's Swift side is not in that build", out.stdout)
+        self.assertIn(APP_FILE, out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def test_an_app_newer_than_the_prs_base_stays_live(self):
+        self.push_web_pr(self.base)
+        newer = self.advance_base(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hey"')))
+        self.checkout_fetch()
+        self.set_app_commit(newer)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web only: no build", out.stdout)
+
+    def test_an_app_commit_this_checkout_lacks_refuses_the_live_apply(self):
+        self.push_web_pr(self.base)
+        self.set_app_commit("0123456789abcdef0123456789abcdef01234567")
+        out = self.try_pr("--dry-run")
+        self.assertIn("is not in this checkout, so whether it has the PR's Swift side is unknown", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def checkout_fetch(self):
+        git(self.checkout, "fetch", "-q", "origin", "feat-cmux-next:refs/remotes/origin/feat-cmux-next")
+
+
 if __name__ == "__main__":
     unittest.main()
