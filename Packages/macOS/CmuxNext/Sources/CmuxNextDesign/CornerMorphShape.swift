@@ -132,11 +132,12 @@ public nonisolated enum CornerMorphVariant: String, Sendable, CaseIterable, Hash
                 CGFloat(SidebarDensity.allCases.firstIndex(of: DesignSettings.shared.sidebarSections.density) ?? 0)]
     }
 
-    /// The shade under a morph: the shared surface's (0 by default, one color for sidebar and card) would leave
-    /// the joined shape invisible, so a morph brings the separate look's tint (`chrome.mainPane.shadeLight` /
-    /// `shadeDark`), as Arc tints its sidebar around the content card. Only while a morph variant is on.
+    /// The shade under a morph: the default flat chrome (`flatSidebarLine`) and the shared surface shade nothing,
+    /// which would leave the joined shape invisible, so a morph brings the separate look's tint
+    /// (`chrome.mainPane.shadeLight` / `shadeDark`) over the sidebar, as Arc tints its sidebar beside the content,
+    /// and the sidebar's edge hairline steps aside for it. Only while a morph variant is on.
     @MainActor public func shade(_ alpha: CGFloat, isDark: Bool) -> CGFloat {
-        guard self != .off, alpha == 0, Metrics.mainPaneCurved else { return alpha }
+        guard self != .off, alpha == 0 else { return alpha }
         return CGFloat((isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight).value)
     }
 }

@@ -7,6 +7,8 @@
   the card's tab row as one band, the list in a recess under it with a concave fillet; `bridge` joins the selected
   workspace row to the card through concave fillets above and below; `both`. Only the chrome shade's cut-out changes
   (`CornerMorph`, `MainPaneChromeShadeView`), with the separate look's tint while on; no view moves, nothing animates.
+  It works on the default flat chrome (`flatSidebarLine`: the content area is the square, flush card, so no space is
+  added) and on the curved card; while a morph is on, the sidebar's edge hairline steps aside (the tint parts them).
   Comfortable and expanded sidebar density only: compact (Lawrence's) keeps the plain card. Regression:
   `CornerMorphShapeTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested

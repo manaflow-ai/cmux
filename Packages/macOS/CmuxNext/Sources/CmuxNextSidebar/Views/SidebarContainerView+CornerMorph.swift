@@ -7,11 +7,23 @@ public import CmuxNextDesign
 public extension SidebarContainerView {
     /// The shade and morph for the window's chrome shade now: `alpha` as given and nil while the variant is off,
     /// at the compact sidebar density (Lawrence's; it keeps the plain card), in the rail style, while the sidebar
-    /// is hidden, or when `enabled` is false (no curved card). Keeps `reshape` to call, in the same turn, whenever
+    /// is hidden, or when `enabled` is false (a page presented, floating panes). Works on the curved card and on
+    /// the default flat chrome, where the content area is the (square, flush) card. Keeps `reshape` to call, in the same turn, whenever
     /// the selected row, the scroll offset or the titlebar row moves, so the join never trails them by a frame.
     func cornerMorphShade(_ alpha: CGFloat, isDark: Bool, in view: NSView, enabled: Bool,
                           reshape: @escaping @MainActor () -> Void) -> (alpha: CGFloat, morph: CornerMorph?) {
         cornerMorphReshape = reshape
+        let result = cornerMorphShape(alpha, isDark: isDark, in: view, enabled: enabled)
+        // The tint parts the sidebar from the content while a morph is on; the full-height edge hairline would
+        // cut straight through the joins, so it steps aside (`updateResizeLine`).
+        if cornerMorphHidesLine != (result.morph != nil) {
+            cornerMorphHidesLine = result.morph != nil
+            if cornerMorphHidesLine { handle.lineMinY = .greatestFiniteMagnitude } else if !Metrics.mainPaneCurved { handle.lineMinY = 0 }
+        }
+        return result
+    }
+
+    private func cornerMorphShape(_ alpha: CGFloat, isDark: Bool, in view: NSView, enabled: Bool) -> (alpha: CGFloat, morph: CornerMorph?) {
         let variant = CornerMorphVariant.tunable.value
         guard enabled, variant != .off, SidebarDensityTokens.density != .compact, model.style != .rail,
               !model.isHidden, !isHiddenOrHasHiddenAncestor, window != nil else { return (alpha, nil) }

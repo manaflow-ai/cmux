@@ -49,4 +49,17 @@ struct CornerMorphShapeTests {
         let path = CornerMorph(row: row, rowRadius: 9, fillet: 9).surface(card: card, radius: 10)
         #expect(!path.contains(CGPoint(x: 100, y: 484)))
     }
+
+    @Test func flatChromeJoinsTheFlushContentArea() {
+        // The default flat chrome: the content meets the sidebar at x 200 and the window's top, square.
+        let content = CGRect(x: 200, y: 0, width: 600, height: 512)
+        let header = CGRect(x: 0, y: 472, width: 200, height: 40)
+        let row = CGRect(x: 8, y: 300, width: 184, height: 28)
+        let path = CornerMorph(header: header, row: row, rowRadius: 9, fillet: 9).surface(card: content, radius: 0)
+        #expect(path.contains(CGPoint(x: 100, y: 490)))   // the titlebar row
+        #expect(path.contains(CGPoint(x: 199.5, y: 471))) // the concave fillet under it
+        #expect(!path.contains(CGPoint(x: 100, y: 400)))  // the list stays tinted
+        #expect(path.contains(CGPoint(x: 196, y: 314)))   // the selected row's bridge
+        #expect(path.contains(CGPoint(x: 199.5, y: 299))) // and its fillet
+    }
 }

@@ -197,7 +197,7 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        let (alpha, morph) = sidebar.cornerMorphShade(Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), isDark: themeTokens.isDark, in: mainPaneShade, enabled: radius > 0 && !Metrics.floatingPanes) { [weak self] in self?.updateMainPaneShade() }
+        let (alpha, morph) = sidebar.cornerMorphShade(Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), isDark: themeTokens.isDark, in: mainPaneShade, enabled: !presentsPage && !Metrics.floatingPanes) { [weak self] in self?.updateMainPaneShade() }
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha, morph: morph, leading: sidebarSide == .left)
     }
 }
