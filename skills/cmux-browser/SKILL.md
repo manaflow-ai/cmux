@@ -178,11 +178,42 @@ page-zoom combinations are bounded; the command returns structured
 `maximum_page_zoom` details and leaves the viewport unchanged when the
 combination exceeds WKWebView render limits.
 
-## Limits (WKWebView)
+## Browser REPL
 
-Trace/screencast recording, network route interception/mocking, and low-level
-raw input injection return `not_supported`; they depend on Chrome/CDP-only APIs.
-Use `click`, `fill`, `press`, `scroll`, `wait`, and `snapshot` instead.
+`cmux browser repl` runs Playwright-style JavaScript (`page`, locators,
+`keyboard`, `mouse`, waits) against the workspace's browser panes. Run
+`cmux browser repl guide` for the full API. Use it for what the per-command
+verbs above can't do:
+
+- Trusted input: pages see native, trusted events from `page.mouse` and
+  `page.keyboard`.
+- Dialogs: `page.dialog()` returns the open dialog, with `accept(text?)` and
+  `dismiss()`.
+- Uploads: `page.fileChooser()?.setFiles(paths)` answers a file chooser.
+- Recording: `session.record()` returns a recorder; its `stop()` writes
+  `trace.jsonl`, a PNG per action and `run.png`, an animated PNG of the run.
+- Proxies: `session.configure({ proxy })` applies to the tabs the session opens
+  afterwards, in a private profile without your cookies.
+
+```bash
+cmux browser repl 'await page.goto("https://example.com"); snapshot()'
+cmux browser repl --session work 'const s1 = await snapshot()'
+cmux browser repl guide
+```
+
+Without `--session`, each call is one-shot and its tabs close at the end
+unless `page.keep()` was called. With `--session NAME`, bindings and tabs
+persist until `cmux browser repl reset NAME` or 30 minutes idle.
+
+## Limits of the per-command CLI (WKWebView)
+
+The per-command `cmux browser` verbs return `not_supported` for trace/screencast
+recording, network route interception/mocking, and low-level raw input
+injection; they depend on Chrome/CDP-only APIs. Use `click`, `fill`, `press`,
+`scroll`, `wait`, and `snapshot` instead, or the [browser REPL](#browser-repl)
+for trusted mouse and keyboard input and for recording. Network route
+interception is not available in the REPL either: WebKit has no request
+interception.
 `geolocation <lat> <lon>` and `offline true|false` work: pages get the given
 position without a permission prompt, and offline mode blocks http(s) and
 ws(s) loads and reports `navigator.onLine === false`.
