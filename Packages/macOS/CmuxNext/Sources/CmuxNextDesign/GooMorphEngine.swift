@@ -15,6 +15,9 @@ public nonisolated struct GooScene: Equatable, Sendable {
     public var crossWindow: CGRect?
     /// The inputs move on their own this frame (a tab move in flight, a sidebar slide): the engine keeps reading.
     public var live: Bool
+    /// The x the droplets ride (the main card's leading edge): their springs work relative to it, so a sidebar
+    /// slide carries them with their tabs, and its speed only drags their trailing side out a little.
+    public var anchorX: CGFloat = 0
 
     public struct Droplet: Equatable, Sendable {
         public var key: Int
@@ -61,6 +64,9 @@ public final class GooMorphEngine: MotionAnimating {
     private var edges: [Int: Edges] = [:]
     private var running = false
     private var lastDrawn: CGPath?
+    /// The anchor's last x and its smoothed speed (points per second), for the drag.
+    private var anchor: CGFloat?
+    private var anchorSpeed: CGFloat = 0
 
     /// Trace cost, for `debug.timings` (key `goo_trace`).
     public private(set) var costs = GooCosts()
@@ -96,6 +102,12 @@ public final class GooMorphEngine: MotionAnimating {
             return false
         }
         retarget(scene, style: style, snap: false)
+        if let anchor, dt > 0 {
+            let speed = (scene.anchorX - anchor) / CGFloat(dt)
+            anchorSpeed += (speed - anchorSpeed) * 0.5
+        }
+        anchor = scene.anchorX
+        if !scene.live { anchorSpeed *= 0.6 }
         // The springs' responses are the fast speed's; the animation speed setting stretches them.
         let scaled = dt / max(0.1, Motion.tabs.speed.timeScale) / max(1, GooMorphVariant.slowMotion.value)
         // Small steps: the fast edge's spring is stiff for the frame's length.
@@ -104,8 +116,12 @@ public final class GooMorphEngine: MotionAnimating {
         for key in edges.keys {
             for _ in 0..<steps { edges[key]?.step(h, style: style) }
         }
-        let done = !scene.live && settled(scene)
-        if done { for key in edges.keys { edges[key]?.land() } }
+        let done = !scene.live && settled(scene) && abs(anchorSpeed) < 4
+        if done {
+            for key in edges.keys { edges[key]?.land() }
+            anchorSpeed = 0
+            anchor = nil
+        }
         render(scene, style: style)
         running = !done
         return running
@@ -116,12 +132,14 @@ public final class GooMorphEngine: MotionAnimating {
         var seen = Set<Int>()
         for droplet in scene.droplets {
             seen.insert(droplet.key)
+            let rect = droplet.rect.offsetBy(dx: -scene.anchorX, dy: 0)
             if snap || edges[droplet.key] == nil {
-                edges[droplet.key] = Edges(droplet.rect)
+                edges[droplet.key] = Edges(rect)
             } else {
-                edges[droplet.key]?.target = droplet.rect
+                edges[droplet.key]?.target = rect
             }
         }
+        if snap { anchorSpeed = 0 }
         for key in edges.keys where !seen.contains(key) { edges[key] = nil }
     }
 
@@ -137,7 +155,11 @@ public final class GooMorphEngine: MotionAnimating {
         var windows: [CGRect] = []
         for droplet in scene.droplets {
             guard let edge = edges[droplet.key] else { continue }
-            let rect = edge.shown(droplet, thinning: style.thinning)
+            var rect = edge.shown(droplet, thinning: style.thinning).offsetBy(dx: scene.anchorX, dy: 0)
+            // Dragged by the card's motion: the trailing side lags a little, as liquid does.
+            let drag = min(14, abs(anchorSpeed) * 0.016)
+            if anchorSpeed > 0 { rect.origin.x -= drag }
+            rect.size.width += drag
             guard rect.width > 1, rect.height > 1, droplet.weight > 0.001 else { continue }
             shapes.append(GooShape(rect: rect, radius: rect.height / 2, group: droplet.group, weight: droplet.weight))
             windows.append(rect.insetBy(dx: -(reach + 2), dy: -(reach + 2)))

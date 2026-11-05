@@ -1,0 +1,602 @@
+{
+ "title": "Thunderdome r2 C, goo morph (Debug chrome.gooMorph): off, drop, pool and slime at rest, then sidebar close/open, tab switch and new tab per look with the frame probe, and slow-motion mid-flight frames. cmux-ci capture SHA --state scripts/cmux-next/media/states/goo-morph.json --video",
+ "launch_args": [
+  "--showcase"
+ ],
+ "frameInterval": 0.1,
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Comfortable density",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.density",
+    "comfortable"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Atlas",
+   "cmux": [
+    "workspace",
+    "create",
+    "--name",
+    "Atlas",
+    "--focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Bramble",
+   "cmux": [
+    "workspace",
+    "create",
+    "--name",
+    "Bramble",
+    "--focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A second tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 3,
+   "shot": false,
+   "optional": "the band shows with one tab too"
+  },
+  {
+   "title": "A third tab",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Back to the first tab",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "At rest, today (chrome.gooMorph off)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "off"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "At rest, drop: the active tab is a droplet of its pane",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "drop"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "At rest, pool: the sidebar is a card too, its + a droplet",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "pool"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "At rest, slime: pool, thicker and slower",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "slime"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "pool: start the frame probe",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "pool"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "pool: frame probe on",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "start"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "pool: clear the trace costs",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {
+     "clear": true
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "pool: close the sidebar (the sidebar's card melts into the pane's)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "pool: open the sidebar (it buds back out)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "pool: next tab (the droplet stretches to it)",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "pool: next tab again",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "pool: a new tab (the droplet follows it in)",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "pool: close it",
+   "cmux": [
+    "action",
+    "run",
+    "closeTab"
+   ],
+   "wait": 1.2,
+   "shot": false,
+   "optional": "the next tabs step still runs"
+  },
+  {
+   "title": "pool: frame intervals and main-thread time over those moves",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "stop"
+    }
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "pool: goo trace cost over those moves",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {}
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "slime: start the frame probe",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "slime"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "slime: frame probe on",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "start"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "slime: clear the trace costs",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {
+     "clear": true
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "slime: close the sidebar (the sidebar's card melts into the pane's)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "slime: open the sidebar (it buds back out)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "slime: next tab (the droplet stretches to it)",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "slime: next tab again",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "slime: a new tab (the droplet follows it in)",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "slime: close it",
+   "cmux": [
+    "action",
+    "run",
+    "closeTab"
+   ],
+   "wait": 1.2,
+   "shot": false,
+   "optional": "the next tabs step still runs"
+  },
+  {
+   "title": "slime: frame intervals and main-thread time over those moves",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "stop"
+    }
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "slime: goo trace cost over those moves",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {}
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "drop: start the frame probe",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "drop"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "drop: frame probe on",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "start"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "drop: clear the trace costs",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {
+     "clear": true
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "drop: close the sidebar (the sidebar's card melts into the pane's)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "drop: open the sidebar (it buds back out)",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "drop: next tab (the droplet stretches to it)",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "drop: next tab again",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.8
+  },
+  {
+   "title": "drop: a new tab (the droplet follows it in)",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.2
+  },
+  {
+   "title": "drop: close it",
+   "cmux": [
+    "action",
+    "run",
+    "closeTab"
+   ],
+   "wait": 1.2,
+   "shot": false,
+   "optional": "the next tabs step still runs"
+  },
+  {
+   "title": "drop: frame intervals and main-thread time over those moves",
+   "rpc": {
+    "method": "debug.frames",
+    "params": {
+     "action": "stop"
+    }
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "drop: goo trace cost over those moves",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {}
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "Slow motion x10 for the mid-flight frames (pool)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph.slowMotion",
+     "value": 10
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "pool",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "pool"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Slow motion: next tab",
+   "cmux": [
+    "action",
+    "run",
+    "nextSurface"
+   ],
+   "wait": 0.15
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (1)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (2)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (3)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (4)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (5)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (6)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (7)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight (8)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: back",
+   "cmux": [
+    "action",
+    "run",
+    "prevSurface"
+   ],
+   "wait": 0.15
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (1)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (2)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (3)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (4)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (5)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (6)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (7)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion: the droplet mid-flight back (8)",
+   "wait": 0.2
+  },
+  {
+   "title": "Slow motion off",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph.slowMotion",
+     "value": 1
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "Goo morph off",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.gooMorph",
+     "value": "off"
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  }
+ ]
+}

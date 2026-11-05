@@ -207,7 +207,9 @@ public final class GooMorphChrome {
                 }
             }
         }
-        return GooScene(cards: cards, droplets: droplets, crossBlend: crossBlend, crossWindow: crossWindow, live: live)
+        var scene = GooScene(cards: cards, droplets: droplets, crossBlend: crossBlend, crossWindow: crossWindow, live: live)
+        scene.anchorX = cardRect.minX
+        return scene
     }
 
     private static func smoothstep(_ x: CGFloat, from a: CGFloat, to b: CGFloat) -> CGFloat {
