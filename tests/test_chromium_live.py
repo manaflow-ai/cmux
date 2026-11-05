@@ -103,5 +103,23 @@ class StatusTest(unittest.TestCase):
             self.assertIn("9.5 s", line)
 
 
+class SyncTest(unittest.TestCase):
+    def test_the_tree_copy_is_kept_before_the_edit_is_sent(self):
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append((argv, kw.get("input") or b""))
+            return mock.Mock(returncode=0, stdout=b"")
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run", fake_run):
+            builder = cl.Builder({"build_host": "h", "src": "~/cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder.sync(Path(d), ["third_party/blink/x.cc"])
+        kinds = ["rsync" if argv[0] == "rsync" else "keep" if cl.KEEP_SCRIPT.encode() == data
+                 else "other" for argv, data in calls]
+        self.assertEqual(kinds, ["keep", "rsync"])
+        self.assertTrue(calls[0][0][-1].endswith("third_party/blink/x.cc"))
+
+
 if __name__ == "__main__":
     unittest.main()
