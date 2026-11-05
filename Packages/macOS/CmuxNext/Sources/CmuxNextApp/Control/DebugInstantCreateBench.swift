@@ -27,7 +27,8 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
-/// visible once the window shows another pane, `page_ms` once that pane's page painted. `dock_respawn` docks the focused pane's lone tab into a new left
+/// visible once the window shows another pane, `page_ms` once that pane's page painted (with `untimed`: the link opens and
+/// the reply is at once, no timing: the bench's quick arm's first press). `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
 @MainActor
 enum DebugInstantCreateBench {
@@ -52,6 +53,12 @@ enum DebugInstantCreateBench {
         guard let command = params["command"]?.stringValue.flatMap(Command.init(rawValue:)) else {
             return .object(["error": .string("command: one of \(Command.allCases.map(\.rawValue).joined(separator: ", "))")])
         }
+        // The quick arm's first, untimed press of a command with no key (`link_right`): the link opens and the reply
+        // comes at once, so the timed press that follows finds the spare window this one took.
+        if params["untimed"]?.boolValue == true, command == .linkRight {
+            openLinkRight(params, controller, services)
+            return .object(["command": .string(command.rawValue), "untimed": .bool(true)])
+        }
         let before = Probe(controller)
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
@@ -60,11 +67,8 @@ enum DebugInstantCreateBench {
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
         let start = ContinuousClock.now
-        if command == .linkRight, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") {
-            let placement = services.linkOpener.placement
-            services.linkOpener.placement = { .splitRight }
-            services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
-            services.linkOpener.placement = placement
+        if command == .linkRight {
+            openLinkRight(params, controller, services)
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
         } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
@@ -98,6 +102,15 @@ enum DebugInstantCreateBench {
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
+    }
+
+    /// `url` (default example.com) opened from the focused pane as a link opened to the right (split right).
+    private static func openLinkRight(_ params: [String: CmuxNextSettings.JSONValue], _ controller: WindowController, _ services: AppServices) {
+        guard let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") else { return }
+        let placement = services.linkOpener.placement
+        services.linkOpener.placement = { .splitRight }
+        services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
+        services.linkOpener.placement = placement
     }
 
     /// What the window shows, read each frame.

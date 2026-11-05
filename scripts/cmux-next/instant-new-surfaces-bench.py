@@ -24,7 +24,8 @@ visible_ms, confirmed_ms and key_ms:
          (1 s), 0.4 s after the press before the undo, and 0.3 s after it, so the Ctrl-` stand-in and the New Tab
          page spare are ready
   quick  two quick presses (`--quick-runs`, default 6, per command): the command's key through `debug.key` (not
-         timed), then at once the timed press, with no wait for a stand-in or spare to refill
+         timed; `link_right`, which has no key: the same link opened untimed by the app), then at once the timed
+         press, with no wait for a stand-in or spare to refill
   cold   cold, no wait (`--cold-launches`, default 2, launches per command): the app quits and launches again, and
          the timed press is the launch's first, as soon as a terminal is focused (no shell prompt wait, no warm-up)
 
@@ -236,21 +237,24 @@ def arm_quick(window):
     the same command, so it finds the stand-in or spare the first press took. Both results are undone."""
     rows = []
     for command in COMMANDS:
-        if command not in KEYS:
-            continue  # no key (link_right, split_browser): timed by the warm arm alone
+        if command not in KEYS and command != "link_right":
+            continue  # no key (split_browser, link_home): timed by the warm arm alone
         for index in range(opts.quick_runs):
             if not ensure_terminal():
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
                 continue
             before = len(panes())
-            name, modifiers = KEYS[command]
-            rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
+            if command == "link_right":  # no key: the app opens the same link untimed and replies at once
+                rpc("debug.new_tab", {"action": "bench_create", "command": command, "url": LINK_URL, "untimed": True})
+            else:
+                name, modifiers = KEYS[command]
+                rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
             rows.append(timed(command, "quick", index, arm="quick"))
             time.sleep(0.4)  # test harness: let the creations' shells start before closing them
             # The first of the two results, then the second (undo waits for one terminal pane again).
             if command == "new_workspace":
                 rpc("action.run", {"action": "closeWorkspace"})
-            elif command in ("split_right", "split_down"):
+            elif command in ("split_right", "split_down", "link_right"):
                 rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
                 wait(lambda: len(panes()) <= before + 1, 10)
             else:

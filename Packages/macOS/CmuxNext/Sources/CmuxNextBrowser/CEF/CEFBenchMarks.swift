@@ -4,7 +4,7 @@ public import Foundation
 /// DEBUG builds: the points of a Chromium page's creation that the app's new Chromium tab bench
 /// (`debug.new_tab {action: "bench_browser"}`) lines up with the key: the main-thread time of
 /// building a Chromium window (`create_window`) or joining one (`tab_add`), the window's arrival,
-/// a spare window taken, and the page's first contentful paint per tab id.
+/// a spare window taken, a new tab's page steps (``tabPoint(_:_:)``), and the page's first contentful paint per tab id.
 ///
 /// Disarmed (no ``sink``) a mark site costs one optional read.
 /// The runtime owns the one recorder (`CEFRuntime.benchMarks`); the app reaches it through
@@ -18,14 +18,26 @@ public final class CEFBenchMarks {
     /// Tab ids whose page had its first contentful paint, with the uptime it came at.
     public private(set) var firstPaints: [String: TimeInterval] = [:]
 
-    /// Arms the recorder with `sink` (nil disarms it); forgets earlier first paints.
+    /// The (mark, tab id) pairs ``tabPoint(_:_:)`` recorded since the recorder was armed.
+    private var tabPoints: Set<String> = []
+
+    /// Arms the recorder with `sink` (nil disarms it); forgets earlier first paints and tab points.
     public func arm(_ sink: ((_ name: String, _ milliseconds: Double) -> Void)?) {
         self.sink = sink
         firstPaints.removeAll()
+        tabPoints.removeAll()
     }
 
     /// Records the point `name`.
     func point(_ name: String) { sink?(name, 0) }
+
+    /// Records the point `name` the first time tab `id` reaches it while armed: the steps of a new tab's
+    /// page between the spare window's take and its first paint (`cef.nav_start`, `cef.commit`,
+    /// `cef.doc_first_frame`, `cef.page_shown`, `cef.layer_hosted`), each once per tab.
+    func tabPoint(_ name: String, _ id: String) {
+        guard sink != nil, tabPoints.insert(name + "\u{0}" + id).inserted else { return }
+        point(name)
+    }
 
     /// Runs `body`, recording its main-thread time under `name`.
     func span<T>(_ name: String, _ body: () -> T) -> T {
