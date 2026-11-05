@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use base64::Engine as _;
 use cmux_server::pairing::{self, Transport, invite};
 use cmux_server::{Error, ExitKind, Result};
-use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited};
+use cmux_server_core::pairing::enrollment::{Begun, MachineJoin, Paired, Waited};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -27,6 +27,7 @@ fn paired() -> Paired {
         team: "team_00000000000000000001".into(),
         user: "user_00000000000000000001".into(),
         install: "inst_00000000000000000001".into(),
+        machine_join: None,
     }
 }
 
@@ -41,6 +42,8 @@ struct Api {
     begins: Mutex<VecDeque<Begin>>,
     bodies: Mutex<Vec<Value>>,
     waits: Mutex<VecDeque<Result<Waited>>>,
+    /// Each machine join asked for: (token, api, name).
+    joins: Mutex<Vec<(String, String, String)>>,
 }
 
 impl Api {
@@ -49,6 +52,7 @@ impl Api {
             begins: Mutex::new(begins.into()),
             bodies: Mutex::default(),
             waits: Mutex::new(waits.into()),
+            joins: Mutex::default(),
         }
     }
 }
@@ -75,6 +79,10 @@ impl Transport for Api {
     fn wait(&self, _api: &str, begun: &Begun) -> Result<Waited> {
         assert_eq!(begun.code.as_str(), "7KQ4M2XD");
         self.waits.lock().unwrap().pop_front().expect("unexpected wait")
+    }
+    fn machine_join(&self, join: &MachineJoin, api: &str, name: &str) -> Value {
+        self.joins.lock().unwrap().push((join.token().into(), api.into(), name.into()));
+        json!({"state":"joined","machine_id":"machine_1"})
     }
 }
 
@@ -170,4 +178,32 @@ fn server_pairing_invite_does_not_replace_an_unknown_begin_with_another_invite()
     // So does a plain begin.
     let error = pairing::enroll(&path, API, info(), None, &api, NOW, |_| Ok(())).unwrap_err();
     assert_eq!(error.kind, ExitKind::Conflict);
+}
+
+#[test]
+fn server_pairing_invite_redeems_the_pushed_join_token_and_never_stores_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let token = format!("cmj_{}", "t".repeat(43));
+    let mut with_join = paired();
+    with_join.machine_join = Some(MachineJoin::for_tests(&token, NOW + 600_000));
+    let api = Api::new(vec![Begin::Invited(Some("Leo"))], vec![Ok(Waited::Paired(with_join))]);
+    let mut progress = vec![];
+    let result = run(&path, &api, "ABCDE-12345", &mut progress).unwrap();
+    assert_eq!(result["state"], "paired");
+    assert_eq!(result["machine"], json!({"state":"joined","machine_id":"machine_1"}));
+    assert_eq!(
+        *api.joins.lock().unwrap(),
+        vec![(token.clone(), API.to_owned(), "Test server".to_owned())]
+    );
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert!(!saved.contains(&token), "the identity file holds no join token");
+    assert!(!format!("{result:?}{progress:?}").contains(&token));
+    // Without a token, nothing is joined and the result has no machine field.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(vec![Begin::Invited(None)], vec![Ok(Waited::Paired(paired()))]);
+    let result = run(&path, &api, "ABCDE-12345", &mut vec![]).unwrap();
+    assert!(result.get("machine").is_none());
+    assert!(api.joins.lock().unwrap().is_empty());
 }

@@ -245,6 +245,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_GOAL_SET, Request),
+        untyped(method::MUX_GOAL_UPDATE, Request),
+        untyped(method::MUX_GOAL_GET, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
@@ -308,6 +311,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TASK_NEW, Request),
         untyped(method::MUX_TASKS, Request),
         untyped(method::MUX_RESOLVE, Request),
+        untyped(method::MUX_WHO_ELSE, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.

@@ -12,7 +12,7 @@
   background: none;
 }
 
-/* recap: the recap card's buttons (RecapCard.tsx): the accent-filled yes, the rest bare text. */
+/* recap: the old recap card's buttons: the accent-filled yes, the rest bare text. */
 .acpmux-next-step-gallery[data-next-step-look="recap"] .acpmux-next-step__answer {
   min-height: var(--ds-control-row, 28px);
   padding: 0 var(--ds-space-3, 12px);

@@ -354,9 +354,10 @@ enum CloudHandlers {
     /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
                          within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
-        try requireAttachableState(session)
+        // A machine that is resuming is waited for, not refused (``requireAttachableState(_:waitingOutResume:)``).
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         await session.refreshIfMaybePaused()
-        try requireAttachableState(session)
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         session.attach(origin: connectOrigin(for: invocation))
         let daemon = session.daemon
         if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
@@ -383,6 +384,15 @@ enum CloudHandlers {
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
+    }
+
+    /// ``requireAttachableState(_:)`` after waiting out a resume (``CloudWait/outwaitResume(of:within:read:)``): a
+    /// machine that is resuming is waited for, up to `limit`, instead of refused with "This machine is resuming"
+    /// (prod, 2026-11-05: `cloud start-chat` refused at once after `cloud resume-machine`, then worked in 12 s once
+    /// the machine ran). A pause or delete still refuses at once, and so does a resume still running at `limit`.
+    static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
+        await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        try requireAttachableState(session)
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {

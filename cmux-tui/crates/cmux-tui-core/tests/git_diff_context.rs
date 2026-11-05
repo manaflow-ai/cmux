@@ -560,3 +560,91 @@ fn git_diff_untracked_performance() {
     server::cleanup(&socket);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn commit_id(repo: &Path, revision: &str) -> String {
+    let output =
+        Command::new("git").arg("-C").arg(repo).args(["rev-parse", revision]).output().unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// A pull request's diff from commits already on the machine: head against
+/// its merge base with base (GitHub's three-dot diff), never the working tree,
+/// and a commit the repository lacks refuses so the caller reads elsewhere.
+#[test]
+fn git_diff_commits_scope_is_the_pull_request_diff_of_local_commits() {
+    let dir = std::env::temp_dir().join(unique("gdcs"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+    let commit = |message: &str| {
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.com",
+                "commit",
+                "--quiet",
+                "-am",
+                message,
+            ],
+        );
+    };
+    write(&repo, "a.txt", "one\n");
+    write(&repo, "base.txt", "base\n");
+    git(&repo, &["add", "."]);
+    commit("start");
+    git(&repo, &["checkout", "--quiet", "-b", "feature"]);
+    write(&repo, "a.txt", "one changed\n");
+    commit("the change");
+    let head = commit_id(&repo, "HEAD");
+    git(&repo, &["checkout", "--quiet", "main"]);
+    write(&repo, "base.txt", "base moved on\n");
+    commit("base moves");
+    let base = commit_id(&repo, "HEAD");
+    // Neither the checked-out tree nor a new file is part of it.
+    write(&repo, "a.txt", "uncommitted\n");
+    write(&repo, "new.txt", "untracked\n");
+
+    let mux = Mux::new(unique("git-diff-commits"), SurfaceOptions::default());
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let path = repo.to_string_lossy();
+
+    let diff = client.read(
+        "git.diff",
+        json!({"path": path, "scope": "commits", "base": base, "head": head, "include_patch": true}),
+    );
+    assert_eq!(diff["scope"], "commits", "{diff}");
+    assert_eq!(diff["head"], head.as_str(), "{diff}");
+    assert_eq!(diff["base"], commit_id(&repo, "main~1").as_str(), "the merge base: {diff}");
+    let files = diff["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "only the pull request's file: {diff}");
+    assert_eq!(files[0]["path"], "a.txt");
+    assert!(patch(&diff).contains("-one\n+one changed\n"), "{diff}");
+
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let refused = client.request(
+        "git.diff",
+        json!({"path": path, "scope": "commits", "base": base, "head": missing}),
+    );
+    assert_eq!(refused["error"]["code"], "operation.failed", "{refused}");
+    assert_eq!(refused["error"]["details"]["extra"]["code"], "commit_missing", "{refused}");
+    assert_eq!(refused["error"]["details"]["extra"]["commit"], missing, "{refused}");
+
+    // A branch name is not a commit id: the scope reads only exact commits.
+    let named = client.request(
+        "git.diff",
+        json!({"path": path, "scope": "commits", "base": base, "head": "feature-branch-name-padded-to-forty-chars"}),
+    );
+    assert_eq!(named["error"]["details"]["extra"]["code"], "commit_missing", "{named}");
+    let unnamed =
+        client.request("git.diff", json!({"path": path, "scope": "commits", "base": base}));
+    assert_eq!(unnamed["error"]["code"], "validation.invalid", "{unnamed}");
+
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}

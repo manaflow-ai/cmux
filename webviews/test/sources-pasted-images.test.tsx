@@ -8,6 +8,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { numberedImageLabels } from "../src/agent-session/acpmux/imageLabel";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -87,11 +89,57 @@ test("an image source's row reads its bytes by id and opens the viewer", async (
   // Each image is its own row even when two share a name.
   expect(errors.filter((error) => error.includes("same key"))).toEqual([]);
   const rows = [...host.querySelectorAll("li")];
-  expect(rows.map((row) => row.textContent)).toEqual([shot.name, "Image", "image.png", "image.png"]);
+  // Unnamed and "image.png" images read Screenshot 1, 2, 3 in chat order; a real name stays.
+  expect(rows.map((row) => row.textContent)).toEqual([shot.name, "Screenshot 1", "Screenshot 2", "Screenshot 3"]);
   await act(async () => rows[0]!.querySelector("button")!.click());
   expect(read).toEqual([shot.id]);
   expect(opened).toEqual([["data:image/png;base64,AA==", shot.name]]);
   // Bytes acpmux no longer has: the row says so instead of opening nothing.
   await act(async () => rows[1]!.querySelector("button")!.click());
   expect(host.querySelectorAll("li")[1]!.querySelector("[role=alert]")?.textContent).toBe("Image unavailable");
+});
+
+// Leo, 2026-11-05, on five Sources rows all reading "image.png": "instead of, like screenshot
+// number one, two, three, four, or whatever."
+test("a list numbers only the images with no name of their own, naming the app when known", () => {
+  expect(
+    numberedImageLabels(translate, [
+      { name: "image.png" },
+      { name: "Screenshot 2026-10-28.png" },
+      { name: "Pasted Graphic 2" },
+      { name: "image.png", source: "Safari" },
+      {},
+    ]),
+  ).toEqual(["Screenshot 1", "Screenshot 2026-10-28.png", "Screenshot 2", "Safari screenshot 3", "Screenshot 4"]);
+});
+
+test("Sources numbers pasted screenshots across the whole list, in the web and native rows alike", async () => {
+  const { sourceLabels } = await import("../src/agent-session/acpmux/session-info/SourcesSection");
+  const { sourcesSection } = await import("../src/agent-session/acpmux/session-info/native/sources");
+  const { NativeInfoActions } = await import("../src/agent-session/acpmux/session-info/native/model");
+  const hex = (n: number) => n.toString(16).repeat(64);
+  const rows = [
+    prompt("u1", { images: [{ ...twin, id: hex(1) }] }),
+    { id: "a1", kind: "assistant", text: "see https://example.com/docs" } as AcpmuxRow,
+    prompt("u2", { images: [shot, { ...twin, id: hex(2), source: { name: "Safari" } }] }),
+    ...[3, 4, 5, 6].map((n) => prompt(`u${n}`, { images: [{ ...twin, id: hex(n) }] })),
+  ];
+  const sources = sessionSummary(rows).sources;
+  expect(sources[3]!.image).toEqual({ id: hex(2), src: undefined, source: "Safari" });
+  const expected = [
+    "Screenshot 1",
+    "example.com/docs",
+    shot.name,
+    "Safari screenshot 2",
+    "Screenshot 3",
+    "Screenshot 4",
+    "Screenshot 5",
+    "Screenshot 6",
+  ];
+  expect(sourceLabels(translate, sources)).toEqual(expected);
+  const section = (expanded: boolean) =>
+    sourcesSection({ sources, expanded, onExpandedChange: () => {}, open: true }, new NativeInfoActions(), translate)!;
+  // Folded, the first five keep the numbers they have unfolded.
+  expect(section(false).rows.map((row) => row.title)).toEqual(expected.slice(0, 5));
+  expect(section(true).rows.map((row) => row.title)).toEqual(expected);
 });

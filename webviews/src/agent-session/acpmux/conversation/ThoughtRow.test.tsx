@@ -1,19 +1,16 @@
 // l10n-allow-file: test fixture thoughts, not shipped UI.
-// A long thought folds once done (behind the Debug toggle agentPane.debug.foldLongThoughts, on by
-// default in the app): while it streams, a long one holds Codex's seven-line viewport
-// (agentPane.debug.liveThoughtViewport), and once done a thought taller than about one transcript
-// viewport (never less than THOUGHT_FOLD_MIN_PX; with agentPane.debug.thoughtFoldThreshold "codex",
-// THOUGHT_LIVE_PX) folds to one line that opens to its text: "Thought for 12s", or with the Debug
-// choice agentPane.debug.thoughtHeader "preview", "Thought" and its first line. The reader's toggle
-// always wins over the fold; the toggle animates the height, the automatic fold snaps (as Codex's
-// does), and Reduce Motion animates nothing. Off, a thought shows in full (Leo 2026-10-13, #20330).
+// A thought folds once done: while it streams, a long one holds Codex's seven-line viewport, and
+// once done every thought (or, with agentPane.debug.thoughtFoldThreshold "viewport" or "codex", one
+// taller than THOUGHT_LIVE_PX) folds to one line that opens to its text: "Thought for 12s", or with
+// the Debug choice agentPane.debug.thoughtHeader "preview", "Thought" and its first line. The
+// reader's toggle always wins over the fold; the toggle animates the height, the automatic fold
+// snaps (as Codex's does), and Reduce Motion animates nothing.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import {
-  THOUGHT_FOLD_MIN_PX,
   THOUGHT_LIVE_PX,
   ThoughtRow,
   thoughtDuration,
@@ -34,14 +31,11 @@ const layout = { ...thoughtLayout };
 const motion = { ...foldMotion };
 /// The fold's duration token as the page resolves it (conversation.css `--cv-fold-duration`).
 const FOLD_MS = 190;
-/// The thought's drawn height, the transcript viewport's, the Debug toggle and Reduce Motion.
+/// The thought's drawn height and Reduce Motion.
 let height = 0;
-let viewport = 600;
-let enabled = true;
 let reduce = false;
 let header: ThoughtHeader = "duration";
-/// The live viewport's Debug toggle, and the text's whole height (0: only `height` counts).
-let live = true;
+/// The text's whole height (0: only `height` counts).
 let content = 0;
 let threshold: ThoughtFoldThreshold = "viewport";
 type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
@@ -70,22 +64,16 @@ beforeEach(() => {
     return animation;
   };
   height = 0;
-  viewport = 600;
-  enabled = true;
   reduce = false;
   header = "duration";
-  live = true;
   content = 0;
   // The tests below this file's "every finished thought" block check the older Debug choices.
   threshold = "viewport";
   animations = [];
   thoughtLayout.threshold = () => threshold;
   thoughtLayout.header = () => header;
-  thoughtLayout.liveViewport = () => live;
   thoughtLayout.contentHeight = () => content;
   thoughtLayout.height = () => height;
-  thoughtLayout.viewport = () => viewport;
-  thoughtLayout.enabled = () => enabled;
   foldMotion.reducedMotion = () => reduce;
   foldMotion.duration = () => FOLD_MS;
   foldMotion.easing = () => "ease-out";
@@ -118,10 +106,9 @@ function render(item: AcpmuxActivity, streaming: boolean, id: string) {
 const toggle = () => container.querySelector<HTMLButtonElement>("button[aria-expanded]");
 const body = () => container.querySelector(".cv-thought__body");
 const click = () => act(() => toggle()!.click());
-/// Whether a done thought `drawn` px tall folds in a `view` px transcript.
-function folds(drawn: number, view: number, id: string): boolean {
+/// Whether a done thought `drawn` px tall folds.
+function folds(drawn: number, id: string): boolean {
   height = drawn;
-  viewport = view;
   render(thought(), false, id);
   const folded = toggle() !== null;
   act(() => root!.unmount());
@@ -129,34 +116,10 @@ function folds(drawn: number, view: number, id: string): boolean {
   return folded;
 }
 
-test("with the Debug toggle off, a long thought shows in full as before", () => {
-  enabled = false;
-  height = 5000;
-  render(thought(), false, "off:0");
-  expect(toggle()).toBeNull();
-  expect(body()).toBeNull();
-  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
-});
-
-test("with the live viewport off, a done thought folds once taller than the transcript's viewport", () => {
-  live = false;
-  expect(folds(599, 600, "view-1:0")).toBe(false);
-  expect(folds(600, 600, "view-2:0")).toBe(false);
-  expect(folds(601, 600, "view-3:0")).toBe(true);
-});
-
-test("with the live viewport off, a tiny pane folds only thoughts taller than the floor", () => {
-  live = false;
-  expect(folds(THOUGHT_FOLD_MIN_PX - 1, 200, "floor-1:0")).toBe(false);
-  expect(folds(THOUGHT_FOLD_MIN_PX, 200, "floor-2:0")).toBe(false);
-  expect(folds(THOUGHT_FOLD_MIN_PX + 1, 200, "floor-3:0")).toBe(true);
-});
-
-test("with the live viewport on, a thought it clipped folds once done, even under the transcript's height", () => {
-  // An 800px pane: a 300px thought streams clipped to 140px, then folds rather than growing.
+test("a thought the live viewport clipped folds once done, even under the transcript's height", () => {
+  // A 300px thought streams clipped to 140px, then folds rather than growing.
   height = THOUGHT_LIVE_PX;
   content = 300;
-  viewport = 800;
   render(thought(), true, "band:0");
   expect(row()?.classList.contains("is-live")).toBe(true);
   render(thought(), false, "band:0");
@@ -166,8 +129,8 @@ test("with the live viewport on, a thought it clipped folds once done, even unde
   root = undefined;
   // A thought the viewport never clipped stays in full.
   content = 0;
-  expect(folds(THOUGHT_LIVE_PX, 800, "band-short:0")).toBe(false);
-  expect(folds(THOUGHT_LIVE_PX + 1, 800, "band-over:0")).toBe(true);
+  expect(folds(THOUGHT_LIVE_PX, "band-short:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, "band-over:0")).toBe(true);
 });
 
 test("a folded thought over a minute reads its minutes and seconds", () => {
@@ -176,13 +139,10 @@ test("a folded thought over a minute reads its minutes and seconds", () => {
   expect(toggle()?.textContent).toBe("Thought for 1m 5s");
 });
 
-test("with the live viewport off and the Debug choice codex, a done thought folds once taller than seven lines", () => {
-  live = false;
+test("with the Debug choice codex, a done thought folds once taller than seven lines", () => {
   threshold = "codex";
-  expect(folds(THOUGHT_LIVE_PX, 600, "codex-1:0")).toBe(false);
-  expect(folds(THOUGHT_LIVE_PX + 1, 600, "codex-2:0")).toBe(true);
-  // The transcript's viewport no longer counts.
-  expect(folds(THOUGHT_LIVE_PX + 1, 2000, "codex-3:0")).toBe(true);
+  expect(folds(THOUGHT_LIVE_PX, "codex-1:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, "codex-2:0")).toBe(true);
 });
 
 test("a folded thought reads how long the agent thought, without its text", () => {
@@ -225,7 +185,6 @@ test("with the Debug choice preview, a folded thought reads Thought and its firs
 });
 
 test("a long thought shows in full while it streams and folds only when done, without animating", () => {
-  live = false;
   height = 900;
   render(thought(LONG.slice(0, 200)), true, "streaming:0");
   render(thought(), true, "streaming:0");
@@ -258,19 +217,6 @@ test("a thought no taller than the live viewport streams in full under Thinking,
   expect(label()).toBe("Thinking");
   expect(container.querySelector(".cv-thought__text")?.textContent).toBe("I am here, reading the retry helper first.");
   expect(row()?.textContent).not.toContain("Thought");
-});
-
-test("with the live viewport's toggle off, or the fold's, a long thought streams in full", () => {
-  live = false;
-  height = 900;
-  render(thought(), true, "live-off:0");
-  expect(row()?.classList.contains("is-live")).toBe(false);
-  act(() => root!.unmount());
-  root = undefined;
-  live = true;
-  enabled = false;
-  render(thought(), true, "fold-off:0");
-  expect(row()?.classList.contains("is-live")).toBe(false);
 });
 
 test("a thought clipped by the live viewport still folds by its whole height once done", () => {

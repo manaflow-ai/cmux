@@ -18,6 +18,12 @@ final class SidebarPriorityRowView: NSView {
     private var pressStart: NSPoint?
     private var dragging = false
     private var pressCancelled = false
+    /// The pointer's last window point in this press: an edge autoscroll frame reads it while the row is held.
+    private var lastWindowPoint: NSPoint?
+    enum MoveDirection { case earlier, later }
+    /// Control-Option-Up or -Down while the row has focus, or VoiceOver's Move Earlier or Move Later:
+    /// the row moves one place and keeps it, as a drag there would.
+    var onMove: ((MoveDirection) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
     private let agentIcon = DecorativeImageView()
@@ -240,6 +246,7 @@ final class SidebarPriorityRowView: NSView {
         window?.makeFirstResponder(self)
         pressCancelled = false
         pressStart = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         dragging = false
     }
 
@@ -247,6 +254,7 @@ final class SidebarPriorityRowView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = pressStart else { return }
         let point = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
         if dragging { onDrag?(self, start.y - point.y, false) }
     }
@@ -259,6 +267,7 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        lastWindowPoint = event.locationInWindow
         if pressCancelled {
             pressCancelled = false
             pressStart = nil
@@ -276,10 +285,29 @@ final class SidebarPriorityRowView: NSView {
         onAction?(.open(entry.id))
     }
 
+    var heldWindowPoint: NSPoint? { lastWindowPoint }
+
     func cancelPress() {
         pressCancelled = true
         pressStart = nil
         dragging = false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard flags == [.control, .option] else { return super.keyDown(with: event) }
+        switch event.specialKey {
+        case .upArrow?: onMove?(.earlier)
+        case .downArrow?: onMove?(.later)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions = super.accessibilityCustomActions() ?? []
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveEarlier) { [weak self] in self?.onMove?(.earlier); return self != nil })
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveLater) { [weak self] in self?.onMove?(.later); return self != nil })
+        return actions
     }
 
     override func accessibilityPerformPress() -> Bool {
