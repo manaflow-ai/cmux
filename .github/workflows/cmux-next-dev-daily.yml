@@ -21,15 +21,15 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
 jobs:
-  # Leo, 2026-10-28: the release signing jobs may run on our own Macs ("we can just read the code").
-  # Picks sign's runner (scripts/ci/signing_runner.py): a drained owned Mac on attempt 1 while
-  # vars.CI_SIGN_OWNED is 1, held whole for the job (its claim step), else the Blacksmith macOS label
-  # whose queue moves, and the other size for a re-run. The routing App key stays in this Linux job's
-  # routing environment and is minted only on the refs the release environment allows (main, rc/**, v* tags), so
-  # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
-  # success, and sign then falls back to Blacksmith 6 vCPU. The pick is a few API reads (nightly.yml's twin: W44 p50
-  # 9 s on GitHub-hosted Ubuntu), so it takes hosted Ubuntu and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32
-  # vCPU (Leo, 2026-11-01: "surely we measured the signign we dont need 32/16 just for signing").
+  # Picks sign's runner (scripts/ci/signing_runner.py): the Blacksmith macOS label whose queue moves, and the other
+  # size for a re-run. Never an owned Mac: the side lane's minis run pull request jobs as the same macOS user, so DEV
+  # signing secrets stay on ephemeral Blacksmith, as main's copy (which runs) signs on Blacksmith Linux. The pick
+  # reads no routing token and offers no owned label (no ENABLED, no OWNED_LABELS), so its `owned` is always empty
+  # and sign-blacksmith never runs (tests/test_cmux_next_dev_daily_sign_ephemeral.py). actions: read is the queue
+  # janitor's pool snapshot. A failed pick reads as success, and sign then falls back to Blacksmith 6 vCPU. The pick
+  # is a few API reads (nightly.yml's twin: W44 p50 9 s on GitHub-hosted Ubuntu), so it takes hosted Ubuntu and
+  # Blacksmith Linux 4 vCPU on a re-run, never 16 or 32 vCPU (Leo, 2026-11-01: "surely we measured the signign we
+  # dont need 32/16 just for signing").
   pick-sign-runner:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     environment: ci-routing-agent
@@ -52,29 +52,6 @@ jobs:
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
-      - name: Mint the owned-pool routing token
-        id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.run_attempt == 1 && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/') || startsWith(github.ref, 'refs/tags/v'))
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-
-      - name: Mint the routing token without the org permission
-        id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-
       - name: Pick the signing runner
         id: pick
         if: github.repository_owner == 'manaflow-ai'
@@ -82,9 +59,6 @@ jobs:
         timeout-minutes: 3
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          ENABLED: ${{ vars.CI_SIGN_OWNED }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          OWNED_LABELS: ${{ vars.CI_SIDE_LANE_RUNNER }}
           SNAPSHOT_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 scripts/ci/signing_runner.py
@@ -101,7 +75,8 @@ jobs:
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned && fromJSON(needs.pick-sign-runner.outputs.owned) || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # Blacksmith only (ephemeral), never an owned Mac or the side lane's label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions: &sign-permissions
       actions: read
@@ -323,6 +298,8 @@ jobs:
     needs: [pick-sign-runner, sign]
     # The same run signs on Blacksmith when the owned Mac took sign but its claim gate never passed
     # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    # The pick offers no owned Mac now, so `owned` is empty and this job skips; it stays until the jobs after it stop
+    # reading it.
     if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.sign.result != 'skipped' && needs.sign.result != 'cancelled' && needs.sign.outputs.claim != 'owned'"
     name: Sign cmux NEXT DEV on Blacksmith
     environment: release
