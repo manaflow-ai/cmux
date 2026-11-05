@@ -12,6 +12,9 @@ OS_MATRIX=${OS_MATRIX:-$ROOT/scripts/cmux-next/os-matrix.sh}
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
+# Local-path submodules (case 4) need the file transport, which git >= 2.38.1 refuses by default.
+export "GIT_CONFIG_KEY_${GIT_CONFIG_COUNT}=protocol.file.allow" "GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT}=always"
+export GIT_CONFIG_COUNT=$((GIT_CONFIG_COUNT + 1))
 fail() { printf 'FAIL: %s\n' "$1" >&2; [[ -n "${2:-}" ]] && printf 'output:\n%s\n' "$2" >&2; exit 1; }
 BUILD=0123456789abcdef01234567
 
@@ -79,4 +82,42 @@ rc=0; out=$(run_matrix unreachable) || rc=$?
 [[ $rc == 75 ]] || fail "exit $rc with origin unreachable, want 75" "$out"
 [[ ! -e "$TMP/ci-args" ]] || fail "a step was submitted with origin unreachable" "$out"
 echo "ok   unreachable origin: exit 75, no step"
+
+# 4. The missing tip moves a submodule pointer (ghostty and others in the real clone), and another
+#    fetch holds that submodule's remote-tracking ref lock. A fetch that recurses into the submodule
+#    (fetch.recurseSubmodules defaults to on-demand) writes refs and takes locks there.
+git -C "$TMP/work" remote set-url origin "$TMP/origin.git"
+git_q init "$TMP/subsrc"
+echo one >"$TMP/subsrc/f"
+git_q -C "$TMP/subsrc" add -A
+git_q -C "$TMP/subsrc" commit -m one
+git_q -C "$TMP/subsrc" branch -M main
+git_q clone --bare "$TMP/subsrc" "$TMP/sub.git"
+git_q -C "$TMP/src" submodule add "$TMP/sub.git" mod
+git_q -C "$TMP/src" commit -m "add mod"
+git_q -C "$TMP/src" push "$TMP/origin.git" feat-cmux-next
+git_q -C "$TMP/work" pull --ff-only origin feat-cmux-next
+git_q -C "$TMP/work" submodule update --init
+echo two >"$TMP/subsrc/f"
+git_q -C "$TMP/subsrc" commit -am two
+git_q -C "$TMP/subsrc" push "$TMP/sub.git" main
+git_q -C "$TMP/src/mod" pull --ff-only origin main
+git_q -C "$TMP/src" commit -am "bump mod"
+git_q -C "$TMP/src" push "$TMP/origin.git" feat-cmux-next
+tip=$(git -C "$TMP/origin.git" rev-parse refs/heads/feat-cmux-next)
+moddir=$(git -C "$TMP/work/mod" rev-parse --absolute-git-dir)
+mod_before=$(git -C "$TMP/work/mod" rev-parse refs/remotes/origin/main)
+rm -f "$TMP/work/.git/FETCH_HEAD" "$moddir/FETCH_HEAD"
+mkdir -p "$moddir/refs/remotes/origin"
+modlock="$moddir/refs/remotes/origin/main.lock"
+: >"$modlock"
+rc=0; out=$(run_matrix submodule) || rc=$?
+[[ $rc == 0 ]] || fail "a held submodule ref lock ended os-matrix.sh with exit $rc" "$out"
+[[ $(ref_sent) == "$tip" ]] || fail "vm.sh ref $(ref_sent), want the origin tip $tip" "$out"
+[[ -e "$modlock" ]] || fail "the other fetch's submodule lock was removed"
+[[ $(git -C "$TMP/work/mod" rev-parse refs/remotes/origin/main) == "$mod_before" ]] \
+  || fail "the submodule's remote-tracking ref moved" "$out"
+[[ ! -e "$moddir/FETCH_HEAD" ]] || fail "FETCH_HEAD was written in the submodule" "$out"
+rm -f "$modlock"
+echo "ok   submodule bump with a held submodule lock: --ref $tip, nothing written in the submodule"
 echo "PASS os-matrix-default-ref"
