@@ -6,12 +6,13 @@ import CmuxNextWakeups
 
 /// Display-link frame intervals between `start` and `stop`, and when a bench's result first shows (`debug.new_tab` benches).
 ///
-/// A waiter (``settled(until:start:window:deadline:)``) reads its condition at two points:
-/// - each display-link tick: `visible`, the tick at which the condition first holds (what the bench returns);
-/// - after each Core Animation commit of the main run loop: ``lastCommitted``, the end of the first commit after which the
-///   condition holds. The render server shows a committed frame without the main thread, so a frame committed while the
-///   main thread then stays busy is on screen before the next tick reaches the main thread: `visible` alone overstates it
-///   (CMD-N FIRST FRAME, STATUS 14067).
+/// A waiter (``settled(until:start:window:deadline:watchCommits:)``) reads its condition each display-link tick: `visible`,
+/// the tick at which the condition first holds (what the bench returns). With `watchCommits`, it also reads it after each
+/// Core Animation commit of the main run loop until `visible`: ``lastCommitted``, the end of the first commit after which
+/// the model holds the result, a lower bound for when it shows (the render server shows a committed frame without the main
+/// thread, so `visible` alone overstates a frame committed while the main thread then stays busy; CMD-N FIRST FRAME, STATUS
+/// 14067). It is nil when the result first held in the visible tick's own pass, before that pass committed. Only a
+/// condition that reads, and does nothing else, may watch commits.
 @MainActor
 public final class BenchFrames {
     private lazy var client = FrameClient(owner: "debug.new_tab.frames", isAnimation: false, on: .app) { [weak self] tick in
@@ -43,12 +44,14 @@ public final class BenchFrames {
     public init() {}
 
     /// Resumes with the ms at which `done` first held (checked each frame), once `window` ms of
-    /// frames followed it, or nil at `deadline` ms. ``lastCommitted`` then holds its commit time.
-    public func settled(until done: @escaping () -> Bool, start: ContinuousClock.Instant, window: Double, deadline: Double) async -> Double? {
+    /// frames followed it, or nil at `deadline` ms. With `watchCommits` (a `done` that only reads), ``lastCommitted``
+    /// then holds its commit time.
+    public func settled(until done: @escaping () -> Bool, start: ContinuousClock.Instant, window: Double, deadline: Double,
+                        watchCommits: Bool = false) async -> Double? {
         lastCommitted = nil
-        commitWatch = MainRunLoopObserver(activities: .beforeWaiting, order: .max, drawsNothingAfterCommit: true) { [weak self] _ in
+        commitWatch = watchCommits ? MainRunLoopObserver(activities: .beforeWaiting, order: .max, drawsNothingAfterCommit: true) { [weak self] _ in
             self?.afterCommit()
-        }
+        } : nil
         return await withCheckedContinuation { continuation in
             waiter = Waiter(done: done, start: start, window: window, deadline: deadline, continuation: continuation)
         }
@@ -76,7 +79,7 @@ public final class BenchFrames {
     }
 
     private func afterCommit() {
-        guard var waiting = waiter, waiting.committed == nil, waiting.done() else { return }
+        guard var waiting = waiter, waiting.committed == nil, waiting.visible == nil, waiting.done() else { return }
         waiting.committed = Self.ms(.now - waiting.start)
         waiter = waiting
     }
