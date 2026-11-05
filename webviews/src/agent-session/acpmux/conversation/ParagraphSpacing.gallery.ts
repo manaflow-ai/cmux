@@ -8,7 +8,7 @@ const reply = [
   "The second paragraph sits on the shared transcript grid, followed by a display equation.",
   "$$E=mc^2$$",
   "The closing paragraph confirms that the equation did not introduce a second fixed gap.",
-  // Top-level blocks are spaced by the stack's gap; a loose list item's paragraphs and math carry the token.
+  // Top-level blocks are spaced by the stack's gap; a list item's paragraphs carry the token, its math one grid gap.
   "- A list item with more to say.\n  Its paragraph leads into math.\n  $$a^2+b^2=c^2$$\n  And the item goes on after it.",
 ].join("\n\n");
 

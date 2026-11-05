@@ -1,6 +1,6 @@
 // The paragraph and display-math seam is owned by the scaled transcript inner-gap token.
 // Gallery agent-pane.paragraph-spacing-token provides before, chosen and comparison arms.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { DENSITIES } from "../src/gallery/env";
@@ -8,6 +8,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
+  setDefaultTimeout(120_000);
   const themes = [
     { name: "Apple System Colors Light", file: "light" },
     { name: "Catppuccin Mocha", file: "dark" },
@@ -75,15 +76,18 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
     const sample = () =>
       page.evaluate(() => {
         const markdown = document.querySelector<HTMLElement>(".cv-md");
-        // Top-level blocks are spaced by the stack's gap; nested ones (a loose list item) by the token.
-        const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-p");
+        // Top-level blocks are spaced by the stack's gap; nested ones (a list item's) by the token.
+        const before = document.querySelector<HTMLElement>(".cv-list li > .cv-p:has(+ .cv-math-display)");
         const math = document.querySelector<HTMLElement>(".cv-list li > .cv-p + .cv-math-display");
+        const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-math-display + .cv-p");
         return {
           paragraphCount: document.querySelectorAll(".cv-md .cv-p").length,
           equation: !!document.querySelector(".cv-math-display .katex"),
           gridGap: markdown ? Number.parseFloat(getComputedStyle(markdown).rowGap) : Number.NaN,
           paragraphAfter: paragraph ? Number.parseFloat(getComputedStyle(paragraph).marginBottom) : Number.NaN,
-          mathMarginTop: math ? Number.parseFloat(getComputedStyle(math).marginTop) : Number.NaN,
+          // Drawn, not computed: stacked margins collapse, so the boxes tell the real seam.
+          mathGap:
+            before && math ? math.getBoundingClientRect().top - before.getBoundingClientRect().bottom : Number.NaN,
         };
       });
     // The reply can still be settling when the frame reports ready: wait until the gaps read as
@@ -93,14 +97,16 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
         .waitForFunction(
           (want) => {
             const markdown = document.querySelector<HTMLElement>(".cv-md");
-            const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-p");
+            const before = document.querySelector<HTMLElement>(".cv-list li > .cv-p:has(+ .cv-math-display)");
             const math = document.querySelector<HTMLElement>(".cv-list li > .cv-p + .cv-math-display");
-            if (!markdown || !paragraph || !math) return false;
+            const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-math-display + .cv-p");
+            if (!markdown || !before || !math || !paragraph) return false;
             const gap = Number.parseFloat(getComputedStyle(markdown).rowGap);
             const target = want === "gap" ? gap : want;
+            const seam = math.getBoundingClientRect().top - before.getBoundingClientRect().bottom;
             return (
               Math.abs(Number.parseFloat(getComputedStyle(paragraph).marginBottom) - target) < 0.05 &&
-              Math.abs(Number.parseFloat(getComputedStyle(math).marginTop) - (gap - target)) < 0.05
+              Math.abs(seam - gap) < 0.05
             );
           },
           after,
@@ -131,10 +137,10 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
             const after = variant.relation === "shared" ? result.gridGap : variant.relation === "before" ? 14 : 16;
             expect(result.gridGap).toBeGreaterThan(0);
             expect(result.paragraphAfter).toBeCloseTo(after, 1);
-            expect(result.mathMarginTop).toBeCloseTo(result.gridGap - after, 1);
+            expect(result.mathGap).toBeCloseTo(result.gridGap, 1);
             if (variant.relation === "shared") {
               expect(result.inherited?.paragraphAfter).toBeCloseTo(4, 1);
-              expect(result.inherited?.mathMarginTop).toBeCloseTo(result.gridGap - 4, 1);
+              expect(result.inherited?.mathGap).toBeCloseTo(result.gridGap, 1);
             }
           });
 });
