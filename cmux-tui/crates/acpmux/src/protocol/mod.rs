@@ -412,6 +412,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CHAT_ROUTE_SET, Request),
         untyped(method::MUX_ACCOUNTS, Request),
         untyped(method::MUX_ACCOUNT_SET, Request),
+        untyped(method::MUX_ACCOUNT_USAGE, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

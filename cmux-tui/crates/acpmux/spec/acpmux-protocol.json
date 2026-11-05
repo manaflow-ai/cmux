@@ -1555,6 +1555,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/account/usage",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/web_modes",
       "params": true,
       "result": true

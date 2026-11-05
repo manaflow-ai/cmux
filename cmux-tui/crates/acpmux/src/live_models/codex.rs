@@ -36,7 +36,8 @@ async fn request(child: &mut Probe, id: u64, method: &str, params: Value) -> Res
     }
 }
 
-pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
+/// `initialize` (request 1), then the `initialized` notification.
+async fn initialize(child: &mut Probe) -> Result<()> {
     let client = json!({"name": "acpmux", "title": "acpmux", "version": env!("CARGO_PKG_VERSION")});
     request(
         child,
@@ -45,7 +46,18 @@ pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
         json!({"clientInfo": client, "capabilities": {"experimentalApi": true}}),
     )
     .await?;
-    child.send(&json!({"method": "initialized"})).await?;
+    child.send(&json!({"method": "initialized"})).await
+}
+
+/// The account's plan usage limits at rest: `account/rateLimits/read`'s result
+/// (`{rateLimits, rateLimitsByLimitId?}`), as the app-server answers it.
+pub(super) async fn rate_limits(child: &mut Probe) -> Result<Value> {
+    initialize(child).await?;
+    request(child, 2, "account/rateLimits/read", Value::Null).await
+}
+
+pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
+    initialize(child).await?;
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
     for page in 0..MAX_PAGES {

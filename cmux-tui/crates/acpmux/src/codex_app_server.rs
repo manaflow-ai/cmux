@@ -25,7 +25,7 @@ pub use background::TERMINATE;
 mod usage_limits;
 #[cfg(test)]
 mod usage_limits_tests;
-pub use usage_limits::{is_plan_snapshot, usage_limits};
+pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 
 /// The cmux-codex-acp translator, with Codex's background terminals beside
 /// it (`background.rs`).

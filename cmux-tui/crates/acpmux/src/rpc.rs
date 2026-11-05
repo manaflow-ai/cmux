@@ -647,6 +647,7 @@ pub mod method {
     // unix socket only. Never Web or peer.
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
+    pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";

@@ -58,7 +58,8 @@ nonisolated struct SettingsProviderAccount: Equatable, Sendable {
     }
 
     /// The page's row: folders shown under `~`. The page never sends a folder back; actions name the id.
-    func pageValue(userHome: String) -> JSONValue {
+    /// `usage`: its plan usage limits read at rest (`_acpmux/account/usage`), null when none was read.
+    func pageValue(userHome: String, usage: JSONValue = .null) -> JSONValue {
         let tilde = { (path: String) -> String in
             path == userHome ? "~" : path.hasPrefix(userHome + "/") ? "~" + path.dropFirst(userHome.count) : path
         }
@@ -70,7 +71,7 @@ nonisolated struct SettingsProviderAccount: Equatable, Sendable {
             "signedIn": .bool(signedIn), "plan": plan.map(JSONValue.string) ?? .null,
             // Only this local Settings page shows the address; it is never logged or sent on.
             "email": email.map(JSONValue.string) ?? .null,
-            "enabled": .bool(enabled), "builtin": .bool(builtin),
+            "enabled": .bool(enabled), "builtin": .bool(builtin), "usage": usage,
         ]
     }
 }
@@ -96,7 +97,7 @@ extension SettingsHarnesses {
     var accountsState: JSONValue {
         guard let accounts else { return .null }
         let home = userHome.path
-        return .array(accounts.map { $0.pageValue(userHome: home) })
+        return .array(accounts.map { $0.pageValue(userHome: home, usage: accountUsage[$0.id] ?? .null) })
     }
 
     /// Reads `_acpmux/accounts`; an older daemon (method not found) clears the list, another failure

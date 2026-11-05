@@ -9,6 +9,7 @@
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
 // schemars macro; then they come from the generated client.
 
+import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -700,6 +701,10 @@ export type ProviderAccount = {
   /** Routing may move chats onto it. */
   enabled: boolean;
   builtin: boolean;
+  /** Its plan's 5-hour and weekly limits, read when Settings opens (acpmux `_acpmux/account/usage`,
+   * the chat's `usageLimits` shape); null or absent when none was read (Claude Code reports its
+   * limits only during a chat, and a Codex login in the keychain is not asked). */
+  usage?: AcpmuxUsageLimits | null;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
