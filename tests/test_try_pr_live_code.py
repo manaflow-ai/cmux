@@ -336,6 +336,14 @@ class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("web only: no build", out.stdout)
 
+    def test_an_app_commit_that_is_a_ref_name_is_not_looked_up(self):
+        self.push_web_pr(self.base)
+        git(self.checkout, "branch", "none", self.base)
+        self.set_app_commit("none")
+        out = self.try_pr("--dry-run")
+        self.assertIn("is not in this checkout", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
     def checkout_fetch(self):
         git(self.checkout, "fetch", "-q", "origin", "feat-cmux-next:refs/remotes/origin/feat-cmux-next")
 
