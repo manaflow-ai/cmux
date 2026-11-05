@@ -840,6 +840,15 @@ const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
+  // Resolve through a box so both Interface Size and document zoom enter the same geometry.
+  const probe = doc.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  doc.body.append(probe);
+  const runGap = probe.getBoundingClientRect().height;
+  probe.style.height = "var(--grid-gap-footer)";
+  const footerGap = probe.getBoundingClientRect().height;
+  probe.remove();
   // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
   const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
     .map((node) => ({
@@ -849,13 +858,11 @@ const liveLineClear = async (ctx: PlayContext) => {
     .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
-  const gap = words.top - nearest.bottom;
-  if (nearest.step && !(gap >= -0.5 && gap < TRANSCRIPT_RUN_GAP))
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not flush as one more line of it`);
-  if (!nearest.step && !(gap >= TRANSCRIPT_FOOTER_GAP))
-    throw new Error(
-      `the live line sits ${gap.toFixed(1)}px under the reply over it, not ${TRANSCRIPT_FOOTER_GAP}px or more`,
-    );
+  const gap = live.top - nearest.bottom;
+  if (nearest.step && Math.abs(gap - runGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (!nearest.step && gap < footerGap - 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
