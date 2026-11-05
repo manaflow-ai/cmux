@@ -22,7 +22,7 @@ final class VaultHostView: NSView {
                 registry?.perform(id, invocation: ActionInvocation(arguments: ["session": .string(session)]))
             },
             select: { [weak vault] id in vault?.selection = id })
-        let hosting = NSHostingView(rootView: VaultListView(vault: vault, appearance: appearanceState, actions: actions))
+        let hosting = NSHostingView(rootView: VaultListView(vault: vault, appearance: appearanceState, actions: actions).liveCodeRedraw())
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
         NSLayoutConstraint.activate([
