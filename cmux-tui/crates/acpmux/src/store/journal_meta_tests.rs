@@ -5,7 +5,7 @@
 //! The journal runs on `cmux_journal::SimStorage`; the chat logs are real files whose OS crash
 //! follows the syncs that ran (`store/sync_model.rs`).
 
-use super::journal_store::{HOLD_AFTER_START, HOLD_BEFORE_FROZEN_RECORD};
+use super::journal_store::{FORCE_FROZEN_BACKLOG, HOLD_AFTER_START, HOLD_BEFORE_FROZEN_RECORD};
 use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
@@ -1033,12 +1033,13 @@ fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
     );
 }
 
-/// A failed sync's freeze journals a `frozen` record (review of #35866, P2-1 and P2-2), and that
-/// append can wait for the journal's writer when its queue is full (up to `SEAL_WAIT`). A
-/// checkpoint waits for a failed sync only until the store is frozen, never for that record
-/// (lead's review of #35866): its wait stays bounded by the syncs under way (#35895). A
+/// A failed sync's freeze journals a `frozen` record (review of #35866, P2-1 and P2-2). When the
+/// journal's queue is full, that append waits for the journal's writer (up to `SEAL_WAIT`) and
+/// appends again. A checkpoint waits for a failed sync only until the store is frozen, never for
+/// that wait (lead's review of #35866): its wait stays bounded by the syncs under way (#35895). A
 /// checkpoint in flight (held right after its start, `HOLD_AFTER_START`) and another thread's
-/// `flush_session`, whose log sync fails and which stops before its frozen record
+/// `flush_session`, whose log sync fails, whose record finds the queue full
+/// (`FORCE_FROZEN_BACKLOG`) and which stops before it waits for the writer
 /// (`HOLD_BEFORE_FROZEN_RECORD`): the checkpoint must return, refused, before that thread goes
 /// on. It says if it waits (`NOTE_BEFORE_SYNCS_WAIT`): no timer.
 #[test]
@@ -1067,7 +1068,8 @@ fn a_checkpoint_does_not_wait_for_a_frozen_record_on_another_thread() {
         })
     };
     started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
-    // Another thread's flush_session: its log sync fails, and it stops before its frozen record.
+    // Another thread's flush_session: its log sync fails, its frozen record finds the queue full,
+    // and it stops before it waits for the writer.
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel();
     let failing = {
@@ -1075,6 +1077,7 @@ fn a_checkpoint_does_not_wait_for_a_frozen_record_on_another_thread() {
         std::thread::spawn(move || {
             HOLD_BEFORE_FROZEN_RECORD
                 .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            FORCE_FROZEN_BACKLOG.with(|force| force.set(true));
             FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
             let result = store.flush_session(CHAT);
             FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));

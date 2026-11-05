@@ -268,15 +268,23 @@ impl Inner {
     /// The group commit makes it durable as any acknowledged record, and the shutdown that
     /// follows seals the journal.
     pub(super) fn freeze(&self, why: String) {
-        #[cfg(test)]
-        super::hold_before_frozen_record();
         let mut order = self.order.lock_or_recover();
         if !order.frozen {
             order.frozen = true;
-            let mut appended = self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes());
+            #[cfg(test)]
+            let forced = super::FORCE_FROZEN_BACKLOG.with(|force| force.replace(false));
+            #[cfg(not(test))]
+            let forced = false;
+            let mut appended = if forced {
+                Err(AppendError::Backlog)
+            } else {
+                self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes())
+            };
             if appended == Err(AppendError::Backlog) {
                 // The writer is behind: wait for it off the appends' lock, then append again.
                 drop(order);
+                #[cfg(test)]
+                super::hold_before_frozen_record();
                 let _ = self.journal.wait_durable(self.journal.last_lsn(), SEAL_WAIT);
                 order = self.order.lock_or_recover();
                 appended = self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes());
