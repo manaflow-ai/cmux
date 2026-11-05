@@ -20,6 +20,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { SenderIcon } from "../subagents/SenderIcon";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
@@ -32,8 +33,6 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { AgentMark } from "../../shared/AgentMark";
-import { TonedIcon } from "../subagents/TonedIcon";
 import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
@@ -145,15 +144,7 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                {item.mark ? (
-                  <AgentMark
-                    agent={item.mark}
-                    size={14}
-                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
-                  />
-                ) : (
-                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
-                )}
+                <SenderIcon harness={item.mark} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
               </span>
             )}
           </span>

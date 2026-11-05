@@ -93,6 +93,37 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("middle"), ["tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]),
+            // A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's
+            // mark with a small badge in the session's own color (Leo, 2026-11-05: "you either have the
+            // model family be the big one or the small one, and then you have the, like, colored either
+            // robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like").
+            row(["senderIcon", "lead"], SettingsText.keyed("settings.agentPane.display.senderIcon.lead", "Sender Icon Emphasis"),
+                help: SettingsText.keyed("settings.agentPane.display.senderIcon.lead.help",
+                                         "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."),
+                .choice([
+                    SettingChoice("family", SettingsText.keyed("settings.choice.senderIconFamily", "Model Family Big")),
+                    SettingChoice("session", SettingsText.keyed("settings.choice.senderIconSession", "Session Badge Big")),
+                ]),
+                .string("family"), ["sender", "icon", "mark", "badge", "model", "family", "session", "agent", "big", "small"]),
+            row(["senderIcon", "badge"], SettingsText.keyed("settings.agentPane.display.senderIcon.badge", "Sender Badge"),
+                help: SettingsText.keyed("settings.agentPane.display.senderIcon.badge.help",
+                                         "The small colored glyph on a sender's icon that tells sessions of one model family apart."),
+                .choice([
+                    SettingChoice("diamond", SettingsText.keyed("settings.choice.diamond", "Diamond")),
+                    SettingChoice("robot", SettingsText.keyed("settings.choice.robot", "Robot")),
+                    SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                .string("diamond"), ["sender", "icon", "badge", "diamond", "sparkle", "robot", "bot", "color", "session", "agent"]),
+            row(["senderIcon", "corner"], SettingsText.keyed("settings.agentPane.display.senderIcon.corner", "Sender Badge Corner"),
+                help: SettingsText.keyed("settings.agentPane.display.senderIcon.corner.help",
+                                         "Where the small glyph sits on a sender's icon."),
+                .choice([
+                    SettingChoice("bottom-right", SettingsText.keyed("settings.choice.bottomRight", "Bottom Right")),
+                    SettingChoice("bottom-left", SettingsText.keyed("settings.choice.bottomLeft", "Bottom Left")),
+                    SettingChoice("top-right", SettingsText.keyed("settings.choice.topRight", "Top Right")),
+                    SettingChoice("top-left", SettingsText.keyed("settings.choice.topLeft", "Top Left")),
+                ]),
+                .string("bottom-right"), ["sender", "icon", "badge", "corner", "left", "right", "top", "bottom", "position"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),

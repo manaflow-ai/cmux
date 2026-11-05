@@ -9,9 +9,8 @@
 //   task under it, and "Back to <parent>".
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentMark } from "../../shared/AgentMark";
+import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
-import { TonedIcon } from "../subagents/TonedIcon";
 import { tooltipProps } from "../shortcuts";
 import { readableParent, subagentBackLabel, type SubagentScope } from "./subagentScope";
 
@@ -83,15 +82,7 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
   return (
     <div className="acpmux-session-info-scope" data-variant="card">
       <span className="acpmux-session-info-scope__glyph">
-        {scope.agent.harness ? (
-          <AgentMark
-            agent={scope.agent.harness}
-            size={14}
-            fallback={<TonedIcon name="agent.session" size={14} tone={agentTone(scope.agent.id)} />}
-          />
-        ) : (
-          <TonedIcon name="agent.session" size={14} tone={agentTone(scope.agent.id)} />
-        )}
+        <SenderIcon harness={scope.agent.harness} tone={agentTone(scope.agent.id)} size={14} />
       </span>
       <span className="acpmux-session-info-scope__text">
         <Name scope={scope} />

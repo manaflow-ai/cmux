@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
-import { AgentMark } from "../../shared/AgentMark";
-import { Icon } from "../icons/Icon";
 import { harnessFamily } from "./agentRuns";
+import { SenderIcon } from "./SenderIcon";
+import { senderIconLook } from "./senderIconLook";
 
 /// The type label is already established by a list heading or a harness mark. Keep it out of
 /// every row so the mark carries the identity instead of repeating "Subagent".
@@ -18,23 +18,23 @@ export const SUBAGENT_FALLBACK = "task.ai";
 /// Codex subagent under Claude). One of the chat's own family draws the subagent mark in its own
 /// tone instead, so a list of them tells apart, never the same Claude mark on every line (Leo,
 /// 2026-11-04: "didn't we see better stacked subagents or whatever earlier idk these all being
-/// claude"; 2026-10-29: "one of these is Codex, one of these is Claude").
-export function foreignHarness(harness: string | undefined, chatHarness: string | undefined): string | undefined {
+/// claude"; 2026-10-29: "one of these is Codex, one of these is Claude"). While sender icons wear a
+/// session badge (senderIconLook.ts), every subagent shows its family's mark and the badge in its
+/// tone tells them apart (Leo, 2026-11-05: "we ought to just have it be the model family's icon").
+export function foreignHarness(
+  harness: string | undefined,
+  chatHarness: string | undefined,
+  badge = senderIconLook().badge,
+): string | undefined {
   if (!harness) return undefined;
+  if (badge !== "none") return harness;
   return chatHarness && harnessFamily(harness) === harnessFamily(chatHarness) ? undefined : harness;
 }
 
-/// One identity mark shared by agent and session lists. A missing harness keeps the same icon slot,
-/// but the stable tone makes two unknown harnesses distinguishable.
-export function AgentIdentity({
-  harness,
-  tone,
-  size = 14,
-  fallback = "agent.session",
-  fallbackNode,
-  className,
-  style,
-}: {
+/// One identity mark shared by agent and session lists: the sender icon (SenderIcon.tsx), the
+/// family's mark with the session's badge in its stable tone. A missing harness keeps the same icon
+/// slot, and the tone tells two unknown harnesses apart.
+export function AgentIdentity(props: {
   harness?: string;
   tone?: number;
   size?: number;
@@ -43,20 +43,5 @@ export function AgentIdentity({
   className?: string;
   style?: CSSProperties;
 }) {
-  // Keep the full id subscribed: a profile icon may arrive after this row mounts.
-  const family = harness?.split(/[-_/]/)[0];
-  const glyph = (
-    <span data-agent-tone={tone} style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}>
-      {fallbackNode ?? <Icon name={fallback} size={size} row />}
-    </span>
-  );
-  return (
-    <span className={className} style={style} aria-hidden="true">
-      <AgentMark
-        agent={harness}
-        size={size}
-        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
-      />
-    </span>
-  );
+  return <SenderIcon {...props} />;
 }
