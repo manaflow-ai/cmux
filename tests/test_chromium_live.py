@@ -181,7 +181,8 @@ class RestoreScriptTest(unittest.TestCase):
                 (src / rel).write_text(text)
                 (keep / "orig").mkdir(parents=True, exist_ok=True)
                 (keep / "orig" / rel).write_text(f"orig {rel}")
-            (keep / "orig" / "new.cc.absent").write_text("")
+            (keep / "absent").mkdir()
+            (keep / "absent" / "new.cc").write_text("")
             (src / "new.cc").write_text("added")
             run = lambda *a: subprocess.run(["bash", "-s", "--", str(src), str(keep), *a],
                                             input=cl.RESTORE_SCRIPT, capture_output=True, text=True, check=True)
@@ -192,6 +193,87 @@ class RestoreScriptTest(unittest.TestCase):
             self.assertEqual(run().stdout.strip(), "1")
             self.assertEqual((src / "b.cc").read_text(), "orig b.cc")
             self.assertFalse(keep.exists())
+
+
+class ReviewFixesTest(unittest.TestCase):
+    def test_a_real_path_ending_in_absent_is_kept_and_put_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, keep = Path(d) / "src", Path(d) / "keep"
+            src.mkdir()
+            (src / "x.absent").write_text("orig x")
+
+            def script(body, *a):
+                return subprocess.run(["bash", "-s", "--", str(src), str(keep), *a], input=body,
+                                      capture_output=True, text=True, check=True)
+            script(cl.KEEP_SCRIPT, "x.absent", "x", "new.cc")
+            (src / "x.absent").write_text("edit x")
+            (src / "new.cc").write_text("added")
+            self.assertEqual(script(cl.RESTORE_SCRIPT).stdout.strip(), "3")
+            self.assertEqual((src / "x.absent").read_text(), "orig x")
+            self.assertFalse((src / "x").exists())
+            self.assertFalse((src / "new.cc").exists())
+
+    def test_the_framework_comes_back_through_a_link_with_no_quotes_and_old_builds_go(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            builds = state / "builds"
+            for name in ("20260101T000000", "20260101T000001"):
+                (builds / name).mkdir(parents=True)
+                (builds / name / cl.BINARY_NAME).write_bytes(b"old")
+
+            def fake_run(argv, **_):
+                calls.append(argv)
+                Path(argv[-1]).write_bytes(b"new")
+                return mock.Mock(returncode=0)
+
+            builder = cl.Builder({"build_host": "h", "src": "/Users/b/cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, state)
+            builder._home = "/Users/b"
+            report = {"binary": "out/R/" + cl.BUILT_BINARY_REL, "sha256": cl.hashlib.sha256(b"new").hexdigest()}
+            with mock.patch.object(cl, "run", fake_run):
+                built = builder.fetch(report, builds / "20260101T000002")
+            self.assertEqual(calls[0][-2], "h:/Users/b/.cmux-chromium-live/s1/framework")
+            self.assertIn("-L", calls[0])
+            self.assertEqual([p.name for p in builds.iterdir()], ["20260101T000002"])
+            self.assertEqual(built.read_bytes(), b"new")
+        self.assertIn('ln -sfn "$PWD/$bin" "$keep/framework"', cl.BUILD_SCRIPT)
+
+    def test_a_tree_path_rsync_cannot_carry_is_refused(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run") as run:
+            builder = cl.Builder({"build_host": "h", "src": "/Users/b/my cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder._home = "/Users/b"
+            with self.assertRaises(cl.LiveError):
+                builder.sync(Path(d), ["a.cc"])
+            self.assertFalse(any(c.args[0][0] == "rsync" for c in run.call_args_list))
+
+    def test_start_holds_the_lock_until_the_pid_is_written(self):
+        import fcntl
+        seen = {}
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ,
+                                                                {"CMUX_CHROMIUM_LIVE_STATE_DIR": d}):
+            state = Path(d)
+            app = state / "x.app"
+            binary = app / cl.FRAMEWORK_REL / cl.BINARY_NAME
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"")
+
+            def fake_popen(*_a, **_k):
+                with (state / "lock").open("a") as fh:
+                    try:
+                        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        seen["locked"] = False
+                    except BlockingIOError:
+                        seen["locked"] = True
+                return mock.Mock(pid=4242)
+
+            with mock.patch.object(cl.subprocess, "Popen", fake_popen):
+                rc = cl.main(["start", "--build-host", "h", "--src", "/s", "--app", str(app),
+                              "--worktree", d, "--edits", str(state / "edits")])
+            self.assertEqual(rc, 0)
+            self.assertTrue(seen["locked"], "a stop or second start waits while start writes the pid")
+            self.assertTrue(cl.pid_file(state).read_text().startswith("4242 "))
 
 
 if __name__ == "__main__":
