@@ -3,12 +3,26 @@
 # macOS VM with SIP off (scripts/measure/cu-driver-bench.sh suite=input-ab). Only there: it writes
 # the TCC database directly, which SIP forbids on a real Mac, and a fleet worker is never touched.
 #   tcc-grant.sh PATH...
+#   tcc-grant.sh --diagnose     the rows for these clients, the table's schema and tccd's recent
+#                               decisions, for a run whose grants did not take
 # Each PATH is granted by path, with its designated requirement when it has a signature, in the
 # system database, where macOS keeps these three services. Then tccd restarts so the rows are read.
 # Needs passwordless sudo. Prints one line per grant; exits 3 when SIP is on, 1 when a write fails.
 set -uo pipefail
 csrutil status 2>/dev/null | grep -q disabled || { echo "tcc-grant.sh: SIP is on; refusing" >&2; exit 3; }
 system_db="/Library/Application Support/com.apple.TCC/TCC.db"
+if [[ "${1:-}" == --diagnose ]]; then
+  echo "== access rows"
+  sudo -n sqlite3 "$system_db" "SELECT service, client, client_type, auth_value, auth_reason, auth_version, length(csreq), flags
+    FROM access WHERE client LIKE '%cu-eval%' OR client LIKE '%bash%' OR client LIKE '%python%' OR client LIKE '%Python%'
+    OR client LIKE '%driver%' OR client LIKE '%cmux-cua%';"
+  echo "== schema"
+  sudo -n sqlite3 "$system_db" ".schema access"
+  echo "== tccd, last 10 minutes"
+  sudo -n log show --last 10m --style compact --predicate 'process == "tccd"' 2>/dev/null |
+    grep -i -E "attribution|responsible|requirement|csreq|AUTHREQ|cu-eval|/bin/bash|python|denied|kTCCService(Accessibility|PostEvent|ScreenCapture)" | tail -200
+  exit 0
+fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 status=0
@@ -16,7 +30,9 @@ for path in "$@"; do
   path=$(cd "$(dirname "$path")" && pwd -P)/$(basename "$path")
   [[ -x "$path" ]] || { echo "tcc-grant.sh: $path is not an executable" >&2; status=1; continue; }
   csreq=NULL
-  if requirement=$(codesign -d -r- "$path" 2>/dev/null | sed -n 's/^designated => //p') && [[ -n "$requirement" ]] &&
+  # codesign writes the requirement among its other -d lines, on stderr on some releases: read both.
+  # An ad-hoc signature's requirement is its cdhash, printed as a comment: "# designated => cdhash H"..."".
+  if requirement=$(codesign -d -r- "$path" 2>&1 | sed -n 's/^\(# \)\{0,1\}designated => //p' | head -1) && [[ -n "$requirement" ]] &&
     csreq -r- -b "$work/req" <<<"$requirement" 2>/dev/null; then
     csreq="X'$(xxd -p "$work/req" | tr -d '\n')'"
   fi

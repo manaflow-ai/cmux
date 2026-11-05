@@ -24,6 +24,8 @@ final class CEFRuntime {
 
     var state: State = .idle
     private(set) var shim: CEFShimLibrary?
+    /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
+    var livePages = false
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
@@ -454,6 +456,7 @@ final class CEFRuntime {
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
+        applyLivePages()
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {

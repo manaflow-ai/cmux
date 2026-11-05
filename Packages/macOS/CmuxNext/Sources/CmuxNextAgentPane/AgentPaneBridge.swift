@@ -38,8 +38,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
-            AgentPageFlickerLog.shared?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
-                                                   pid: view.knownWebContentPid)
+            view.flickerLog?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
+                                        pid: view.knownWebContentPid)
             return replyHandler(AgentPaneReply.success(), nil)
         }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
