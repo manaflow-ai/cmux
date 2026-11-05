@@ -35,6 +35,8 @@ const MAX_USER_SKILLS: usize = 64;
 /// At most this many files, and bytes per file, are copied from one skill's folder.
 const MAX_FILES_PER_SKILL: usize = 200;
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
+/// At most this many bytes in all are copied into the plugin (files past it are left out, logged).
+const MAX_PLUGIN_BYTES: u64 = 32 * 1024 * 1024;
 /// A skill folder deeper than this is not walked further.
 const MAX_DEPTH: usize = 4;
 /// A skill's description in the first-turn index is cut to this many characters.
@@ -258,19 +260,43 @@ pub fn materialize_user_plugin(
     state_dir: &Path,
     skills: &[UserSkill],
 ) -> anyhow::Result<Option<PathBuf>> {
+    materialize_within(state_dir, skills, MAX_PLUGIN_BYTES)
+}
+
+/// [`materialize_user_plugin`] copying at most `budget` bytes of skill files in all, so a huge
+/// skills folder cannot fill memory or the state volume. Each skill's SKILL.md goes first.
+fn materialize_within(
+    state_dir: &Path,
+    skills: &[UserSkill],
+    budget: u64,
+) -> anyhow::Result<Option<PathBuf>> {
     if skills.is_empty() {
         return Ok(None);
     }
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut total: u64 = 0;
+    let mut left_out = 0usize;
     for skill in skills {
         let mut found = Vec::new();
         collect_files(&skill.dir, Path::new(""), 0, &mut found);
-        found.sort();
+        found.sort_by_key(|rel| (rel != Path::new("SKILL.md"), rel.clone()));
         for rel in found.into_iter().take(MAX_FILES_PER_SKILL) {
-            if let Ok(bytes) = std::fs::read(skill.dir.join(&rel)) {
+            let path = skill.dir.join(&rel);
+            let Ok(len) = std::fs::symlink_metadata(&path).map(|m| m.len()) else { continue };
+            if total.saturating_add(len) > budget {
+                left_out = left_out.saturating_add(1);
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(&path) {
+                total = total.saturating_add(bytes.len() as u64);
                 files.push((format!("skills/{}/{}", skill.name, rel.to_string_lossy()), bytes));
             }
         }
+    }
+    if left_out > 0 {
+        tracing::warn!(
+            "agent guidance: {left_out} skill file(s) left out of the plugin: over {budget} bytes in all"
+        );
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
@@ -432,6 +458,22 @@ mod tests {
         assert!(skills[0].description.ends_with('…'));
         let codex = first_turn_text(Family::Codex, &Switches::default(), &skills).unwrap();
         assert!(codex.len() < AGENT_GUIDANCE.len() + 1000, "{} bytes", codex.len());
+    }
+
+    #[test]
+    fn the_plugin_copies_at_most_its_byte_budget_and_skill_md_first() {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let md = "---\nname: big\ndescription: Big.\n---\n";
+        skill(root.path(), "big", md);
+        std::fs::write(root.path().join("big/a-large.bin"), vec![b'x'; 4096]).unwrap();
+        std::fs::write(root.path().join("big/b-small.md"), "small").unwrap();
+        let skills = user_skills(root.path());
+        let budget = (md.len() + "small".len()) as u64;
+        let dir = materialize_within(state.path(), &skills, budget).unwrap().unwrap();
+        assert!(dir.join("skills/big/SKILL.md").is_file());
+        assert!(dir.join("skills/big/b-small.md").is_file());
+        assert!(!dir.join("skills/big/a-large.bin").exists(), "over the budget");
     }
 
     #[test]
