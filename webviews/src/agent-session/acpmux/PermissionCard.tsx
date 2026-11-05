@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
+import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
@@ -70,14 +71,21 @@ function KeyHint({ shortcut }: { shortcut: string }) {
   );
 }
 
+/// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `label` as shown,
+/// `aria` in `aria-keyshortcuts` form.
+export type CardKey = { label: string; aria: string };
+
 /** Shared action button so grouped and legacy cards present the same localized label and key hint.
  * Only the short label and the key: what an answer covers is the card's one scope line, never the
- * button's (Leo 2026-10-25: "the allow button ... it shouldn't be encompassing so much"). */
+ * button's (Leo 2026-10-25: "the allow button ... it shouldn't be encompassing so much"). With
+ * `cardKey` the button shows that key as a keycap, as Claude desktop's "Deny Esc" and "Allow ⌘↩",
+ * and still answers `shortcut`, which it lists after the card key. */
 export function PermissionActionButton({
   label,
   shortcut,
+  cardKey,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string; cardKey?: CardKey }) {
   const { className, ...buttonProps } = props;
   return (
     <button
@@ -85,21 +93,27 @@ export function PermissionActionButton({
       className={className}
       type="button"
       aria-label={label}
-      aria-keyshortcuts={shortcut || undefined}
+      aria-keyshortcuts={[cardKey?.aria, shortcut].filter(Boolean).join(" ") || undefined}
     >
       <span className="acpmux-permission-action-label">{label}</span>
-      {shortcut && <KeyHint shortcut={shortcut} />}
+      {cardKey ? <Keycap>{cardKey.label}</Keycap> : shortcut && <KeyHint shortcut={shortcut} />}
     </button>
   );
 }
 
-/// A permission ask as Claude Code desktop draws it: a glass card with the tool's glyph and what the
-/// call does as its title, the command clamped to its first line ("Show full command" opens all of
-/// it), and Allow once, Always allow and Deny, each shown only when the agent offered that kind
-/// (permissions/prompt.ts), with any other option the agent offered after them: short buttons sized
-/// to their labels, grouped at the card's leading edge. What they cover (the folder or app, the Always allow rule) is one muted
-/// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
-/// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
+const DENY_KEY: CardKey = { label: "esc", aria: "Escape" };
+const ALLOW_KEY: CardKey = { label: "⌘↩", aria: "Meta+Enter" };
+
+/// A permission ask as Claude desktop draws its "Allow Claude to use …?" card (Leo, 2026-11-05: "The
+/// whole, like, allow whatever to use, allow for this session, or deny. And then it shows the
+/// hotkeys."): a glass card whose bold title is what the call does, with the tool's glyph and a muted
+/// reason under it; then a quiet details band, the command clamped to its first line ("Show full
+/// command" opens all of it) and what an answer covers (the folder or app, the Always allow rule) as
+/// one muted line, cut with an ellipsis and whole on hover; then the answers at the trailing edge,
+/// short buttons sized to their labels: any other option the agent offered, Deny with its Esc
+/// keycap, Always allow, and the filled Allow once with its ⌘↩ keycap, each shown only when the
+/// agent offered that kind (permissions/prompt.ts). Deny opens a field for what the agent should do instead, sent with the
+/// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return and ⌘↩ (Allow once) and Esc (Deny, or close
 /// the field) answer while this card is the prompt and nothing else has the keyboard. In a chat
 /// running its highest mode (`fullAccessMode`), an ask still here is one the mode does not answer
 /// (acpmux hub/permissions.rs `full_access_allow`: an ask Claude Code marks as needing the person,
@@ -383,6 +397,38 @@ export function PermissionCard({
     if (onCard) field.current?.focus();
   };
 
+  const commandBlock = command && (
+    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
+      {showFull ? (
+        <pre id={fullId} className="acpmux-permission-command-full">
+          <code>{command}</code>
+        </pre>
+      ) : (
+        <div className="acpmux-permission-command-preview">
+          <code ref={previewRef}>{preview.line}</code>
+        </div>
+      )}
+      {(preview.more || clamped || showFull) && (
+        <button
+          type="button"
+          className="acpmux-permission-command-toggle"
+          aria-expanded={showFull}
+          aria-controls={showFull ? fullId : undefined}
+          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
+        >
+          {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
+        </button>
+      )}
+    </div>
+  );
+  const scopeBlock = !writing && scopeLine && (
+    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
+      {scopeText && <span id={targetId}>{scopeText}</span>}
+      {scopeText && alwaysScope && " · "}
+      {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
+    </p>
+  );
+
   return (
     <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title}>
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
@@ -401,63 +447,21 @@ export function PermissionCard({
             })}
           </p>
         )}
-        {command && (
-          <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
-            {showFull ? (
-              <pre id={fullId} className="acpmux-permission-command-full">
-                <code>{command}</code>
-              </pre>
-            ) : (
-              <div className="acpmux-permission-command-preview">
-                <code ref={previewRef}>{preview.line}</code>
-              </div>
-            )}
-            {(preview.more || clamped || showFull) && (
-              <button
-                type="button"
-                className="acpmux-permission-command-toggle"
-                aria-expanded={showFull}
-                aria-controls={showFull ? fullId : undefined}
-                onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
-              >
-                {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
-              </button>
-            )}
-          </div>
-        )}
       </div>
+      {(commandBlock || scopeBlock) && (
+        <div className="acpmux-permission-details">
+          {commandBlock}
+          {scopeBlock}
+        </div>
+      )}
       <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
+      {!writing && refused === permission.permissionId && (
+        <p className="acpmux-permission-refused" role="alert">
+          {t("permission.error.refused")}
+        </p>
+      )}
       {!writing && (
         <div className="acpmux-permission-buttons">
-          {allowOnce && (
-            <PermissionActionButton
-              label={t("permission.allowOnce")}
-              aria-describedby={scopeText ? targetId : undefined}
-              shortcut={shortcuts ? allowOnceShortcut : undefined}
-              className="acpmux-permission-primary"
-              onClick={() => answer(allowOnce)}
-            />
-          )}
-          {allowAlways && allowAlwaysLabel && (
-            <PermissionActionButton
-              label={allowAlwaysLabel}
-              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
-              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
-              aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
-              disabled={alwaysAtSource}
-              onClick={() => answer(allowAlways)}
-            />
-          )}
-          {denyOption && (
-            <PermissionActionButton
-              label={t("permission.deny")}
-              shortcut={shortcuts ? denyShortcut : undefined}
-              aria-describedby={scopeText ? targetId : undefined}
-              className="acpmux-permission-deny"
-              data-feedback-opener=""
-              onClick={() => deny()}
-            />
-          )}
           {others.map((option, index) => {
             const label = otherLabels[index]!;
             const full = [option.name.trim(), option.description?.trim()].filter(Boolean).join(" · ");
@@ -480,19 +484,38 @@ export function PermissionCard({
               </React.Fragment>
             );
           })}
+          {denyOption && (
+            <PermissionActionButton
+              label={t("permission.deny")}
+              shortcut={shortcuts ? denyShortcut : undefined}
+              cardKey={shortcuts ? DENY_KEY : undefined}
+              aria-describedby={scopeText ? targetId : undefined}
+              className="acpmux-permission-deny"
+              data-feedback-opener=""
+              onClick={() => deny()}
+            />
+          )}
+          {allowAlways && allowAlwaysLabel && (
+            <PermissionActionButton
+              label={allowAlwaysLabel}
+              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
+              aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
+              disabled={alwaysAtSource}
+              onClick={() => answer(allowAlways)}
+            />
+          )}
+          {allowOnce && (
+            <PermissionActionButton
+              label={t("permission.allowOnce")}
+              aria-describedby={scopeText ? targetId : undefined}
+              shortcut={shortcuts ? allowOnceShortcut : undefined}
+              cardKey={shortcuts ? ALLOW_KEY : undefined}
+              className="acpmux-permission-primary"
+              onClick={() => answer(allowOnce)}
+            />
+          )}
         </div>
-      )}
-      {!writing && refused === permission.permissionId && (
-        <p className="acpmux-permission-refused" role="alert">
-          {t("permission.error.refused")}
-        </p>
-      )}
-      {!writing && scopeLine && (
-        <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
-          {scopeText && <span id={targetId}>{scopeText}</span>}
-          {scopeText && alwaysScope && " · "}
-          {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
-        </p>
       )}
       {writing && (
         <form
@@ -521,11 +544,18 @@ export function PermissionCard({
             }}
           />
           <div className="acpmux-permission-feedback-actions">
-            <button type="button" disabled={writing.sending} onClick={closeFeedback}>
+            <button type="button" aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
+              <Keycap>esc</Keycap>
             </button>
-            <button type="submit" className="acpmux-permission-feedback-send" disabled={writing.sending}>
+            <button
+              type="submit"
+              className="acpmux-permission-feedback-send"
+              aria-keyshortcuts="Enter"
+              disabled={writing.sending}
+            >
               {t("permission.feedbackSend")}
+              <Keycap>↩</Keycap>
             </button>
           </div>
         </form>

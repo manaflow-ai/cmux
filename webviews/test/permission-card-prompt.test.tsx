@@ -176,7 +176,11 @@ test("keys act only with nothing focused or focus in the card", () => {
   // A focused button keeps its own Return; a digit still answers.
   expect(key("Enter", button)).toBeUndefined();
   expect(key("3", button)).toBe("deny");
-  // Modifiers, repeats and input methods never answer.
+  // ⌘↩ allows once, as Claude desktop's "Allow ⌘↩", on a focused button too; never in a field.
+  expect(key("Enter", doc.body, { metaKey: true })).toBe("allow_once");
+  expect(key("Enter", button, { metaKey: true })).toBe("allow_once");
+  expect(key("Enter", field, { metaKey: true })).toBeUndefined();
+  // Other modifiers, repeats and input methods never answer.
   expect(key("1", doc.body, { metaKey: true })).toBeUndefined();
   expect(key("1", doc.body, { repeat: true })).toBeUndefined();
   expect(key("Enter", doc.body, { isComposing: true })).toBeUndefined();
@@ -189,6 +193,13 @@ test("keys act only with nothing focused or focus in the card", () => {
     );
   expect(open("Escape", doc.body)).toBe("closeFeedback");
   expect(open("1", doc.body)).toBeUndefined();
+  expect(
+    permissionKeyAction(
+      { key: "Enter", target: doc.body, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false },
+      card,
+      true,
+    ),
+  ).toBeUndefined();
   button.remove();
 });
 
@@ -234,7 +245,7 @@ test("the card draws the title, the clamped command and the three buttons, and e
     "cd webviews && bun run check",
   );
   expect(card.host.querySelector(".ui-glass")).not.toBeNull();
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Always allow", "Allow once"]);
   await card.click(".acpmux-permission-command-toggle");
   expect(card.host.querySelector(".acpmux-permission-command-full")?.textContent).toBe(SCRIPT);
   expect(card.host.querySelector(".acpmux-permission-command-toggle")?.textContent).toBe("Hide full command");
@@ -262,12 +273,12 @@ test("a long rule shows once, on the scope line, never in a button, and describe
   const card = await mount(
     bash({ permissionId: "rule", rule: RULE, scope: { kind: "directory", value: "/Users/you/media/reel" } }),
   );
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Always allow", "Allow once"]);
   const buttons = [...card.host.querySelectorAll(".acpmux-permission-buttons button")];
   expect(buttons.map((button) => button.querySelector(".acpmux-permission-action-label")?.textContent)).toEqual([
-    "Allow once",
-    "Always allow",
     "Deny",
+    "Always allow",
+    "Allow once",
   ]);
   for (const button of buttons) expect(button.textContent).not.toContain("ffmpeg");
   const lines = card.host.querySelectorAll(".acpmux-permission-scope");
@@ -303,7 +314,7 @@ test("long agent labels get short buttons from their ACP kind, in one row, and t
     }),
     "codex",
   );
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny", "Always deny"]);
+  expect(card.buttons()).toEqual(["Always deny", "Deny", "Always allow", "Allow once"]);
   expect(card.host.querySelectorAll(".acpmux-permission-buttons").length).toBe(1);
   // Sized to their labels: no equal-width grid and no per-card answer count drives the row.
   expect(card.host.querySelector<HTMLElement>(".acpmux-permission-buttons")!.getAttribute("style")).toBeNull();
@@ -402,7 +413,7 @@ test("an ask without an Always allow option draws no such button and 2 does noth
       ],
     }),
   );
-  expect(card.buttons()).toEqual(["Allow once", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Allow once"]);
   await card.press("2");
   expect(card.answers).toEqual([]);
   await card.unmount();
@@ -451,7 +462,7 @@ test("in the chat's highest mode an ask that still comes says the mode doesn't c
     translate("permission.fullAccessStillAsks", { mode: "Bypass permissions" }),
   );
   expect(line(bypass.host)[0]!.textContent).toContain("Bypass permissions");
-  expect(bypass.buttons()).toEqual([translate("permission.allowOnce"), translate("permission.deny")]);
+  expect(bypass.buttons()).toEqual([translate("permission.deny"), translate("permission.allowOnce")]);
   await bypass.press("1");
   expect(bypass.answers).toEqual(["allow_once"]);
   await bypass.unmount();

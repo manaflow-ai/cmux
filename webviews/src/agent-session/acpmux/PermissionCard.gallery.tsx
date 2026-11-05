@@ -4,8 +4,10 @@
 // button, like this, it shouldn't be encompassing so much ... this other, like, thing shouldn't be
 // the same thing." Then, on equal-width buttons stretched across the card: "but there's literally
 // no point having it be the same size? just make it good? incl. the symbol hints". The buttons are
-// sized to their labels with a light key hint; the scope is one muted line. scopeStyle and rowStyle
-// draw gallery-only alternatives over the shipped card; "under" and "light" are the shipped ones.
+// sized to their labels; the scope is one muted line. Leo 2026-11-05, on Claude desktop's card: a
+// bold title over a muted reason, a quiet details band, then Deny (esc) and the filled Allow once
+// (⌘↩) at the trailing edge with their keycaps. scopeStyle and rowStyle draw gallery-only
+// alternatives over the shipped card.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -193,7 +195,7 @@ export default componentEntry<Props>({
       props: { permission: shortRule, harness: "claude" },
     },
     "long-rule": {
-      note: "Leo 2026-10-25: a long Claude session rule. Compact buttons sized to their labels, grouped at the leading edge, each with a light ⌥⌘ hint; the rule is one muted line under them, cut, whole on hover.",
+      note: "Leo 2026-11-05, on Claude desktop's \"Allow Claude to use …?\" card: \"The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys.\" A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.",
       props: { permission: longRule, harness: "claude" },
       play: scopeOnce,
     },

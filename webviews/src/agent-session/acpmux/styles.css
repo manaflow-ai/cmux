@@ -924,18 +924,23 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 
-/* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card
-   (.ui-glass, src/ui/glass/glass.css) with the tool's glyph and what the call does, the command in
-   mono clamped to two lines (Show full command opens it in a scrolling block), and a row of compact
-   buttons sized to their labels, grouped at the leading edge (they wrap only when the card is too
-   narrow), each with its shortcut as a light hint after the label: Allow once filled with the accent, Always allow, Deny and any other option
-   quiet. What they cover is one muted line under them, cut with an ellipsis (its title has it whole). */
-.acpmux-permission-card.acpmux-permission-ask{border:0;border-radius:var(--grid-cards-radius);padding:var(--grid-cards-padding);background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
-.acpmux-permission-request{display:flex;flex-direction:column;gap:var(--ds-space-2);min-width:0}
+/* A permission ask (PermissionCard.tsx), after Claude desktop's "Allow Claude to use …?" card (Leo,
+   2026-11-05): a glass card (.ui-glass, src/ui/glass/glass.css) in three bands on the 4 grid. The
+   head: the tool's glyph and a bold title on the title step, a muted reason under it. The details: a
+   quiet band a shade off the card, divided by a hairline, with the command in mono clamped to two
+   lines (Show full command opens it in a scrolling block) and what an answer covers as one muted
+   line, cut with an ellipsis (its title has it whole). The answers: buttons sized to their labels at
+   the trailing edge (they wrap only when the card is too narrow), Deny with an Esc keycap, Always
+   allow with its shortcut, any other option quiet, and Allow once last and filled in the text color
+   inverted (the question card's Submit) with its ⌘↩ keycap. */
+.acpmux-permission-card.acpmux-permission-ask{display:flex;flex-direction:column;border:0;border-radius:var(--grid-cards-radius);padding:0;overflow:hidden;background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
+.acpmux-permission-request{display:flex;flex-direction:column;gap:var(--ds-space-1);min-width:0;padding:var(--ds-space-4) var(--ds-space-4) var(--ds-space-3)}
 .acpmux-permission-request-head{display:flex;align-items:center;gap:var(--ds-space-2);min-width:0}
 .acpmux-permission-request-icon{display:inline-flex;flex-shrink:0;color:var(--agent-muted)}
-.acpmux-permission-request-label{min-width:0;font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:1.35;color:var(--agent-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-permission-request-description,.acpmux-permission-waiting,.acpmux-permission-one-time{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-permission-request-label{min-width:0;font-size:var(--text-title);font-weight:var(--weight-emphasis);line-height:var(--text-title--line-height,20px);color:var(--agent-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-title--letter-spacing)}
+.acpmux-permission-request-description,.acpmux-permission-waiting,.acpmux-permission-one-time{margin:0;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height,18px);letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-permission-details{display:flex;flex-direction:column;gap:var(--ds-space-2);min-width:0;padding:var(--ds-space-3) var(--ds-space-4);background:color-mix(in srgb,var(--agent-text) 3%,transparent);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-question-edge,color-mix(in srgb,var(--agent-text) 12%,transparent))}
+.acpmux-permission-ask>.acpmux-permission-edits{margin:0 var(--ds-space-4) var(--ds-space-3)}
 .acpmux-permission-command{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-1);min-width:0}
 .acpmux-permission-command-preview{align-self:stretch;padding:var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono)}
 .acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -951,11 +956,13 @@ fieldset.acpmux-question[hidden]{display:none}
 /* In the grouped panel, which scrolls itself, the box hands the wheel on to the panel at its end. */
 .acpmux-permission-panel .acpmux-permission-edits{overscroll-behavior:auto}
 .acpmux-permission-edits .cv-edit-diff__body{max-height:calc(40vh - var(--cv-font-size,14px)*32/14 - 14px);overflow:hidden auto}
-.acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-2);margin-top:var(--ds-space-3)}
-.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:baseline;flex:none;max-width:100%;min-height:var(--ds-control-compact);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25;letter-spacing:var(--text-control--letter-spacing)}
+.acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--ds-space-2);margin:0;padding:var(--ds-space-3) var(--ds-space-4);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-question-edge,color-mix(in srgb,var(--agent-text) 12%,transparent))}
+.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:baseline;flex:none;max-width:100%;min-height:var(--ds-control-row);box-sizing:border-box;border:0;border-radius:var(--ds-radius-popup);padding:var(--ds-space-1) var(--ds-space-3);white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);line-height:20px;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
-.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
-.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas))}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base,Canvas))}
+/* A card key (Esc, ⌘↩) is a keycap after the label, as Claude desktop's buttons and the question card's Skip and Submit draw it. */
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-keycap{align-self:center;margin:0 0 0 var(--ds-space-2);color:inherit;opacity:.7;letter-spacing:.04em}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
@@ -966,17 +973,18 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-other .acpmux-permission-action-label{max-width:14ch}
 /* Read by screen readers only: clipped to nothing, still in the accessibility tree. */
 .acpmux-permission-sr-only{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
-.acpmux-permission-ask .acpmux-permission-refused{margin:var(--ds-space-2) 0 0;color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-permission-ask .acpmux-permission-scope{margin:var(--ds-space-2) 0 0;font-size:var(--text-caption);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-permission-ask .acpmux-permission-refused{margin:0 var(--ds-space-4) var(--ds-space-2);color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-permission-ask .acpmux-permission-scope{margin:0;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
 .acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
 /* Deny with what to do instead (PermissionCard.tsx): Deny opens a field in the card. */
-.acpmux-permission-feedback{display:flex;flex-direction:column;gap:var(--ds-space-2);margin-top:var(--ds-space-2)}
+.acpmux-permission-feedback{display:flex;flex-direction:column;gap:var(--ds-space-2);margin:0;padding:var(--ds-space-3) var(--ds-space-4)}
 .acpmux-permission-feedback textarea{box-sizing:border-box;width:100%;min-height:44px;resize:vertical;margin:0;padding:var(--ds-space-2);border:1px solid var(--agent-border);border-radius:var(--ds-radius-control);background:var(--agent-input-bg);color:var(--agent-text);font:inherit;line-height:1.4;outline:none}
 .acpmux-permission-feedback textarea:focus{border-color:var(--agent-accent)}
 .acpmux-permission-feedback-actions{display:flex;justify-content:flex-end;gap:var(--ds-space-2)}
-.acpmux-permission-feedback-actions button{border:1px solid var(--agent-border);border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
-.acpmux-permission-feedback-actions .acpmux-permission-feedback-send{border-color:transparent;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-permission-feedback-actions button{display:inline-flex;align-items:center;border:1px solid var(--agent-border);border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
+.acpmux-permission-feedback-actions .acpmux-permission-feedback-send{border-color:transparent;background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas))}
+.acpmux-permission-feedback-actions .acpmux-keycap{margin:0 0 0 var(--ds-space-2);opacity:.7;letter-spacing:.04em}
 .acpmux-permission-feedback-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 
 /* Session row previews float in the shared popup layer, so the 30px row and its gutters never
