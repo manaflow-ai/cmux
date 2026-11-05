@@ -91,7 +91,7 @@ impl Outdated {
 pub(super) fn older(socket: &Path) -> bool {
     let time = call_within(socket, json!({"cmd": "identify", "revisions": true}), IDENTIFY_BUDGET)
         .ok()
-        .and_then(|identity| identity["build_time"].as_u64());
+        .and_then(|identity| identity.get("build_time").and_then(Value::as_u64));
     super::machine_update::machine_is_older(time, cmux_build_identity::BUILD_TIME)
 }
 
