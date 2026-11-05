@@ -344,6 +344,15 @@ SECRET_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "pick-classic-prepare-runner"):
         "the one-mini mode's vars.CI_CLASSIC_NIGHTLY_MINI, which mints no GLAEDA_ROUTE_APP_KEY token there; "
         "else the Blacksmith literal",
+    # Rule change for the one-mini mode only (vars.CI_CLASSIC_NIGHTLY_MINI, a workflow_run from main's nightly or a
+    # dispatch of main): classic nightly's continuation signs, staples and publishes deltas on the literal
+    # glaeda-trusted-next-signing, cmux15's trusted signing runner, where glaeda gives the job the whole Mac (glaeda
+    # #1858 AUTO_RESUME) and its claim gate fails it before any secret otherwise (tests/test_auto_resume_one_mini.py).
+    # Unset, the Blacksmith literal as before.
+    **{("auto-resume-nightly-notarization.yml", job):
+       "the one-mini mode's literal glaeda-trusted-next-signing behind the claim gate; else the Blacksmith literal"
+       for job in ("poll", "wait-and-staple", "staple-outer", "staple-stapled", "generate-deltas",
+                   "republish-deltas")},
     ("seed-derived-data.yml", "seed"):
         "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
         "(it seeds their DerivedData)",

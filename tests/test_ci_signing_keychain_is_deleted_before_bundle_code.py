@@ -146,6 +146,19 @@ PICKED_EPHEMERAL_VERIFY_JOBS = {
         "needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || "
         "'blacksmith-6vcpu-macos-26' }}"),
 }
+# Rule 6's one-mini exception for classic nightly's continuation: with vars.CI_CLASSIC_NIGHTLY_MINI set, on a
+# workflow_run from main's nightly or a dispatch of main, the secret-free verify-stapled runs on cmux15's nightly-only
+# runners (glaeda #1858 AUTO_RESUME_LIGHT_JOBS), for the same reason as verify-signed-nightly above: glaeda's hook
+# waits out an earlier job's leftover processes before it gives a signing job the whole Mac, and that job's claim
+# gate fails it on any other hook (tests/test_auto_resume_one_mini.py). Exactly this runs-on; unset, the literal
+# Blacksmith label as before.
+ONE_MINI_VERIFY_JOBS = {
+    ("auto-resume-nightly-notarization.yml", "verify-stapled"):
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && "
+        "github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || "
+        "github.event.workflow_run.head_branch == 'main') && vars.CI_CLASSIC_NIGHTLY_MINI || "
+        "'blacksmith-6vcpu-macos-26' }}",
+}
 LITERAL_EPHEMERAL_RUNNER = re.compile(
     r"(?:macos|ubuntu)-[0-9.]+(?:-arm)?|blacksmith-[0-9]+vcpu-(?:macos|ubuntu)-[0-9a-z]+"
     r"|\$\{\{ github\.repository_owner != 'manaflow-ai' && '(?:macos|ubuntu)-[0-9.]+' "
@@ -293,6 +306,11 @@ def check_verify_runners(workflow: str, jobs: dict, failures: list[str]) -> None
         runs_on = str(job.get("runs-on", ""))
         allowed = OWNED_VERIFY_JOBS.get((workflow, name))
         picked = PICKED_EPHEMERAL_VERIFY_JOBS.get((workflow, name))
+        one_mini = ONE_MINI_VERIFY_JOBS.get((workflow, name))
+        if one_mini is not None:
+            if runs_on != one_mini:
+                failures.append(f"{workflow} {name}: runs on exactly {one_mini}")
+            continue
         if picked is not None:
             picker, picked_runs_on = picked
             if runs_on != picked_runs_on or not picks_only_blacksmith(jobs.get(picker)):
@@ -508,7 +526,7 @@ def main() -> int:
                 signing_jobs += 1
             check_job(f"{path.name} {job_name}", job, failures)
         check_verify_runners(path.name, document.get("jobs") or {}, failures)
-    for (workflow, name) in [*OWNED_VERIFY_JOBS, *PICKED_EPHEMERAL_VERIFY_JOBS]:
+    for (workflow, name) in [*OWNED_VERIFY_JOBS, *PICKED_EPHEMERAL_VERIFY_JOBS, *ONE_MINI_VERIFY_JOBS]:
         document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}
         if name not in (document.get("jobs") or {}):
             failures.append(f"{workflow} {name}: a rule 6 exception names a job that does not exist")
