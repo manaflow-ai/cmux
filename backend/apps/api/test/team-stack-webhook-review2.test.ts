@@ -10,7 +10,6 @@ import { userIdFor } from "../src/domains/user.ts"
  * a cloud socket must not open for a non-member, a stuck removal must still revoke, and a queued
  * delivery past its deadline must not run.
  */
-const ns = (testEnv as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
 
 describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, () => {
   it("P2: a team.deleted that Stack does not confirm yet changes nothing, and its re-check deletes the team later", async () => {

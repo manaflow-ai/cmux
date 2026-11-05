@@ -170,8 +170,6 @@ export interface Env {
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /** Var: "on" turns automatic pauses of Freestyle VMs back on (auto-pause.ts); anything else, or unset, = off (Leo, 2026-10-30). */
   readonly CLOUD_IDLE_PAUSE?: string
-  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
-  readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */

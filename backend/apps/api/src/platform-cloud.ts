@@ -27,7 +27,8 @@ export interface PlatformCloud {
 export const CLOUD_UNBOUND = "owner.unreachable: this deployment has no CLOUD_DO binding (Cloud is served by cmux-platform)"
 
 const unbound: PlatformCloud = new Proxy({} as PlatformCloud, {
-  get: () => () => Promise.reject(new Error(CLOUD_UNBOUND)),
+  // Not a thenable: an awaited client must not hang.
+  get: (_target, name) => (name === "then" ? undefined : () => Promise.reject(new Error(CLOUD_UNBOUND))),
 })
 
 /** The platform's CloudDO for one team; with no binding, a client whose every call rejects with CLOUD_UNBOUND. */

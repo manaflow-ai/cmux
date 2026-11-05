@@ -27,8 +27,11 @@ export interface CloudStub {
     vm_state?: { name: string; state: string }
   }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
 }
-const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
-export const cloudStub = (team: string) => namespace.get(namespace.idFromName(team)) as unknown as CloudStub
+
+export const cloudStub = (team: string) => {
+  const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
+  return namespace.get(namespace.idFromName(team)) as unknown as CloudStub
+}
 
 // Users 50..99 of the allowlisted test users (other cloud test files use other ranges).
 let seq = 50
