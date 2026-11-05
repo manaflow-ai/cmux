@@ -103,7 +103,7 @@ public final class ChildPageFocus {
     /// The page this window gave focus to becomes `next` with no blur and no key change (the keyboard moved to DevTools, a
     /// click chose a page). The old page drops a kept ask, so it cannot take the keys later.
     public func replace(with next: AnyObject?) {
-        if let old = page, old !== next { dropAsk(old) }
+        // mutant (never merge): no drop
         page = next
     }
 
