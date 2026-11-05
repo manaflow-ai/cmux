@@ -16,11 +16,11 @@ private final class SplitPageKey {
 /// one gesture, one transaction, one tree delta); an older daemon opens it hidden in the source pane
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
-    /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
+    /// Whether a person's split of `pane` opens the New Tab page: a browser tab, the page, a chat or Home (the Chief pane, NEXT is
+    /// GUI-first, cmux#36300). Terminal splits keep the terminal; with `tabs.newTabTemplate` Terminal every split does.
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
-        return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey, pane.services.settings?.snapshot.newTabTemplate != .terminal else { return false }
+        return pane.selectedTab.map { HomeService.isHomeTab(page: $0.page, app: $0.appTab?.app) } == true || NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
     /// `focusesPage` false (a tab dropped on its own pane's edge, #22287): the page neither takes the
