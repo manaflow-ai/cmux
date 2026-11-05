@@ -85,3 +85,36 @@ test("an opened waterfall's bars open their calls, and a long one draws its firs
   // Without a way to open a call (a gallery, a replay), a bar is not a button.
   expect(renderToStaticMarkup(<TurnWaterfall row={row} work={work} />)).not.toContain("<button type=\"button\" class=\"cv-waterfall__span");
 });
+
+test("a background shell's bar runs until it ended there, and one that failed there is marked failed", () => {
+  const shell: AcpmuxActivity = {
+    kind: "tool",
+    text: "bun test",
+    tool: {
+      id: "bg",
+      title: "bun test",
+      kind: "execute",
+      command: "bun test",
+      status: "completed",
+      startedAt: 1_000,
+      endedAt: 1_200,
+      background: { state: "failed", endedAt: 9_000 },
+    },
+  };
+  const chart = waterfall({ at: 10_000, durationMs: 10_000 }, [call("one", 500, 900), shell]);
+  expect(chart.spans[1]).toMatchObject({ from: 1_000, to: 9_000, failed: true });
+  expect(chart.slowest).toBe(1);
+});
+
+test("an empty footer (a turn gap, no line of its own) offers no Timeline it has no room to open", () => {
+  const empty: AcpmuxRow = {
+    id: "summary",
+    version: 1,
+    at: 1_000,
+    kind: "turnSummary",
+    status: "completed",
+    durationMs: 1_000,
+    turnWork: [call("one", 100, 400)],
+  };
+  expect(renderToStaticMarkup(<TurnFooter row={empty} />)).not.toContain("Show timeline");
+});

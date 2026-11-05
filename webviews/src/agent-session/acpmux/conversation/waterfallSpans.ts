@@ -53,6 +53,18 @@ export function waterfallTone(item: AcpmuxActivity): WaterfallTone {
   }
 }
 
+/// When a span began and ended: a shell that went on in the background ran until it ended there
+/// (toolGroups.ts toolDuration); a thought, from its first chunk to its latest.
+function spanTimes(item: AcpmuxActivity): [number | undefined, number | undefined] {
+  const tool = item.tool;
+  if (!tool) return [item.startedAt, item.endedAt];
+  return [tool.startedAt, tool.background ? tool.background.endedAt : tool.endedAt];
+}
+
+/// Failed by its status or exit, or in the background by how it ended there.
+const spanFailed = (item: AcpmuxActivity) =>
+  item.tool ? rowFailed(item.tool) || item.tool.background?.state === "failed" : false;
+
 /// The timed work of a turn's rows, in order: its tool calls (not the drafts the transcript hides,
 /// turns.ts withoutDrafts) and its thoughts, each with a start and an end. Undefined when no call
 /// was timed, so a footer carries nothing it cannot draw.
@@ -62,8 +74,8 @@ export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefin
   for (const row of rows) {
     if (row.kind !== "activity") continue;
     for (const item of row.items ?? []) {
-      const span = item.tool ?? item;
-      if (span.startedAt === undefined || span.endedAt === undefined) continue;
+      const [from, to] = spanTimes(item);
+      if (from === undefined || to === undefined) continue;
       if (item.tool) {
         if (isDraftCall(item.tool)) continue;
         calls += 1;
@@ -81,22 +93,22 @@ export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: reado
   let first = Infinity;
   let last = -Infinity;
   for (const item of work) {
-    const span = item.tool ?? item;
-    first = Math.min(first, span.startedAt!);
-    last = Math.max(last, span.endedAt!);
+    const [from, to] = spanTimes(item);
+    first = Math.min(first, from!);
+    last = Math.max(last, to!);
   }
   const start = row.durationMs !== undefined ? Math.min(first, row.at - row.durationMs) : first;
   const end = row.durationMs !== undefined ? Math.max(last, row.at) : last;
   const spans = work.map((item): WaterfallSpan => {
-    const span = item.tool ?? item;
-    const from = span.startedAt! - start;
+    const [began, ended] = spanTimes(item);
+    const from = began! - start;
     return {
       item,
       ...(item.tool?.id && { toolId: item.tool.id }),
       tone: waterfallTone(item),
       from,
-      to: Math.max(from, span.endedAt! - start),
-      failed: item.tool ? rowFailed(item.tool) : false,
+      to: Math.max(from, ended! - start),
+      failed: spanFailed(item),
     };
   });
   let slowest: number | undefined;

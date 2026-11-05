@@ -11,6 +11,7 @@ import { toolLabel } from "../toolPaths";
 import { Clock } from "./icons";
 import { ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { isEmptyFooter } from "./turns";
 import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
 import "./TurnWaterfall.css";
 
@@ -53,7 +54,9 @@ export function useTurnWaterfall(row: AcpmuxRow, look: WaterfallLook = "bars"): 
   const t = useT();
   const [open, setOpen] = useState(false);
   const id = useId();
-  if (!row.turnWork?.length) return { toggle: null, panel: null };
+  // An empty footer is a turn gap with no line of its own (turns.ts isEmptyFooter, height 0), which
+  // has no room to open a panel under; only a footer that draws its row offers the Timeline.
+  if (!row.turnWork?.length || isEmptyFooter(row)) return { toggle: null, panel: null };
   const label = open ? t("turn.timeline.hide") : t("turn.timeline.show");
   return {
     toggle: (
