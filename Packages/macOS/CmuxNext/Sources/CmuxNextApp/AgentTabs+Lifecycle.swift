@@ -355,7 +355,7 @@ extension AgentTabStore {
     /// A tab this client closed (``TabContentCache/release(_:)``). A tab the trees still list (the
     /// close failed, or its event has not arrived) keeps its page until its tree drops it.
     func releaseIfGone(_ key: String) {
-        let candidates = Set((views.entries + tabStores.entries + sessions.entries + newTabPages.entries).map(\.key).filter { $0.key == key })
+        var candidates = Set<AgentTabKey>(); views.entries.filter { $0.key.key == key }.forEach { candidates.insert($0.key) }; tabStores.entries.filter { $0.key.key == key }.forEach { candidates.insert($0.key) }; sessions.entries.filter { $0.key.key == key }.forEach { candidates.insert($0.key) }; newTabPages.entries.filter { $0.key.key == key }.forEach { candidates.insert($0.key) }
         if candidates.isEmpty {
             if record(for: tabKey(key)) == nil { release(resolve(key)) }
         } else {
