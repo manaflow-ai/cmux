@@ -45,11 +45,11 @@ public struct TakeoverBench {
     }
 
     static func run(events: Int) -> Int32 {
-        let tap = TakeoverTap(trusted: { true })
+        let tap = TakeoverTap(trusted: { true }, listenKeys: { true })
         tap.ensureStarted()
         guard waitUntil(seconds: 3, { tap.gate.holder() != .unwatched }) else {
             print(json(["ok": false, "error": "tap unavailable or provenance not proven",
-                        "ax_trusted": AXIsProcessTrusted()]))
+                        "ax_trusted": AXIsProcessTrusted(), "listen_access": CGPreflightListenEventAccess()]))
             return 2
         }
         let target = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }?
@@ -69,6 +69,8 @@ public struct TakeoverBench {
                 "seen_as_agent": after.agentEvents - before.agentEvents,
                 "seen_as_person": after.personEvents - before.personEvents,
                 "false_takeovers": after.takeovers - before.takeovers,
+                // A route the session tap never sees measures nothing: not a pass.
+                "observable": after.agentEvents + after.personEvents > before.agentEvents + before.personEvents,
             ]
         }
         let stats = tap.gate.snapshot()

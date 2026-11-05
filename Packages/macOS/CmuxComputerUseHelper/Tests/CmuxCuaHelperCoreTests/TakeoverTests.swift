@@ -69,6 +69,14 @@ private final class FakeClock: Sendable {
         }
     }
 
+    @Test func withoutInputMonitoringTheTapNeverListensToKeys() {
+        // A listen-only tap on keys is what asks for Input Monitoring; the rest asks for nothing.
+        #expect(TapEventType.pointerOnlyMask & (1 << UInt64(TapEventType.keyDown)) == 0)
+        for type in [TapEventType.leftMouseDown, TapEventType.scrollWheel, TapEventType.mouseMoved, TapEventType.leftMouseDragged] {
+            #expect(TapEventType.pointerOnlyMask & (1 << UInt64(type)) != 0)
+        }
+    }
+
     @Test func aBenchStampRoundTripsAndIsNotOurMarker() {
         let stamp = TakeoverTap.benchStamp(nanos: 5_000)
         #expect(stamp != TakeoverMarker.value)

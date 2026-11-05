@@ -17,7 +17,10 @@ private let takeoverLogger = Logger(subsystem: "com.cmuxterm.cua", category: "ta
 /// our marker. Without the second, our own input could read as the
 /// person's. Starting never asks for a permission: with no Accessibility
 /// grant (`AXIsProcessTrusted`, no prompt) the tap is not created and the
-/// gate stays unwatched.
+/// gate stays unwatched, and without Input Monitoring
+/// (`CGPreflightListenEventAccess`, no prompt) it listens to the pointer
+/// and scrolls only, since a listen-only tap on keys is what asks for that
+/// grant.
 public final class TakeoverTap: @unchecked Sendable {
     private struct State {
         var running = false
@@ -32,14 +35,17 @@ public final class TakeoverTap: @unchecked Sendable {
     private let ownPID = Int64(getpid())
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let trusted: @Sendable () -> Bool
+    private let listenKeys: @Sendable () -> Bool
 
     /// The tap and its gate. The gate restarts the tap on each acting call,
     /// so a grant given after launch brings it up without a relaunch.
     public init(rule: TakeoverRule = TakeoverRule(),
-                trusted: @escaping @Sendable () -> Bool = { AXIsProcessTrusted() }) {
+                trusted: @escaping @Sendable () -> Bool = { AXIsProcessTrusted() },
+                listenKeys: @escaping @Sendable () -> Bool = { CGPreflightListenEventAccess() }) {
         let ref = TapRef()
         gate = TakeoverGate(rule: rule, starter: { ref.tap?.ensureStarted() })
         self.trusted = trusted
+        self.listenKeys = listenKeys
         ref.tap = self
     }
 
@@ -53,8 +59,9 @@ public final class TakeoverTap: @unchecked Sendable {
     public func ensureStarted() {
         guard trusted() else { return }
         let start = state.withLock { state -> Bool in
-            state.stop = false
+            // A thread still winding down after stop() ends first; the next call starts a new one.
             if state.running { return false }
+            state.stop = false
             state.running = true
             return true
         }
@@ -126,7 +133,7 @@ public final class TakeoverTap: @unchecked Sendable {
         let box = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
-            eventsOfInterest: CGEventMask(TapEventType.mask),
+            eventsOfInterest: CGEventMask(listenKeys() ? TapEventType.mask : TapEventType.pointerOnlyMask),
             callback: { _, type, event, info in
                 if let info { Unmanaged<TakeoverTap>.fromOpaque(info).takeUnretainedValue().handle(type: type, event: event) }
                 return Unmanaged.passUnretained(event)
@@ -139,14 +146,23 @@ public final class TakeoverTap: @unchecked Sendable {
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         CGEvent.tapEnable(tap: tap, enable: true)
-        gate.setHealthy(provenanceRoundTrips())
+        var healthy = provenanceRoundTrips()
+        gate.setHealthy(healthy)
+        var lastProof = TakeoverGate.uptimeNanos()
         while !state.withLock({ $0.stop }) {
             // A run loop wake, not a poll of the gate: events arrive as sources.
             CFRunLoopRunInMode(.defaultMode, 0.25, false)
             if !CGEvent.tapIsEnabled(tap: tap) {
+                healthy = false
                 gate.setHealthy(false)
                 CGEvent.tapEnable(tap: tap, enable: true)
-                if CGEvent.tapIsEnabled(tap: tap) { gate.setHealthy(provenanceRoundTrips()) }
+            }
+            // An unproven tap tries the round trip again every 5 s; a proven one never re-posts.
+            let now = TakeoverGate.uptimeNanos()
+            if !healthy, CGEvent.tapIsEnabled(tap: tap), now &- lastProof >= 5_000_000_000 {
+                lastProof = now
+                healthy = provenanceRoundTrips()
+                gate.setHealthy(healthy)
             }
         }
         CGEvent.tapEnable(tap: tap, enable: false)

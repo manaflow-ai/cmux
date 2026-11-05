@@ -56,6 +56,12 @@ enum TapEventType {
     static var mask: UInt64 {
         (deliberate.union(pointer)).reduce(0) { $0 | (1 << UInt64($1)) }
     }
+
+    /// Without Input Monitoring: everything but keys, so creating the tap
+    /// never asks for that grant. Clicks, drags and scrolls still take over.
+    static var pointerOnlyMask: UInt64 {
+        mask & ~(1 << UInt64(keyDown))
+    }
 }
 
 /// Classify one event. Pure, so the rule is testable without a window
@@ -140,7 +146,7 @@ public struct TakeoverRefusal: Error, Sendable, Equatable, CustomStringConvertib
 }
 
 /// The takeover state at the execution boundary. The tap feeds it events;
-/// `admit` runs after the consent gate, right before the driver acts.
+/// `admit` runs right before the consent gate, the last check before the driver acts.
 public final class TakeoverGate: Sendable {
     public typealias Clock = @Sendable () -> UInt64
     public typealias Sleeper = @Sendable (Duration) async throws -> Void
