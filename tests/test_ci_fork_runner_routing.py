@@ -351,8 +351,8 @@ SECRET_RUNNER_EXCEPTIONS = {
     # Unset, the Blacksmith literal as before.
     **{("auto-resume-nightly-notarization.yml", job):
        "the one-mini mode's literal glaeda-trusted-next-signing behind the claim gate; else the Blacksmith literal"
-       for job in ("poll", "wait-and-staple", "staple-outer", "staple-stapled", "generate-deltas",
-                   "republish-deltas")},
+       for job in ("poll", "wait-and-staple", "poll-outer", "staple-outer", "poll-stapled", "staple-stapled",
+                   "publish", "generate-deltas", "republish-deltas")},
     ("seed-derived-data.yml", "seed"):
         "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
         "(it seeds their DerivedData)",

@@ -3,7 +3,7 @@
 
 Lawrence, 2026-11-05: classic nightly runs fully on cmux15, 0 Blacksmith. glaeda (teamleaderleo/glaeda#1858,
 AUTO_RESUME) admits main's exact copy of this workflow on its workflow_run after main's own nightly.yml run on main,
-and on its workflow_dispatch from main:
+and on its workflow_dispatch from main (glaeda #1858 at 05ee748405c7 admits all eleven jobs):
 
 - SIGNER_JOBS hold a release key (Apple certificate, notary API key, Sparkle key or R2 key) and take cmux15's trusted
   signing runner, the literal glaeda-trusted-next-signing (glaeda's exclusive class: the whole Mac). Each starts with
@@ -11,7 +11,6 @@ and on its workflow_dispatch from main:
   step that names a secret, names no secret in its job env, and deletes the keychain scripts/ci/signing-keychain.sh
   made in an `if: always()` step.
 - LIGHT_JOBS hold no key and take vars.CI_CLASSIC_NIGHTLY_MINI (cmux15's nightly-only label, glaeda-nightly-mini).
-- LINUX_ONLY keep their route: glaeda refuses them until it admits them (AUTO_RESUME_LINUX_ONLY).
 
 A workflow_run from an rc/** nightly keeps every route (glaeda refuses it on cmux15). A workflow_run from any other
 non-main branch (nightly-next on feat-cmux-next, most of this workflow's triggers) skips preflight in this mode: its
@@ -40,15 +39,18 @@ WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/auto-resume-nightly-notariz
 JOBS = WORKFLOW["jobs"]
 MINI, SIGN = "glaeda-nightly-mini", "glaeda-trusted-next-signing"
 CMUX15 = (MINI, SIGN, "glaeda-nightly-mini-builder")
-# glaeda #1858 AUTO_RESUME_SIGNING_JOBS, AUTO_RESUME_LIGHT_JOBS and AUTO_RESUME_LINUX_ONLY.
-SIGNER_JOBS = {"poll", "wait-and-staple", "staple-outer", "staple-stapled", "generate-deltas", "republish-deltas"}
+# glaeda #1858 AUTO_RESUME_SIGNING_JOBS and AUTO_RESUME_LIGHT_JOBS. poll-outer, poll-stapled and publish ran only on
+# Ubuntu until #36561 made them bash 3.2 safe.
+SIGNER_JOBS = {"poll", "wait-and-staple", "poll-outer", "staple-outer", "poll-stapled", "staple-stapled", "publish",
+               "generate-deltas", "republish-deltas"}
 LIGHT_JOBS = {"preflight", "verify-stapled"}
-LINUX_ONLY = {"poll-outer", "poll-stapled", "publish"}
 GATE_MINUTES = 120
-# The hooks that admit this workflow: glaeda #1854 (ONE_MINI_NIGHTLY) and #1858 (AUTO_RESUME, stacked on it). glaeda's
-# hook refuses a signing job whose commit does not list its sha (glaeda #1761), so main lists both.
-ADMITTING_HOOKS = {"ef41cbd5be20def2d90c6faa6632641fa1310e5bb55c24c281a57c27d0047ad6",
-                   "7f286e386b14476d42b1d5d000da2e9f05cf443af7aa43c334548a8c48013f62"}
+# The hook that admits main's classic nightly dispatch on cmux15: glaeda #1854 (ONE_MINI_NIGHTLY). glaeda's hook
+# refuses a signing job whose commit does not list its sha (glaeda #1761).
+# TODO(glaeda #1858): add the sha256 of the hook glaeda merges and pins for #1858 (AUTO_RESUME) to
+# scripts/ci/glaeda-signing-hooks.txt and here, before this switch is set. Its open heads' hooks (7f286e38...,
+# d2af2426...) are not final and are not listed.
+ADMITTING_HOOKS = {"ef41cbd5be20def2d90c6faa6632641fa1310e5bb55c24c281a57c27d0047ad6"}
 
 UBUNTU = ("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && "
           "'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404'")
@@ -94,10 +96,10 @@ def cases(rng: random.Random, count: int):
 
 class AutoResumeOneMini(unittest.TestCase):
     def test_the_job_sets_match_glaedas(self) -> None:
-        self.assertEqual(SIGNER_JOBS | LIGHT_JOBS | LINUX_ONLY, set(JOBS))
-        # Every job with release material but LINUX_ONLY signs on the signer; the light jobs hold none.
+        self.assertEqual(SIGNER_JOBS | LIGHT_JOBS, set(JOBS))
+        # Every job with release material signs on the signer; the light jobs hold none.
         held = {name for name, job in JOBS.items() if RELEASE_SECRET.search(json.dumps(job))}
-        self.assertEqual(held - LINUX_ONLY, SIGNER_JOBS)
+        self.assertEqual(held, SIGNER_JOBS)
 
     def test_routes_with_the_switch_on(self) -> None:
         rng = random.Random(1858)
@@ -105,7 +107,7 @@ class AutoResumeOneMini(unittest.TestCase):
             for event, branch in cases(rng, 300):
                 ctx = context(rng, event, branch, MINI)
                 got = value(job["runs-on"], ctx)
-                to_cmux15 = ctx["github.repository_owner"] == "manaflow-ai" and name not in LINUX_ONLY and (
+                to_cmux15 = ctx["github.repository_owner"] == "manaflow-ai" and (
                     event == "workflow_dispatch" or branch == "main")
                 want = (SIGN if name in SIGNER_JOBS else MINI) if to_cmux15 else value("${{ " + BEFORE_ROUTE[name] + " }}", ctx)
                 self.assertEqual(got, want, (name, event, branch, ctx))
