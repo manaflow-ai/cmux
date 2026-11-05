@@ -419,6 +419,9 @@ import Testing
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(tunables.all)
         TunableStore.shared.set(tunables.dragResize.key, nil)
+        // Hosting follows S5 alone here: `browserResize.layerHosting` is on by default since #36311 (hosting is wanted
+        // when either is on), so pin it off with S5 set, and reset it with S5.
+        TunableStore.shared.set(tunables.layerHosting.key, pages.map { _ in .bool(false) })
         // By key: the S5 tunables are not on the base, where a set is refused and the suite fails on behavior.
         TunableStore.shared.set("motion.frameOwner.pages", pages.map { .bool($0) })
         TunableStore.shared.set(tunables.syncDeadline.key, syncDeadline.map { .number($0) })
