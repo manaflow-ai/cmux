@@ -111,10 +111,13 @@ struct PaletteNoMatchActionsTests {
         #expect(await Self.ids(palette, after: "wor") == ["option:p-work"])
     }
 
-    @Test func aPickerWithAStepAfterItOffersNoCreate() throws {
-        // Open Link in Browser Profile… asks for the link next: the palette closes before the profile exists.
+    @Test func everyProfilePickerThatRunsOnThePickOffersCreate() throws {
+        // Open Link in Browser Profile… takes the link as an optional argument: a pick runs the action at once,
+        // so making the profile first and then running it is the same path.
         let page = try Self.profileStep("browserProfile.openLink", registry: .standard(), log: Log())
-        #expect(page.noMatchItems == nil)
+        let rows = try #require(page.noMatchItems)
+        #expect(rows("austin").map(\.id) == ["create:browser-profile"])
+        #expect(rows("  ").isEmpty)
     }
 
     // MARK: Cmd-Shift-P and Cmd-P
@@ -173,9 +176,11 @@ struct PaletteNoMatchActionsTests {
     }
 
     @Test func aMatchingQueryListsItsResultsFirstAndTheFallbacksAfter() async {
+        let registry = ActionRegistry.standard()
+        registry.bind("newTab", invoke: { _ in })
         var sources = PaletteSources(workspaces: Workspaces())
         sources.goTo = GoTo(Log())
-        let palette = Self.palette(sources: sources)
+        let palette = Self.palette(registry, sources: sources)
         defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ids = await Self.ids(palette, after: "api")
