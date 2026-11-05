@@ -15,6 +15,8 @@ import {
   SENDER_ICON_LEAD_KEY,
 } from "./senderIconLook";
 import { foreignHarness } from "./AgentIdentity";
+import { SubagentsSection } from "../session-info/SubagentsSection";
+import type { Subagent } from "./subagentFold";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -133,8 +135,32 @@ test("the badge is about half the slot and its ring is cut at its own corner", (
 });
 
 test("a subagent of the chat's own family shows its family's mark while a badge tells it apart", () => {
-  expect(foreignHarness("claude", "claude")).toBe("claude");
-  configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
-  expect(foreignHarness("claude", "claude")).toBeUndefined();
-  expect(foreignHarness("codex", "claude")).toBe("codex");
+  expect(foreignHarness("claude", "claude", "diamond")).toBe("claude");
+  expect(foreignHarness("claude", "claude", "none")).toBeUndefined();
+  expect(foreignHarness("codex", "claude", "none")).toBe("codex");
+});
+
+test("a change of the badge setting redraws a mounted subagent list at once (review F1)", async () => {
+  const agents: Subagent[] = [
+    {
+      id: "explorer",
+      parent: null,
+      name: "explorer",
+      kind: "Explore",
+      task: "t",
+      state: "running",
+      startedAt: 1,
+      harness: "claude",
+    },
+  ];
+  const container = await render(<SubagentsSection agents={agents} waiting={new Set()} harness="claude" />);
+  const icon = () => container.querySelector(".acpmux-lineage__icon")!;
+  // Badged: the chat's own family shows its mark with the subagent's diamond.
+  expect(icon().querySelector(".cv-sender-icon__main [data-agent='claude']")).not.toBeNull();
+  await act(async () => configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" }));
+  // None: the toned subagent glyph, as before the badge, with no parent render of its own.
+  expect(icon().querySelector("[data-agent='claude']")).toBeNull();
+  expect(icon().querySelector("[data-agent-tone] [data-icon='task.ai']")).not.toBeNull();
+  await act(async () => configureSenderIconLook({}));
+  expect(icon().querySelector(".cv-sender-icon__main [data-agent='claude']")).not.toBeNull();
 });

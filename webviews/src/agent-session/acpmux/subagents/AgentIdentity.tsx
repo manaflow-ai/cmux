@@ -3,7 +3,7 @@ import { harnessFamily } from "./agentRuns";
 import { AgentMark } from "../../shared/AgentMark";
 import { Icon } from "../icons/Icon";
 import { SenderIcon } from "./SenderIcon";
-import { senderIconLook, useSenderIconLook } from "./senderIconLook";
+import { useSenderIconLook, type SenderIconBadge } from "./senderIconLook";
 
 /// The type label is already established by a list heading or a harness mark. Keep it out of
 /// every row so the mark carries the identity instead of repeating "Subagent".
@@ -26,7 +26,9 @@ export const SUBAGENT_FALLBACK = "task.ai";
 export function foreignHarness(
   harness: string | undefined,
   chatHarness: string | undefined,
-  badge = senderIconLook().badge,
+  /// The look's badge (`useSenderIconLook().badge`), read by the caller's render so a change of the
+  /// setting draws the row again.
+  badge: SenderIconBadge,
 ): string | undefined {
   if (!harness) return undefined;
   if (badge !== "none") return harness;

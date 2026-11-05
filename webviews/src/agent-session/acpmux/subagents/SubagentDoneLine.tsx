@@ -33,6 +33,7 @@ import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { useSenderIconLook } from "./senderIconLook";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
@@ -112,6 +113,9 @@ function DoneLine({
   // The chat's harness: a subagent of another family draws its mark, one of the chat's own draws the
   // subagent mark in its tone, as the tray does (AgentIdentity.tsx `foreignHarness`).
   const chatHarness = useContext(SubagentHarnessContext);
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
@@ -220,7 +224,7 @@ function DoneLine({
         >
           <span className="cv-tool__icon">
             <AgentIdentity
-              harness={foreignHarness(agent.harness, chatHarness)}
+              harness={foreignHarness(agent.harness, chatHarness, senderBadge)}
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}

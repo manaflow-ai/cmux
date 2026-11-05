@@ -90,6 +90,7 @@ import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { useSenderIconLook, type SenderIconBadge } from "./senderIconLook";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -378,9 +379,12 @@ export const SubagentTray = memo(function SubagentTray({
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   const headMarks = useMemo(
-    () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
-    [t, head, items, finished, chatHarness],
+    () => (head === "stack" ? stackMarks(t, items, finished, chatHarness, senderBadge) : NO_MARKS),
+    [t, head, items, finished, chatHarness, senderBadge],
   );
   const headCounts = useMemo(
     () =>
@@ -680,7 +684,7 @@ export const SubagentTray = memo(function SubagentTray({
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
           icon={SUBAGENT_FALLBACK}
-          mark={foreignHarness(item.agent.harness, chatHarness)}
+          mark={foreignHarness(item.agent.harness, chatHarness, senderBadge)}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -885,6 +889,7 @@ function stackMarks(
   items: readonly TrayItem[],
   finished: readonly TrayItem[],
   chatHarness: string | undefined,
+  senderBadge: SenderIconBadge,
 ): readonly HeadMark[] {
   const marks: HeadMark[] = [];
   for (const item of [...items.slice(0, STACK_MARKS), ...finished.slice(0, STACK_MARKS)]) {
@@ -893,7 +898,7 @@ function stackMarks(
       item.kind === "agent"
         ? {
             key: itemKey(item),
-            harness: foreignHarness(item.agent.harness, chatHarness),
+            harness: foreignHarness(item.agent.harness, chatHarness, senderBadge),
             tone: agentTone(item.agent.id),
             icon: SUBAGENT_FALLBACK,
           }
