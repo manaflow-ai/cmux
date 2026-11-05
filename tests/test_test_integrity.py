@@ -153,6 +153,8 @@ class TestIntegrity(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
         self.assertIn("types: [opened, synchronize, reopened, labeled, unlabeled]", workflow)
         self.assertIn("github.run_id", workflow)
+        self.assertIn("TEST_INTEGRITY_HEAD_SHA", workflow)
+        self.assertIn('"$TEST_INTEGRITY_HEAD_SHA"', workflow)
         self.assertIn("deleted-or-weakened-tests-label-noop", workflow)
         self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
         self.assertIn('args+=(--strict)', workflow)

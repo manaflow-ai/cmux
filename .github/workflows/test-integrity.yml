@@ -38,6 +38,7 @@ jobs:
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          TEST_INTEGRITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
         run: |
           set -euo pipefail
@@ -56,9 +57,9 @@ jobs:
             exit 0
           fi
           if ! merge_base="$(git merge-base "$base" HEAD)"; then
-            # The shallow checkout usually contains the branch point. Deepen
-            # the targeted base only when it does not, avoiding a full clone.
-            git fetch --no-tags --deepen=10000 origin "$base"
+            # The shallow checkout may cut off either side of the branch
+            # point. Deepen both targeted commits only when needed.
+            git fetch --no-tags --deepen=10000 origin "$base" "$TEST_INTEGRITY_HEAD_SHA"
             merge_base="$(git merge-base "$base" HEAD)"
           fi
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
