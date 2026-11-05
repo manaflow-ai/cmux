@@ -140,6 +140,7 @@
     "cmux-tui/crates/acpmux/src/server/ws_shutdown.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/server/ws_shutdown/tests.rs:rust-duration": {"count": 8, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/session_scope.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
+    "cmux-tui/crates/acpmux/src/store/journal_store.rs:rust-duration": {"count": 2, "reason": "bound: SEAL_WAIT caps the shutdown seal, and a miss logs and keeps the frozen marker (fails closed); LOCK_WAIT covers a restart overlapping the old daemon's exit, after which the open fails as for any held lock (debt: wait on that exit instead)"},
     "cmux-tui/crates/acpmux/src/tui/mod.rs:rust-duration": {"count": 3, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/vault.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/vault/store.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
