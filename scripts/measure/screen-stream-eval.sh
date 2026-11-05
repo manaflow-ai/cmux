@@ -187,10 +187,16 @@ if [[ -n "$lan" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"
   chmod 600 "$work/peer-token"
   python3 -I "$here/peer.py" serve "$lan" "$peer_port" "$work/peer-token" "$work/peer" >"$work/peer.log" 2>&1 &
-  pids+=("$!")
+  server=$!
+  pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
+    # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
+    if ! kill -0 "$server" 2>/dev/null; then
+      finish "two Macs: the peer server on $lan:$peer_port stopped ($(tail -1 "$work/peer.log" 2>/dev/null))"
+      exit 4
+    fi
     sleep 5 # bounded wait for the viewer Mac's step to start and build (30 min)
   done
   if [[ ! -s "$work/peer/agent.json" ]]; then
