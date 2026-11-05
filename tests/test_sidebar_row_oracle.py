@@ -330,6 +330,71 @@ class NoOtherRowMoves(unittest.TestCase):
         self.assertEqual(judge_press(frames, "insert", rows_after=after)["verdict"], "FAIL")
 
 
+def grow(frames, k, start, count, dh, below):
+    """Row K grows by DH points over COUNT frames from frame START (linear), and the rows BELOW move down with it."""
+    for f in range(start, len(frames)):
+        part = min(1.0, (f - start + 1) / count)
+        views = frames[f]["views"]
+        if k in views:
+            views[k][3] += part * dh
+        for b in below:
+            if b in views:
+                views[b][1] += part * dh
+    return frames
+
+
+class OtherChangesInTheFilm(unittest.TestCase):
+    """Review FIX at 1faa2b697d1: windows() joined every other change in the film to the press. A correct insert
+    must PASS when another row changes before or after it."""
+
+    def assert_pass(self, frames, kind="insert"):
+        for result in (judge_press(frames, kind), judge(frames)):
+            self.assertEqual(result["verdict"], "PASS", result["fails"])
+
+    def test_new_row_that_grows_later_with_the_rows_below_still_passes(self):
+        frames = grow(film("insert", tail=60), NEW, STILL + MOTION + 20, 10, 12.0, [key(r) for r in range(2, 12)])
+        self.assert_pass(frames)
+
+    def test_another_row_that_grows_after_the_insert_still_passes(self):
+        frames = grow(film("insert", tail=60), key(6), STILL + MOTION + 15, 8, 10.0, [key(r) for r in range(7, 12)])
+        self.assert_pass(frames)
+
+    def test_a_row_that_resizes_before_the_press_still_passes(self):
+        frames = grow(film("insert"), key(6), 2, 6, 10.0, [key(r) for r in range(7, 12)])
+        self.assert_pass(frames)
+
+    def test_a_row_that_leaves_the_view_at_the_last_frame_still_passes(self):
+        frames = film("insert")
+        vanish(frames, key(11), len(frames) - 1)
+        self.assert_pass(frames)
+
+    def test_a_row_that_leaves_the_view_later_on_a_hitch_still_passes(self):
+        frames = film("insert")
+        at = STILL + MOTION + 12
+        for frame in frames[at:]:
+            frame["t"] += 0.032
+        vanish(frames, key(11), at)
+        self.assert_pass(frames)
+
+    def test_a_row_leaving_the_view_on_a_hitch_inside_the_window_is_not_a_missed_refresh(self):
+        # Feat film e7bd36d8 light-50 #0, frame 23: the rows are at their place, only a row below the view leaves.
+        jump = lambda i: 0.0 if i <= 0 else 1.0
+        frames = film("insert", new_height=lambda i: ROW_H, row_progress={r: jump for r in range(12)})
+        for frame in frames[FIRST + 3:]:
+            frame["t"] += 0.032
+        vanish(frames, key(11), FIRST + 3)
+        motion, = judge(frames)["motions"]
+        self.assertEqual(motion["missed_refreshes"], 0, motion["gaps"])
+
+    def test_a_new_row_named_below_the_shown_rows_is_a_note_not_a_fail(self):
+        # 12 rows show; the model's new row opens at index 12, below them: nothing on screen changes.
+        frames = film("insert", at=12, new_from=10 ** 6)
+        after = rows_of(frames[-1]) + [{"key": NEW, "y": TOP + 12 * STEP, "h": ROW_H}]
+        result = judge_press(frames, "insert", rows_after=after)
+        self.assertNotEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertTrue(any(NEW in n for n in result.get("notes", [])), result)
+
+
 class MissedRefreshesOnlyWhileRowsMove(unittest.TestCase):
     def test_hitch_after_the_rows_settle_is_not_a_missed_refresh(self):
         # Review: a 40 ms hitch 2 frames after a perfect insert settles, then a row below the view leaves 2 frames
