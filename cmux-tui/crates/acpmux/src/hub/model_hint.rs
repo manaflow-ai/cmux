@@ -57,7 +57,15 @@ fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&s
     if !hits.is_empty() {
         return format!("{err}. {spec:?} is a model id: write {}", hits.join(" or "));
     }
-    let _ = claude_harness;
+    if spec.starts_with("claude") {
+        let mut hint = format!(
+            "{err}. {spec:?} is a harness profile this host does not have: install it in config.json"
+        );
+        if let Some(h) = claude_harness {
+            hint.push_str(&format!(", or use -m {h}/{CLAUDE_FALLBACK} -e medium"));
+        }
+        return hint;
+    }
     err
 }
 
@@ -67,7 +75,19 @@ fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&s
 /// (`opus`, `sonnet[1m]`). A `[1m]` suffix is allowed. A harness profile
 /// name such as `claude-sr2` or `claude-sr2-pipe` is none of these.
 pub(super) fn looks_like_claude_model_id(spec: &str) -> bool {
-    spec.starts_with("claude") || matches!(spec, "opus" | "sonnet" | "haiku")
+    let base = spec.strip_suffix("[1m]").unwrap_or(spec);
+    if matches!(base, "opus" | "sonnet" | "haiku" | "opusplan" | "default") {
+        return true;
+    }
+    let Some(rest) = base.strip_prefix("claude-") else {
+        return false;
+    };
+    if rest.starts_with(|c: char| c.is_ascii_digit()) {
+        return true;
+    }
+    ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
+        rest.strip_prefix(family).is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+    })
 }
 
 #[cfg(test)]
