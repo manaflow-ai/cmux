@@ -29,8 +29,9 @@ extension PageWebView {
         let shown = session == nil ? nil : await callPageFunction(Self.scrollCaptureScript, timeout: .seconds(1)) as? [String: Any]
         // The page closed, fell back or moved on while its state was read: nothing left to move.
         guard !isClosed, chromiumSession === session, isOnChromium, isCurrent() else { return }
+        // `location.hash` is percent-encoded; ``PageDescriptor/url(route:)`` keeps its escapes.
         if let hash = shown?["hash"] as? String, hash.count > 1, hash.hasPrefix("#") { route = hash }
-        let hadKeys = session.map(hasKeys(in:)) ?? false
+        let hadKeys = session?.page.hasKeys == true || (window?.firstResponder as? NSView).map { $0.isDescendant(of: self) } == true
         fallBackToWebKit(reason, detail: "the live web loop is on and Chromium cannot serve it", level: .info)
         // The keys follow the page to WebKit: the pane's focus model re-applies itself (as when a
         // Chromium page arrives, attachChromium), else the page takes them when Chromium had them.
@@ -39,15 +40,6 @@ extension PageWebView {
         await waitUntilLoaded()
         guard !isClosed, !isOnChromium else { return }
         _ = await callPageFunction(Self.scrollRestoreScript, arguments: ["spots": spots])
-    }
-
-    /// Whether the Chromium page of `session` has the keyboard: its view (or one inside it) is its
-    /// window's first responder, in this window or in Chromium's own child window that is key.
-    private func hasKeys(in session: PageChromiumSession) -> Bool {
-        let content = session.page.contentView
-        guard let host = content.window else { return false }
-        if host !== window, host.isKeyWindow { return true }
-        return (host.firstResponder as? NSView).map { $0 === content || $0.isDescendant(of: content) } ?? false
     }
 
     /// The document's fragment and every scrolled box: `{hash, spots: [{path, top, left}]}`,
