@@ -261,7 +261,10 @@ mod terminal;
 #[test]
 fn native_owner_takes_the_apps_connect_commands() {
     assert!(native_owner::commands().contains(&"set-default-colors"));
+    let fake = FakeAcpmux::start("native-colors");
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
     let reply = call(&mut stream, &mut reader, json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}));

@@ -2940,11 +2940,11 @@ fn start_local_owner_event_loop_with_completion(
 #[cfg(unix)]
 fn ensure_cloud_work_folder() {
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else { return };
-    let work = std::path::Path::new(&home).join("work");
-    if !work.is_dir() {
-        if let Err(error) = std::fs::create_dir_all(&work) {
-            eprintln!("cmux-tui: could not make {}: {error}", work.display());
-        }
+    let work = Path::new(&home).join("work");
+    if !work.is_dir()
+        && let Err(error) = std::fs::create_dir_all(&work)
+    {
+        eprintln!("cmux-tui: could not make {}: {error}", work.display());
     }
 }
 
