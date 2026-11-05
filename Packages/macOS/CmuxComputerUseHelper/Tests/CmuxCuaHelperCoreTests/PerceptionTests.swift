@@ -420,7 +420,7 @@ extension PerceptionTests {
         var descriptors: [Int32] = [-1, -1]
         try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
         let client = descriptors[0]
-        defer { close(client) }
+        defer { Darwin.close(client) }
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let daemon = ProcessStamp(pid: 10, startSeconds: 1, startMicroseconds: 0)
@@ -436,12 +436,12 @@ extension PerceptionTests {
         var out = HelperWire.line(["secret": HelperWire.hex(secret)])
         out += HelperWire.line(["id": 1, "method": "tools/call", "name": "get_window_state", "arguments": ["window_id": 7]])
         out += HelperWire.line(["id": 2, "method": "tools/call", "name": "click", "arguments": ["x": 1, "y": 1]])
-        try #require(out.withUnsafeBytes { write(client, $0.baseAddress, $0.count) } == out.count)
+        try #require(out.withUnsafeBytes { Darwin.write(client, $0.baseAddress, $0.count) } == out.count)
         var buffer = HelperWire.LineBuffer()
         var lines: [Data] = []
         while lines.count < 3 {
             var chunk = [UInt8](repeating: 0, count: 4096)
-            let count = read(client, &chunk, chunk.count)
+            let count = Darwin.read(client, &chunk, chunk.count)
             try #require(count > 0)
             lines += try #require(buffer.append(Data(chunk.prefix(count))))
         }
