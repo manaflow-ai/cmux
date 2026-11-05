@@ -74,8 +74,9 @@ APP_BUILD_JOBS = re.compile(
     r")$"
     r"|^CI / Dogfood build"
 )
-# The daemon build a Rust lane replaces with an incremental build on a warm tree.
-DAEMON_BUILD_JOBS = re.compile(r"^cmux-tui artifacts / ")
+# The daemon build jobs a Rust lane replaces with an incremental build on a warm tree. The workflow's
+# daemon tests, preflight and publish checks are not builds: the lane keeps them.
+DAEMON_BUILD_JOBS = re.compile(r"^cmux-tui artifacts / (build|build-windows|build-darwin-fallback)( \(.*\))?$")
 # Jobs that compile the app's test targets. The lane keeps them for Swift: a unit test needs its
 # own target built, and no prebuilt build holds a PR's test bundle.
 TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile / ")
@@ -214,7 +215,7 @@ def head_jobs(check_obj: dict) -> list[dict]:
         workflow = run["workflow"]["name"]
         if run["event"] not in ("pull_request", "push"):
             continue
-        if run["event"] == "push" and not DAEMON_BUILD_JOBS.match(workflow + " / "):
+        if run["event"] == "push" and workflow != "cmux-tui artifacts":
             continue
         for r in suite["checkRuns"]["nodes"]:
             start, end = _t(r.get("startedAt")), _t(r.get("completedAt"))
@@ -232,9 +233,13 @@ def dropped(job_name: str, lane: str, appliers) -> bool:
     return "daemon" in appliers and bool(DAEMON_BUILD_JOBS.match(job_name))
 
 
+# Conclusions that count as passing; every other one (ACTION_REQUIRED, STALE, ...) is red.
+# replay() drops unfinished, SKIPPED, NEUTRAL and CANCELLED runs before it asks.
+GREEN_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
 def verdict(jobs) -> str:
-    concl = {j["conclusion"] for j in jobs}
-    return "red" if concl & {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE"} else "green"
+    return "red" if any(j["conclusion"] not in GREEN_CONCLUSIONS for j in jobs) else "green"
 
 
 def merge_diff_plan(repo: str, pr: dict) -> dict:

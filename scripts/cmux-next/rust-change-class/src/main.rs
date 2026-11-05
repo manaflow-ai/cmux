@@ -98,11 +98,29 @@ fn is_test_attr(attr: &syn::Attribute) -> bool {
         return true;
     }
     if path.is_ident("cfg") {
-        // cfg(test), and cfg(all(test, ...)): code only a test build has.
-        let text = tokens(&attr.meta);
-        return text.contains("( test") || text.contains("(test") || text.starts_with("cfg (test");
+        // cfg(test), and cfg(all(test, ...)): code only a test build has. cfg(not(test)) is not.
+        return attr.parse_args::<syn::Meta>().is_ok_and(|m| cfg_needs_test(&m));
     }
     false
+}
+
+/// Whether a cfg predicate holds only when `test` is set.
+fn cfg_needs_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(p) => p.is_ident("test"),
+        syn::Meta::List(list) => {
+            let parsed = list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated);
+            let Ok(args) = parsed else { return false };
+            if list.path.is_ident("all") {
+                args.iter().any(cfg_needs_test)
+            } else if list.path.is_ident("any") {
+                !args.is_empty() && args.iter().all(cfg_needs_test)
+            } else {
+                false // not(...) and anything else
+            }
+        }
+        syn::Meta::NameValue(_) => false,
+    }
 }
 
 fn cfg_key(attrs: &[syn::Attribute]) -> String {
@@ -591,6 +609,23 @@ mod tests {
         assert_eq!(bucket("fn helper() {}", "#[test]\nfn helper() {}"), Bucket::Full);
         assert_eq!(bucket("#[cfg(test)]\nfn helper() {}", "fn helper() {}"), Bucket::Full);
         assert_eq!(bucket("fn helper() {}", "#[cfg(test)]\nfn helper() {}"), Bucket::Full);
+    }
+
+    #[test]
+    fn cfg_predicates_are_read_structurally() {
+        let test_only = |cfg: &str| {
+            let file: syn::File = syn::parse_str(&format!("#[cfg({cfg})] fn a() {{}}")).unwrap();
+            let syn::Item::Fn(f) = &file.items[0] else { unreachable!() };
+            is_test_attr(&f.attrs[0])
+        };
+        assert!(test_only("test"));
+        assert!(test_only("all(test, unix)"));
+        assert!(test_only("any(test, all(test, unix))"));
+        assert!(!test_only("not(test)"));
+        assert!(!test_only("all(unix, not(test))"));
+        assert!(!test_only("any(test, unix)"));
+        assert!(!test_only("feature = \"test\""));
+        assert_eq!(bucket("#[cfg(not(test))]\nfn a() -> u8 { 1 }", "#[cfg(not(test))]\nfn a() -> u16 { 1 }"), Bucket::Full);
     }
 
     #[test]

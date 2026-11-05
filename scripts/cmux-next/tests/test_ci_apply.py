@@ -90,6 +90,18 @@ class ReplayTests(unittest.TestCase):
                                  "cmux-next / cmux-next swift test": False})
         self.assertFalse(any(ci_apply.dropped(n, "full", []) for n in names))
 
+    def test_the_daemon_lane_drops_only_the_daemon_builds(self):
+        drop = lambda n: ci_apply.dropped(f"cmux-tui artifacts / {n}", "daemon", ["daemon"])
+        self.assertTrue(drop("build") and drop("build-windows") and drop("build-darwin-fallback"))
+        self.assertFalse(drop("cmux_next_ daemon tests"))
+        self.assertFalse(drop("publish to R2"))
+        self.assertFalse(drop("cmux-tui tree preflight"))
+
+    def test_every_conclusion_but_success_is_red(self):
+        for conclusion in ("FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "STALE"):
+            self.assertEqual(ci_apply.verdict([{"conclusion": conclusion}]), "red", conclusion)
+        self.assertEqual(ci_apply.verdict([{"conclusion": "SUCCESS"}]), "green")
+
     def test_a_red_compile_on_a_lane_head_is_a_miss(self):
         with tempfile.TemporaryDirectory() as d:
             prs, checks = Path(d, "prs.jsonl"), Path(d, "checks.jsonl")
