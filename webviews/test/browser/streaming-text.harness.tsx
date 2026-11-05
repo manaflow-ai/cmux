@@ -157,8 +157,8 @@ const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
 const expanded = new Set<string>();
 let show: (rows: AcpmuxRow[], working: boolean) => void = () => {};
-/// Draw the running turn's live line under the reply (Debug `agentPane.debug.liveLineBelow`, on in
-/// the app), so the end of the turn swaps that line for the turn's footer as the app does.
+/// Draw the running turn's live line under the reply, as the app does, so the end of the turn swaps
+/// that line for the turn's footer. Off, the harness leaves the line out to measure the reply alone.
 let lineBelow = false;
 /// Turn off the followed view's eased steps (followGlide.ts) to measure the view that steps at once.
 let glide = true;
@@ -173,7 +173,7 @@ function Pane() {
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working, lineBelow, liveRuns: lineBelow })}
+            rows={turnView(state.rows, expanded, { working: state.working }).filter((row) => lineBelow || !row.below)}
             sessionId="streaming-text"
             working={state.working}
             jumpButton

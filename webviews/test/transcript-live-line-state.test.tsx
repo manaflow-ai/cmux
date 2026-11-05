@@ -47,7 +47,7 @@ const agent = (id: string, state: string, extra: Partial<Subagent> = {}): Subage
   startedAt: at,
   ...extra,
 });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -109,8 +109,6 @@ test("with the running tray the line still says it waits on the subagents the tr
   expect(trayWaitAgents(rows)).toBe(2);
   const line = turnView(shown as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2 });
@@ -130,8 +128,6 @@ test("with the tray a shell call's agent counts once, and a queued prompt keeps 
   expect(trayWaitAgents(rows)).toBe(1);
   const line = turnView(withSubagentLines(rows) as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).find((shaped) => shaped.kind === THINKING)!;
   expect(line).toMatchObject({ liveState: "subagents", liveAgents: 2 });

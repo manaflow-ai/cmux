@@ -19,7 +19,7 @@
 // near-hover so it's easier to grab"; the agent pane's default, `data-cmux-scroller-fade` on
 // <html>), the same thumb fades like every other scroller: none at rest, shown while the lines
 // scroll sideways, and thicker while the pointer is near the block's bottom edge. Without the fade
-// (Debug Settings agentPane.debug.scrollerFade off) it stays at rest, as above.
+// (a page that never sets it, such as the guest page) it stays at rest, as above.
 //
 // Before: the diff's thumb was transparent until the rows scrolled, the output had the engine's
 // own scroller (an overlay that shows only while it scrolls, or a 15px classic bar), and a cut
@@ -149,6 +149,9 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
       { timeout: 60_000 },
     );
     await page.evaluate((card) => document.querySelector(card)!.scrollIntoView({ block: "center" }), block.card);
+    // Without the fade the agent pane's theme turns on (App.tsx applyPaneTheme): the tests that
+    // measure the fade set it again.
+    await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-scroller-fade"));
     // The pointer away from every block, and long enough past the last scroll that no scroller
     // shows because it is scrolling (SCROLLING_HIDE_MS).
     await page.mouse.move(2, 2);

@@ -15,9 +15,10 @@ export type TurnFoldStyle = {
   /// line with only the conclusion (its last reply after the last call) in sight, as ChatGPT and
   /// Codex end a turn. False: no turn-level line; the work stays where it ran.
   conclusion: boolean;
-  /// Each run of calls, the short notes inside it with it, folds into its own summary line ("Ran 3
-  /// commands"), as Claude desktop draws a turn: inside an open "Worked for", or in place where
-  /// the turn has none. False: the calls draw one under another (a running turn's live runs aside).
+  /// A run that edited takes the short notes around it too, as other runs do (turns.ts
+  /// `mergeShortNotes` `edits`), as Claude desktop draws a turn: inside an open "Worked for", or in
+  /// place where the turn has none. Every family's runs of calls fold into their summary lines
+  /// ("Ran 3 commands"); false only keeps an edit's short notes beside it.
   runs: boolean;
   /// The closed line counts the fold's messages, "6 previous messages", when the agent's own
   /// messages sit between its work, as Codex's header does. False: it always reads "Worked for Ns",

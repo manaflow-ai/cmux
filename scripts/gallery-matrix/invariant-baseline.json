@@ -4,7 +4,6 @@
     "agent-pane.access-offer#turn-no-credits": [],
     "agent-pane.access-offer#turn-no-offer": [],
     "agent-pane.acpmux-batch-send#batch-raw": [],
-    "agent-pane.acpmux-batch-send#batch-sending": [],
     "agent-pane.acpmux-batch-send#batches": [],
     "agent-pane.add-project-panel#browse-error": [],
     "agent-pane.add-project-panel#directory": [],
@@ -2209,7 +2208,6 @@
     "agent-pane.sent-message-rows#look-arrow": [],
     "agent-pane.sent-message-rows#look-quote": [],
     "agent-pane.sent-message-rows#recorded-file": [],
-    "agent-pane.sent-message-rows#running-row": [],
     "agent-pane.sent-message-rows#sent": [],
     "agent-pane.sent-message-rows#with-preview": [],
     "agent-pane.session-hover#chip": [],
@@ -2848,7 +2846,6 @@
     "agent-pane.transcript#thought-find": [],
     "agent-pane.transcript#thought-quiet": [],
     "agent-pane.transcript#thought-row": [],
-    "agent-pane.transcript#thought-streaming-short": [],
     "agent-pane.transcript#thoughts-merged": [],
     "agent-pane.transcript#token-link": [],
     "agent-pane.transcript#tool-calls": [],
@@ -2885,7 +2882,6 @@
     "agent-pane.transcript#working-counts": [
       "center-line:row subagentDone:agent-errors"
     ],
-    "agent-pane.transcript#working-line-above": [],
     "agent-pane.transcript#working-thinking": [],
     "agent-pane.transcript#working-tokens": [],
     "agent-pane.transcript#working-tokens-total": [],

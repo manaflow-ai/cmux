@@ -74,7 +74,7 @@ function turn(): AcpmuxRow[] {
   ];
 }
 
-const claude = { liveRuns: true, agentFamily: "claude" } as const;
+const claude = { agentFamily: "claude" } as const;
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((row) => row.id);
 
 test("a finished Claude turn's run of sends, another agent's line and a compaction folds into one line", () => {
@@ -115,13 +115,13 @@ test("the line counts what the run did, messages first", async () => {
 
 test("a running turn folds its run of messages the same way, under the live line", () => {
   const rows = turn().filter((row) => row.kind !== "assistant" && row.kind !== "turnSummary");
-  const view = turnView(rows, new Set(), { ...claude, working: true, lineBelow: true });
+  const view = turnView(rows, new Set(), { ...claude, working: true });
   expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
   expect(ids(view)).not.toContain("report");
 });
 
 test("a Codex turn's open Worked for folds its run of messages too", () => {
-  const view = turnView(turn(), new Set(["worked-prompt"]), { liveRuns: true, agentFamily: "codex" });
+  const view = turnView(turn(), new Set(["worked-prompt"]), { agentFamily: "codex" });
   expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
 });
 
@@ -156,7 +156,7 @@ test("the closed line is estimated as one line, so its mount moves nothing below
 // not drawn yet, so Find and links must open the turn's fold and the run inside it together.
 test("Find and a link open a closed Worked for and the message run inside it at once", () => {
   const rows = turn();
-  const codex = { liveRuns: true, agentFamily: "codex" } as const;
+  const codex = { agentFamily: "codex" } as const;
   const closed = turnView(rows, new Set(), codex);
   expect(ids(closed)).not.toContain("report");
   const folds = hiddenRowFolds(

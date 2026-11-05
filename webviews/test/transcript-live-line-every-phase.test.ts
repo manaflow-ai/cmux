@@ -43,7 +43,7 @@ const steerWaiting = { ...steer, pending: undefined, steer: "waiting" as const, 
 const steerRead = { ...steerWaiting, steer: "landed" as const, version: 3 };
 
 const view = (rows: AcpmuxRow[], working: boolean) =>
-  turnView(rows, new Set(), { working, liveRuns: true, lineBelow: true, agentFamily: "claude", now: START + 90_000 });
+  turnView(rows, new Set(), { working, agentFamily: "claude", now: START + 90_000 });
 
 /// Each phase of a running turn, as the pane's rows and its working state stand then.
 const phases: [name: string, rows: AcpmuxRow[], working: boolean][] = [

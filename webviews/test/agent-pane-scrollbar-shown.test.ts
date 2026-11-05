@@ -5,8 +5,8 @@
 // keeps flashing way too much whenever sending off new chats"). The transcript is a shown scroller
 // (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE): a thin thumb on no track that stays drawn while the chat
 // overflows, at rest, after a scroll, and while a new turn comes in and the view follows it, with a
-// lane that never changes width on any painted frame. The opt-in fade (Debug Settings
-// agentPane.debug.scrollerFade, the theme's `scrollerFade`) hides it at rest and fades it out with
+// lane that never changes width on any painted frame. The scrollbar fade (`data-cmux-scroller-fade`,
+// which the pane sets once its host pushes a theme, App.tsx applyPaneTheme) hides it at rest and fades it out with
 // an animation: some painted frames of the fade show the thumb part-way.
 //
 // Before: the transcript had the engine's own scroller. WebKit's overlay scroller in the app shows
@@ -308,9 +308,9 @@ await requireBrowserLane("agent-pane-scrollbar-shown.test.ts", async () => {
         expect(seen.rest!.bar).toBeGreaterThan(0);
       });
 
-      test("with the opt-in fade the thumb hides at rest, shows on a scroll and fades out over several frames", async () => {
+      test("with the fade the thumb hides at rest, shows on a scroll and fades out over several frames", async () => {
         const page = await open(name);
-        await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, scrollerFade: true }));
+        await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true }));
         // A slower fade out than the pane's 180 ms, so screenshots land inside it on a loaded runner,
         // and an instant fade in, so the sample taken while it scrolls has the thumb's full ink.
         await page.evaluate(() => {

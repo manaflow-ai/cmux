@@ -180,8 +180,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
-  // The running turn's one live line at its bottom (Thinking.tsx, Debug toggles codexToolRuns and
-  // liveLineBelow, on by default): it names the read in flight, then the counts.
+  // The running turn's one live line at its bottom (Thinking.tsx): it names the read in flight, then the counts.
   const line = (page: Page) => page.locator(".cv-worked.is-below");
   beforeAll(async () => {
     daemon = Bun.serve({

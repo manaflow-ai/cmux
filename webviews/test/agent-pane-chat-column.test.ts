@@ -615,8 +615,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
-    // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says one of the default
+    // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
     // The default status mode is Thinking only, with nothing to open.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
@@ -663,54 +662,6 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     expect(new Set(tops)).toEqual(new Set([tops[0]!]));
-    await page.close();
-  });
-
-  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view
-  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default). Only a turn drawn without the
-  // Codex-style runs shows a thought while it streams (the test above), so these push
-  // agentPane.debug.codexToolRuns off with the theme, as the app sends it.
-  const liveThought = async (attributes: Record<string, string> = {}) => {
-    const chat = newChat();
-    thinks(chat, THOUGHT);
-    const page = await open(chat, 900, 700, false, true, attributes);
-    await page.evaluate(() => window.cmuxAcpmuxBridge!.applyTheme({ isDark: false, codexToolRuns: false }));
-    const text = page.locator(".cv-thought__text");
-    await text.waitFor({ state: "attached" });
-    await text.scrollIntoViewIfNeeded();
-    return { page, text };
-  };
-
-  test("a long live thought holds a 140px viewport with its newest line in view", async () => {
-    const { page, text } = await liveThought();
-    expect(await page.locator(".cv-thought.is-live .cv-thought__label").textContent()).toBe("Thinking");
-    const seen = await text.evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      // The text node itself: the text draws in its parts (ThoughtRow.tsx thoughtParts).
-      const node = element.querySelector(".cv-thought__part")!.firstChild!;
-      const at = (words: string) => {
-        const range = document.createRange();
-        const start = node.textContent!.indexOf(words);
-        range.setStart(node, start);
-        range.setEnd(node, start + words.length);
-        return range.getBoundingClientRect();
-      };
-      const last = at("Step 60: check the retry path.");
-      const first = at("Step 1: check the retry path.");
-      return {
-        height: Math.round(box.height),
-        lastInView: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
-        firstOut: first.bottom <= box.top + 1,
-      };
-    });
-    expect(seen).toEqual({ height: 140, lastInView: true, firstOut: true });
-    await page.close();
-  });
-
-  test("with the live viewport off, a long live thought streams in full", async () => {
-    const { page, text } = await liveThought({ "data-live-thought-viewport": "off" });
-    expect(await page.locator(".cv-thought.is-live").count()).toBe(0);
-    expect(await text.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(600);
     await page.close();
   });
 

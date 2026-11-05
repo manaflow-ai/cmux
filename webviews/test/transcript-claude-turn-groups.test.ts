@@ -85,7 +85,7 @@ const assistants = (rows: readonly AcpmuxRow[]) => rows.filter((row) => row.kind
 
 test("the recorded Claude turn ends as Claude desktop draws it: a line per run, longer messages between", async () => {
   const rows = await replayRows();
-  const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "claude" });
+  const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "claude" });
   expect(view.some((row) => row.kind === WORKED)).toBe(false);
   // Every run folds into its summary line, which opens on a click (the edited-files card is not a run).
   const runs = view.filter((row) => row.kind === "activity" && !row.merged);
@@ -118,7 +118,7 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
 
 test("the same turn in a Codex chat folds all its work and chatter under one Worked for", async () => {
   const rows = await replayRows();
-  const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "codex" });
+  const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "codex" });
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
   expect(view.some((row) => row.kind === "activity" && !row.merged)).toBe(false);
   expect(assistants(view).map(longAt)).toEqual([17]);
@@ -158,7 +158,6 @@ function steered() {
 test("a steered Claude turn keeps the steer and the reply before it in sight, each run on its own line", () => {
   const view = turnView(steered(), new Set(), {
     now: Date.UTC(2026, 10, 1, 10),
-    liveRuns: true,
     agentFamily: "claude",
   });
   // The stretch the person came in on ends on its own footer, right over the steer (turns.ts
@@ -173,6 +172,6 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
 });
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
-  const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "codex" });
+  const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), agentFamily: "codex" });
   expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });

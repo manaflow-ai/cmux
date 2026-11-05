@@ -14,7 +14,7 @@
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
 // its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
-// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
 // 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
@@ -45,8 +45,8 @@ export const SCROLLING_HIDE_MS = 800;
  * the element scrolls, and `followShownScrollerFade` fades it between the two.
  */
 export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
-/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
-    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+/** On `<html>` when shown scrollers fade out at rest instead (the agent pane sets it whenever its
+    host pushes a theme, acpmux App.tsx `applyPaneTheme`). */
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;

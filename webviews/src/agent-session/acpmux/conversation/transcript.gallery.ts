@@ -1905,26 +1905,6 @@ export default agentPaneEntry({
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
     },
-    "thought-streaming-short": {
-      note: 'A short thought still streaming (Debug toggle agentPane.debug.codexToolRuns off, where the live thought draws in the run) reads "Thinking" on its own line with the text under it, never "Thought I am here" as one sentence (Leo 2026-10-21).',
-      theme: { codexToolRuns: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity(
-            [thought("I am here, reading the retry helper before changing it.", { startedAt: 0, endedAt: 2_000 })],
-            1.5,
-          ),
-        ],
-        { isWorking: true },
-      ),
-      play: async (ctx) => {
-        const label = () => ctx.document.querySelector<HTMLElement>(".cv-thought__label");
-        await ctx.waitFor(() => label()?.textContent === "Thinking");
-        if (!ctx.document.querySelector(".cv-thought.is-full"))
-          throw new Error("the live thought's text is not under its label");
-      },
-    },
     "thought-codex-headings": {
       note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
       checks: {
@@ -2072,17 +2052,6 @@ export default agentPaneEntry({
             1.4,
           ),
           assistant("The parser drops the status code. I'll write a typed error and a test for it.", 1.2),
-        ],
-        { isWorking: true },
-      ),
-    },
-    "working-line-above": {
-      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
-      theme: { liveLineBelow: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
         ],
         { isWorking: true },
       ),

@@ -38,7 +38,7 @@ const call = (id: string, status = "completed", extra: Partial<Tool> = {}): Acpm
   tool: { id, title: id, kind: "execute", status, command: id, startedAt: at, ...extra },
 });
 const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const kinds = (rows: AcpmuxRow[]) => rows.map((entry) => entry.kind).filter((kind) => kind !== "date");
 const words = (html: string) =>
   html
@@ -283,7 +283,7 @@ test("an ended turn's open Worked for merges runs split by a short note too", ()
     row("ans", "assistant", { text: "Done: the fix is in." }),
     row("s", "turnSummary", { status: "completed", toolCount: 3 }),
   ];
-  const open = turnView(rows, new Set(["worked-u"]), { liveRuns: true });
+  const open = turnView(rows, new Set(["worked-u"]));
   expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
   expect(open.find((entry) => entry.kind === "assistant")!.id).toBe("ans");
 });
@@ -298,7 +298,7 @@ test("Find and a shell's count reach every row a merged run absorbed", async () 
     row("ans", "assistant", { text: "Done." }),
     row("s", "turnSummary", { status: "completed", toolCount: 2 }),
   ];
-  const open = turnView(rows, new Set(["worked-u"]), { liveRuns: true });
+  const open = turnView(rows, new Set(["worked-u"]));
   const merged = open.findIndex((entry) => entry.id === "x");
   expect(open[merged]!.joined).toEqual(["x", "n", "y"]);
   for (const id of ["x", "n", "y"]) expect(findRowIndex(open, id)).toBe(merged);
@@ -331,7 +331,7 @@ test("with a todo list the activity line under it is the live line", () => {
   const shaped = turnView(
     [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("bun test", "in_progress")] })],
     new Set(),
-    { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+    { working: true, sessionStatus: true },
   );
   expect(kinds(shaped).slice(-2)).toEqual(["plan", "activityLine"]);
   expect(shaped.at(-1)!.text).toContain("bun test");
@@ -386,13 +386,9 @@ test("an ended turn draws no row for a call that never got its input", () => {
       row("late", "activity", { items: [call("git status"), draft("b1"), draft("b2")] }),
     ],
     new Set(),
-    { liveRuns: true, lineBelow: true },
   );
   expect(callIds(ended)).toEqual(["git status"]);
-  const stopped = turnView([row("u", "user"), row("run", "activity", { items: [draft("b1")] })], new Set(), {
-    liveRuns: true,
-    lineBelow: true,
-  });
+  const stopped = turnView([row("u", "user"), row("run", "activity", { items: [draft("b1")] })], new Set(), {});
   expect(stopped.some((entry) => entry.kind === "activity")).toBe(false);
 });
 
@@ -403,10 +399,7 @@ test("a call that takes no input keeps its row in an ended turn", () => {
     command: undefined,
     inputSummary: "{}",
   });
-  const ended = turnView([row("u", "user"), row("run", "activity", { items: [noArgs, draft("b1")] })], new Set(), {
-    liveRuns: true,
-    lineBelow: true,
-  });
+  const ended = turnView([row("u", "user"), row("run", "activity", { items: [noArgs, draft("b1")] })], new Set(), {});
   expect(callIds(ended)).toEqual(["mcp"]);
 });
 
@@ -429,7 +422,7 @@ test("with a todo list the activity line names the plan's step and no call leave
       row("run", "activity", { items: [call("a"), call("b")] }),
     ],
     new Set(),
-    { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+    { working: true, sessionStatus: true },
   );
   expect(callIds(shaped)).toEqual(["a", "b"]);
 });

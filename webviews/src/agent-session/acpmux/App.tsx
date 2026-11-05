@@ -639,8 +639,6 @@ import { messagesRows } from "./conversation/messagesRows";
 import { AssistantPresentation, PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
-import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
@@ -809,7 +807,7 @@ import {
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
-import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { SCROLLER_FADE_ATTRIBUTE, SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { holdWebSwap, pageReleaseHold, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -3807,7 +3805,7 @@ export function VirtualTranscript({
     seekFirstRow.current = undefined;
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
-  // Under the opt-in fade (Debug Settings agentPane.debug.scrollerFade), the scrollbar fades in and
+  // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
@@ -6411,9 +6409,9 @@ function DefaultComposerChips({
 /** The same host theme before mount and on subsequent bridge pushes. */
 export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
+  // The agent chat's scrollbars fade at rest and widen near the pointer (scrollers.ts).
+  document.documentElement.setAttribute(SCROLLER_FADE_ATTRIBUTE, "");
   configureChatWidth(theme.chatWidth);
-  configureCodexToolRuns(theme.codexToolRuns);
-  configureLiveLineBelow(theme.liveLineBelow);
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);
@@ -7594,10 +7592,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
-  // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
-  const codexRuns = useCodexToolRuns();
-  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
-  const lineBelow = useLiveLineBelow();
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
@@ -7728,9 +7722,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           {
             working: snapshot.isWorking,
             clockOffset: snapshot.clockOffsetMs,
-            liveRuns: codexRuns,
             sessionStatus,
-            lineBelow,
             // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -7797,9 +7789,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
-    codexRuns,
     sessionStatus,
-    lineBelow,
     snapshot.summary?.family,
     snapshot.waitingSteers,
     messageBreaks,

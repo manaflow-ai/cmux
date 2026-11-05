@@ -195,7 +195,7 @@ test("a finished Claude turn of the loop draws the group's line, not 8 rows", ()
   ];
   // Claude's finished turn has no whole-turn "Worked for" by default (turnFoldStyle.ts): its run
   // draws in place, and that run is the one line.
-  const view = turnView(rows, new Set(), { liveRuns: true, agentFamily: "claude" });
+  const view = turnView(rows, new Set(), { agentFamily: "claude" });
   expect(view.some((row) => row.kind === "worked")).toBe(false);
   const run = view.find((row) => row.id === "run")!;
   expect(run).toBeDefined();

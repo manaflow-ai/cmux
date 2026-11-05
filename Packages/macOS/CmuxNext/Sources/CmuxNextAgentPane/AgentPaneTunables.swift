@@ -329,30 +329,15 @@ public nonisolated struct AgentPaneTunables {
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
         default: .symbols, code: "AgentPaneTunables.harnessPlacement")
 
-    /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
-    /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
-    /// ("Read files, ran commands", "Ran 3 commands") that opens on a click, in a running turn and
-    /// in an open "Worked for" alike, and the call in flight is the turn's live line, which each
-    /// step replaces in place. Off keeps every call's row. The page gets it with the theme
-    /// (`AgentPaneTheme`, `codexToolRuns`), again on each change. On by default (Leo and Lawrence
-    /// 2026-10-21: the turn should look and behave like the ChatGPT/Codex app). The earlier "we're
-    /// swallowing up a few too many of these" (Leo 2026-10-20) was the run in flight shrinking to
-    /// its newest call; finished work now stays one click away and nothing live is hidden.
-    public static let codexToolRuns = Tunable<Bool>.toggle(
-        "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
-        help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
-        default: true, code: "AgentPaneTunables.codexToolRuns")
-
-    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
-    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first theme push starts it
-    /// (``AgentPaneTheme/values(_:motion:surface:)``).
-    @MainActor static func followCodexToolRuns() {
-        guard codexToolRunsFollow == nil else { return }
+    /// Repaints every window when ``turnActionsPlacement`` changes, so open agent pages get it with
+    /// the theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
+    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    @MainActor static func followTurnActionsPlacement() {
+        guard turnActionsPlacementFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
-        codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
+        turnActionsPlacementFollow = Task {
+            var last = turnActionsPlacement.value
+            for await on in ObservationStream({ turnActionsPlacement.value })
             where on != last {
                 last = on
                 ThemeScope.app.store.repaintAll()
@@ -360,7 +345,7 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
-    @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
+    @MainActor private static var turnActionsPlacementFollow: Task<Void, Never>?
 
     /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
     @MainActor static var documentAttributes: [String: String] {
@@ -475,12 +460,10 @@ public nonisolated struct AgentPaneTunables {
             agentPairWindow.descriptor,
             chatWidth.descriptor,
             chromium.descriptor,
-            codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
             escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
-            liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             lostPromptReplay.descriptor,
             modelMenu.descriptor,
@@ -498,7 +481,6 @@ public nonisolated struct AgentPaneTunables {
             sessionStatus.descriptor,
             nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
-            scrollerFade.descriptor,
             sideSessions.descriptor,
             streamWords.descriptor,
             subagentTray.descriptor,

@@ -101,7 +101,10 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  expect(drawn(rows, new Set(["worked-u"]))).toContain("assistant:check");
+  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
+  const open = turnView(rows, new Set(["worked-u"]));
+  expect(open.map((shaped) => shaped.id)).not.toContain("check");
+  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
 });
 
 test("long reply, then a tool, then 'Pushed.': only the final reply stays in sight", () => {

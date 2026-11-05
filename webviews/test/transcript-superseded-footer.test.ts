@@ -38,7 +38,6 @@ for (const family of ["claude", "codex"])
   test(`${family}: a running turn's stretch before a landed steer ends on a footer with Copy`, () => {
     const view = turnView(running("landed"), new Set(), {
       working: true,
-      liveRuns: true,
       agentFamily: family,
       now: START + 200_000,
     });
@@ -63,7 +62,7 @@ test("an ended turn keeps its own footer and adds one over the steer", () => {
     row("sum", "turnSummary", { status: "completed" }),
   ];
   for (const family of ["claude", "codex"]) {
-    const view = turnView(rows, new Set(), { liveRuns: true, agentFamily: family, now: START + 400_000 });
+    const view = turnView(rows, new Set(), { agentFamily: family, now: START + 400_000 });
     const list = ids(footers(view));
     expect(list).toEqual([`${SUPERSEDED}-s1`, "sum"]);
     // The turn's own footer copies the whole turn as before.
@@ -80,12 +79,12 @@ test("a Send now (the prompt continues the turn it ended) counts too", () => {
     row("s1", "user", { text: "do it now", continues: true }),
     bash("b2"),
   ];
-  const view = turnView(rows, new Set(), { working: true, liveRuns: true, agentFamily: "claude", now: START + 1e6 });
+  const view = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: START + 1e6 });
   expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s1`]);
 });
 
 test("no footer for a steer the agent has not read, a reply still streaming, or work alone", () => {
-  const options = { working: true, liveRuns: true, agentFamily: "claude", now: START + 1e6 };
+  const options = { working: true, agentFamily: "claude", now: START + 1e6 };
   expect(footers(turnView(running("waiting"), new Set(), options))).toEqual([]);
   expect(footers(turnView(running("landed", { streaming: true }), new Set(), options))).toEqual([]);
   const workOnly = [
@@ -110,7 +109,7 @@ test("another agent's message into the turn is not the person coming in", () => 
     }),
     bash("b2"),
   ];
-  const view = turnView(rows, new Set(), { working: true, liveRuns: true, agentFamily: "claude", now: START + 1e6 });
+  const view = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: START + 1e6 });
   expect(footers(view)).toEqual([]);
 });
 

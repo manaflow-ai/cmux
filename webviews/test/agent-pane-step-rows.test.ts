@@ -72,8 +72,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running. Its finished steps fold under their run's line (Debug toggle
-    // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
+    // The turn is still running. Its finished steps fold under their run's line, which the tests
+    // open (`openRun`).
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,

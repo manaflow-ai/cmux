@@ -60,13 +60,7 @@ let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | und
 const draw = () =>
   view.render(
     <VirtualTranscript
-      rows={
-        rawRows
-          ? shown
-          : live
-            ? turnView(shown, expanded, { working: true, liveRuns: true, lineBelow: true })
-            : turnView(shown, expanded)
-      }
+      rows={rawRows ? shown : live ? turnView(shown, expanded, { working: true }) : turnView(shown, expanded)}
       sessionId={sessionId}
       onToggleActivity={(id) => {
         expanded = toggleTurnFold(shown, expanded, id);

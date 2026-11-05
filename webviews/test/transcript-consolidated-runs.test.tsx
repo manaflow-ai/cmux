@@ -152,7 +152,7 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
     { id: "done", kind: "assistant", version: 1, at: at(3), text: "Retries are in." },
     { id: "s", kind: "turnSummary", version: 1, at: at(4), status: "completed", toolCount: 5 },
   ];
-  const work = turnView(rows, new Set(["worked-u"]), { liveRuns: true }).find(
+  const work = turnView(rows, new Set(["worked-u"])).find(
     (entry) => entry.kind === "activity" && entry.id.startsWith("work") && entry.settled,
   )!;
   expect(work.foldRun).toBe(true);
@@ -160,5 +160,5 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
   expect(html).toContain("Read 2 files, ran a search, edited a file, ran a command");
   expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
-  expect(turnView(rows, new Set(), { liveRuns: true }).some((entry) => entry.id === "done")).toBe(true);
+  expect(turnView(rows, new Set()).some((entry) => entry.id === "done")).toBe(true);
 });
