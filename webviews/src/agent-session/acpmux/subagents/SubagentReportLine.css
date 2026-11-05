@@ -1,0 +1,62 @@
+/* A subagent's report under its "Subagent finished" line (SubagentReportLine.tsx): its line starts on
+   the finished line's text column, with no icon of its own, so the two read as one; the opened report
+   reads as a reply, in the transcript's Markdown at the reply's size and ink. */
+.cv-subagent-report {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+  margin-inline-start: var(--grid-transcript-text-gap);
+}
+.cv-subagent-report[data-look="rule"] {
+  /* The rule sits where the words started, and the words keep their column after it. */
+  margin-inline-start: calc(var(--grid-transcript-text-gap) - var(--cv-chevron-gap));
+  padding-inline-start: calc(var(--cv-chevron-gap) - 1px);
+  border-inline-start: 1px solid var(--cv-strong-rule);
+}
+.cv-subagent-report__head {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-chevron-gap);
+  max-width: 100%;
+  min-height: var(--cv-tool-row-height);
+  line-height: 20px;
+  color: var(--cv-activity-text);
+  cursor: default;
+}
+.cv-subagent-report__head:focus-visible {
+  outline: 2px solid var(--cv-focus-ring, currentColor);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.cv-subagent-report__sentence {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-tool-gap);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cv-subagent-report__sentence > :not(.cv-agent-tag) {
+  flex: none;
+}
+.cv-subagent-report__chevron {
+  display: inline-flex;
+  flex: none;
+}
+.cv-subagent-report__body {
+  align-self: stretch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cv-subagent-report__body > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-subagent-report__body > .cv-md > :last-child {
+  margin-bottom: 0;
+}

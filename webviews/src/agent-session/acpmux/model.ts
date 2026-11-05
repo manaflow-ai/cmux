@@ -675,6 +675,9 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// On a background turn's line: the subagent whose report started the turn, which the line names
+  /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
+  subagentReport?: Subagent;
 };
 
 export type AcpmuxActivity = {
