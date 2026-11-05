@@ -8,7 +8,8 @@
 // frame. The lit copy is aria-hidden inside the band; plain text uses CSS generated content and
 // timed rows provide matching label/time slots with generated text, so readers see each word once.
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type Ref } from "react";
+import { TEXT_SWAP_FADE } from "../../../ui/motion/useTextSwap";
 import { alignLoopsIn } from "../../../ui/spinnerClock";
 
 /// The shimmer's loops take the shared phase on the frame they mount (ui/spinnerClock.ts
@@ -26,8 +27,11 @@ export function ShimmerText({
   text,
   baseText = text,
   lit,
+  baseRef,
 }: {
   text: string;
+  /// The words at rest, for a line that animates them when they change (Thinking.tsx).
+  baseRef?: Ref<HTMLSpanElement>;
   /// The words at rest, when they carry their own spans (the live line's verb in full ink).
   baseText?: ReactNode;
   lit?: ReactNode;
@@ -35,8 +39,11 @@ export function ShimmerText({
   const band = useAlignedLoops<HTMLSpanElement>();
   return (
     <>
-      <span className="cv-shimmer__base">{baseText}</span>
-      <span ref={band} className="cv-shimmer__band" aria-hidden="true">
+      <span ref={baseRef} className="cv-shimmer__base">
+        {baseText}
+      </span>
+      {/* While the words change the lit copy fades in with the new ones (useTextSwap.ts). */}
+      <span ref={band} className="cv-shimmer__band" aria-hidden="true" {...{ [TEXT_SWAP_FADE]: "" }}>
         <span className="cv-shimmer__lit" data-text={lit ? undefined : text}>
           {lit}
         </span>

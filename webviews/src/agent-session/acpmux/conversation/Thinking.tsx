@@ -24,6 +24,7 @@ import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
+import { TEXT_SWAP_ROOT, useTextSwap } from "../../../ui/motion/useTextSwap";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
@@ -223,6 +224,9 @@ export function Thinking({
               : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  // A new call (or state) changes the words as Claude desktop's line does: the old ones rise out,
+  // the new ones rise in, and the clock after them slides over, still ticking (ui/motion/useTextSwap.ts).
+  const words = useTextSwap<HTMLSpanElement>(label);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
   // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
@@ -296,7 +300,11 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+      data-find-skip
+      {...{ [TEXT_SWAP_ROOT]: "" }}
+    >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
@@ -309,6 +317,7 @@ export function Thinking({
             aria-live={decorative ? "off" : undefined}
           >
             <ShimmerText
+              baseRef={words}
               text={label}
               baseText={
                 lead ? (

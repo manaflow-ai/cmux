@@ -208,3 +208,14 @@
     translate: none;
   }
 }
+
+/* ---------- Text swap (useTextSwap.ts) ---------- */
+
+/* The old words, laid over the line while they fade: never hit, selected or wrapped. */
+.ui-text-swap__ghost {
+  margin: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}

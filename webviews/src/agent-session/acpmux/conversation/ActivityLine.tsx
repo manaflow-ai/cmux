@@ -14,6 +14,7 @@ import { formatDuration } from "./turns";
 import { useTicking } from "./WorkingFor";
 import { StatusVerb } from "./StatusVerb";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { useTextSwap } from "../../../ui/motion/useTextSwap";
 
 export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
@@ -21,6 +22,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   const time = useTicking(waiting === undefined, now);
   // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  // A new call or todo changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
+  const words = useTextSwap<HTMLSpanElement>(waiting || sendName !== undefined ? undefined : (row.text ?? ""));
   if (waiting)
     return (
       <div className="cv-activity cv-tool">
@@ -55,12 +58,14 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
       </span>
       {row.text ? (
         <>
-          <span className="cv-activity__label">{row.text}</span>
+          <span ref={words} className="cv-activity__label">
+            {row.text}
+          </span>
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
         </>
       ) : (
         <>
-          <span className="cv-activity__label">
+          <span ref={words} className="cv-activity__label">
             <StatusVerb elapsedMs={Math.max(0, time - row.at)} verbKey={row.verbKey} />
           </span>
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
