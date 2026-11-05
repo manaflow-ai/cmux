@@ -15038,8 +15038,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             authBlock={signInNoticeVisible ? undefined : authBlock}
             authChecking={authPreflightPending}
             authBlocked={Boolean(authBlock)}
-            accessory={<DictationMic dictation={dictation} />}
+            // The composer draws the session's strip before its Send, and Send ends the session.
+            accessory={<DictationMic dictation={dictation} strip={false} />}
             dictating={isWaitingForWords(dictation.state)}
+            dictation={dictation}
             onImportFile={importFile}
             importSandboxed={sandbox.mode === "sandboxed"}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
@@ -15420,6 +15422,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   upload={uploadFiles}
                   dictating={isWaitingForWords(dictation.state)}
                   dictationField={newTabDictationField}
+                  dictation={dictation}
                   notice={
                     <>
                       <DictationNotice dictation={dictation} />

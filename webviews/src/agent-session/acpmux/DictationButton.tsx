@@ -1,7 +1,9 @@
 // The mic next to Send: a microphone, lit (an accent-tinted square, dictation.css) while a session
-// runs; the waveform and the finish key beside it are DictationListening's.
+// runs; Codex's look draws it lit as ChatGPT's Stop, a square. The waveform beside it is
+// DictationListening's.
 import React from "react";
-import { MicIcon } from "./ComposerPickers";
+import { MicIcon, StopIcon } from "./ComposerPickers";
+import { useComposerLook } from "./composerLook";
 import { isActive, type Dictation } from "./dictation";
 import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -16,6 +18,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
   const busy = state === "starting" || state === "finalizing";
   const label = isActive(state) ? t("dictation.stop") : t("dictation.start");
   const shortcut = useShortcut(SHORTCUT_ACTIONS.toggleDictation);
+  const look = useComposerLook();
   return (
     <button
       type="button"
@@ -29,7 +32,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       onMouseDown={(event) => event.preventDefault()}
       onClick={dictation.toggle}
     >
-      <MicIcon />
+      {look === "codex" && isActive(state) ? <StopIcon /> : <MicIcon />}
     </button>
   );
 }
