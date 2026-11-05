@@ -16,7 +16,7 @@
     "method": "debug.tunables",
     "params": {
      "action": "set",
-     "key": "chrome.cornerFlush, goo",
+     "key": "chrome.cornerFlush",
      "value": "flush-goo"
     }
    },

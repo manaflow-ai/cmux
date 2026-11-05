@@ -98,6 +98,8 @@ public final class CornerFlushChrome: NSView {
     private let strips = NSHashTable<AnyObject>.weakObjects()
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat, sidebarOnLeft: Bool)?
+    /// The shade under the content, whose hole goes square with the leading wedge.
+    private weak var shade: MainPaneChromeShadeView?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -165,8 +167,8 @@ public final class CornerFlushChrome: NSView {
         frame = root.bounds
         isHidden = false
         drawn = (card, radius, alpha, sidebarOnLeft)
+        self.shade = shade
         redraw()
-        shade.update(card: card, radius: radius, alpha: alpha)
     }
 
     private func redraw() {
@@ -178,6 +180,8 @@ public final class CornerFlushChrome: NSView {
         let square = leadingTabSelected(card: drawn.card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
         wedges.path = Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
+        // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
+        shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
