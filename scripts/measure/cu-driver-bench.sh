@@ -100,17 +100,30 @@ except ValueError:
     data = None
 row = data[0] if isinstance(data, list) and data else data
 print(row.get("status", "") if isinstance(row, dict) else "")' 2>/dev/null)
-if [[ -n "$base_status" && "$base_status" != stopped ]]; then
-  note "base $base is $base_status; pulling it again"
+# A base counts only with the digest file this script writes after checking what Lume pulled.
+base_digest_file="$lume_home/$base.digest"
+if [[ -n "$base_status" && ( "$base_status" != stopped || "$(cat "$base_digest_file" 2>/dev/null)" != "$image_digest" ) ]]; then
+  note "base $base is $base_status without a checked $image_digest; pulling it again"
   lume delete "$base" --force >/dev/null 2>&1 || true
   base_status=""
 fi
 if [[ -z "$base_status" ]]; then
+  rm -f "$base_digest_file"
   rm -rf "$lume_home/tmp/"* # a cut-short pull's scratch; this folder is only this script's
   started=$(date +%s)
-  lume pull "${image_name#*/}:$image_tag" "$base" --organization "${image_name%%/*}" >"$out/pull.log" 2>&1 ||
+  # Lume pulls by tag only, and the tag can move after the check above. With --verbose it logs the
+  # Docker-Content-Digest of the manifest it fetched (manifest_id=sha256_HEX, Lume 0.6.1) and checks
+  # each layer against that manifest, so the logged digest is what the base holds.
+  lume pull --verbose "${image_name#*/}:$image_tag" "$base" --organization "${image_name%%/*}" >"$out/pull.log" 2>&1 ||
     { tail -20 "$out/pull.log"; finish "lume pull failed (pull.log)"; exit 4; }
-  note "pulled in $(( $(date +%s) - started )) s"
+  pulled=$(sed -n 's/.*DEBUG: Pulling image .*manifest_id=\(sha256_[0-9a-f]*\).*/\1/p' "$out/pull.log" | head -1)
+  if [[ "${pulled/sha256_/sha256:}" != "$image_digest" ]]; then
+    lume delete "$base" --force >/dev/null 2>&1 || true
+    finish "lume pulled ${pulled:-an unlogged manifest}, not the pinned $image_digest; the base was deleted"
+    exit 4
+  fi
+  echo "$image_digest" >"$base_digest_file"
+  note "pulled $image_digest in $(( $(date +%s) - started )) s"
 fi
 
 note "STAGE boot"
