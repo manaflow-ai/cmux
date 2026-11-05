@@ -48,19 +48,18 @@ nonisolated enum HomeAgentRunMapping {
         })
     }
 
-    /// A finished `spawn` step's agents and their tasks: the answer's `Started a1, a2 …` line gives the ids in task
-    /// order (optchat-chief subagents.rs). Nil for any other step, a spawn with no answer yet, or an answer that
-    /// names a different count of agents than it had tasks (a wrong name is worse than none).
+    /// A finished `spawn` step's agents and their tasks: its answer has one `- a<N>: …` line per task, in task order,
+    /// whether it started, was queued or failed (optchat-chief subagents.rs). Nil for any other step, a spawn with
+    /// no answer yet, or an answer whose lines name a different count of agents than it had tasks (a wrong name is
+    /// worse than none).
     private static func spawned(_ step: ConversationRunRows.Step) -> [(peer: String, task: String)]? {
         guard step.kind == "tool", let tool = step.tool, let tasks = tool.input?.tasks, !tasks.isEmpty,
               ["spawn", "optchat.spawn", "mcp__optchat__spawn"].contains(tool.name) || tool.input?.isSpawnEnvelope == true,
-              let output = tool.output, let started = output.range(of: "Started ") else { return nil }
-        var ids: [String] = []
-        for word in output[started.upperBound...].split(separator: " ") {
-            let id = word.hasSuffix(",") ? word.dropLast() : word
-            guard id.count > 1, id.first == "a", id.dropFirst().allSatisfy(\.isASCIIDigitCharacter) else { break }
-            ids.append(String(id))
-            guard word.hasSuffix(",") else { break }
+              let output = tool.output else { return nil }
+        let ids = output.split(separator: "\n").compactMap { line -> String? in
+            guard line.hasPrefix("- a"), let colon = line.firstIndex(of: ":") else { return nil }
+            let id = line[line.index(line.startIndex, offsetBy: 2)..<colon]
+            return id.count > 1 && id.dropFirst().allSatisfy(\.isASCIIDigitCharacter) ? String(id) : nil
         }
         guard ids.count == tasks.count else { return nil }
         return Array(zip(ids, tasks))

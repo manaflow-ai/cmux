@@ -96,11 +96,12 @@ struct HomeAgentRunMappingTests {
 
     /// A spawn is the Chief's first message to each agent it started (user 2026-11-04, msg 21664: a pill named
     /// "User (Nov 4)" from a later tell). Each task goes to the id the answer's `Started` line gives it, in order,
-    /// so the pill and the agent's chat take the task's `Title:` line.
+    /// so the pill and the agent's chat take the task's `Title:` line. Each task's `- a<N>:` answer line names its
+    /// agent, a queued or failed one too.
     @Test(arguments: ["mcp__optchat__spawn", "spawn", "optchat.spawn"])
     func aSpawnIsTheTaskOfEachAgentItStarted(_ name: String) throws {
         let tasks = ["Title: Bubble tail last only\n\nOnly the last bubble gets the tail.", "Title: Subagent link opens pane\n\nOpen it on the right."]
-        let output = "Started a988, a989 in /Users/me/fun/cmux.\na988: runs hidden.\na989: runs hidden."
+        let output = "Started a988 in /Users/me/fun/cmux.\n- a988: runs hidden.\n- a989: did not start (no PTYs)\nTell the user only what these lines say."
         let run = try mapped([["id": "tool:7", "kind": "tool", "status": "done", "at": 4000,
                               "tool": ["name": name, "input": ["tasks": tasks, "cwd": "~/fun/cmux"], "output": output]]])
         #expect(run.messages.map(\.peer) == ["a988", "a989"])
@@ -115,12 +116,12 @@ struct HomeAgentRunMappingTests {
         let tasks = ["Title: One\n\nGo.", "Title: Two\n\nGo."]
         let envelope = try mapped([["id": "tool:1", "kind": "tool", "status": "done",
                                    "tool": ["name": "mcp_tool_call", "input": ["server": "optchat", "tool": "spawn", "arguments": ["tasks": tasks]],
-                                            "output": "Routed: claude.\nStarted a1, a2 on the cloud VM vm-1 (acpmux peer), in /work."]]])
+                                            "output": "Routed: claude.\nStarted a1, a2 on the cloud VM vm-1 (acpmux peer), in /work.\n- a1: on vm-1.\n- a2: queued (cap)"]]])
         #expect(envelope.messages.map(\.peer) == ["a1", "a2"])
         let running = try mapped([["id": "tool:2", "kind": "tool", "status": "running", "tool": ["name": "spawn", "input": ["tasks": tasks]]]])
         #expect(running.messages.isEmpty)
         let short = try mapped([["id": "tool:3", "kind": "tool", "status": "done",
-                                "tool": ["name": "spawn", "input": ["tasks": tasks], "output": "Started a1 in /work."]]])
+                                "tool": ["name": "spawn", "input": ["tasks": tasks], "output": "Started a1 in /work.\n- a1: runs hidden."]]])
         #expect(short.messages.isEmpty)
     }
 }
