@@ -679,6 +679,229 @@ sys.exit(3 if name.endswith("fail") else 0)
 """
 
 
+import test_execution_registry as registry  # noqa: E402  (scripts/ci is on sys.path above)
+
+# The last feat-cmux-next commit with the single tests/test-execution.toml (639 entries).
+PRE_SPLIT = "2337f96e4399ce0eba7fafb38fea5861634082ae"
+
+LEGACY_REGISTRY = """\
+# The header.
+version = 1
+
+[[test]]
+path = "tests/test_ci_zeta.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_one.py"
+lane = "macos-shell"
+# A comment that stays with its entry.
+serial = true
+
+[[test]]
+path = "tests/test_ci_alpha.py"
+lane = "manual"
+reason = "Run by hand."
+
+# A section comment between entries.
+
+[[test]]
+path = "tests/test_lonely.py"
+lane = "linux-guard"
+requirements = ["fish"]
+
+[[test]]
+path = "tests/test_ci_mid.py"
+lane = "legacy"
+"""
+
+
+def by_path(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    return sorted(entries, key=lambda entry: str(entry["path"]))
+
+
+class RegistrySplitTests(unittest.TestCase):
+    """Leo, 2026-11-05, on hot files every pull request conflicts on: "i meant can you do all of htem".
+
+    tests/test-execution.toml became tests/test-execution.d/<area>.toml. Every reader sees the
+    same entries the single file gave, and a new entry touches only its area's file.
+    """
+
+    def make_legacy_root(self, text: str = LEGACY_REGISTRY) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="cmux-registry-split-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / "tests").mkdir()
+        (root / registry.LEGACY).write_text(text, encoding="utf-8")
+        return root
+
+    def test_the_split_reads_back_exactly_the_single_file(self) -> None:
+        root = self.make_legacy_root()
+        before = registry.load_tree(root)
+        registry.split_legacy(root, minimum=2)
+
+        self.assertFalse((root / registry.LEGACY).exists())
+        self.assertEqual(sorted(path.name for path in (root / registry.FRAGMENTS).iterdir()),
+                         ["ci.toml", "other.toml"])
+        self.assertEqual(by_path(registry.load_tree(root)), by_path(before))
+        self.assertEqual(registry.layout_findings(root), [])
+        ci = (root / registry.FRAGMENTS / "ci.toml").read_text(encoding="utf-8")
+        self.assertLess(ci.index("test_ci_alpha"), ci.index("test_ci_mid"))
+        self.assertLess(ci.index("test_ci_mid"), ci.index("test_ci_zeta"))
+        self.assertIn("# A comment that stays with its entry.\nserial = true",
+                      (root / registry.FRAGMENTS / "other.toml").read_text(encoding="utf-8"))
+
+    def test_the_merged_text_is_one_registry_tomllib_reads(self) -> None:
+        import tomllib
+
+        root = self.make_legacy_root()
+        before = registry.load_tree(root)
+        registry.split_legacy(root, minimum=2)
+        merged = tomllib.loads(registry.merged_text(registry.registry_sources(root)))
+        self.assertEqual(merged["version"], 1)
+        self.assertEqual(by_path(merged["test"]), by_path(before))
+
+    def test_the_real_pre_split_registry_splits_into_the_same_entries(self) -> None:
+        """The byte-identical check on the real file: the single file at the last commit that had it,
+        split here, reads back the same 639 entries."""
+        try:
+            text = subprocess.check_output(["git", "show", f"{PRE_SPLIT}:{registry.LEGACY}"], cwd=ROOT,
+                                           text=True, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest(f"{PRE_SPLIT[:12]} is not in this clone's history")
+        root = self.make_legacy_root(text)
+        before = registry.load_tree(root)
+        registry.split_legacy(root)
+        after = registry.load_tree(root)
+        self.assertEqual(len(after), 639)
+        self.assertEqual(by_path(after), by_path(before))
+        self.assertEqual(registry.layout_findings(root), [])
+
+    def test_the_checked_in_fragments_are_placed_and_sorted(self) -> None:
+        self.assertFalse((ROOT / registry.LEGACY).exists(), "the single registry file came back")
+        self.assertEqual(registry.layout_findings(ROOT), [])
+
+    def test_an_old_single_file_beside_the_fragments_is_read_and_flagged(self) -> None:
+        root = self.make_legacy_root()
+        registry.split_legacy(root, minimum=2)
+        (root / registry.LEGACY).write_text(
+            'version = 1\n\n[[test]]\npath = "tests/test_stale.py"\nlane = "linux-guard"\n', encoding="utf-8")
+        self.assertIn("tests/test_stale.py", [entry["path"] for entry in registry.load_tree(root)])
+        self.assertTrue(any("absorb" in finding for finding in registry.layout_findings(root)))
+
+    def test_a_misplaced_or_unsorted_entry_warns_and_fix_repairs_it(self) -> None:
+        root = self.make_legacy_root()
+        registry.split_legacy(root, minimum=2)
+        with (root / registry.FRAGMENTS / "other.toml").open("a", encoding="utf-8") as other:
+            other.write('\n[[test]]\npath = "tests/test_ci_beta.py"\nlane = "linux-guard"\n')
+        findings = registry.layout_findings(root)
+        self.assertTrue(any(finding.startswith("tests/test_ci_beta.py: registered in") for finding in findings))
+        self.assertTrue(any("not sorted" in finding for finding in findings))
+
+        before = registry.load_tree(root)
+        self.assertEqual(registry.main(["--repo-root", str(root), "fix"]), 0)
+        self.assertEqual(registry.layout_findings(root), [])
+        self.assertEqual(by_path(registry.load_tree(root)), by_path(before))
+
+    def test_a_fragment_may_not_carry_a_version_or_be_empty(self) -> None:
+        with self.assertRaisesRegex(ValueError, "only \\[\\[test\\]\\] entries"):
+            registry.parse_registry("version = 1\n", "x.toml", fragment=True)
+        with self.assertRaisesRegex(ValueError, "expected \\[\\[test\\]\\] entries"):
+            registry.parse_registry("# nothing\n", "x.toml", fragment=True)
+
+    def test_write_registers_a_new_test_in_its_area_at_its_sorted_place(self) -> None:
+        root = self.make_legacy_root()
+        registry.split_legacy(root, minimum=2)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / ".github" / "workflows" / "ci-guards.yml").write_text(
+            "jobs:\n  g:\n    steps:\n      - run: python3 tests/test_ci_beta.py\n"
+            "      - run: python3 tests/test_new_area.py\n", encoding="utf-8")
+        for name in ("test_ci_zeta", "test_web_one", "test_ci_alpha", "test_lonely", "test_ci_mid",
+                     "test_ci_beta", "test_new_area"):
+            (root / "tests" / f"{name}.py").write_text("", encoding="utf-8")
+        other_before = (root / registry.FRAGMENTS / "other.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(validator.register_derivable(root, only={"tests/test_ci_beta.py"}), ["tests/test_ci_beta.py"])
+
+        ci = (root / registry.FRAGMENTS / "ci.toml").read_text(encoding="utf-8")
+        self.assertLess(ci.index("test_ci_alpha"), ci.index("test_ci_beta"))
+        self.assertLess(ci.index("test_ci_beta"), ci.index("test_ci_mid"))
+        self.assertEqual((root / registry.FRAGMENTS / "other.toml").read_text(encoding="utf-8"), other_before)
+        self.assertEqual(validator.register_derivable(root), ["tests/test_new_area.py"])
+        self.assertIn("tests/test_new_area.py", (root / registry.FRAGMENTS / "other.toml").read_text(encoding="utf-8"))
+        self.assertEqual(registry.layout_findings(root), [])
+
+
+class RegistrySplitGitTests(unittest.TestCase):
+    """Reading a commit's registry, and moving an open branch's edits to the old file into the fragments."""
+
+    def setUp(self) -> None:
+        self.repo = Path(tempfile.mkdtemp(prefix="cmux-registry-split-git-"))
+        self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
+        self.git("init", "-q", "-b", "main")
+        (self.repo / "tests").mkdir()
+        (self.repo / registry.LEGACY).write_text(LEGACY_REGISTRY, encoding="utf-8")
+        self.commit("the single file")
+
+    def git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", "-c", "user.email=ci@example.com", "-c", "user.name=ci", *args],
+                              cwd=self.repo, check=check, capture_output=True, text=True)
+
+    def commit(self, message: str) -> str:
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def edit_legacy_on_a_branch(self) -> None:
+        self.git("checkout", "-q", "-b", "feature")
+        text = LEGACY_REGISTRY.replace('lane = "legacy"', 'lane = "linux-guard"')  # changed
+        text = text.replace('[[test]]\npath = "tests/test_ci_zeta.py"\nlane = "linux-guard"\n\n', "")  # removed
+        text = text.replace('version = 1\n', 'version = 1\n\n[[test]]\npath = "tests/test_web_two.py"\n'
+                            'lane = "linux-guard"\n')  # added at the top, the old habit
+        (self.repo / registry.LEGACY).write_text(text, encoding="utf-8")
+        self.commit("feature edits the single file")
+        self.git("checkout", "-q", "main")
+        registry.split_legacy(self.repo, minimum=2)
+        self.split = self.commit("split")
+
+    def expected(self) -> list[dict[str, object]]:
+        entries = [dict(entry) for entry in registry.parse_registry(LEGACY_REGISTRY, "x")
+                   if entry["path"] != "tests/test_ci_zeta.py"]
+        for entry in entries:
+            if entry["path"] == "tests/test_ci_mid.py":
+                entry["lane"] = "linux-guard"
+        return by_path([*entries, {"path": "tests/test_web_two.py", "lane": "linux-guard"}])
+
+    def test_a_commits_registry_reads_from_git_in_either_layout(self) -> None:
+        old = self.git("rev-parse", "HEAD").stdout.strip()
+        registry.split_legacy(self.repo, minimum=2)
+        new = self.commit("split")
+        self.assertEqual(by_path(registry.load_tree_at(self.repo, new)),
+                         by_path(registry.load_tree_at(self.repo, old)))
+        self.assertEqual(len(registry.registry_sources_at(self.repo, new)), 2)
+
+    def test_absorb_resolves_a_merge_of_the_split_into_a_branch(self) -> None:
+        self.edit_legacy_on_a_branch()
+        self.git("checkout", "-q", "feature")
+        self.assertNotEqual(self.git("merge", "-q", "main", check=False).returncode, 0)  # modify/delete
+
+        self.assertEqual(registry.main(["--repo-root", str(self.repo), "absorb"]), 0)
+
+        self.assertFalse((self.repo / registry.LEGACY).exists())
+        self.assertEqual(by_path(registry.load_tree(self.repo)), self.expected())
+        self.assertEqual(registry.layout_findings(self.repo), [])
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.strip(), "")
+
+    def test_absorb_resolves_a_rebase_onto_the_split(self) -> None:
+        self.edit_legacy_on_a_branch()
+        self.git("checkout", "-q", "feature")
+        self.assertNotEqual(self.git("rebase", "main", check=False).returncode, 0)
+
+        self.assertEqual(registry.main(["--repo-root", str(self.repo), "absorb"]), 0)
+
+        self.assertEqual(by_path(registry.load_tree(self.repo)), self.expected())
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.strip(), "")
+
+
 class LaneRunnerTests(unittest.TestCase):
     def test_invalid_timeouts_are_rejected_before_listing_tests(self) -> None:
         for timeout in ("0", "-1", "nan", "inf", "-inf"):
@@ -703,7 +926,7 @@ class LaneRunnerTests(unittest.TestCase):
         log = root / "lane.log"
         log.touch()
         output = io.StringIO()
-        with mock.patch.object(runner, "ROOT", root), mock.patch.object(runner, "MANIFEST", manifest), \
+        with mock.patch.object(runner, "ROOT", root), \
                 mock.patch.dict(runner.os.environ, {"LANE_LOG": str(log), "LANE_PEERS": str(peers)}), \
                 mock.patch.object(runner.sys, "stdout", output):
             code = runner.main(list(args))
@@ -789,7 +1012,7 @@ class LaneRunnerTests(unittest.TestCase):
         self.assertIn("output from test_ok", output)
 
     def test_serial_parses_as_a_toml_boolean(self) -> None:
-        entries = runner.load_registry.__globals__["parse_registry"](
+        entries = runner.load_tree.__globals__["parse_registry"](
             'version = 1\n[[test]]\npath = "tests/test_x.py"\nlane = "a"\nserial = true\n', "inline"
         )
         self.assertIs(entries[0]["serial"], True)

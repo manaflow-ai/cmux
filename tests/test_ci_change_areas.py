@@ -1414,6 +1414,22 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert not module.test_registry_change_is_linux_only('invalid TOML', base)
 
 
+def test_workflow_registry_fragment_diff_reaches_normal_and_trusted_router() -> None:
+    """The registry split into tests/test-execution.d/<area>.toml: a fragment edit is judged the same way."""
+    fragment = "tests/test-execution.d/other.toml"
+    base = '[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [fragment, *policy_change],
+                base_files={fragment: base}, head_files={fragment: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
+
+
 def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:
     base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
     with tempfile.TemporaryDirectory() as temp_dir:

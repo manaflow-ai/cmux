@@ -1,0 +1,727 @@
+# Python test execution registry: every test whose first word has no area file here.
+# Keep entries sorted by path; scripts/ci/test_execution_registry.py says how it is split.
+
+[[test]]
+path = "tests/test_actions_artifact_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_appcast_keep_pubdates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_appcast_minimum_system_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_asc_developer_id_app.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_backdrop_art_generator.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_backend_migration_flow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_backend_migrations_plan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_autofix_pushed_exports.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_merge_warning.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bash32_linux_job.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bash_integration_no_done_notifications.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bead_autoclose.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_benchmark_dev_fleet_warm_slots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_host_release_package.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_build_graph_health.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_build_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_car_guards.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cargo_test_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cef_cache_key_checkout_independent.py"
+lane = "manual"
+reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cla_guard_metadata_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_api_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_cloud_routes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_frozen_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cleanup_stale_runs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compile_string_catalogs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compose_stable_appcast.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_computer_use_helper_icon_depth.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_crash_class_fast_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_crash_ratchet_compare.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dead_code_stripping.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_defaults_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_docs_deploy_auth_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_download_run_artifact_retries.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_backend_scripts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_warm_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_edge_feed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ensure_ghosttykit_zig.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ensure_setup_node.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feat_ci_guard_group.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_lead_time.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fetch_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_format_post_edit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fresh_home_launch_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gallery_select.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_generated_files_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fetch_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_mirror_bundle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_spend.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guard_hooks_from_base.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guards_new_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hosted_queue_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hung_test_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_idea_ledger.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_indexnow_notification.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_git_hooks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_zig_ci_reviewed_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_intent_familiar_warning.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_iroh_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_iroh_monitor_simulator_plan.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_job_input_fingerprint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lan_product_source.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_leo_bans.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_list_macho_candidates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_local_build_cache_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_local_build_cache_preflight.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_catalog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_join_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_vault_e2e_workflow.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. No step runs it (machine-vault-e2e.yml only names it in a comment); run python3 tests/test_machine_vault_e2e_workflow.py yourself after changing machine-vault-e2e.yml or scripts/cmux-next/machine-vault-e2e.ts (under 1 s, reads the files only)."
+
+[[test]]
+path = "tests/test_main_compile_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_app_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_auto_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_tag_lock.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_memory_resource_diagnostics.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_xcstrings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mobile_attach_prefers_iroh.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_mobile_stability_soak_attach_contract.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_next_batch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_batch_groups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_line.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_no_playwright_on_macs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence, 2026-10-23): the author runs it, python3 -m unittest tests/test_no_playwright_on_macs.py; it needs only bash and a fake uname."
+
+[[test]]
+path = "tests/test_node_product_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_normalize_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_notarize_computer_use_helper.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_notary_wait_recover.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_wait_recover.py yourself after changing it (under 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nushell_integration_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_nushell_shim_path_refront.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_package_resolved_policy_remote_inputs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_playwright_system_chrome.py"
+lane = "manual"
+reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
+
+[[test]]
+path = "tests/test_poll_notary_submission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_post_edit_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_preflight_trust.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_prepush_fast_tier.py"
+lane = "manual"
+reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
+
+[[test]]
+path = "tests/test_prune_nightly_release_assets.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_app_token_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_cmux_tui_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_nightly_next_r2.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_release_assets_callers.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_published_in_comments.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_upload_requests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_rebuild_mirror.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reconcile_entitlements_with_profile.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_reload_tag_lock.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_relocate_package_framework_rpaths.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_remote_daemon_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_remote_daemon_release_assets.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_remote_daemon_release_verification.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_repair_nightly_appcast_content_types.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_resources_plist_unique_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_app_host_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_release_product.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_review_fabric.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_risk_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_run_checks_concurrently.py"
+lane = "linux-guard"
+serial = true
+
+[[test]]
+path = "tests/test_run_with_timeout_process_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_runner_label_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_runner_routing_table.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_scroll_measurement_metrics.py"
+lane = "manual"
+reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
+
+[[test]]
+path = "tests/test_seed_decide.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_seed_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_send_path_caps.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_settings_stamp_not_committed.py"
+lane = "manual"
+reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
+
+[[test]]
+path = "tests/test_short_timeout_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shortcut_alternates_documented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_side_instance_remake_clears_old_identity.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_signer_parity_compare.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_signing_keychain_real_import_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_socket_control_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ssh_relay_report_tty_retry.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_stale_agent_prs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stress_cli_socket_api.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_submodule_forward_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_supplychain_security.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swiftpm_test_product.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tap_test_health.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_terminal_hang_release_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_terminfo_bright_colors.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tour_requirements.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_triage_radar.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_triage_rules.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_review_advisory.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_update_release_tag.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_vendored_cmux_agent_cursor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verification_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_local.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_vm_scp.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_webviews_test_history.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_webviews_tests_new_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_webviews_tests_per_file.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_free_step_lockfiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zsh_git_head_watch_no_fork.py"
+lane = "linux-guard"
