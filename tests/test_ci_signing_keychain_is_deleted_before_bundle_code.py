@@ -243,10 +243,22 @@ LITERAL_SELECTOR = re.compile(
     r"vars\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'\s*&&\s*'([^']*)'\s*\|\|\s*", re.IGNORECASE)
 
 
+# `vars.NAME != '' &&` or `vars.NAME == '' ||`: a variable tested only for being set, which switches a mode on
+# while some *other* expression gives the label (nightly.yml's one-mini mode, Lawrence, 2026-11-04, 723c3bcbd96:
+# `vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER` runs the signing jobs on the one nightly mini's
+# signing runner). Its own value can never become the runs-on label, so it is a condition, not a route, and the
+# label it selects is checked on its own merits. Only a comparison against the empty string is dropped, and only
+# that occurrence: a variable also read as a label elsewhere in the expression still faces every check.
+PRESENCE_CONDITION = re.compile(
+    r"vars\.([A-Za-z0-9_]+)\s*(?:!=\s*''\s*&&|==\s*''\s*\|\|)\s*", re.IGNORECASE)
+
+
 def strip_literal_selectors(runs_on: str) -> str:
-    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral; anything else stays for the checks."""
-    return LITERAL_SELECTOR.sub(
+    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral, and `vars.X != '' &&` presence tests
+    (PRESENCE_CONDITION), which give no label; anything else stays for the checks."""
+    stripped = LITERAL_SELECTOR.sub(
         lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
+    return PRESENCE_CONDITION.sub("", stripped)
 
 
 def claim_gated(name: str, job: dict) -> bool:

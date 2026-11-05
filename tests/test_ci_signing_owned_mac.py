@@ -1222,6 +1222,63 @@ class ClaimInvocationTests(unittest.TestCase):
                 self.assertTrue(any(needle in why for why in found), found)
 
 
+class PresenceConditionTests(unittest.TestCase):
+    """A variable tested only for being set is a mode switch, not a route, and laundering one is not possible.
+
+    nightly.yml's one-mini mode reads `vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER`: the mini
+    variable gates the choice and the signing runner supplies the label, so CI_NIGHTLY_MINI's own value can
+    never become the runs-on label. Only that comparison is dropped; whatever gives the label is still checked,
+    so a presence test cannot be used to smuggle an unchecked variable past rule 7."""
+
+    END = "|| 'blacksmith-6vcpu-macos-26' }}"
+
+    def label_variables(self, runs_on: str) -> list[str]:
+        stripped = keychain_guard.strip_literal_selectors(runs_on)
+        return [(m.group(1) or m.group(2)).upper()
+                for m in keychain_guard.RUNNER_VARIABLE.finditer(stripped)]
+
+    def test_a_presence_test_is_not_a_route(self) -> None:
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_SIGN_RUNNER"])
+
+    def test_the_label_a_presence_test_selects_is_still_checked(self) -> None:
+        """Dropping the condition must not drop the variable that actually gives the label."""
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.SOME_SHARED_RUNNER {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["SOME_SHARED_RUNNER"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.SOME_SHARED_RUNNER" in why for why in found), found)
+
+    def test_a_variable_both_tested_and_read_is_still_checked(self) -> None:
+        self.assertEqual(self.label_variables(f"${{{{ vars.X != '' && vars.X {self.END}"), ["X"])
+
+    def test_only_an_empty_string_comparison_is_a_presence_test(self) -> None:
+        for runs_on in (f"${{{{ vars.X != 'foo' && vars.X {self.END}",
+                        f"${{{{ vars.X && vars.X {self.END}"):
+            with self.subTest(runs_on=runs_on):
+                self.assertEqual(self.label_variables(runs_on), ["X", "X"])
+
+    def test_the_nightly_signing_jobs_read_the_mini_only_as_a_condition(self) -> None:
+        """In the tree: every rule 7a job's one-mini read is a presence test, and the label is the signer."""
+        jobs = workflows()["nightly.yml"]["jobs"]
+        seen = 0
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            if workflow != "nightly.yml":
+                continue
+            runs_on = str(jobs[job_id].get("runs-on", ""))
+            if "CI_NIGHTLY_MINI" not in runs_on:
+                continue
+            seen += 1
+            with self.subTest(job=job_id):
+                self.assertRegex(runs_on, r"vars\.CI_NIGHTLY_MINI\s*!=\s*''\s*&&\s*vars\.CI_NIGHTLY_SIGN_RUNNER")
+                self.assertNotIn("CI_NIGHTLY_MINI", self.label_variables(runs_on))
+        self.assertGreaterEqual(seen, 8, "one-mini mode is gone from the signing jobs; re-check this test")
+
+
 class OwnedRouteVariableTests(unittest.TestCase):
     """The keychain guard's rule 7a waives a repository variable only for a job that proves the claim."""
 
