@@ -154,6 +154,8 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       expect(backdrop).toBe("none");
       expect(layerAlpha(shadow, SPECULAR_BAND)).toBe(-1);
       expect(layerAlpha(shadow, SHEEN)).toBe(-1);
+      // Nor the material's depth: the card keeps its old shadow.
+      expect(layerAlpha(shadow, DEPTH)).toBe(-1);
       await page.close();
     });
 

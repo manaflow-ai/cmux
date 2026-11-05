@@ -245,13 +245,17 @@
    the soft two-step shadow, dark themes too (over art a dark page is no longer a flat slab). Over art
    or a see-through window under Plain glass its frost keeps the art's colors vivid. The tint stays
    the card's own (above), so the prompt's contrast is unchanged. Lens and Spectrum over art keep the
-   lens's rim; Reduce Transparency keeps the solid card (glass.css). */
-.acpmux-composer > .acpmux-composer-box.ui-glass-material {
-  --acpmux-composer-shadow: var(--glass-material-depth);
-}
-:root:not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
-  .acpmux-composer > .acpmux-composer-box.ui-glass-material {
-  --acpmux-composer-rim: var(--glass-material-rim);
+   lens's rim. Reduce Transparency (the system's or the host's) keeps the solid card exactly as it was:
+   no material rim, no frost and its old shadow (none in a dark theme). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-shadow: var(--glass-material-depth);
+  }
+  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+    .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-rim: var(--glass-material-rim);
+  }
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
   .acpmux-composer > .acpmux-composer-box.ui-glass-material {
