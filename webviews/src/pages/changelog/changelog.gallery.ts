@@ -96,6 +96,12 @@ export default changelogPageEntry({
     },
     "sheet-versions": {
       note: 'Leo 2026-11-05 ("with a click to a past nightly"): a day\'s Versions open (the second day: the first holds only the installed build), each build with its commit, its changes since the build before, and Install; Installed on the running one. Real nightly-next index.',
+      checks: {
+        layoutShiftMax: {
+          value: 0.3,
+          reason: "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+        },
+      },
       notes: nightlyNext50 as unknown as ReleaseNotes[],
       play: async (ctx) => {
         await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
@@ -104,6 +110,12 @@ export default changelogPageEntry({
     },
     "sheet-versions-confirm": {
       note: "Install asks once: Restart into it, then the app downloads that build, checks its signature and team, and restarts with every session.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.3,
+          reason: "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+        },
+      },
       notes: nightlyNext50 as unknown as ReleaseNotes[],
       play: async (ctx) => {
         await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
