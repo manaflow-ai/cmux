@@ -17,14 +17,14 @@ struct UniformEdgeTests {
         let solver = Self.solver([300, 300, 300], index: 1, camera: 0)
         let width = try #require(solver.width(restingEdgeAt: solver.edge(300) + 30))
         #expect(abs(width - 315) < 0.01, "every column is \(width) pt")
-        #expect(solver.rest(width) == 0)
+        #expect(solver.presented(width) == 0)
     }
 
     @Test func aCameraWithRoomTakesTheShiftAndTheWidthTakesThePointersTravel() throws {
         let solver = Self.solver([600, 600, 600], index: 1, camera: 100)
         let width = try #require(solver.width(restingEdgeAt: solver.edge(600) + 30))
         #expect(abs(width - 630) < 0.01, "every column is \(width) pt")
-        #expect(abs(solver.rest(width) - 130) < 0.01, "the camera rests at \(solver.rest(width)) pt")
+        #expect(abs(solver.presented(width) - 130) < 0.01, "the camera shows \(solver.presented(width)) pt")
     }
 
     @Test func aCameraAtTheStripsStartSharesWhatItCannotTake() throws {
@@ -34,7 +34,17 @@ struct UniformEdgeTests {
         let place = solver.edge(600) - 30
         let width = try #require(solver.width(restingEdgeAt: place))
         #expect(abs(solver.edge(width) - place) < 0.01)
-        #expect(solver.rest(width) == 0)
+        #expect(solver.presented(width) == 0)
+    }
+
+    @Test func aCameraMidSpringShowsTheEdgeUnderThePointerInThisFrame() throws {
+        // The camera shows 0 pt on its way to 100 pt; c0's edge (608 pt on screen) 30 pt right: every column 630 pt, the
+        // edge at 638 pt with the camera at 0 (no anchor shift for the first column), not 730 pt measured at the target.
+        let atRest = Self.solver([600, 600, 600], index: 0, camera: 100)
+        let solver = UniformEdge(widths: atRest.widths, index: 0, left: atRest.left, content: atRest.content, viewport: 1000,
+                                 camera: 100, shown: 0)
+        let width = try #require(solver.width(restingEdgeAt: 638))
+        #expect(abs(width - 630) < 0.01, "every column is \(width) pt")
     }
 
     @Test func atTheStripsEndTheLastColumnsEdgeCannotFollowAShrink() {
