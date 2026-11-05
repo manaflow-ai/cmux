@@ -51,6 +51,26 @@
    "wait": 2
   },
   {
+   "title": "A plain prompt",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "cd /tmp && export PROMPT='$ ' PS1='$ ' && clear\r"
+   ],
+   "shot": false,
+   "wait": 1.5
+  },
+  {
    "title": "Browser tab",
    "cmux": [
     "tab",

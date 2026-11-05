@@ -521,6 +521,7 @@ public final class TabStripView: NSView {
             // A narrower strip (a split) keeps the selected tab in view.
             followWidth(narrower: viewport < lastViewportWidth)
             lastViewportWidth = viewport
+            squareLeadingTab() // a width change lays out without `applyFrames`; the edge may have come or gone
         } else {
             applyFrames()
         }
