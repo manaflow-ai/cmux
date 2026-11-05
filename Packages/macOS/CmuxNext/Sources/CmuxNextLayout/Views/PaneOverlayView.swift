@@ -37,6 +37,10 @@ final class PaneOverlayView: NSView {
     private let attention = CALayer()
     /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
     var attentionLayer: CALayer { attention }
+    /// The focus glow's shadow path (for tests).
+    var glowShadowPath: CGPath? { glow.shadowPath }
+    /// Ring outlines this overlay stroked (a rounded rect stroked into a path, for a shadow; HOT PATH AUDIT motion-frame).
+    private(set) var ringOutlineBuilds = 0
     private let dimLayer = CALayer()
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
@@ -188,10 +192,32 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         // The shadow of the border it strokes, given: Core Animation needs no offscreen pass to find it (as `attention`).
-        glow.shadowPath = Self.ringOutline(size: rect.size, radius: ringRadius, width: focusRing.width)
+        // Only for a layer that can show a shadow (stroking the outline is the frame's largest allocation of ours).
+        ringShape = (rect.size, radius, ringRadius)
+        let glowPath = focusRing.effectiveStyle == .glow ? outline(rect.size, ringRadius, focusRing.width) : nil
+        if glowPath != nil || glow.shadowPath != nil { glow.shadowPath = glowPath }
         attention.borderWidth = attentionSettings.width
-        attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
+        refreshAttentionShadowPath()
         CATransaction.commit()
+    }
+
+    private func outline(_ size: CGSize, _ radius: CGFloat, _ width: CGFloat) -> CGPath? {
+        ringOutlineBuilds &+= 1
+        return Self.ringOutline(size: size, radius: radius, width: width)
+    }
+
+    /// The ring rect's size and radii from the last layout (``refreshAttentionShadowPath()`` strokes at that size).
+    private var ringShape: (size: CGSize, radius: CGFloat, ringRadius: CGFloat)?
+
+    /// The attention ring casts a shadow only under the `glow` ring style while its mark or dismiss flash shows.
+    private var attentionShadowShows: Bool {
+        ringGlows && (attentionMark != nil || attention.animation(forKey: "attention-dismiss") != nil)
+    }
+
+    /// The attention ring's shadow path at the current size while it can show, else none (no outline stroked).
+    private func refreshAttentionShadowPath() {
+        let path = attentionShadowShows ? ringShape.flatMap { outline($0.size, $0.radius, attentionSettings.width) } : nil
+        if path != nil || attention.shadowPath != nil { attention.shadowPath = path }
     }
 
     /// `showsRing`: this pane is focused and the ring should mark it.
@@ -352,6 +378,7 @@ final class PaneOverlayView: NSView {
         // Off to on: run the style's animation from the start and rest at its final opacity.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        refreshAttentionShadowPath() // the glow's outline at the current size (none was kept while no mark showed)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
         if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {

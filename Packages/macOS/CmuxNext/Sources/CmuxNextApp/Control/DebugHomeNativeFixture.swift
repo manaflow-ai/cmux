@@ -57,7 +57,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -93,42 +93,25 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
             return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
-        case "menu":
+        case "menu": if let row = params["choose"]?.stringValue { return .object(["ok": .bool(view.debugChooseMenuItem(row, onBubble: params["text"]?.stringValue ?? ""))]) } // {choose, text}: that row of the bubble's menu
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
         case "link":
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_approval":
+            guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            return .object(["ok": .bool(fixture.debugApproval(result: params["result"]?.stringValue ?? "answered")),
+                            "mock": .bool(true)])
+        case "approval_state":
+            guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            return JSONValue(foundation: fixture.debugApprovalState()) ?? .null
         case "fixture_typing":
             guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
-        case "typing":
-            // The typing bubble's body in window points (bottom-left origin) and the window's size,
-            // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
-            guard let r = view.debugTypingBubbleFrame(), let size = view.window?.frame.size else {
-                return .object(["ok": .bool(false), "error": .string("no typing row shows")])
-            }
-            let o = view.debugHostOrigin
-            return .object(["ok": .bool(true), "x": .number(Double(r.minX)), "y": .number(Double(r.minY)), "width": .number(Double(r.width)),
-                            "height": .number(Double(r.height)), "windowWidth": .number(Double(size.width)), "windowHeight": .number(Double(size.height)),
-                            "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
-        case "rows":
-            // The visible rows as drawn, in window points (bottom-left origin), top to bottom, and the
-            // window's size: the half-point pixel check of message rows (home-typing-still.py, home-hidden-messages.py).
-            guard let size = view.window?.frame.size else { return .object(["ok": .bool(false), "error": .string("no window")]) }
-            let o = view.debugHostOrigin
-            let rows: [JSONValue] = view.debugRowFrames().map { r in
-                .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
-                         "x": .number(Double(r.frame.minX)), "y": .number(Double(r.frame.minY)),
-                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height)),
-                         "balloon": .object(["x": .number(Double(r.balloon.minX)), "y": .number(Double(r.balloon.minY)),
-                                             "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
-            }
-            return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
-                            "scale": .number(Double(view.window?.backingScaleFactor ?? 0)), "trim": .number(Double(view.debugTranscriptWidthTrim)),
-                            "hostRight": .number(Double(view.debugHostFrame.maxX)),
-                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "typing": return JSONValue(foundation: view.debugTypingState()) ?? .null
+        case "rows": return JSONValue(foundation: view.debugRowsState()) ?? .null
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
@@ -183,9 +166,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let fixture = shownFixture else { return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")]) }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
         case "agent_messages":
-            // The fixture's Chief run with messages to five agents and one report (they fold under its reply).
+            // The fixture's Chief run with messages to five agents and one report; `pill` opens one, `say` writes it.
             guard let fixture = shownFixture else { return .object(["error": .string("agent_messages needs the native Home fixture (debug.home_native_fixture.open)")]) }
-            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false)
+            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, say: params["say"]?.stringValue)
         case "live":
             // The fixture's Chief works: its typing bubble and the status line above it, one frame per
             // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.

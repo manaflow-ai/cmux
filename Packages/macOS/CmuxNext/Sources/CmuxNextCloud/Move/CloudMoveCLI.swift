@@ -151,21 +151,43 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var newName: String?
         public var createKey: String
         public var tabKey: String
+        public var targetPane: String?
+        public var createTeam: String?
+        public var createSent: Bool = false
+        public var environmentId: String?
+        public var setup: CloudStartSetup?
 
-        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String) {
+        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
+                    environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
+                    createTeam: String? = nil, createSent: Bool = false) {
             self.machine = machine
             self.newName = newName
             self.createKey = createKey
             self.tabKey = tabKey
+            self.targetPane = targetPane
+            self.createTeam = createTeam
+            self.createSent = createSent
+            self.environmentId = environmentId
+            self.setup = setup
         }
+    }
+
+    /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
+    public func startChatReservation(release: Bool, request: String, access: String) async throws -> Data {
+        let result = try await parsed(["link", "start-chat", release ? "release" : "reserve", "--request", request],
+                                      stdin: Data((access + "\n").utf8), timeout: .seconds(release ? 15 : 125))
+        return try JSONSerialization.data(withJSONObject: result.object ?? ["ok": false, "error_code": Self.badAnswer])
     }
 
     /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
     public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
+        let start = CloudStartInfo(object: object)
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
-                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
+                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "",
+                                 environmentId: start.environmentId, setup: start.setup, targetPane: object["target_pane"] as? String,
+                                 createTeam: object["create_team"] as? String, createSent: object["create_sent"] as? Bool ?? false)
         // An ok answer without its keys is no answer: a create or open without them is not idempotent.
         guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
@@ -179,6 +201,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
     }
 
+    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-begin", "--key", key, "--account", account, "--name", name, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-sent", "--key", key, "--account", account, "--team", team, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-refused", "--key", key, "--account", account, "--create-key", createKey]), ())
+    }
+
+    public func startChatTargetPane(key: String, account: String, machine: String, pane: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "target-pane", "--key", key, "--account", account, "--machine", machine, "--pane", pane]), ())
+    }
+
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).
     public func startChatImport(entries: String) async throws -> (Answer, Void) {
         (try await run(["link", "start-chat", "import", "--entries", entries]), ())
@@ -186,17 +224,24 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine whose
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
-    /// already finished there. The chat's folder there, and whether it copied now.
+    /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
+    /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                       workRoots: [String]) async throws -> (Answer, (chat: String, copied: Bool)) {
-        let roots = workRoots.flatMap { ["--work-root", $0] }
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
+        let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
+        // With the cmux `access` token (on stdin), the copy goes through the content-addressed store
+        // (`--store`, cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
+        let store = access == nil ? [] : ["--store", "default"]
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
-                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots)
+                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots + store,
+                                   stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
-        guard !run.answer.ok || chat.hasPrefix("/") else {
-            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false))
+        let folder = run.object?["folder"] as? String ?? ""
+        guard !run.answer.ok || (folder.hasPrefix("/") && (chat == folder || chat.hasPrefix(folder + "/"))) else {
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, folder, false, false))
         }
-        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false))
+        return (run.answer, (chat, folder, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.
@@ -207,9 +252,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// One run's answer, with its JSON line (nil when it printed none) and exit status.
-    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
+    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: timeout ?? self.timeout, clock: ContinuousClock())
+                                                 timeout: timeout ?? self.timeout, stderrLine: stderrLine, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],

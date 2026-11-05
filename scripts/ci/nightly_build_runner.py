@@ -34,7 +34,7 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
   with). When the runners cannot be read (no routing token, or its API budget
-  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build and verify picks,
   only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
   the first watched label itself, so the build still queues on the owned pool
   before Blacksmith (unread_owned_route()). Empty when no label is one the
@@ -54,6 +54,12 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   40990112293 (373ec0cfaa2f, the first green tip after a two-hour Release compile red) queued
   its helper on blacksmith-6vcpu-macos-26 for 39 minutes until the run was cancelled unpublished.
 - `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for.
+
+On the all-nightly reservation (NIGHTLY_ONLY_LABEL, vars.CI_NIGHTLY_ONLY_RUNNER), attempt 1 of a nightly-next push
+or dispatch skips all of the above: every output is that label, except that `owned` (build-nightly-app's alone) is
+NIGHTLY_ONLY_BUILDER_LABEL (vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER, unset by default) while a runner carrying it is
+online and idle, so the app builds on the warm runner of one of the dedicated Macs (nightly_only_builder_route()).
+With that variable set, an idle runner carrying NIGHTLY_ONLY_XL_BUILDER_LABEL (the xl Studio's) is asked for first.
 
 `owned` is `dedicated` when that is set. The workflow takes `owned` only while
 `attempt` is the run's own attempt, so a fresh pick, and `blacksmith` otherwise.
@@ -93,6 +99,7 @@ import datetime as dt
 import json
 import os
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -357,6 +364,74 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
     return label, why
 
 
+# The all-nightly reservation (vars.CI_NIGHTLY_ONLY_RUNNER) and its warm app builder: one runner per dedicated Mac
+# also carries the builder label, so build-nightly-app lands on the runner whose workspace and caches it last left
+# warm. Any of the plain label's ten runners is cold the first time it builds: run 41340244486 on
+# cmux7s-mac-mini-glaeda-nightly-only-3 took 452 s to check out (14 s warm) and 282 s for Swift packages (1 s warm).
+NIGHTLY_ONLY_LABEL = "glaeda-nightly-only-m4pro"
+NIGHTLY_ONLY_BUILDER_LABEL = "glaeda-nightly-only-m4pro-builder"
+# The xl Mac Studio's own warm builders (two runners), asked for ahead of the M4 Pro pair's builders while
+# one is idle: the same Release compile measured 7.8 min there against 11.0 min p50 on an M4 Pro. The M4 Pro
+# builders, then the plain label, stay the fallback, so the nightly never waits on this one host.
+NIGHTLY_ONLY_XL_BUILDER_LABEL = "glaeda-nightly-only-xl-builder"
+
+
+# The builder read is the dedicated path's only network call: an org-wide runner list can page for minutes, and
+# the pick step's own timeout would leave build-nightly-app with no owned label at all (Blacksmith macOS).
+BUILDER_READ_SECONDS = 30
+
+
+class ReadDeadline(Exception):
+    pass
+
+
+def within(seconds: float, read: Callable[[], Any]) -> Any:
+    """READ(), or ReadDeadline once SECONDS pass (SIGALRM; the picker runs single-threaded on Linux)."""
+    def expire(_signum, _frame):
+        raise ReadDeadline(f"the runner read took over {seconds:g} s")
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        return read()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def nightly_only_builder_route(builder: str, fallback: str,
+                               runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the xl builder label while a runner carrying it is online and idle now, else the builder label while one
+    of its runners is, else `fallback`, why).
+
+    No wait and no queue on a busy builder: GitHub never moves a queued job, so the build asks for the builder
+    label only when it can start there now, and takes the plain all-nightly label otherwise (unread, offline, busy
+    or unset). The builder label is a variable a mistyped or retired builder would leave with no fallback."""
+    if builder != NIGHTLY_ONLY_BUILDER_LABEL:
+        return fallback, "no warm builder label" if not builder else f"`{builder}` is not the warm builder's label"
+    if runners is None:
+        return fallback, f"runners could not be read, so `{fallback}` rather than wait on `{builder}`"
+
+    def carrying(label: str) -> list[Mapping[str, Any]]:
+        return [runner for runner in runners
+                if runner.get("status") == "online" and label in pool.runner_labels(runner)]
+
+    xl = carrying(NIGHTLY_ONLY_XL_BUILDER_LABEL)
+    if any(not runner.get("busy") for runner in xl):
+        return NIGHTLY_ONLY_XL_BUILDER_LABEL, f"`{NIGHTLY_ONLY_XL_BUILDER_LABEL}` has an idle runner now"
+    m4pro = carrying(builder)
+    if any(not runner.get("busy") for runner in m4pro):
+        return builder, f"`{builder}` has an idle runner now"
+    return fallback, f"`{builder}` is {'busy' if m4pro else 'offline'}, so `{fallback}`"
+
+
+# The verify jobs (signer-dmg-image, both final verifies, the legacy identity verify) take the all-nightly
+# reservation on attempt 1. On the shared nightly slot pool a mini GitHub lists as idle can still be full in
+# glaeda's ledger, and a nightly job then waits for running PR jobs to free units: signer-dmg-image sat 809 s in
+# "Set up runner" ("1 of 14 units free, signer-dmg-image (light) needs 2", run 41365440328), and a verify over
+# 13 min in run 41366478487, where setup takes 0-4 s. The reservation's runners take no shared capacity unit, and
+# glaeda's nightly-only admission admits these light, secret-free nightly.yml jobs.
+
+
 def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Sequence[str]) -> None:
     for line in lines:
         print(f"nightly build runner: {line}")
@@ -385,13 +460,38 @@ def main(env: Mapping[str, str] = os.environ,
     if (not argv and repo == "manaflow-ai/cmux" and attempt == "1"
             and env.get("GITHUB_REF") == "refs/heads/nightly-next"
             and env.get("GITHUB_EVENT_NAME") in {"push", "workflow_dispatch"}
-            and nightly_only == "glaeda-nightly-only-m4pro"):
+            and nightly_only == NIGHTLY_ONLY_LABEL):
         blacksmith, _ = blacksmith_route((env.get("CANDIDATE") or "").strip(), None, now,
                                          (env.get("EXCLUDE") or "").strip())
-        write_output(env, {"dedicated": nightly_only, "trusted": "", "owned": nightly_only,
-                           "blacksmith": blacksmith, "runner": nightly_only,
+        # Only build-nightly-app reads `owned`; the helper and every light job keep the plain label.
+        builder = (env.get("NIGHTLY_ONLY_BUILDER_LABEL") or "").strip()
+        app, app_why = nightly_only, "no warm builder label"
+        if builder:
+            runners = None
+            if env.get("ROUTE_TOKEN"):
+                try:
+                    runners = within(BUILDER_READ_SECONDS, lambda: (
+                        read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(
+                        env["ROUTE_TOKEN"], repo))
+                except Exception as error:  # noqa: BLE001 - never fail the job; the plain label takes it
+                    print(f"::warning title=nightly build runner::could not list the warm builder ({str(error)[:200]})")
+            app, app_why = nightly_only_builder_route(builder, nightly_only, runners)
+        write_output(env, {"dedicated": nightly_only, "trusted": "", "owned": app,
+                           "blacksmith": blacksmith, "runner": app,
                            "helper": nightly_only, "attempt": attempt},
-                     ["the explicitly reserved all-nightly mini takes the app and helper"])
+                     ["the explicitly reserved all-nightly mini takes the app and helper",
+                      f"app: {app} ({app_why})"])
+        return 0
+    if (list(argv[:1]) == ["verify"] and repo == "manaflow-ai/cmux" and attempt == "1"
+            and env.get("GITHUB_REF") == "refs/heads/nightly-next"
+            and env.get("GITHUB_EVENT_NAME") in {"push", "workflow_dispatch"}
+            and nightly_only == NIGHTLY_ONLY_LABEL):
+        # No live read: the verify pick runs 35-40 min into the run, past the dispatch-time runner document's
+        # max age, so its read went live, hit the spent routing-App budget (403) and sent both jobs to the shared
+        # slot pool, where they waited 6-15 min for units (run 41400519218). The reservation admits only nightly
+        # jobs and holds no shared capacity, so it needs no idle check; a re-run (attempt 2) keeps the owned pick.
+        write_output(env, {"owned": nightly_only},
+                     [f"verify: {nightly_only} (the all-nightly reservation, taken without a runner read)"])
         return 0
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
@@ -405,12 +505,20 @@ def main(env: Mapping[str, str] = os.environ,
         dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
+    has_waited = False
+
+    def wait(seconds: float) -> None:
+        nonlocal has_waited
+        sleep(seconds)
+        has_waited = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:
         if not (route_token and repo):
             return None
         try:
-            return (read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(route_token, repo)
+            if read_runners is not None:
+                return read_runners(route_token, repo)
+            return pool.GitHub(route_token, repo).runners(use_state=not has_waited)
         except Exception as error:  # noqa: BLE001 - never fail the job; the next pool takes it
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
@@ -432,7 +540,7 @@ def main(env: Mapping[str, str] = os.environ,
     if refused_why:
         dedicated, dedicated_why = "", refused_why
     else:
-        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
+        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=wait, clock=clock,
                                                    wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
     if off_event:
         dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"

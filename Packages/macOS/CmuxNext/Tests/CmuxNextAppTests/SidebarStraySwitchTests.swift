@@ -78,7 +78,13 @@ struct SidebarStraySwitchTests {
         }
 
         /// Shows `notice` (nil for none) and lets the card's entrance or exit run out, bounded.
-        func show(_ notice: SidebarNoticeCard?) async throws {
+        ///
+        /// With `exits` false a card that leaves goes in one frame (``SidebarCardPresence/hidesNextAtOnce``): the
+        /// exit's end is a Core Animation completion, which a test host that renders no frames (the Swift suite's
+        /// CI Mac) never runs, so the card stayed mid-exit for the whole bounded wait (runs 41282022128 to
+        /// 41303556638). These cases are about what draws once the card has gone, not about the fade.
+        func show(_ notice: SidebarNoticeCard?, exits: Bool = false) async throws {
+            if notice == nil, !exits { card.presence.hidesNextAtOnce = true }
             model.noticeCard = notice
             settle()
             let deadline = ContinuousClock.now + .seconds(3)
@@ -156,6 +162,7 @@ struct SidebarStraySwitchTests {
         }
         try await h.show(Self.tidyUp)
         try #require(h.cardShows, "the Tidy Up card does not show")
+        h.card.presence.hidesNextAtOnce = true // the answer's exit ends in one frame (see `Harness.show`)
         try #require(h.card.actionSwitch).flip()
         try await h.show(h.model.noticeCard)
         #expect(h.model.noticeCard == nil, "Always did not answer the card")
@@ -243,8 +250,15 @@ struct SidebarStraySwitchTests {
         let h = Harness()
         defer { h.close() }
         try await h.show(Self.tidyUp)
+        // WindowServer's occlusion report for the shown window, which marks it as having been on screen (a window
+        // never on screen is not judged out of sight). It comes on a later run loop turn, or on a test host that
+        // renders nothing never; this stands in for it, so the exit below relies on the window being out of sight,
+        // not on Core Animation finishing a fade in a window nobody sees.
+        _ = Motion.canAnimate(in: h.card) // starts the app's one occlusion observer (idempotent)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: h.window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
+        try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
         h.window.orderOut(nil)
-        try await h.show(nil)
+        try await h.show(nil, exits: true)
         #expect(!h.card.isLeaving && h.card.isHidden, "the card is still leaving off screen (hidden \(h.card.isHidden))")
         h.window.orderFrontRegardless()
         h.settle()

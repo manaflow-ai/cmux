@@ -25,10 +25,7 @@ struct ActionScope {
                 }
                 return controller
             case .pane:
-                for controller in services.windows.controllers {
-                    if let pane = controller.content?.panes.values.first(where: { $0.paneKey == target.id }) { return pane }
-                }
-                return notFound(RefusalStrings.noPaneID(target.id))
+                return AppActionContext(services: services).paneController(invocation) // on its machine (cmux#30755)
             default: break
             }
         }

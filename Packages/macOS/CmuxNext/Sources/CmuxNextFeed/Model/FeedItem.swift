@@ -81,6 +81,13 @@ public nonisolated struct FeedItem: Sendable, Equatable, Identifiable {
     public var isOpenRequest: Bool { isRequest && state == .open }
     public var isUnread: Bool { readAt == nil }
     public var isArchived: Bool { archivedAt != nil }
+    /// The Cloud approval hold (`apr_…` and its team) this item asks the person to answer: an approve item
+    /// posted by its team's Cloud owner (`system:cloud:<team>`), as the backend's `approvalOf` reads it.
+    public var cloudHold: (request: String, team: String)? {
+        guard home == .cloud, case let .approve(approve) = prompt, let hold = approve.action.hold, poster.kind == .integration,
+              poster.identity == "system:cloud:\(hold.team)" else { return nil }
+        return (hold.request, hold.team)
+    }
 
     /// Snoozed until a moment after `now`: out of the active lists.
     public func isSnoozed(at now: Date) -> Bool {

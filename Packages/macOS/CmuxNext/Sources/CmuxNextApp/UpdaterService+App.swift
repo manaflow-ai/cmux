@@ -36,14 +36,10 @@ extension UpdaterService {
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
         showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
-        openChangelog = { [weak services] in
-            return services.map { ChangelogPageTab.open($0) } ?? false
-        }
+        openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
-        openChangelogSpan = { [weak services] from, to in
-            return services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false
-        }
+        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
         openReleaseNotesURL = { [weak services] url in
             guard let services, url.scheme == "https" else { return false }
             SidebarCardFeed.openUpdateLink(url, services: services)
@@ -71,7 +67,7 @@ extension UpdaterService {
     /// (local only); a return to cmux may pick the next day's tip.
     func attachTips(registry: ActionRegistry) {
         runTipAction = { [weak registry] action in
-            guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
+            guard TipCatalog.actions.contains(action) else { return }
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
         }
         registry.runObserver = { [weak self] id, invocation in
@@ -118,10 +114,11 @@ extension UpdaterService {
 
     func apply(_ updates: UpdatesSettings) {
         WebUpdates.shared.follow(updates)
+        WebDevOverride.setAllowed(updates.liveWebReload)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions)
+            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,

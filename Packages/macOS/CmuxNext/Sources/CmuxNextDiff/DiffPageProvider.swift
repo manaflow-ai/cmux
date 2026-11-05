@@ -35,10 +35,15 @@ public final class DiffPageProvider: PageProvider {
     static let maximumRequestBytes = 1024 * 1024
 
     /// The tab's repository grant, nil while it shows the empty state.
-    public private(set) var ready: Task<DiffTabReady, any Error>?
+    public internal(set) var ready: Task<DiffTabReady, any Error>?
+    /// A chat patch tab's newer patch on its way in (``show(_:from:reload:)``).
+    var reshowing: Task<Void, Never>?
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
     let remote: Bool
+    /// The tab shows only a chat's own patch (``DiffChatPatch``): no sidecar, git, revert or file
+    /// open; the page reads the patch file its grant lists (DiffPageProvider+ChatPatch.swift).
+    let chatPatch: Bool
     /// The name of the machine a remote tab's repository is on (#25581, a Cloud workspace's), for
     /// the page's offline message; nil for this Mac and for a remote chat's tab.
     public let machine: String?
@@ -52,7 +57,7 @@ public final class DiffPageProvider: PageProvider {
     /// The hunks Undo can put back, and the gesture the last revert spent.
     var revertState = DiffRevertState()
     /// Sessions of the current grant this tab named or was given, not closed yet.
-    private(set) var sessions: Set<String> = []
+    var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
     private var discards: [Task<Void, Never>] = []
     private var events: [UUID: (JSONValue) -> Void] = [:]
@@ -75,7 +80,8 @@ public final class DiffPageProvider: PageProvider {
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
          host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil,
-         machine: String? = nil) {
+         machine: String? = nil, chatPatch: Bool = false) {
+        self.chatPatch = chatPatch
         self.ready = ready
         self.machine = machine
         self.stores = stores
@@ -97,6 +103,8 @@ public final class DiffPageProvider: PageProvider {
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
+        case _ where chatPatch:
+            return try await chatPatchCall(op, params: params)
         case Self.recentsOp:
             // This Mac's folders: a tab of another machine's repository picks none of them.
             guard let host, !remote else { throw PageError.unknownOp(op) }
@@ -355,14 +363,14 @@ public final class DiffPageProvider: PageProvider {
         return ["type": "fileContents", "value": .object(value)]
     }
 
-    private static func sessionOpened(sessionID: String, source: JSONValue, requestPath: String, token: String, byteLength: Int) -> JSONValue {
+    static func sessionOpened(sessionID: String, source: JSONValue, requestPath: String, token: String, byteLength: Int) -> JSONValue {
         ["type": "sessionOpened", "value": ["sessionId": .string(sessionID), "source": source,
           "patch": ["id": .string("cmux-page://cmux.diff/__patch/\(token)\(requestPath)"),
                      "mediaType": .string(DiffPatchResolver.mimeType), "byteLength": .number(Double(byteLength)), "revision": 1],
           "generatedPaths": []]]
     }
 
-    private static func writeTurnPatch(_ patch: String, to grant: DiffSessionGrant) async throws {
+    static func writeTurnPatch(_ patch: String, to grant: DiffSessionGrant) async throws {
         try await Task.detached(priority: .userInitiated) { try grant.writeTurnPatch(patch) }.value
     }
 
@@ -523,12 +531,13 @@ public final class DiffPageProvider: PageProvider {
     public func close() async {
         guard !isClosed else { return }
         isClosed = true
+        reshowing?.cancel()
         events.removeAll()
         await retire()
     }
 
     /// Ends the current grant: the open in flight, its sessions, its files.
-    private func retire() async {
+    func retire() async {
         revertState.reset()
         guard let current = ready else { return }
         ready = nil
@@ -536,7 +545,8 @@ public final class DiffPageProvider: PageProvider {
         stopOpening(grant: grant)
         for discard in discards { await discard.value }
         discards.removeAll()
-        for id in sessions.sorted() { await closeQuietly(id, grant: grant) }
+        // A chat patch tab's sessions are its own names; no sidecar holds them.
+        if !chatPatch { for id in sessions.sorted() { await closeQuietly(id, grant: grant) } }
         sessions.removeAll()
         remoteSessions.removeAll()
         await DiffPageRuntime.drop(grant)

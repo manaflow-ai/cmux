@@ -158,6 +158,7 @@ import UIKit
         chat.list.reloadIfDisclosuresChanged()
         chat.list.collectionView.layoutIfNeeded()
         let kept = chat.list.layout.knownHeight(of: row.id)?.height
+        #expect(kept != nil, "the open state's settled height was kept")
         #expect(kept.map { abs($0 - opened) <= 1 } ?? true, "the open state's height is the one it settled at: \(String(describing: kept)), open was \(opened)")
         await chat.frames(30)
         let reopened = try #require(chat.line(row.id)).height
@@ -168,9 +169,91 @@ import UIKit
         chat.list.reloadIfDisclosuresChanged()
         chat.list.collectionView.layoutIfNeeded()
         let keptClosed = chat.list.layout.knownHeight(of: row.id)?.height
+        #expect(keptClosed != nil, "the closed state's settled height was kept")
         #expect(keptClosed.map { abs($0 - closed) <= 1 } ?? true, "the closed state's height is the one it settled at: \(String(describing: keptClosed)), closed was \(closed)")
         await chat.frames(30)
         #expect(abs((chat.line(row.id)?.height ?? 0) - closed) <= 1)
+    }
+
+    /// Review of #27664 (follow-up): a native cell's measurement was never kept. The layout keeps
+    /// only measurements that carry the state the cell drew (`ChatRowAttributes.shown`), and a
+    /// native cell's sizing pass returned attributes without it. A native row laid out before its
+    /// native layout was ready (an estimate, not exact) took its real height from the cell, then
+    /// fell back to the estimate on the next change above it: the rows below jumped. A native
+    /// cell's measurement is kept like a SwiftUI cell's, and the row keeps that height.
+    @Test func aNativeRowKeepsTheHeightItsCellMeasured() async throws {
+        let chat = try await chat()
+        defer { chat.window.isHidden = true }
+        let layout = chat.list.layout
+        let id = try #require(chat.list.visibleRowIDs.first { chat.list.cell(for: $0) is ChatNativeRowCell }, "a native row on screen")
+        let cell = try #require(chat.list.cell(for: id) as? ChatNativeRowCell)
+        let row = try #require(layout.row(of: id))
+        let drawn = try #require(layout.height(of: id))
+        // Its native layout was not ready when the list laid it out: an estimate 30 pt short, and
+        // nothing measured yet.
+        layout.forgetHeights()
+        var items = layout.items
+        items[row].exact = false
+        items[row].estimate = drawn - 30
+        layout.setItems(items)
+        let indexPath = IndexPath(item: row, section: 0)
+        let original = try #require(layout.layoutAttributesForItem(at: indexPath))
+        try #require(abs(original.size.height - (drawn - 30)) <= 0.5, "laid out at its estimate: \(original.size.height)")
+        let fitted = cell.preferredLayoutAttributesFitting(original)
+        #expect(abs(fitted.size.height - drawn) <= 0.5, "the cell measures its layout's height: \(fitted.size.height), drawn \(drawn)")
+        if layout.shouldInvalidateLayout(forPreferredLayoutAttributes: fitted, withOriginalAttributes: original) {
+            _ = layout.invalidationContext(forPreferredLayoutAttributes: fitted, withOriginalAttributes: original)
+        }
+        let known = layout.knownHeight(of: id)?.height
+        #expect(known.map { abs($0 - drawn) <= 0.5 } ?? false, "the native cell's measurement is kept: \(String(describing: known))")
+        // A row above changes: the rows from it down are summed again from their kept heights.
+        items[0].gap += 1
+        layout.setItems(items)
+        let after = try #require(layout.height(of: id))
+        #expect(abs(after - drawn) <= 0.5, "the row keeps its measured height: \(after), measured \(drawn)")
+    }
+
+    /// Review of #27664 (optional follow-up): while any disclosure change waited for the list's
+    /// reload, every row's measurement was dropped, so a row that grew then (a streaming answer)
+    /// kept its old height until it was measured again. Only a row whose disclosures the change
+    /// moves is held; another row's growth is kept at once.
+    @Test func anotherRowsGrowthIsKeptWhileADisclosureIsPending() async throws {
+        let chat = try await chat(category: .accessibilityLarge)
+        defer { chat.window.isHidden = true }
+        let toggled = try #require(chat.toolRows().first, "a tool row on screen")
+        // Another row on screen (an answer or a prompt), whose disclosures the toggle leaves alone.
+        let others = chat.list.visibleRowIDs.filter { id in
+            guard id != toggled.id, chat.list.cell(for: id) is ChatRowCell, let row = chat.list.row(id) else { return false }
+            if case .tool = row.kind { return false }
+            return true
+        }
+        let other = try #require(others.first, "another SwiftUI row on screen")
+        let layout = chat.list.layout
+        let before = (toggled: layout.knownHeight(of: toggled.id)?.height, other: layout.knownHeight(of: other)?.height)
+        chat.surface.disclosures.set("tool-\(toggled.call)", true)
+        try #require(chat.list.disclosuresPending, "the list reloads for it on a later turn")
+
+        /// The cell's own measurement, 37 pt taller (as a row that grew measures), handed to the layout.
+        func grow(_ id: String) throws -> CGFloat {
+            let cell = try #require(chat.list.cell(for: id) as? ChatRowCell)
+            let indexPath = try #require(chat.list.collectionView.indexPath(for: cell))
+            let original = try #require(layout.layoutAttributesForItem(at: indexPath))
+            cell.known = nil
+            let fitted = try #require(cell.preferredLayoutAttributesFitting(original).copy() as? UICollectionViewLayoutAttributes)
+            fitted.size.height += 37
+            _ = layout.shouldInvalidateLayout(forPreferredLayoutAttributes: fitted, withOriginalAttributes: original)
+            return fitted.size.height
+        }
+        let grown = try grow(other)
+        let held = try grow(toggled.id)
+        let kept = layout.knownHeight(of: other)?.height
+        #expect(kept.map { abs($0 - grown) <= 0.5 } ?? false,
+                "the other row's growth is kept: \(String(describing: kept)), measured \(grown), was \(String(describing: before.other))")
+        let toggledKept = layout.knownHeight(of: toggled.id)?.height
+        #expect(toggledKept.map { abs($0 - held) > 0.5 } ?? true,
+                "the toggled row's measurement waits for the reload: \(String(describing: toggledKept)), was \(String(describing: before.toggled))")
+        chat.surface.disclosures.set("tool-\(toggled.call)", false)
+        await chat.frames(10)
     }
 
     /// CI at f8ed786e (`aReopenedRowTakesItsOpenHeight` failing in the full suite, closed again

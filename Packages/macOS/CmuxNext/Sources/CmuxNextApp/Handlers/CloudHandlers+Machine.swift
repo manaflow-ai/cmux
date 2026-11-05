@@ -17,9 +17,9 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
             // machine connects it (a live link stays as it is), as `user`
-            // only for the user's own gesture. A paused machine resumes first.
+            // only for the user's own gesture, which waits for it. A paused machine resumes first.
             run("open machine", context) {
-                try await attached(session, invocation)
+                try await attached(session, invocation, waitsForLink: true)
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
@@ -198,9 +198,7 @@ extension CloudHandlers {
             }
         }
         // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
-            (try? machine(invocation, context))?.link == nil
-        }
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { _ in true }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -287,9 +285,8 @@ extension CloudHandlers {
                 // cron decision written after the sidebar last refreshed.
                 let read = cloud.beginRecordRead(machineID: session.machineID)
                 defer { cloud.finishRecordRead(read) }
-                async let statsRequest = cloud.api.stats(session.machineID)
-                async let recordRequest = cloud.api.machine(session.machineID)
-                let (stats, record) = try await (statsRequest, recordRequest)
+                // From the API that made the machine: a Worker machine is not on /api/vm.
+                let (record, stats) = try await cloud.machineStatus(session.machineID)
                 // Through the list's own path: a pause suspends the link, a resume connects it.
                 cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
@@ -297,7 +294,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            if session.appLink != nil, cloud.previewAPI != nil {
+            if cloud.previewAPI != nil {
                 return livePreviewPorts(session, invocation, context)
             }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -322,7 +319,7 @@ extension CloudHandlers {
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             answer("hand off machine", invocation, context) {
-                let live = try await cloud.api.machine(session.machineID)
+                let live = try await cloud.machineRecord(session.machineID)
                 return CloudAnswer(title: CloudStrings.handoffTitle, text: handoff(live),
                                    fields: ["machine_id": .string(live.id), "status": .string(live.status.rawValue)])
             }
@@ -743,25 +740,5 @@ extension CloudHandlers {
             }
         }
         return lines.joined(separator: "\n")
-    }
-}
-
-/// `machine-listening-tcp` (cmux-tui protocol 12, `machine-listening-tcp-v1`):
-/// the host's `ss -H -ltn` table, read over the machine's own link.
-struct MachineListeningTCPRequest: DaemonRequest {
-    struct Response: Decodable, Sendable { var stdout: String }
-    static let command = "machine-listening-tcp"
-
-    /// Distinct listening ports, ascending, from `ss`/`netstat` lines.
-    static func ports(in table: String) -> [Int] {
-        var ports = Set<Int>()
-        for line in table.split(whereSeparator: \.isNewline) {
-            for field in line.split(separator: " ") where field.contains(":") {
-                guard let last = field.split(separator: ":").last, let port = Int(last), port > 0 else { continue }
-                ports.insert(port)
-                break
-            }
-        }
-        return ports.sorted()
     }
 }

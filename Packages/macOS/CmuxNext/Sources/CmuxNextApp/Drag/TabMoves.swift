@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
@@ -184,17 +185,11 @@ enum TabMoves {
         let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         let width = width ?? half ?? beside ?? 0.3
+        // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
+        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
+        let send = DockColumnCommand(move, respawn: respawn).start(on: daemon)
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
-                if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                      transaction: transaction)
-                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
-                } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                             transaction: transaction)
-                }
-            } != nil
+            let ok = await send()
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })
@@ -252,6 +247,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        nameInput(tab, services: services, incognito: nil)
+    }
+
+    /// `nameInput` with the tab's incognito answer when the caller knows it (a sidebar row's workspace), so a browser
+    /// tab skips the lookup that reads every tab list (TYPING UNDER LOAD F6); nil looks it up. The one browser rule.
+    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
         // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
         // shows of its own names the workspace.
@@ -265,7 +266,7 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
+        let offTheRecord = tab.kind == .browser && (incognito ?? (services.cache.browserTabs.isIncognitoTab(tab.id) == true))
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)

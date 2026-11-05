@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A sent prompt whose attachments sat inline (`inlineParts`) draws them in its bubble in order,
-// as Messages does. These pin what the legacy bands already did right: a thumbnail keeps its
-// fixed-height crop (conversation.css), a pasted block is a chip that opens to its text
+// as Messages does. These pin what the legacy bands already did right: a thumbnail is the whole image
+// in its own shape, never a magnified crop (conversation.css; Leo, 2026-11-05: "I don't think we have
+// good enough looking previews for these"), a pasted block is a chip that opens to its text
 // (PromptText.tsx PasteChip), and an image's retained original (`companionOf`) is never drawn
 // again as a separate file.
 import { afterAll, expect, test } from "bun:test";
@@ -56,6 +57,7 @@ const { FindReveal } = await import("../src/agent-session/acpmux/conversation/ch
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
+const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
 
 const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
@@ -86,7 +88,7 @@ const render = async (
 };
 
 try {
-  test("an inline image keeps the sent thumbnail's fixed-height crop", async () => {
+  test("an inline image is the sent thumbnail: the whole image in its own shape", async () => {
     clearImageEntries();
     await render(
       prompt("inline-image", "look at this", [
@@ -97,15 +99,14 @@ try {
     );
     const img = host.querySelector<HTMLImageElement>("[data-inline-content] img")!;
     expect(img).not.toBeNull();
-    const style = dom.window.getComputedStyle(img);
-    // The same box as the image band above a legacy bubble: 120px tall, cropped to fill.
-    expect(style.height).toBe("120px");
-    expect(style.objectFit).toBe("cover");
+    // The same box as the image band above a legacy bubble: the image's own shape, so `cover` crops nothing.
+    const [width, height] = img.style.aspectRatio.split("/").map(Number);
+    expect(width! / height!).toBe(400 / 1600);
     const button = img.closest("button")!;
     expect(dom.window.getComputedStyle(button).cursor).toBe("zoom-in");
   });
 
-  test("an inline pasted block is a chip that opens to its text", async () => {
+  test("an inline pasted block is a card of its first lines that opens to its text", async () => {
     const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
@@ -116,9 +117,14 @@ try {
     );
     const chip = host.querySelector<HTMLButtonElement>("[data-inline-content] .cv-user__paste");
     expect(chip).not.toBeNull();
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")).toBeNull();
+    // Closed, its lines are a preview outside Find; open, the same text is the paste, found.
+    const text = host.querySelector("[data-inline-content] .cv-user__paste-text");
+    expect(text?.closest("[data-find-skip]")).not.toBeNull();
+    expect(chip!.getAttribute("aria-expanded")).toBe("false");
     await act(async () => chip!.click());
+    expect(chip!.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.textContent).toBe(pasted);
+    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.closest("[data-find-skip]")).toBeNull();
   });
 
   test("an image's retained original is not drawn again as a file", async () => {
@@ -453,6 +459,56 @@ try {
     expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
     expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
   });
+  for (const attachmentView of ["inline", "strip"] as const) {
+    test(`${attachmentView}: a placed sent file and image keep their source's badge`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      resetSourceIcons();
+      const asked: string[] = [];
+      (dom.window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+        "attachment.sourceIcon": async (params: Record<string, unknown>) => {
+          asked.push(String(params.bundleId));
+          return { src: "data:image/png;base64,iVBORw0KGgo=" };
+        },
+      };
+      await act(async () => setComposerSettings({ attachmentView }));
+      await render(
+        prompt(`sourced-${attachmentView}`, "compare with the numbers", [
+          { kind: "text", text: "compare " },
+          {
+            kind: "image",
+            id: `sourced-shot-${attachmentView}`,
+            mimeType: "image/png",
+            name: "shot.png",
+            placed: true,
+            source: { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" },
+          },
+          { kind: "text", text: " with the numbers " },
+          {
+            kind: "file",
+            name: "build-times.csv",
+            mimeType: "text/csv",
+            size: 18_400,
+            uri: "file:///Users/sample/build-times.csv",
+            placed: true,
+            source: { name: "Finder", bundleId: "com.apple.finder" },
+          },
+        ]),
+      );
+      // The host's icon answers land a tick later.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      const band = attachmentView === "inline" ? "[data-inline-content]" : "[data-inline-attachment-strip]";
+      const file = host.querySelector<HTMLElement>(`${band} .cv-user__inline-file .acpmux-file-chip`)!;
+      expect(file).not.toBeNull();
+      expect(file.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Finder");
+      expect(file.getAttribute("title")).toBe("/Users/sample/build-times.csv\nFrom Finder");
+      const image = host.querySelector<HTMLElement>(`${band} .cv-user__inline-image .cv-user__sourced`)!;
+      expect(image).not.toBeNull();
+      expect(image.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Screenshot");
+      expect(asked.sort()).toEqual(["com.apple.finder", "com.apple.screenshot.launcher"]);
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    });
+  }
 } finally {
   afterAll(() => {
     act(() => root.unmount());

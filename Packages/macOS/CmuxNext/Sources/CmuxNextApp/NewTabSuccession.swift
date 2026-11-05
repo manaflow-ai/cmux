@@ -109,7 +109,7 @@ struct NewTabSuccession {
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never
             // hands the pane to a neighbor for the frames until its creator hears the reply.
-            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelectSurface = handed }
+            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {
@@ -119,12 +119,12 @@ struct NewTabSuccession {
         var snapshot = snapshot
         // The store's tab after a provisional one, the one made, else the tab being selected.
         let tabs = pane.pane.tabs.filter { !succession.known.contains($0.id) }
-        let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
+        let made = [handed, succession.surface, pane.pendingSelect.surface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
             // (a reopened tab being selected never does). One the strip already shows stays: hidden,
             // the selection would take it for closed and move to a neighbor (census #7).
-            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
+            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelect.tab.map { [$0] } ?? [])
             snapshot.items.removeAll { fresh.contains($0.id.rawValue) }
             return snapshot
         }

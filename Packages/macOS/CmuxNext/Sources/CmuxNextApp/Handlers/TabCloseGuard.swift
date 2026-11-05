@@ -16,38 +16,59 @@ import CmuxNextTabs
 /// never asks.
 @MainActor
 enum TabCloseGuard {
-    enum Warning: Equatable {
-        /// The agent working in a closing terminal (the first, if several).
-        case agent(String)
-        /// Foreground programs in the closing terminals, unique and sorted.
-        case programs([String])
-    }
-
     /// Runs `close` at once, or after the person confirms the question.
     /// `close` gets what the question asked the terminals, so the close's undo
     /// toast decision does not ask them again (one daemon read per Cmd-W, not two).
+    /// `parts`: the panes the tabs leave. When each keeps a tab or can show itself leaving (`showPaneClose`), the tabs (and a pane
+    /// they empty) leave in this turn, terminals alive (`HiddenTabClose`); `close` gets that hide to lift as it closes (no flash).
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
-                      close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
-        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
+                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [],
+                      close: @escaping @MainActor (_ asked: RunningPrograms, _ hidden: HiddenTabClose?) -> Void) {
+        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:], nil) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
         let ids = Set(tabs.map(\.id))
         asking.formUnion(ids)
         reading.formUnion(ids)
+        // The tabs leave now, their terminals alive: only the daemon's read below ends a process (SL-3; lead, #31875).
+        // A page that decides its own close (beforeunload) is never hidden: it runs its decision after the read, in place.
+        let decides = services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
+        // An emptied pane hides only if its layout shows it leaving (never the screen's last) and holds no page (asking starts its close).
+        let emptied = parts.map { part in empties(part.pane, closing: part.ids) }
+        let hides = !parts.isEmpty && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
+            && (!emptied || (part.pane.workspace?.layoutModel.canShowPaneClose(part.pane.layoutPaneID) == true && !part.ids.contains { part.pane.tab($0)?.kind == .browser }))
+            && !part.ids.contains { decides(part.pane, $0) } }
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
-        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window)
+        // Opened while the closing tab still has the focus; with the hide, every key of the window is the close's.
+        let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window, hides: hides)
+        // Rolled back, an emptied pane comes back with its focus (any tab back shows a pane a later close hid: #32898); lifted, its hold goes unshown and the close shows its own (same turn).
+        let hidden = !hides ? nil : HiddenTabClose.hide(parts.flatMap { part in part.ids.compactMap { part.pane.tab($0)?.surface } }, in: daemon.store,
+                                                        panes: zip(parts, emptied).map { part, emptied in
+            let pane = part.pane, selected = pane.stripModel.selectedID, focused = pane.isFocusedInWorkspace
+            return { @MainActor restored in
+                pane.apply(pane.snapshot())
+                if emptied, !restored { _ = pane.showPaneClose() }
+                if restored, !pane.stripModel.tabs.isEmpty, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
+                    workspace.applyCurrent()
+                    if focused { workspace.layoutModel.focus(pane.layoutPaneID, notify: false); PaneHandlers.focus(pane.layoutPaneID, in: workspace) }
+                }
+                if restored, let selected { pane.applySelection(selected) }
+            }
+        }, lifted: zip(parts, emptied).filter { $0.1 }.map { part in { @MainActor in _ = part.0.pane.workspace?.layoutModel.withdrawPaneClose(part.0.pane.layoutPaneID) } })
         Task { @MainActor in
-            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
+            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services, confirmed: true) // no answer asks
             reading.subtract(ids)
             guard let prompt else {
                 asking.subtract(ids)
-                close(asked)
+                close(asked, hidden)
                 return coordinator.endClose(keys, in: window)
             }
+            // A program runs: its tab comes back in place, selected, before the question.
+            hidden?.restore()
             let parked = coordinator.parkClose(keys, in: window)
             DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
                 asking.subtract(ids)
-                if $0 { close(asked) }
+                if $0 { close(asked, nil) }
                 coordinator.endClose(nil, parked: parked, stays: !$0, in: window)
             }
         }
@@ -60,25 +81,12 @@ enum TabCloseGuard {
     /// shows, a Cmd-W behind it closes nothing until the person answers.
     private(set) static var reading: Set<String> = []
 
-    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still under way
-    /// (`closing`: the daemon's read, or its page deciding), the tab selected once it closes (the
-    /// next not closing, else the previous), so N quick presses close N tabs (Leo 2026-10-21).
-    /// Nil when every other tab is closing too.
-    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel, closing: (StripTabID) -> Bool) -> StripTabID? {
-        guard closing(id) else { return id }
-        let ordered = strip.orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return id }
-        func open(_ tab: TabItem) -> Bool { !closing(tab.id) && !asking.contains(tab.id.rawValue) && tab.isClosable }
-        return (ordered[(index + 1)...].first(where: open) ?? ordered[..<index].last(where: open))?.id
-    }
-
-    /// ``cmdWTarget(_:in:closing:)`` for `pane`: its tabs still in the daemon's read, or whose page
-    /// decides its close (``PageClosingTabs``), are closing.
+    /// ``TabStripModel/cmdWTarget(_:closing:skipped:)`` for `pane`: its tabs still in the daemon's read, or whose page
+    /// decides its close (``PageClosingTabs``), are closing; tabs whose question shows are never the next one.
     static func cmdWTarget(_ id: StripTabID, in pane: PaneController) -> StripTabID? {
         let pages = pane.services.closedTabs?.undoToasts.pageClosing
-        return cmdWTarget(id, in: pane.stripModel) { tab in
-            reading.contains(tab.rawValue) || pages?.contains(tab.rawValue) == true
-        }
+        return pane.stripModel.cmdWTarget(id, closing: { reading.contains($0.rawValue) || pages?.contains($0.rawValue) == true },
+                                          skipped: { asking.contains($0.rawValue) })
     }
 
     /// A Close Tab press as ``PaneCloseAim`` reads it: the input event AppKit is dispatching (its
@@ -103,53 +111,45 @@ enum TabCloseGuard {
 
     /// Whether closing `tabs` can ask at all (a live terminal and a warning
     /// setting on), before any terminal is asked what it runs.
-    static func asks(_ tabs: [TabModel], services: AppServices) -> Bool {
-        let snapshot = services.settings?.snapshot
-        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
-        return (warnTab || warnAgent) && tabs.contains { $0.kind == .pty && !$0.dead }
-    }
+    static func asks(_ tabs: [TabModel], services: AppServices) -> Bool { reads(tabs, services: services) != nil }
 
-    /// The question for closing `tabs` (a tab, a selection, a tab group), or
-    /// nil to close at once: only a working agent or a foreground program asks.
-    static func prompt(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices) async -> DestructiveConfirmation.Prompt? {
-        await promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
-    }
-
-    /// `prompt`, plus each terminal it asked and its answer.
-    static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
-                                 services: AppServices) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
+    /// The warnings and the closing live terminals' working agents and others (a read asks those); nil: nothing asks.
+    private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel])? {
         let snapshot = services.settings?.snapshot
         let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
-        guard warnTab || warnAgent, !terminals.isEmpty else { return (nil, [:]) }
-        let agents = terminals.compactMap(workingAgent)
+        guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
         // A terminal with a working agent is that agent's question, never the program one.
-        let others = terminals.filter { workingAgent($0) == nil }
-        let asked = warnTab ? await DestructiveConfirmation.runningPrograms(bySurface: others, on: daemon) : [:]
-        let question = warning(agents: agents, programs: asked.programNames, warnTab: warnTab, warnAgent: warnAgent)
-            .map { prompt($0, closing: tabs) }
-        return (question, asked)
+        return (warnTab, warnAgent, terminals.compactMap(workingAgent), terminals.filter { workingAgent($0) == nil })
     }
 
-    /// The question for these closing terminals, or nil to close at once.
-    static func warning(agents: [String], programs: [String], warnTab: Bool, warnAgent: Bool) -> Warning? {
-        if warnAgent, let agent = agents.first { return .agent(agent) }
-        if warnTab, !programs.isEmpty { return .programs(programs) }
-        return nil
+    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]), _ answers: [SurfaceID: ProcessAnswer], confirmed: Bool) -> DestructiveConfirmation.Prompt? {
+        let unanswered = confirmed ? reads.others.filter { answers[$0.surface] == .noAnswer }.map(\.displayTitle) : [] // named apart: a title is no program
+        return CloseWarning.of(agents: reads.agents, programs: answers.programNames, unanswered: unanswered, warnTab: reads.warnTab, warnAgent: reads.warnAgent).map { prompt($0, closing: tabs) }
     }
 
-    static func prompt(_ warning: Warning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
+    /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
+    /// agent or a foreground program asks), plus each terminal it asked and its answer.
+    /// `confirmed`: a terminal that gives no answer asks, and counts as running its title: only a confirmed "no program"
+    /// closes it without the question (lead, #31875).
+    static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices,
+                                 confirmed: Bool = false) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
+        guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
+        let answers = reads.warnTab ? await daemon.processAnswers(of: reads.others) : [:]
+        return (question(tabs, reads, answers, confirmed: confirmed), RunningPrograms(answers, of: reads.others, unansweredRunsTitle: confirmed))
+    }
+
+    static func prompt(_ warning: CloseWarning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
         let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].title) : ConfirmationStrings.closeTabsTitle(tabs.count)
         switch warning {
         case .agent(let agent):
             return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent),
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
-        case .programs(let programs):
-            return .init(title: title,
-                         body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
-                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+        case .programs(let programs, let unanswered):
+            let body = [programs.isEmpty ? nil : ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
+                        unanswered.isEmpty ? nil : ConfirmationStrings.noAnswer(unanswered.joined(separator: ", "))].compactMap { $0 }
+            return .init(title: title, body: body.joined(separator: " "), button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
     }
 

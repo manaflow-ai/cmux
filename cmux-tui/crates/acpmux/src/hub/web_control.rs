@@ -20,6 +20,7 @@
 //! as `Control::Web`.
 
 use super::*;
+
 use crate::web_modes::WebModeTable;
 use cmux_json::JsonSet as _;
 
@@ -35,6 +36,17 @@ impl Hub {
     pub(crate) fn any_mode_for_web(&self, m: &crate::store::SessionMeta) -> bool {
         let Ok(cfg) = self.config.try_read() else { return false };
         crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
+    }
+
+    pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
+        let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
+        if self.any_mode_for_web(meta) {
+            return crate::web_modes::family_of(meta) == "codex" && mode == "ask";
+        }
+        if crate::web_modes::family_of(meta) != "claude" {
+            return false;
+        }
+        self.web_modes().session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
     }
 
     /// The merged asking-mode table the remote guard and Web control use.
@@ -67,6 +79,7 @@ impl Hub {
             "refusedFamilies": table.refused(),
             "modeFields": crate::web_modes::MODE_FIELDS,
             "freeConfigIds": crate::web_modes::FREE_CONFIG_IDS,
+            "cloudMobileStrictFloor": 1,
         });
         let Some(key) = params.get("sessionId").and_then(Value::as_str) else { return Ok(out) };
         let s = match self.resolve(key) {
@@ -78,7 +91,7 @@ impl Hub {
         let family = crate::web_modes::family_of(&m);
         out.set(
             "session",
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m), "cloudMobileAsks": self.cloud_mobile_mode_asks(&m)}),
         );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
@@ -149,7 +162,7 @@ impl Hub {
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     }
-                    ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
+                    ModeWrite::ConfigOptions(v) => m.config_options = Some(v.into()),
                 }
             }
             if settles {
@@ -250,6 +263,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         control: Control,
+        cloud_mobile: bool,
         trust_gate: bool,
         device: Option<&str>,
         prompt_id: &str,
@@ -259,6 +273,14 @@ impl Hub {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control)
+                .and_then(|()| {
+                    if cloud_mobile && control == Control::Web && !self.cloud_mobile_mode_asks(&m) {
+                        return Err(RpcError::invalid_params(
+                            "Cloud mobile requires an asking mode (default, plan or ask)",
+                        ));
+                    }
+                    Ok(())
+                })
                 .and_then(|()| self.full_access_hold(&m, control, device))
                 .err()
         };
@@ -583,6 +605,60 @@ mod mode_write_tests {
     /// sent) and later reports its current mode. The write used `modes["currentModeId"] = v`, which
     /// panics on an array, string, number or bool, under the session's meta lock: that poisoned it
     /// and every later `Session::meta()` panicked with it.
+    #[test]
+    fn cloud_mobile_mode_requires_a_phone_asking_mode() {
+        let hub = test_hub();
+        let meta = |mode: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": "cloud-mobile-test",
+                "name": "cloud mobile",
+                "harness": "claude",
+                "family": "claude",
+                "cwd": "/tmp",
+                "status": "running",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "modes": {"currentModeId": mode},
+            }))
+            .expect("session metadata")
+        };
+        for mode in ["default", "plan"] {
+            assert!(hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} should ask on phone");
+        }
+        for mode in ["ask", "agent", "full-access", "bypassPermissions"] {
+            assert!(!hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} must be refused on phone");
+        }
+        let codex = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "codex-test", "name": "codex",
+            "harness": "codex", "family": "codex", "cwd": "/tmp", "status": "running",
+            "createdAt": 1, "updatedAt": 2, "modes": {"currentModeId": "ask"},
+        }))
+        .expect("codex metadata");
+        assert!(!hub.cloud_mobile_mode_asks(&codex), "codex is not a Claude phone profile");
+
+        let mut bridge_cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"codex": {"argv": ["codex", "app-server"]}},
+            "defaultHarness": "codex",
+        }))
+        .expect("bridge config");
+        bridge_cfg.store.mode = StoreMode::Memory;
+        let bridge_store =
+            crate::store::open(&bridge_cfg.store, Path::new("/nonexistent")).expect("bridge store");
+        let bridge_hub = Hub::new(bridge_cfg, bridge_store);
+        let bridge_meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "bridge-test", "name": "codex",
+            "harness": "codex", "family": "codex", "harnessArgv": ["codex", "app-server"],
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 2,
+            "modes": {"currentModeId": "ask"},
+        }))
+        .expect("bridge metadata");
+        assert!(bridge_hub.cloud_mobile_mode_asks(&bridge_meta));
+        let mut agent_meta = bridge_meta.clone();
+        agent_meta.modes = Some(json!({"currentModeId": "agent"}));
+        assert!(!bridge_hub.cloud_mobile_mode_asks(&agent_meta));
+    }
+
     #[tokio::test]
     async fn a_current_mode_written_over_modes_that_are_not_an_object_does_not_panic() {
         let hub = test_hub();

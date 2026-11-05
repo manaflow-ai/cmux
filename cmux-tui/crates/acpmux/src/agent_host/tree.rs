@@ -40,12 +40,7 @@ fn process_table() -> Vec<Started> {
 /// itself or the system.
 pub fn descendants(roots: &[u32]) -> Vec<Started> {
     let table = process_table();
-    let mut spared = vec![0, 1];
-    let mut me = std::process::id();
-    while me > 1 && !spared.contains(&me) {
-        spared.push(me);
-        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
-    }
+    let spared = spared(&table);
     let own = std::process::id();
     let mut frontier: Vec<u32> =
         roots.iter().copied().filter(|r| *r == own || !spared.contains(r)).collect();
@@ -59,6 +54,33 @@ pub fn descendants(roots: &[u32]) -> Vec<Started> {
         }
     }
     found
+}
+
+/// The pids never taken: 0, 1, this process and its ancestors.
+fn spared(table: &[Started]) -> Vec<u32> {
+    let mut spared = vec![0, 1];
+    let mut me = std::process::id();
+    while me > 1 && !spared.contains(&me) {
+        spared.push(me);
+        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
+    }
+    spared
+}
+
+/// The processes started with `name=value` in their environment, as the kernel has it: what a
+/// host's harness and everything under it inherit (`HOST_MARK`), a setsid helper too, so they
+/// are found after the parent link is gone. A process whose environment cannot be read (another
+/// user's) is not taken, nor this process or its ancestors.
+pub fn marked(name: &str, value: &str) -> Vec<Started> {
+    let table = process_table();
+    let spared = spared(&table);
+    table
+        .into_iter()
+        .filter(|p| !spared.contains(&p.pid))
+        .filter(|p| {
+            environ(p.pid).is_some_and(|env| env.iter().any(|(k, v)| k == name && v == value))
+        })
+        .collect()
 }
 
 /// SIGKILL each of `procs` that still runs as the same process.
@@ -136,10 +158,37 @@ fn procargs2(pid: u32) -> Option<Vec<u8>> {
     Some(buffer)
 }
 
+/// The environment `pid` was started with, from `KERN_PROCARGS2` (after its argv); `None` when
+/// it cannot be read (`environ`).
+#[cfg(target_os = "macos")]
+pub fn environ(pid: u32) -> Option<Vec<(String, String)>> {
+    procargs2_env(&procargs2(pid)?)
+}
+
+/// The environment `pid` was started with (`/proc/<pid>/environ`): what its exec was given,
+/// which a later `setenv` of its own does not change. `None` when it cannot be read: the process
+/// ended or belongs to another user.
+#[cfg(target_os = "linux")]
+pub fn environ(pid: u32) -> Option<Vec<(String, String)>> {
+    Some(env_pairs(&proc_file(pid, "environ")?))
+}
+
+/// Other unix systems: no environment is read.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+pub fn environ(_pid: u32) -> Option<Vec<(String, String)>> {
+    None
+}
+
 /// The exact argv of `pid` from `/proc/<pid>/cmdline`; `None` when it cannot be read.
 #[cfg(target_os = "linux")]
 pub fn argv(pid: u32) -> Option<Vec<String>> {
-    cmdline_argv(&std::fs::read(format!("/proc/{pid}/cmdline")).ok()?)
+    cmdline_argv(&proc_file(pid, "cmdline")?)
+}
+
+/// `/proc/<pid>/<file>` of the one process `pid`; `None` when it cannot be read.
+#[cfg(target_os = "linux")]
+fn proc_file(pid: u32, file: &str) -> Option<Vec<u8>> {
+    std::fs::read(format!("/proc/{pid}/{file}")).ok()
 }
 
 /// Other unix systems: argv is not read, so no process passes for a server.
@@ -175,7 +224,7 @@ pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
 #[cfg(target_os = "linux")]
 pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
     // A replaced file reads as `PATH (deleted)`: still the program the server was started as.
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(undeleted)
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(crate::self_command::undeleted)
 }
 
 /// Other unix systems: no executable is read, so no process passes for a server.
@@ -250,19 +299,38 @@ fn procargs2_exec_path(data: &[u8]) -> Option<std::path::PathBuf> {
     std::path::Path::new(path).is_absolute().then(|| std::path::PathBuf::from(path))
 }
 
-/// `/proc/<pid>/exe`'s target without the ` (deleted)` Linux appends once the file was replaced.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn undeleted(target: std::path::PathBuf) -> std::path::PathBuf {
-    match target.to_str().and_then(|t| t.strip_suffix(" (deleted)")) {
-        Some(t) => std::path::PathBuf::from(t),
-        None => target,
-    }
-}
-
 /// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
 /// NUL-terminated words. `None` when it is cut short or a word is not UTF-8.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn procargs2_argv(data: &[u8]) -> Option<Vec<String>> {
+    procargs2_words(data).map(|(words, _)| words)
+}
+
+/// The environment in a `KERN_PROCARGS2` answer: the NUL-terminated `NAME=value` strings after
+/// argv, up to the first empty one or the end. `None` when argv is cut short (`procargs2_argv`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn procargs2_env(data: &[u8]) -> Option<Vec<(String, String)>> {
+    let (_, rest) = procargs2_words(data)?;
+    // The strings after the environment (the kernel's own, past an empty one) are not its.
+    let end: usize =
+        rest.split(|b| *b == 0).take_while(|w| !w.is_empty()).map(|w| w.len() + 1).sum();
+    Some(env_pairs(rest.get(..end.min(rest.len()))?))
+}
+
+/// NUL-separated `NAME=value` strings (`/proc/<pid>/environ`): each as its name and value. One
+/// that is not UTF-8 or has no `=` is skipped.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn env_pairs(data: &[u8]) -> Vec<(String, String)> {
+    data.split(|b| *b == 0)
+        .filter_map(|w| std::str::from_utf8(w).ok()?.split_once('='))
+        .filter(|(k, _)| !k.is_empty())
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+}
+
+/// `procargs2_argv`'s words, and what follows the last of them (the environment).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn procargs2_words(data: &[u8]) -> Option<(Vec<String>, &[u8])> {
     let (count, rest) = data.split_first_chunk::<4>()?;
     let argc = usize::try_from(i32::from_ne_bytes(*count)).ok()?;
     // The exec path, then the NULs that pad it, then the argv words.
@@ -277,7 +345,7 @@ fn procargs2_argv(data: &[u8]) -> Option<Vec<String>> {
         words.push(String::from_utf8(word.to_vec()).ok()?);
         at = rest.get(1..)?;
     }
-    Some(words)
+    Some((words, at))
 }
 
 /// The argv in a `/proc/<pid>/cmdline`: NUL-terminated words. `None` when it is empty (a kernel
@@ -404,8 +472,11 @@ mod census_tests {
         let mut relative = 1i32.to_ne_bytes().to_vec();
         relative.extend_from_slice(b"bin/a\0bin/a\0");
         assert!(super::procargs2_exec_path(&relative).is_none(), "not absolute");
-        assert_eq!(super::undeleted(format!("{app} (deleted)").into()), std::path::Path::new(app));
-        assert_eq!(super::undeleted(app.into()), std::path::Path::new(app));
+        assert_eq!(
+            crate::self_command::undeleted(format!("{app} (deleted)").into()),
+            std::path::Path::new(app)
+        );
+        assert_eq!(crate::self_command::undeleted(app.into()), std::path::Path::new(app));
         assert_eq!(
             cmdline_argv(format!("{app}\0forum-mcp\0").as_bytes()).unwrap(),
             [app, "forum-mcp"]
@@ -418,6 +489,49 @@ mod census_tests {
             cmdline_argv(b"node /x/server.js --stdio\0\0\0").unwrap(),
             ["node /x/server.js --stdio", "", ""]
         );
+    }
+
+    #[test]
+    fn environ_reads_each_name_and_value() {
+        use super::{env_pairs, procargs2_env};
+        let mut data = 1i32.to_ne_bytes().to_vec();
+        data.extend_from_slice(b"/bin/a\0\0/bin/a\0HOME=/x\0PATH=/b:/c\0X=a=b\0\0junk=1\0");
+        let env = procargs2_env(&data).unwrap();
+        assert_eq!(
+            env,
+            [("HOME", "/x"), ("PATH", "/b:/c"), ("X", "a=b")].map(|(k, v)| (k.into(), v.into()))
+        );
+        let mut apple = 1i32.to_ne_bytes().to_vec();
+        apple.extend_from_slice(b"/bin/a\0/bin/a\0\0executable_path=/bin/a\0");
+        assert!(
+            procargs2_env(&apple).unwrap().is_empty(),
+            "the kernel's strings are no environment"
+        );
+        let mut bare = 1i32.to_ne_bytes().to_vec();
+        bare.extend_from_slice(b"/bin/a\0/bin/a\0");
+        assert!(procargs2_env(&bare).unwrap().is_empty(), "no environment");
+        assert_eq!(
+            env_pairs(b"A=1\0noeq\0=v\0B=\0"),
+            [("A".into(), "1".into()), ("B".into(), String::new())]
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn environ_reads_a_live_process() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .env("ACPMUX_TREE_ENV_PROBE", "a b=c")
+            .spawn()
+            .unwrap();
+        let got = settled(|| {
+            super::environ(child.id())
+                .filter(|e| e.iter().any(|(k, _)| k == "ACPMUX_TREE_ENV_PROBE"))
+        });
+        let _ = child.kill();
+        let _ = child.wait();
+        let got = got.expect("the child's environment");
+        assert!(got.contains(&("ACPMUX_TREE_ENV_PROBE".into(), "a b=c".into())), "{got:?}");
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]

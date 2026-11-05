@@ -13,8 +13,9 @@
 //!    `PUT /v1/chiefs/<id>/memory`, batches under 900 KB.
 //! 5. The brain on, and a read back of the memory count and state.
 //!
-//! The account's session token comes from `CMUX_CLOUD_SESSION_TOKEN` or a
-//! 0600 file (`--session-token-file`); it is never printed or logged.
+//! The account's session token comes from `CMUX_CLOUD_SESSION_TOKEN`, a 0600
+//! file (`--session-token-file`), or the signed-in app (`cmux auth token`);
+//! it is never printed or logged.
 
 use std::path::Path;
 use std::time::Duration;
@@ -23,9 +24,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 /// The local Chief's own id in its owner (cmux_chief::rules::AGENT_MUX).
-const LOCAL_CHIEF: &str = "agent_mux";
+pub(crate) const LOCAL_CHIEF: &str = "agent_mux";
 /// The local person's id in its owner.
-const LOCAL_USER: &str = "user_local";
+pub(crate) const LOCAL_USER: &str = "user_local";
 const HISTORY_BATCH: usize = 200;
 const HISTORY_BYTES: usize = 700_000;
 const MEMORY_BYTES: usize = 900_000;
@@ -47,18 +48,17 @@ pub fn api_base(target: &str) -> Result<String, String> {
     }
 }
 
-/// The session token: `CMUX_CLOUD_SESSION_TOKEN`, else the file (must not be
-/// readable by others).
-pub fn session_token(file: Option<&Path>) -> Result<String, String> {
+/// The session token for the API at `base`: `CMUX_CLOUD_SESSION_TOKEN`, else
+/// the file (must not be readable by others), else a fresh short-lived token
+/// from the signed-in cmux app (`cmux auth token --json`), so a person never
+/// copies a token by hand. The app's token is used only when it was issued by
+/// `base` (the app may be signed in to another cloud); `base` None takes it as is.
+pub fn session_token(file: Option<&Path>, base: Option<&str>) -> Result<String, String> {
     if let Some(token) = crate::cli::env("CMUX_CLOUD_SESSION_TOKEN") {
         return Ok(token.trim().to_owned());
     }
     let Some(file) = file else {
-        return Err(
-            "the cloud target needs the account's session: set CMUX_CLOUD_SESSION_TOKEN \
-                    or pass --session-token-file FILE (0600)"
-                .into(),
-        );
+        return app_token(base);
     };
     use std::os::unix::fs::PermissionsExt;
     let meta = std::fs::metadata(file).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -76,9 +76,63 @@ pub fn session_token(file: Option<&Path>) -> Result<String, String> {
     Ok(token)
 }
 
+/// The app's CLI: `OPTCHAT_MOVE_CMUX` (tests), else the cmux the host uses.
+fn app_cli() -> std::path::PathBuf {
+    crate::cli::env("OPTCHAT_MOVE_CMUX")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(crate::agent_memory::relay::cmux_cli)
+}
+
+/// A token minted by the signed-in app (`cmux auth token --json`); never printed.
+fn app_token(base: Option<&str>) -> Result<String, String> {
+    let cli = app_cli();
+    let out = std::process::Command::new(&cli)
+        .args(["auth", "token", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| {
+            format!(
+                "the cloud target needs the account's session: no CMUX_CLOUD_SESSION_TOKEN or \
+                 --session-token-file, and the cmux app's CLI ({}) did not run: {e}",
+                cli.display()
+            )
+        })?;
+    let reply: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    if !out.status.success() || reply["access_token"].as_str().is_none() {
+        // The CLI's error is the app's localized refusal (sign in, choose a team); it holds no token.
+        let why = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+        let why = if why.is_empty() {
+            reply["error"]["message"]
+                .as_str()
+                .unwrap_or("no token")
+                .to_owned()
+        } else {
+            why
+        };
+        return Err(format!("the cmux app gave no cloud token: {why}"));
+    }
+    let origin = reply["api_origin"]
+        .as_str()
+        .unwrap_or("")
+        .trim_end_matches('/');
+    if let Some(base) = base
+        && origin != base.trim_end_matches('/')
+    {
+        return Err(format!(
+            "the cmux app is signed in to {origin}, not {base}: sign in to that cloud in the app, \
+             or pass --session-token-file"
+        ));
+    }
+    Ok(reply["access_token"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_owned())
+}
+
 /// The account's API with one session.
 pub struct Api {
-    base: String,
+    pub(crate) base: String,
     token: String,
     agent: ureq::Agent,
 }
@@ -93,7 +147,12 @@ impl Api {
 
     /// One call; the reply's JSON (also for an HTTP error status). The
     /// token never appears in an error.
-    fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<(u16, Value), String> {
+    pub(crate) fn call(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<(u16, Value), String> {
         let request = self
             .agent
             .request(method, &format!("{}{path}", self.base))
@@ -110,7 +169,11 @@ impl Api {
             Err(e) => return Err(format!("{method} {path}: {}", transport_text(&e))),
         };
         let status = response.status();
-        let text = response.into_string().unwrap_or_default();
+        // Not `into_string`: it refuses a body over 10 MB, and a Chief's first memory export page
+        // is larger (16 MB for 20391 messages).
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut response.into_reader(), &mut text)
+            .map_err(|e| format!("{method} {path}: reading the answer: {e}"))?;
         let value = serde_json::from_str(&text).unwrap_or(Value::Null);
         Ok((status, value))
     }
@@ -124,7 +187,7 @@ impl Api {
         Err(format!("{name}: HTTP {status} {}", error_text(&value)))
     }
 
-    fn read(&self, name: &str, params: Value) -> Result<Value, String> {
+    pub(crate) fn read(&self, name: &str, params: Value) -> Result<Value, String> {
         let (status, value) = self.call(
             "POST",
             "/v1/read",
@@ -157,7 +220,7 @@ impl Api {
         self.set_brain(chief, false)
     }
 
-    fn brain(&self, chief: &str) -> Result<Option<bool>, String> {
+    pub(crate) fn brain(&self, chief: &str) -> Result<Option<bool>, String> {
         let (status, value) = self.call("GET", &format!("/v1/chiefs/{chief}/brain"), None)?;
         if status == 404 {
             return Err("this service runs no Cloud Chief brains (404 on the brain route)".into());
@@ -165,18 +228,33 @@ impl Api {
         Ok(value["value"]["config"]["enabled"].as_bool())
     }
 
-    fn set_brain(&self, chief: &str, enabled: bool) -> Result<(), String> {
-        let (status, value) = self.call(
-            "PUT",
-            &format!("/v1/chiefs/{chief}/brain"),
-            Some(&json!({"enabled": enabled})),
-        )?;
+    pub(crate) fn set_brain(&self, chief: &str, enabled: bool) -> Result<(), String> {
+        self.put_brain(
+            chief,
+            &json!({"enabled": enabled}),
+            if enabled { "brain on" } else { "brain off" },
+        )
+    }
+
+    /// Sets the hosted Chief's model; the cloud refuses one the account may not run.
+    pub(crate) fn set_brain_model(&self, chief: &str, model: &str) -> Result<(), String> {
+        self.put_brain(chief, &json!({"model": model}), "brain model")
+    }
+
+    fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
+        let (status, value) = self.call("PUT", &format!("/v1/chiefs/{chief}/brain"), Some(body))?;
         if (200..300).contains(&status) && value["ok"] != false {
             return Ok(());
         }
+        let code = value["error"]["code"].as_str().unwrap_or("");
+        let hint = if code == "chief_claude_unavailable" || code == "chief_model_unavailable" {
+            " (this cloud account may not run that model in the cloud: it needs a paid plan, \
+             or --cloud-model with a model the account allows)"
+        } else {
+            ""
+        };
         Err(format!(
-            "brain {}: HTTP {status} {}",
-            if enabled { "on" } else { "off" },
+            "{what}: HTTP {status} {}{hint}",
             error_text(&value)
         ))
     }
@@ -218,7 +296,7 @@ fn transport_text(e: &ureq::Error) -> String {
     }
 }
 
-fn error_text(value: &Value) -> String {
+pub(crate) fn error_text(value: &Value) -> String {
     let e = &value["error"];
     match (e["code"].as_str(), e["message"].as_str()) {
         (Some(c), Some(m)) => format!("{c}: {m}"),
@@ -480,6 +558,7 @@ pub fn move_to_cloud(
     checkpoint_sha: &str,
     name: &str,
     make_default: bool,
+    model: Option<&str>,
 ) -> Result<CloudMoved, String> {
     let short = &checkpoint_sha[..checkpoint_sha.len().min(16)];
     let made = api.op(
@@ -501,6 +580,11 @@ pub fn move_to_cloud(
         .unwrap_or_else(|| chief_main_conversation(&chief));
     if api.brain(&chief)? == Some(true) {
         api.set_brain(&chief, false)?;
+    }
+    // The model first: the cloud refuses one this account may not run (a paid model off its
+    // plan) here, before anything is copied, as it would when the brain turns on.
+    if let Some(model) = model {
+        api.set_brain_model(&chief, model)?;
     }
     // History.
     let conv_db = manifest

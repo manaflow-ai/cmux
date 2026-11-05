@@ -41,7 +41,7 @@ rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
 # the notary log), then staples the ticket into the bundle.
 echo "==> notarizing and stapling ${APP##*/}" >&2
 rc=0
-run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+notary_submit "$R" --config-file /dev/null --api-key-file "$secrets/api-key.json" \
   --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1200}" --staple "$APP" > "$LOG" 2>&1 || rc=$?
 cat "$LOG" >&2
 id="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$LOG" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"

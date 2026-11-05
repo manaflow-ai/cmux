@@ -73,6 +73,13 @@ pub(in crate::server) struct Room {
     timing: Timing,
 }
 
+impl Room {
+    /// The room's origin.
+    pub(in crate::server) fn url(&self) -> &str {
+        &self.url
+    }
+}
+
 enum Cmd {
     /// Send `guests` and the pending kicks again (a guest was kicked).
     Reconcile,
@@ -105,7 +112,21 @@ impl Drop for Bridge {
     }
 }
 
-/// `scheme://host[:port]` of `raw`: https, or http on a loopback host; no path, query or user.
+/// A room's origin (`origin`), in bytes: a share keeps it with its host token.
+pub(super) const MAX_ROOM_URL_BYTES: usize = 300;
+/// A room's host token, in bytes (the room mints 43). A share keeps it, so its size is bounded
+/// like the rest of the shares file (`fits`); a longer one is a bad answer.
+pub(super) const MAX_HOST_TOKEN_BYTES: usize = 256;
+
+/// A host token the shares file keeps at its own size: 1 to [`MAX_HOST_TOKEN_BYTES`] printable
+/// ASCII characters JSON writes as they are (no quote or backslash to escape).
+fn valid_host_token(token: &str) -> bool {
+    (1..=MAX_HOST_TOKEN_BYTES).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_graphic() && b != b'"' && b != b'\\')
+}
+
+/// `scheme://host[:port]` of `raw`: https, or http on a loopback host; no path, query or user;
+/// at most [`MAX_ROOM_URL_BYTES`].
 fn origin(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw.trim()).ok()?;
     let loopback = match url.host()? {
@@ -115,7 +136,9 @@ fn origin(raw: &str) -> Option<String> {
     };
     let scheme = url.scheme() == "https" || (url.scheme() == "http" && loopback);
     let bare = url.path() == "/" && url.query().is_none() && url.username().is_empty();
-    (scheme && bare && url.fragment().is_none()).then(|| url.origin().ascii_serialization())
+    let origin = url.origin().ascii_serialization();
+    (scheme && bare && url.fragment().is_none() && origin.len() <= MAX_ROOM_URL_BYTES)
+        .then_some(origin)
 }
 
 impl Bridge {
@@ -360,7 +383,7 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
             body.get("host_token").and_then(Value::as_str),
             body.get("url_base").and_then(Value::as_str),
         ) {
-            (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
+            (Some(token), Some(base)) if valid_host_token(token) && valid_url_base(room, base) => {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
             _ => Put::Unreachable,
@@ -1132,8 +1155,9 @@ fn refused(mux: &Mux, share_id: &str, guest: &str, ask: relay::Ask) -> Vec<Value
 }
 
 /// The redeem refusals the room may pass to a guest.
-const GUEST_REFUSALS: [&str; 8] = [
+const GUEST_REFUSALS: [&str; 9] = [
     "share.secret",
+    "share.not_invited",
     "share.used",
     "share.name",
     "share.expired",
@@ -1162,14 +1186,24 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 secret: field("secret"),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
+                // The account the room signed in, for an invite (no secret then).
+                account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
             let redeemed = shares(mux).redeem(directory.as_deref(), redeem);
             shares(mux).settle(mux);
             let request_id = frame.get("request_id").unwrap_or(&Value::Null);
             match redeemed {
-                Ok(guest) => vec![json!({"v": 1, "t": "redeemed", "request_id": request_id,
-                    "guest_id": guest.get("guest_id")})],
+                Ok(guest) => {
+                    let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
+                        "guest_id": guest.get("guest_id")});
+                    // An invitee's role, so a view invitee's page has no composer; nothing else
+                    // about the account reaches the room. A link guest's answer has no role.
+                    if let Some(role) = guest.get("role") {
+                        answer["role"] = role.clone();
+                    }
+                    vec![answer]
+                }
                 // Only the refusals a guest may see reach the room (and the guest page); any
                 // other (storage, provisioning, an unknown share) is `share.unavailable`.
                 Err(code) => {
@@ -1228,4 +1262,4 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
-mod tests;
+pub(super) mod tests;

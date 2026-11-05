@@ -335,9 +335,9 @@ const MALFORMED_LIMITS: [string, unknown][] = [
   ["a window whose percent is not finite", { windows: [{ id: "session", usedPercent: Number.NaN }] }],
 ];
 
-test.each(MALFORMED_LIMITS)("usage limits with %s read as Not reported", async (_case, malformed) => {
+test.each(MALFORMED_LIMITS)("usage limits with %s read as No limit reported yet", async (_case, malformed) => {
   const { value } = await usageLimitsValue(malformed);
-  expect(value).toBe("Not reported");
+  expect(value).toBe("No limit reported yet");
 });
 
 test("a reset time outside the dates JavaScript can hold shows the window with no reset, not a crash", async () => {
@@ -356,4 +356,58 @@ test("a reset time outside the dates JavaScript can hold shows the window with n
 test("usage limits a harness reports as plain text still show as they are", async () => {
   const { value } = await usageLimitsValue("Weekly: 62% remaining");
   expect(value).toBe("Weekly: 62% remaining");
+});
+
+// Leo, 2026-11-03: "how come the status doesn't say anything". acpmux's session detail now fills
+// the card's host, sign-in, route and settings rows itself (session_status.rs), top level.
+const LAUNCHED = {
+  host: undefined,
+  machine: "cosmic-gray",
+  authSource: "SR2 token (sr2 claude)",
+  route: "SR2 (sr2 claude)",
+  settingsSources: ["~/.claude/settings.json", "~/cmux/.claude/settings.local.json", "autocompact at 400K"],
+  agentInfo: { version: "2.1.312" },
+};
+
+function rowsOf(container: HTMLElement): Record<string, string> {
+  return Object.fromEntries(
+    [...container.querySelectorAll<HTMLElement>(".acpmux-harness-status__value")].map((value) => [
+      value.dataset.copyLabel!,
+      value.querySelector(".acpmux-harness-status__value-text")!.textContent!,
+    ]),
+  );
+}
+
+test("the rows acpmux fills from the launch show, and no limit yet is said plainly", async () => {
+  const { container } = await render(() => {}, LAUNCHED);
+  const rows = rowsOf(container);
+  expect(rows.Host).toBe("cosmic-gray");
+  expect(rows["Auth source"]).toBe("SR2 token (sr2 claude)");
+  expect(rows.Routing).toBe("SR2 (sr2 claude)");
+  expect(rows.Settings).toBe("~/.claude/settings.json, ~/cmux/.claude/settings.local.json, autocompact at 400K");
+  expect(rows["Usage limits"]).toBe("No limit reported yet");
+  expect(Object.keys(rows)).toHaveLength(11);
+});
+
+test("a sign-in with no plan limits hides the Usage limits row", async () => {
+  const apiKey = {
+    ...LAUNCHED,
+    authSource: "API key (ANTHROPIC_API_KEY, from the environment)",
+    route: "Direct (Anthropic)",
+    usageLimitsApply: false,
+  };
+  const { container } = await render(() => {}, apiKey);
+  const rows = rowsOf(container);
+  expect(rows).not.toHaveProperty("Usage limits");
+  expect(rows.Routing).toBe("Direct (Anthropic)");
+  expect(Object.keys(rows)).toHaveLength(10);
+});
+
+test("limits a chat did report show even where acpmux said none apply", async () => {
+  const { container } = await render(() => {}, {
+    ...LAUNCHED,
+    usageLimitsApply: false,
+    usageLimits: { windows: [{ id: "weekly", usedPercent: 3 }] },
+  });
+  expect(rowsOf(container)["Usage limits"]).toContain("3% used");
 });

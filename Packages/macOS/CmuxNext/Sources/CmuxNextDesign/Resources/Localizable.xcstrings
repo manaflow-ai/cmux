@@ -1,6 +1,41 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "signIn.button": {"comment": "The shared Sign In button every place that says to sign in shows (SignInButton)", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sign In"}}, "ja": {"stringUnit": {"state": "translated", "value": "サインイン"}}, "ar": {"stringUnit": {"state": "translated", "value": "تسجيل الدخول"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prijava"}}, "da": {"stringUnit": {"state": "translated", "value": "Log ind"}}, "de": {"stringUnit": {"state": "translated", "value": "Anmelden"}}, "es": {"stringUnit": {"state": "translated", "value": "Iniciar sesión"}}, "fr": {"stringUnit": {"state": "translated", "value": "Se connecter"}}, "it": {"stringUnit": {"state": "translated", "value": "Accedi"}}, "km": {"stringUnit": {"state": "translated", "value": "ចូល"}}, "ko": {"stringUnit": {"state": "translated", "value": "로그인"}}, "nb": {"stringUnit": {"state": "translated", "value": "Logg inn"}}, "pl": {"stringUnit": {"state": "translated", "value": "Zaloguj się"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Entrar"}}, "ru": {"stringUnit": {"state": "translated", "value": "Войти"}}, "th": {"stringUnit": {"state": "translated", "value": "ลงชื่อเข้าใช้"}}, "tr": {"stringUnit": {"state": "translated", "value": "Giriş yap"}}, "uk": {"stringUnit": {"state": "translated", "value": "Увійти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Đăng nhập"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "登录"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "登入"}}}},
+    "theme.playground.windowTitle": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "All Themes"}}, "ja": {"stringUnit": {"state": "translated", "value": "すべてのテーマ"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "كل السمات"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Sve teme"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Alle temaer"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Alle Themes"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Todos los temas"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Tous les thèmes"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Tutti i temi"}}, "km": {"stringUnit": {"state": "needs_review", "value": "រូបរាងទាំងអស់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "모든 테마"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Alle temaer"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Wszystkie motywy"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Todos os temas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Все темы"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ธีมทั้งหมด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Tüm temalar"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Усі теми"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mọi chủ đề"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "所有主题"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "所有主題"}}}},
+    "theme.playground.search": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Search themes"}}, "ja": {"stringUnit": {"state": "translated", "value": "テーマを検索"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "البحث في السمات"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Pretraži teme"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Søg i temaer"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Themes durchsuchen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Buscar temas"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Rechercher des thèmes"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Cerca temi"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ស្វែងរករូបរាង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "테마 검색"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Søk i temaer"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Szukaj motywów"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Buscar temas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поиск тем"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ค้นหาธีม"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Temalarda ara"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Пошук тем"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Tìm chủ đề"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "搜索主题"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "搜尋主題"}}}},
+    "theme.playground.failuresOnly": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Failures only"}}, "ja": {"stringUnit": {"state": "translated", "value": "失敗のみ"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الإخفاقات فقط"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Samo neuspjesi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Kun fejl"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Nur Fehler"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Solo fallos"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Échecs uniquement"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Solo errori"}}, "km": {"stringUnit": {"state": "needs_review", "value": "តែការបរាជ័យ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "실패만"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Bare feil"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko błędy"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Somente falhas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Только ошибки"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เฉพาะที่ไม่ผ่าน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yalnızca başarısızlar"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Лише помилки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ lỗi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅失败项"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅失敗項"}}}},
+    "theme.playground.light": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Light"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライト"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "فاتح"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Svijetla"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Lys"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Hell"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Claro"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Clair"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Chiaro"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ភ្លឺ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "라이트"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Lys"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Jasny"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Claro"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Светлая"}}, "th": {"stringUnit": {"state": "needs_review", "value": "สว่าง"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Açık"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Світла"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Sáng"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "浅色"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "淺色"}}}},
+    "theme.playground.dark": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Dark"}}, "ja": {"stringUnit": {"state": "translated", "value": "ダーク"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "داكن"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tamna"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Mørk"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Dunkel"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Oscuro"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Sombre"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Scuro"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ងងឹត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "다크"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Mørk"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Ciemny"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Escuro"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Тёмная"}}, "th": {"stringUnit": {"state": "needs_review", "value": "มืด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Koyu"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Темна"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Tối"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "深色"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "深色"}}}},
+    "theme.playground.summary": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%lld of %lld themes fail"}}, "ja": {"stringUnit": {"state": "translated", "value": "%2$lld 件中 %1$lld 件のテーマが不合格"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "%lld من %lld سمة تخفق"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "%lld od %lld tema ne prolazi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "%lld af %lld temaer fejler"}}, "de": {"stringUnit": {"state": "needs_review", "value": "%lld von %lld Themes fallen durch"}}, "es": {"stringUnit": {"state": "needs_review", "value": "%lld de %lld temas fallan"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "%lld thèmes sur %lld échouent"}}, "it": {"stringUnit": {"state": "needs_review", "value": "%lld temi su %lld non superano"}}, "km": {"stringUnit": {"state": "needs_review", "value": "រូបរាង %lld ក្នុង %lld បរាជ័យ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "테마 %2$lld개 중 %1$lld개 실패"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "%lld av %lld temaer feiler"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "%lld z %lld motywów nie przechodzi"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%lld de %lld temas falham"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "%lld из %lld тем не проходят"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ธีม %lld จาก %lld ไม่ผ่าน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "%2$lld temadan %1$lld tanesi başarısız"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "%lld з %lld тем не проходять"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "%lld trên %lld chủ đề không đạt"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%2$lld 个主题中有 %1$lld 个未通过"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%2$lld 個主題中有 %1$lld 個未通過"}}}},
+    "theme.playground.failing": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%lld failing"}}, "ja": {"stringUnit": {"state": "translated", "value": "%lld 件不合格"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "%lld مخفقة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "%lld ne prolazi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "%lld fejler"}}, "de": {"stringUnit": {"state": "needs_review", "value": "%lld durchgefallen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "%lld fallan"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "%lld en échec"}}, "it": {"stringUnit": {"state": "needs_review", "value": "%lld non superati"}}, "km": {"stringUnit": {"state": "needs_review", "value": "%lld បរាជ័យ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "%lld개 실패"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "%lld feiler"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "%lld nie przechodzi"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%lld falham"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "%lld не проходят"}}, "th": {"stringUnit": {"state": "needs_review", "value": "%lld ไม่ผ่าน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "%lld başarısız"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "%lld не проходять"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "%lld không đạt"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%lld 项未通过"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%lld 項未通過"}}}},
+    "theme.playground.help.system": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%@ on %@: follows the system appearance, not the theme"}}, "ja": {"stringUnit": {"state": "translated", "value": "%2$@ 上の %1$@: テーマではなくシステムの外観に従っています"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "%@ على %@: يتبع مظهر النظام لا السمة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "%@ na %@: prati izgled sistema, ne temu"}}, "da": {"stringUnit": {"state": "needs_review", "value": "%@ på %@: følger systemets udseende, ikke temaet"}}, "de": {"stringUnit": {"state": "needs_review", "value": "%@ auf %@: folgt dem Systemerscheinungsbild, nicht dem Theme"}}, "es": {"stringUnit": {"state": "needs_review", "value": "%@ sobre %@: sigue la apariencia del sistema, no el tema"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "%@ sur %@ : suit l’apparence du système, pas le thème"}}, "it": {"stringUnit": {"state": "needs_review", "value": "%@ su %@: segue l’aspetto del sistema, non il tema"}}, "km": {"stringUnit": {"state": "needs_review", "value": "%@ លើ %@៖ តាមរូបរាងប្រព័ន្ធ មិនមែនតាមរូបរាង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "%2$@ 위의 %1$@: 테마가 아닌 시스템 모양을 따름"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "%@ på %@: følger systemets utseende, ikke temaet"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "%@ na %@: podąża za wyglądem systemu, nie motywem"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%@ sobre %@: segue a aparência do sistema, não o tema"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "%@ на %@: следует оформлению системы, а не теме"}}, "th": {"stringUnit": {"state": "needs_review", "value": "%@ บน %@: ตามรูปลักษณ์ของระบบ ไม่ใช่ธีม"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "%2$@ üzerinde %1$@: temayı değil sistem görünümünü izliyor"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "%@ на %@: слідує вигляду системи, а не темі"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "%@ trên %@: theo giao diện hệ thống, không theo chủ đề"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%2$@ 上的 %1$@：跟随系统外观，而不是主题"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%2$@ 上的 %1$@：跟隨系統外觀，而不是主題"}}}},
+    "theme.playground.help.contrast": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%@ on %@: %@:1, needs %@:1"}}, "ja": {"stringUnit": {"state": "translated", "value": "%2$@ 上の %1$@: %3$@:1（必要 %4$@:1）"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "%@ على %@: ‏%@:1، المطلوب %@:1"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "%@ na %@: %@:1, potrebno %@:1"}}, "da": {"stringUnit": {"state": "needs_review", "value": "%@ på %@: %@:1, kræver %@:1"}}, "de": {"stringUnit": {"state": "needs_review", "value": "%@ auf %@: %@:1, benötigt %@:1"}}, "es": {"stringUnit": {"state": "needs_review", "value": "%@ sobre %@: %@:1, necesita %@:1"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "%@ sur %@ : %@:1, requis %@:1"}}, "it": {"stringUnit": {"state": "needs_review", "value": "%@ su %@: %@:1, servono %@:1"}}, "km": {"stringUnit": {"state": "needs_review", "value": "%@ លើ %@៖ %@:1 ត្រូវការ %@:1"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "%2$@ 위의 %1$@: %3$@:1, 필요 %4$@:1"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "%@ på %@: %@:1, krever %@:1"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "%@ na %@: %@:1, wymagane %@:1"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%@ sobre %@: %@:1, precisa de %@:1"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "%@ на %@: %@:1, нужно %@:1"}}, "th": {"stringUnit": {"state": "needs_review", "value": "%@ บน %@: %@:1 ต้องการ %@:1"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "%2$@ üzerinde %1$@: %3$@:1, gereken %4$@:1"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "%@ на %@: %@:1, потрібно %@:1"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "%@ trên %@: %@:1, cần %@:1"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%2$@ 上的 %1$@：%3$@:1，需要 %4$@:1"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%2$@ 上的 %1$@：%3$@:1，需要 %4$@:1"}}}},
+    "theme.audit.ground.window": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "window"}}, "ja": {"stringUnit": {"state": "translated", "value": "ウィンドウ"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "النافذة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "prozor"}}, "da": {"stringUnit": {"state": "needs_review", "value": "vindue"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Fenster"}}, "es": {"stringUnit": {"state": "needs_review", "value": "ventana"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "fenêtre"}}, "it": {"stringUnit": {"state": "needs_review", "value": "finestra"}}, "km": {"stringUnit": {"state": "needs_review", "value": "បង្អួច"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "창"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "vindu"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "okno"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "janela"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "окно"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หน้าต่าง"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "pencere"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "вікно"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "cửa sổ"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗口"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "視窗"}}}},
+    "theme.audit.ground.hoveredRow": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "hovered row"}}, "ja": {"stringUnit": {"state": "translated", "value": "ホバー中の行"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "صف تحت المؤشر"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "red pod pokazivačem"}}, "da": {"stringUnit": {"state": "needs_review", "value": "række under markøren"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Zeile unter dem Zeiger"}}, "es": {"stringUnit": {"state": "needs_review", "value": "fila bajo el puntero"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "ligne survolée"}}, "it": {"stringUnit": {"state": "needs_review", "value": "riga sotto il puntatore"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ជួរក្រោមព្រួញ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "포인터 아래 행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "rad under pekeren"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "wiersz pod kursorem"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "linha sob o ponteiro"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "строка под указателем"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แถวใต้ตัวชี้"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "işaretçi altındaki satır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "рядок під вказівником"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "hàng dưới con trỏ"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停的行"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "游標下的列"}}}},
+    "theme.audit.ground.selectedRow": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "selected row"}}, "ja": {"stringUnit": {"state": "translated", "value": "選択中の行"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الصف المحدد"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "odabrani red"}}, "da": {"stringUnit": {"state": "needs_review", "value": "valgt række"}}, "de": {"stringUnit": {"state": "needs_review", "value": "ausgewählte Zeile"}}, "es": {"stringUnit": {"state": "needs_review", "value": "fila seleccionada"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "ligne sélectionnée"}}, "it": {"stringUnit": {"state": "needs_review", "value": "riga selezionata"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ជួរដែលបានជ្រើស"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "선택한 행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "valgt rad"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "zaznaczony wiersz"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "linha selecionada"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "выбранная строка"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แถวที่เลือก"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "seçili satır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "вибраний рядок"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "hàng đã chọn"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "选中的行"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "選取的列"}}}},
+    "theme.audit.ground.pressedRow": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "pressed row"}}, "ja": {"stringUnit": {"state": "translated", "value": "押下中の行"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "صف مضغوط"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "pritisnuti red"}}, "da": {"stringUnit": {"state": "needs_review", "value": "trykket række"}}, "de": {"stringUnit": {"state": "needs_review", "value": "gedrückte Zeile"}}, "es": {"stringUnit": {"state": "needs_review", "value": "fila presionada"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "ligne enfoncée"}}, "it": {"stringUnit": {"state": "needs_review", "value": "riga premuta"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ជួរដែលកំពុងចុច"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "누른 행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "trykket rad"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "wciśnięty wiersz"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "linha pressionada"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "нажатая строка"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แถวที่กดอยู่"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "basılı satır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "натиснутий рядок"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "hàng đang nhấn"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "按下的行"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "按下的列"}}}},
+    "theme.audit.ground.popover": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "popover"}}, "ja": {"stringUnit": {"state": "translated", "value": "ポップオーバー"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نافذة منبثقة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "skočni prozor"}}, "da": {"stringUnit": {"state": "needs_review", "value": "popover"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Popover"}}, "es": {"stringUnit": {"state": "needs_review", "value": "ventana emergente"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "popover"}}, "it": {"stringUnit": {"state": "needs_review", "value": "popover"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងលេចឡើង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팝오버"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "popover"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "dymek"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "popover"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "всплывающее окно"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ป๊อปโอเวอร์"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "açılır pencere"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "спливне вікно"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "cửa sổ bật lên"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "弹出框"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "彈出框"}}}},
+    "theme.audit.ground.highlightedRow": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "highlighted row"}}, "ja": {"stringUnit": {"state": "translated", "value": "ハイライト中の行"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الصف المميز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "istaknuti red"}}, "da": {"stringUnit": {"state": "needs_review", "value": "fremhævet række"}}, "de": {"stringUnit": {"state": "needs_review", "value": "hervorgehobene Zeile"}}, "es": {"stringUnit": {"state": "needs_review", "value": "fila resaltada"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "ligne surlignée"}}, "it": {"stringUnit": {"state": "needs_review", "value": "riga evidenziata"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ជួរដែលបានបន្លិច"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "강조된 행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "uthevet rad"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "podświetlony wiersz"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "linha destacada"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "выделенная строка"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แถวที่ไฮไลต์"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "vurgulanan satır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "виділений рядок"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "hàng được tô sáng"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "高亮的行"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "醒目提示的列"}}}},
+    "theme.audit.ground.accentButton": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "accent button"}}, "ja": {"stringUnit": {"state": "translated", "value": "アクセントボタン"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "زر التمييز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "dugme naglaska"}}, "da": {"stringUnit": {"state": "needs_review", "value": "accentknap"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Akzenttaste"}}, "es": {"stringUnit": {"state": "needs_review", "value": "botón de acento"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "bouton d’accent"}}, "it": {"stringUnit": {"state": "needs_review", "value": "pulsante d’accento"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងពណ៌សង្កត់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "강조 버튼"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "aksentknapp"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "przycisk akcentu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "botão de destaque"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "кнопка акцента"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มสีเน้น"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "vurgu düğmesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "кнопка акценту"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "nút nhấn mạnh"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "强调色按钮"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "強調色按鈕"}}}},
+    "theme.audit.ground.updateButton": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "update button"}}, "ja": {"stringUnit": {"state": "translated", "value": "アップデートボタン"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "زر التحديث"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "dugme za ažuriranje"}}, "da": {"stringUnit": {"state": "needs_review", "value": "opdateringsknap"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Update-Taste"}}, "es": {"stringUnit": {"state": "needs_review", "value": "botón de actualización"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "bouton de mise à jour"}}, "it": {"stringUnit": {"state": "needs_review", "value": "pulsante di aggiornamento"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងធ្វើបច្ចុប្បន្នភាព"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "업데이트 버튼"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "oppdateringsknapp"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "przycisk aktualizacji"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "botão de atualização"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "кнопка обновления"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มอัปเดต"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "güncelleme düğmesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "кнопка оновлення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "nút cập nhật"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "更新按钮"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更新按鈕"}}}},
+    "theme.audit.element.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sidebar row and tab title"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーの行とタブのタイトル"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "عنوان صف الشريط الجانبي واللسان"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Naslov reda bočne trake i kartice"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Titel på sidepanelrække og fane"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Titel von Seitenleistenzeile und Tab"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Título de fila de barra lateral y pestaña"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Titre de ligne de barre latérale et d’onglet"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Titolo di riga della barra laterale e scheda"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចំណងជើងជួររបារចំហៀង និងផ្ទាំង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 행과 탭 제목"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tittel på sidefeltrad og fane"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tytuł wiersza paska bocznego i karty"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Título da linha da barra lateral e da aba"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Заголовок строки боковой панели и вкладки"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ชื่อแถวแถบด้านข้างและแท็บ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu satırı ve sekme başlığı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Заголовок рядка бічної панелі та вкладки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Tiêu đề hàng thanh bên và tab"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏行和标签标题"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄列和分頁標題"}}}},
+    "theme.audit.element.detail": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sidebar row detail, inactive tab title"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーの行の詳細、非アクティブなタブのタイトル"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تفاصيل صف الشريط الجانبي، عنوان لسان غير نشط"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Detalj reda bočne trake, naslov neaktivne kartice"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Detalje i sidepanelrække, titel på inaktiv fane"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Detail der Seitenleistenzeile, Titel inaktiver Tabs"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Detalle de fila de barra lateral, título de pestaña inactiva"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Détail de ligne de barre latérale, titre d’onglet inactif"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Dettaglio di riga della barra laterale, titolo di scheda inattiva"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ព័ត៌មានលម្អិតជួររបារចំហៀង ចំណងជើងផ្ទាំងអសកម្ម"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 행 세부 정보, 비활성 탭 제목"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Detalj i sidefeltrad, tittel på inaktiv fane"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Szczegół wiersza paska bocznego, tytuł nieaktywnej karty"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Detalhe da linha da barra lateral, título de aba inativa"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Подробности строки боковой панели, заголовок неактивной вкладки"}}, "th": {"stringUnit": {"state": "needs_review", "value": "รายละเอียดแถวแถบด้านข้าง ชื่อแท็บที่ไม่ใช้งาน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu satırı ayrıntısı, etkin olmayan sekme başlığı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Подробиці рядка бічної панелі, заголовок неактивної вкладки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chi tiết hàng thanh bên, tiêu đề tab không hoạt động"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏行详情、非活动标签标题"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄列詳細資訊、非作用中分頁標題"}}}},
+    "theme.audit.element.hint": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Hint and placeholder"}}, "ja": {"stringUnit": {"state": "translated", "value": "ヒントとプレースホルダ"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تلميح وعنصر نائب"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Savjet i čuvar mjesta"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tip og pladsholder"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Hinweis und Platzhalter"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Sugerencia y marcador de posición"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Indice et texte indicatif"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Suggerimento e segnaposto"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ការណែនាំ និងអត្ថបទជំនួស"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "힌트와 자리 표시자"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Hint og plassholder"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Wskazówka i symbol zastępczy"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Dica e espaço reservado"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Подсказка и заполнитель"}}, "th": {"stringUnit": {"state": "needs_review", "value": "คำแนะนำและข้อความตัวยึด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İpucu ve yer tutucu"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Підказка й заповнювач"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Gợi ý và văn bản giữ chỗ"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "提示和占位符"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "提示和預留位置"}}}},
+    "theme.audit.element.dotUnread": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sidebar status dot: unread"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーの状態ドット: 未読"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نقطة حالة الشريط الجانبي: غير مقروء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tačka statusa bočne trake: nepročitano"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statusprik i sidepanel: ulæst"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statuspunkt der Seitenleiste: ungelesen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Punto de estado de barra lateral: no leído"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Point d’état de la barre latérale : non lu"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Punto di stato della barra laterale: non letto"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចំណុចស្ថានភាពរបារចំហៀង៖ មិនទាន់អាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 상태 점: 읽지 않음"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statusprikk i sidefelt: ulest"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Kropka stanu paska bocznego: nieprzeczytane"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ponto de status da barra lateral: não lido"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Точка состояния боковой панели: не прочитано"}}, "th": {"stringUnit": {"state": "needs_review", "value": "จุดสถานะแถบด้านข้าง: ยังไม่อ่าน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu durum noktası: okunmamış"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Крапка стану бічної панелі: непрочитане"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chấm trạng thái thanh bên: chưa đọc"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏状态点：未读"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄狀態點：未讀"}}}},
+    "theme.audit.element.dotAttention": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sidebar status dot: needs attention"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーの状態ドット: 要対応"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نقطة حالة الشريط الجانبي: يحتاج إلى انتباه"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tačka statusa bočne trake: traži pažnju"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statusprik i sidepanel: kræver opmærksomhed"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statuspunkt der Seitenleiste: braucht Aufmerksamkeit"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Punto de estado de barra lateral: requiere atención"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Point d’état de la barre latérale : demande votre attention"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Punto di stato della barra laterale: richiede attenzione"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចំណុចស្ថានភាពរបារចំហៀង៖ ត្រូវការការយកចិត្តទុកដាក់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 상태 점: 확인 필요"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statusprikk i sidefelt: trenger oppmerksomhet"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Kropka stanu paska bocznego: wymaga uwagi"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ponto de status da barra lateral: requer atenção"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Точка состояния боковой панели: требует внимания"}}, "th": {"stringUnit": {"state": "needs_review", "value": "จุดสถานะแถบด้านข้าง: ต้องดำเนินการ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu durum noktası: dikkat gerekiyor"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Крапка стану бічної панелі: потребує уваги"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chấm trạng thái thanh bên: cần chú ý"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏状态点：需要处理"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄狀態點：需要處理"}}}},
+    "theme.audit.element.dotError": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sidebar status dot: error"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーの状態ドット: エラー"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نقطة حالة الشريط الجانبي: خطأ"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tačka statusa bočne trake: greška"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statusprik i sidepanel: fejl"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statuspunkt der Seitenleiste: Fehler"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Punto de estado de barra lateral: error"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Point d’état de la barre latérale : erreur"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Punto di stato della barra laterale: errore"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចំណុចស្ថានភាពរបារចំហៀង៖ កំហុស"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 상태 점: 오류"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statusprikk i sidefelt: feil"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Kropka stanu paska bocznego: błąd"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ponto de status da barra lateral: erro"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Точка состояния боковой панели: ошибка"}}, "th": {"stringUnit": {"state": "needs_review", "value": "จุดสถานะแถบด้านข้าง: ข้อผิดพลาด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu durum noktası: hata"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Крапка стану бічної панелі: помилка"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chấm trạng thái thanh bên: lỗi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏状态点：错误"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄狀態點：錯誤"}}}},
+    "theme.audit.element.unreadBadge": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Unread dot and tab badge"}}, "ja": {"stringUnit": {"state": "translated", "value": "未読ドットとタブバッジ"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نقطة غير مقروء وشارة اللسان"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tačka nepročitanog i značka kartice"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ulæst-prik og fanemærke"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Ungelesen-Punkt und Tab-Kennzeichen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Punto de no leído e insignia de pestaña"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Point non lu et pastille d’onglet"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Punto non letto e badge della scheda"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចំណុចមិនទាន់អាន និងស្លាកផ្ទាំង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "읽지 않음 점과 탭 배지"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ulest-prikk og fanemerke"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Kropka nieprzeczytanych i plakietka karty"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ponto de não lido e selo da aba"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Точка непрочитанного и значок вкладки"}}, "th": {"stringUnit": {"state": "needs_review", "value": "จุดยังไม่อ่านและป้ายแท็บ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Okunmamış noktası ve sekme rozeti"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Крапка непрочитаного й значок вкладки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chấm chưa đọc và huy hiệu tab"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "未读点和标签徽章"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "未讀點和分頁標記"}}}},
+    "theme.audit.element.spinner": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Spinner"}}, "ja": {"stringUnit": {"state": "translated", "value": "スピナー"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مؤشر التحميل"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Indikator učitavanja"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Indlæsningsindikator"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Ladeanzeige"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Indicador de carga"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Indicateur de chargement"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Indicatore di caricamento"}}, "km": {"stringUnit": {"state": "needs_review", "value": "សញ្ញាកំពុងផ្ទុក"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "스피너"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Lasteindikator"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Wskaźnik ładowania"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Indicador de carregamento"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Индикатор загрузки"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ตัวหมุนโหลด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yükleme göstergesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Індикатор завантаження"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Biểu tượng đang tải"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "加载指示器"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "載入指示器"}}}},
+    "theme.audit.element.statusAttention": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Status text: attention"}}, "ja": {"stringUnit": {"state": "translated", "value": "状態テキスト: 注意"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نص الحالة: انتباه"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tekst statusa: pažnja"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statustekst: opmærksomhed"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statustext: Achtung"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Texto de estado: atención"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Texte d’état : attention"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Testo di stato: attenzione"}}, "km": {"stringUnit": {"state": "needs_review", "value": "អត្ថបទស្ថានភាព៖ ប្រុងប្រយ័ត្ន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "상태 텍스트: 주의"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statustekst: oppmerksomhet"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tekst stanu: uwaga"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto de status: atenção"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Текст состояния: внимание"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความสถานะ: โปรดทราบ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Durum metni: dikkat"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Текст стану: увага"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Văn bản trạng thái: chú ý"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "状态文本：注意"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "狀態文字：注意"}}}},
+    "theme.audit.element.statusError": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Status text: error"}}, "ja": {"stringUnit": {"state": "translated", "value": "状態テキスト: エラー"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نص الحالة: خطأ"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tekst statusa: greška"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statustekst: fejl"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statustext: Fehler"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Texto de estado: error"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Texte d’état : erreur"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Testo di stato: errore"}}, "km": {"stringUnit": {"state": "needs_review", "value": "អត្ថបទស្ថានភាព៖ កំហុស"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "상태 텍스트: 오류"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statustekst: feil"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tekst stanu: błąd"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto de status: erro"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Текст состояния: ошибка"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความสถานะ: ข้อผิดพลาด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Durum metni: hata"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Текст стану: помилка"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Văn bản trạng thái: lỗi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "状态文本：错误"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "狀態文字：錯誤"}}}},
+    "theme.audit.element.statusSuccess": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Status text: success"}}, "ja": {"stringUnit": {"state": "translated", "value": "状態テキスト: 成功"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نص الحالة: نجاح"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tekst statusa: uspjeh"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Statustekst: udført"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Statustext: Erfolg"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Texto de estado: éxito"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Texte d’état : réussite"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Testo di stato: riuscito"}}, "km": {"stringUnit": {"state": "needs_review", "value": "អត្ថបទស្ថានភាព៖ ជោគជ័យ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "상태 텍스트: 성공"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Statustekst: vellykket"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tekst stanu: powodzenie"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto de status: sucesso"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Текст состояния: успех"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความสถานะ: สำเร็จ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Durum metni: başarılı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Текст стану: успіх"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Văn bản trạng thái: thành công"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "状态文本：成功"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "狀態文字：成功"}}}},
+    "theme.audit.element.litGlyph": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Lit toolbar glyph"}}, "ja": {"stringUnit": {"state": "translated", "value": "点灯中のツールバーアイコン"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "رمز شريط أدوات مضاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Upaljena ikona alatne trake"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Aktiveret værktøjslinjeikon"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Aktives Symbolleistensymbol"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Icono de barra de herramientas activo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Icône de barre d’outils activée"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Icona della barra degli strumenti attiva"}}, "km": {"stringUnit": {"state": "needs_review", "value": "រូបតំណាងរបារឧបករណ៍ដែលបើក"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "켜진 도구 막대 아이콘"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Aktivert verktøylinjeikon"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Aktywna ikona paska narzędzi"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ícone ativo da barra de ferramentas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Активный значок панели инструментов"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ไอคอนแถบเครื่องมือที่เปิดอยู่"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Etkin araç çubuğu simgesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Активний значок панелі інструментів"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Biểu tượng thanh công cụ đang bật"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "点亮的工具栏图标"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "亮起的工具列圖示"}}}},
+    "theme.audit.element.popoverText": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Popover and palette text"}}, "ja": {"stringUnit": {"state": "translated", "value": "ポップオーバーとパレットのテキスト"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "نص النافذة المنبثقة واللوحة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Tekst skočnog prozora i palete"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tekst i popover og palet"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Text in Popover und Palette"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Texto de ventana emergente y paleta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Texte du popover et de la palette"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Testo di popover e palette"}}, "km": {"stringUnit": {"state": "needs_review", "value": "អត្ថបទផ្ទាំងលេចឡើង និងផ្ទាំងពាក្យបញ្ជា"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팝오버와 팔레트 텍스트"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tekst i popover og palett"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tekst dymka i palety"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto do popover e da paleta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Текст всплывающего окна и палитры"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความในป๊อปโอเวอร์และพาเลต"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Açılır pencere ve palet metni"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Текст спливного вікна й палітри"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Văn bản cửa sổ bật lên và bảng lệnh"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "弹出框和面板文本"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "彈出框和面板文字"}}}},
+    "theme.audit.element.popoverDetail": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Popover and palette detail"}}, "ja": {"stringUnit": {"state": "translated", "value": "ポップオーバーとパレットの詳細"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تفاصيل النافذة المنبثقة واللوحة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Detalj skočnog prozora i palete"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Detaljer i popover og palet"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Details in Popover und Palette"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Detalle de ventana emergente y paleta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Détail du popover et de la palette"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Dettaglio di popover e palette"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ព័ត៌មានលម្អិតផ្ទាំងលេចឡើង និងផ្ទាំងពាក្យបញ្ជា"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팝오버와 팔레트 세부 정보"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Detaljer i popover og palett"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Szczegół dymka i palety"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Detalhe do popover e da paleta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Подробности всплывающего окна и палитры"}}, "th": {"stringUnit": {"state": "needs_review", "value": "รายละเอียดในป๊อปโอเวอร์และพาเลต"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Açılır pencere ve palet ayrıntısı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Подробиці спливного вікна й палітри"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chi tiết cửa sổ bật lên và bảng lệnh"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "弹出框和面板详情"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "彈出框和面板詳細資訊"}}}},
+    "theme.audit.element.highlightedRow": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Palette and menu highlighted row"}}, "ja": {"stringUnit": {"state": "translated", "value": "パレットとメニューのハイライト行"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الصف المميز في اللوحة والقائمة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Istaknuti red palete i menija"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Fremhævet række i palet og menu"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Hervorgehobene Zeile in Palette und Menü"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Fila resaltada de paleta y menú"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Ligne surlignée de palette et de menu"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Riga evidenziata di palette e menu"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ជួរដែលបានបន្លិចក្នុងផ្ទាំងពាក្យបញ្ជា និងម៉ឺនុយ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팔레트와 메뉴의 강조된 행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Uthevet rad i palett og meny"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Podświetlony wiersz palety i menu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Linha destacada da paleta e do menu"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Выделенная строка палитры и меню"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แถวที่ไฮไลต์ในพาเลตและเมนู"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Palet ve menüde vurgulanan satır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Виділений рядок палітри й меню"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Hàng được tô sáng trong bảng lệnh và menu"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "面板和菜单的高亮行"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "面板和選單的醒目提示列"}}}},
+    "theme.audit.element.accentLabel": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Accent button label"}}, "ja": {"stringUnit": {"state": "translated", "value": "アクセントボタンのラベル"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تسمية زر التمييز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Oznaka dugmeta naglaska"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Etiket på accentknap"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Beschriftung der Akzenttaste"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Etiqueta del botón de acento"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Libellé du bouton d’accent"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Etichetta del pulsante d’accento"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ស្លាកប៊ូតុងពណ៌សង្កត់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "강조 버튼 레이블"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Etikett på aksentknapp"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Etykieta przycisku akcentu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Rótulo do botão de destaque"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Надпись кнопки акцента"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ป้ายปุ่มสีเน้น"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Vurgu düğmesi etiketi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Напис кнопки акценту"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Nhãn nút nhấn mạnh"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "强调色按钮标签"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "強調色按鈕標籤"}}}},
+    "theme.audit.element.updateLabel": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Update button label"}}, "ja": {"stringUnit": {"state": "translated", "value": "アップデートボタンのラベル"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تسمية زر التحديث"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Oznaka dugmeta za ažuriranje"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Etiket på opdateringsknap"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Beschriftung der Update-Taste"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Etiqueta del botón de actualización"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Libellé du bouton de mise à jour"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Etichetta del pulsante di aggiornamento"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ស្លាកប៊ូតុងធ្វើបច្ចុប្បន្នភាព"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "업데이트 버튼 레이블"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Etikett på oppdateringsknapp"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Etykieta przycisku aktualizacji"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Rótulo do botão de atualização"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Надпись кнопки обновления"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ป้ายปุ่มอัปเดต"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Güncelleme düğmesi etiketi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Напис кнопки оновлення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Nhãn nút cập nhật"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "更新按钮标签"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更新按鈕標籤"}}}},
     "dialog.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -27797,6 +27832,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重設計數"
+          }
+        }
+      }
+    },
+    "toast.hideDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Details"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les détails"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء التفاصيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar detalles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏詳細資訊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏详细信息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보 숨기기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を隠す"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij detalje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul detaljer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi dettagli"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ព័ត៌មានលម្អិត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul detaljer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj szczegóły"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar detalhes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть подробности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntıları Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати подробиці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn chi tiết"
+          }
+        }
+      }
+    },
+    "toast.detail.noSpace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine is out of disk space."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Rechner ist kein Speicherplatz mehr frei."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n'a plus d'espace disque."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نفدت مساحة القرص على الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina se quedó sin espacio en disco."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台機器的磁碟空間已用完。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台机器的磁盘空间已用完。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 디스크 공간이 부족합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのディスク容量が不足しています。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašini je ponestalo prostora na disku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er løbet tør for diskplads."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina ha esaurito lo spazio su disco."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនអស់ទំហំថាសហើយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er tom for diskplass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na maszynie zabrakło miejsca na dysku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina está sem espaço em disco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На машине закончилось место на диске."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องมีพื้นที่ดิสก์ไม่เพียงพอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinede disk alanı kalmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На машині закінчилося місце на диску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đã hết dung lượng ổ đĩa."
+          }
+        }
+      }
+    },
+    "toast.detail.readOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine's disk is read-only."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Datenträger des Rechners ist schreibgeschützt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le disque de la machine est en lecture seule."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قرص الجهاز للقراءة فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El disco de la máquina es de solo lectura."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台機器的磁碟為唯讀。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台机器的磁盘为只读。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 디스크가 읽기 전용입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのディスクは読み取り専用です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disk mašine je samo za čitanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinens disk er skrivebeskyttet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il disco della macchina è di sola lettura."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថាសរបស់ម៉ាស៊ីនអាចអានបានតែប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinens disk er skrivebeskyttet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dysk maszyny jest tylko do odczytu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O disco da máquina é somente leitura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск машины доступен только для чтения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดิสก์ของเครื่องเป็นแบบอ่านอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinenin diski salt okunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск машини доступний лише для читання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ổ đĩa của máy ở chế độ chỉ đọc."
+          }
+        }
+      }
+    },
+    "toast.detail.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine didn't allow access to that location."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Rechner hat den Zugriff auf diesen Ort nicht erlaubt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n'a pas autorisé l'accès à cet emplacement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يسمح الجهاز بالوصول إلى هذا الموقع."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina no permitió el acceso a esa ubicación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台機器不允許存取該位置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台机器不允许访问该位置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 해당 위치에 대한 접근을 허용하지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンがその場所へのアクセスを許可しませんでした。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina nije dozvolila pristup toj lokaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen tillod ikke adgang til den placering."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina non ha consentito l'accesso a quella posizione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមិនបានអនុញ្ញាតឱ្យចូលទីតាំងនោះទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen tillot ikke tilgang til den plasseringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna nie zezwoliła na dostęp do tej lokalizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina não permitiu acesso a esse local."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина не разрешила доступ к этому расположению."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องไม่อนุญาตให้เข้าถึงตำแหน่งนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine bu konuma erişime izin vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина не дозволила доступ до цього розташування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy không cho phép truy cập vị trí đó."
+          }
+        }
+      }
+    },
+    "toast.detail.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is too large for the machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei ist zu groß für den Rechner."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier est trop volumineux pour la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف كبير جدًا بالنسبة إلى الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo es demasiado grande para la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案對這台機器來說太大。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件对这台机器来说太大。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 머신에 비해 너무 큽니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルがマシンには大きすぎます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka je prevelika za mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filen er for stor til maskinen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file è troppo grande per la macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារធំពេកសម្រាប់ម៉ាស៊ីន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filen er for stor for maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik jest za duży dla maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo é grande demais para a máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл слишком велик для машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์มีขนาดใหญ่เกินไปสำหรับเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya makine için çok büyük."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл завеликий для машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp quá lớn đối với máy."
+          }
+        }
+      }
+    },
+    "toast.detail.errorCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error code: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlercode: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code d'erreur : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رمز الخطأ: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de error: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錯誤代碼：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误代码：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 코드: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーコード: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kôd greške: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fejlkode: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codice di errore: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លេខកូដកំហុស៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feilkode: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod błędu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código de erro: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Код ошибки: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสข้อผิดพลาด: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata kodu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Код помилки: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã lỗi: %@"
           }
         }
       }

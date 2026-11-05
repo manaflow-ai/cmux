@@ -7,7 +7,7 @@
 // A document that carries script never previews inline (InlinePreview.tsx): it opens in the side
 // panel, where Run is.
 // leo-workspace design/artifacts.md.
-import { ARTIFACT_POLICY } from "./artifactSandbox";
+import { ARTIFACT_POLICY, artifactNeedsRun } from "./artifactSandbox";
 import { artifactKind, type ArtifactKind } from "./artifactPreview";
 
 /// The frame's sandbox: scripts for the height reporter, and nothing else (no same-origin, top
@@ -77,8 +77,37 @@ export function inertDocument(html: string): string {
     .replace(LINK_ATTRIBUTE, (whole, name: string, equals: string, value: string) => {
       const target = value.replace(/^["']|["']$/g, "");
       if (target.startsWith("#") || /^(?:data|blob):/i.test(target)) return whole;
-      return `data-${name}${equals}${value} ${name}="#"`;
+      // `#` unquoted and first: the rewrite may sit inside another attribute's value
+      // (`title="href='x' …"`), where a quote it added would close that value and expose what
+      // follows as live attributes; and the original value, last, ends exactly where it did, so the
+      // rest of the tag reads as written (an unquoted `#` before `/>` would swallow the slash).
+      return `${name}=# data-${name}${equals}${value}`;
     });
+}
+
+/// The inert document of script-free markup, or nil when the rewrite left it needing Run after all
+/// (`artifactNeedsRun` of the result, parsed as the frame would): only then may it go to a frame
+/// that allows inline script (the native artifact frame), since the rewrite is text, not a parse.
+export function passiveDocument(html: string): string | undefined {
+  const inert = inertDocument(html);
+  return artifactNeedsRun(html) || artifactNeedsRun(inert) ? undefined : inert;
+}
+
+/// A policy of its own for a passive document in the native artifact frame, which writes the document
+/// into itself under the frame's policy, and that allows inline script (Run uses the same frame). The
+/// browser enforces every policy a document has, so with this one no script, handler or `javascript:`
+/// URL the document carries runs, whatever `artifactNeedsRun` missed (its fragment parse never sees
+/// `<body onload>`). The frame's own height reporter is not affected: it ran before the document did.
+/// The document's own `http-equiv` was made inert (`inertDocument`), so only this meta is live.
+const NO_SCRIPT = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`;
+/// A leading doctype (after any comments) stays first, so the document keeps its standards mode.
+const LEADING_DOCTYPE = /^(?:\s*<!--[\s\S]*?-->)*\s*<!doctype[^>]*>/i;
+
+/// The document the native artifact frame is sent for an inert, script-free preview (the inline
+/// preview's and the side panel's): `NO_SCRIPT` first.
+export function nativePassiveHtml(inert: string): string {
+  const doctype = LEADING_DOCTYPE.exec(inert)?.[0] ?? "";
+  return `${doctype}${NO_SCRIPT}${inert.slice(doctype.length)}`;
 }
 
 /// Turns off the browser's own DNS prefetch of the document's link targets.
@@ -105,7 +134,12 @@ export function inlinePreviewDocument(
   theme: string,
   nonce: string | undefined,
 ): string {
-  const html = inlinePreviewHtml(kind, code);
+  return previewFrameDocument(inlinePreviewHtml(kind, code), theme, nonce);
+}
+
+/// The `srcdoc` of a preview frame around `html`, which the caller has made inert (`inertDocument`):
+/// the inline preview's, and the side panel's passive frame in the gallery (ArtifactPanel.tsx).
+export function previewFrameDocument(html: string, theme: string, nonce: string | undefined): string {
   const script = nonce ? `<script nonce="${nonce}">${REPORTER}</script>` : `<script>${REPORTER}</script>`;
   // l10n-allow: HTML document syntax and CSP directives, not user-visible text.
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy(nonce)}">${NO_DNS_PREFETCH}<style>${theme}</style>${script}${html}`;

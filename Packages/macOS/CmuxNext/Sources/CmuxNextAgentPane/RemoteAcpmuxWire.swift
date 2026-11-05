@@ -77,6 +77,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var surface: UInt64?
         /// A `session/new` is starting the chat (one at a time).
         var starting = false
+        /// The latest model, mode or option pick: the next one waits for it, so picks reach the
+        /// daemon in the order the person made them (a model switch can reset its options).
+        var lastPick: Task<Void, Never>?
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
@@ -214,12 +217,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
+            guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
+                  let content = try? JSONSerialization.data(withJSONObject: blocks) else { return refuse(id, method) }
+            let text = Self.text(blocks)
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
-                let accepted = try await client.prompt(id: prompt, text: text)
+                let accepted = if let text { try await client.prompt(id: prompt, text: text) }
+                    else { try await client.prompt(id: prompt, content: content) }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
@@ -248,7 +254,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // and acpmux's answer goes back as it is (a config option's names the whole list).
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let setting = Self.setting(method, params) else { return refuse(id, method) }
-            run(id) { client in
+            run(id, afterEarlierPicks: true) { client in
                 switch setting {
                 case .model(let model): return try await client.setModel(model)
                 case .mode(let mode): return try await client.setMode(mode)
@@ -535,32 +541,49 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
     }
 
-    /// The text of a prompt made only of text blocks; nil for any other block.
+    /// Legacy text-only prompts. Metadata-bearing text uses content so pasted chips keep it.
     static func text(_ value: Any?) -> String? {
         guard let blocks = value as? [[String: Any]], !blocks.isEmpty else { return nil }
         var parts: [String] = []
         for block in blocks {
-            guard block["type"] as? String == "text", let text = block["text"] as? String else { return nil }
+            guard Set(block.keys) == ["type", "text"], block["type"] as? String == "text",
+                  let text = block["text"] as? String else { return nil }
             parts.append(text)
         }
         return parts.joined(separator: "\n\n")
     }
 
-    private func run(_ id: String?, _ work: @escaping @Sendable (any AgentSessionRemoteClient) async throws -> Data) {
+    /// With `afterEarlierPicks`, the call starts once the pick sent before it has answered.
+    private func run(_ id: String?, afterEarlierPicks: Bool = false,
+                     _ work: @escaping @Sendable (any AgentSessionRemoteClient) async throws -> Data) {
         // A new chat before its first send has no attachment: nothing to page, cancel or detach.
         guard let client = state.withLock({ $0.client }) else {
             return reply(id, [:])
         }
-        // task-owner: one daemon call per page request; its reply ends it
-        Task { [weak self] in
-            do {
-                let result = try await work(client)
-                self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: result, as: UTF8.self) + "}" })
-            } catch let error as AgentSessionRemoteError {
-                self?.fail(id, code: error.code, message: error.message)
-            } catch {
-                self?.fail(id, code: Self.unsupported, message: String(describing: error))
+        guard afterEarlierPicks else {
+            // task-owner: one daemon call per page request; its reply ends it
+            Task { [weak self] in await self?.answer(id, client, work) }
+            return
+        }
+        state.withLock { state in
+            let earlier = state.lastPick
+            // task-owner: one daemon call per pick, after the one before it; its reply ends it
+            state.lastPick = Task { [weak self] in
+                await earlier?.value
+                await self?.answer(id, client, work)
             }
+        }
+    }
+
+    private func answer(_ id: String?, _ client: any AgentSessionRemoteClient,
+                        _ work: @Sendable (any AgentSessionRemoteClient) async throws -> Data) async {
+        do {
+            let result = try await work(client)
+            emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: result, as: UTF8.self) + "}" })
+        } catch let error as AgentSessionRemoteError {
+            fail(id, code: error.code, message: error.message)
+        } catch {
+            fail(id, code: Self.unsupported, message: String(describing: error))
         }
     }
 

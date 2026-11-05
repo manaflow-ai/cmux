@@ -19,11 +19,14 @@ suppress style, nits and speculative improvements unless requested.
 3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
 4. Merge when the review subagent passes the change and it causes no red of its own
    (base reds, flakes and pending checks don't hold it). Into `main`, merge with
-   `gh-merge-green`; into `feat-cmux-next`, add `ready-to-land`. Report findings with
-   evidence, verification performed and coverage gaps.
+   `gh-merge-green`; into `feat-cmux-next`, merge it yourself with a squash pinned to
+   the reviewed head (`gh pr merge N --squash --match-head-commit <full head sha>`).
+   Report findings with evidence, verification performed and coverage gaps.
 
-Use subagents in the current runtime, not a second model or external review
-service as a gate. Keep review read-only until an authorized repair.
+A small change (a removal, a copy, CSS or token tweak, a fix confined to one
+component) needs only a subagent review in the current runtime. A behavior change
+into `feat-cmux-next` that is not small is reviewed by a different model or a
+person. Keep review read-only until an authorized repair.
 Do not commit review receipts, scratch reproductions or generated logs.
 
 ## Dogfood and merge

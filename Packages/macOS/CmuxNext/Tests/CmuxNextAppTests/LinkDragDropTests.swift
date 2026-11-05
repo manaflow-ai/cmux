@@ -1,3 +1,4 @@
+import CmuxNextAppCore
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextLayout

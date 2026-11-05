@@ -10,7 +10,11 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
 let source = git("show", `${baseline}:workers/cmux-vm/src/limits/mesh-creation.ts`);
 if (source.exitCode !== 0) {
-  assert.equal(git("fetch", "--no-tags", "--depth=1", "origin", baseline).exitCode, 0);
+  // --depth only on an already-shallow checkout: in a full clone it would truncate history for
+  // every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
+  const isShallow = new TextDecoder().decode(git("rev-parse", "--is-shallow-repository").stdout).trim() === "true";
+  const depth = isShallow ? ["--depth=1"] : [];
+  assert.equal(git("fetch", "--no-tags", ...depth, "origin", baseline).exitCode, 0);
   source = git("show", `${baseline}:workers/cmux-vm/src/limits/mesh-creation.ts`);
 }
 assert.equal(source.exitCode, 0);

@@ -100,6 +100,6 @@ rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
 # --staple waits for Apple's answer, fails unless it is Accepted (printing the
 # notary log), then staples the ticket to the DMG.
 echo "==> notarizing and stapling ${DMG##*/}"
-run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+notary_submit "$R" --config-file /dev/null --api-key-file "$secrets/api-key.json" \
   --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1800}" --staple "$DMG"
 echo "==> ${DMG##*/} is signed, notarized and stapled"

@@ -31,6 +31,8 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
+    @ObservationIgnored var actingWindow: () -> String? = { nil }
     /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
     @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
@@ -191,6 +193,7 @@ final class SSHService {
         if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
+        session.connectingWindow = actingWindow()
         rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }
@@ -222,6 +225,7 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
         guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
+        if byPerson { session.connectingWindow = actingWindow() } // its "Connecting to…" row lists in the asking window (#31490)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
@@ -370,10 +374,10 @@ final class SSHService {
         let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { session.updateOffered = false; return }
-        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
-        // else the person decides (Update available, then Update).
-        guard await agentDaemonIdleForUpdate(session) else {
-            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+        // By itself also while agents run (the daemon update never waits for idle); a machine whose
+        // agent daemon holds another client's person key is left to the person (Update available).
+        guard await agentDaemonAllowsAutomaticUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: another client holds its person key, or its agent daemon status is unreadable")
             session.updateOffered = true
             autoUpdated.done(tried)
             return

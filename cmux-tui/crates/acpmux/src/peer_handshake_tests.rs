@@ -1,6 +1,6 @@
 //! The handshake's own failures: a watch list too large to send, and any step the peer
-//! refuses. huge-blue's link to big-red (2026-10-30) sat 90 s on every try, `handshaking`
-//! with no error, because big-red's `_acpmux/watch` reply (17 MB with tools, 5241 rows) was
+//! refuses. one lane VM's link to another (2026-10-30) sat 90 s on every try, `handshaking`
+//! with no error, because the other VM's `_acpmux/watch` reply (17 MB with tools, 5241 rows) was
 //! over the 15 MiB message limit and came back as `message.too_large`.
 
 use super::*;

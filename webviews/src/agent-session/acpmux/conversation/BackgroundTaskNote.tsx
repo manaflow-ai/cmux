@@ -33,6 +33,11 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const detailsId = useId();
   const read = useBackgroundTaskOutput(task.toolCallId, open);
   const command = shortCommand(task.command);
+  // A shell that finished or failed reads as Claude Code desktop notes it, "Background command
+  // completed" in the rows' muted tone, then the command in the transcript's ink (Leo, 2026-11-03:
+  // "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
+  const lead =
+    state === "completed" ? t("bgTask.completedLead") : state === "failed" ? t("bgTask.failedLead") : undefined;
   const text =
     state === "completed"
       ? t("bgTask.completed", { command })
@@ -60,12 +65,16 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         <span className="cv-tool__icon">
           <TerminalSquare />
         </span>
-        <span className="cv-tool__text">{text}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <span className="cv-tool__text">
+          {lead ? (
+            <>
+              <span className="cv-bgtask__lead">{lead}</span> <span className="cv-bgtask__title">{command}</span>
+            </>
+          ) : (
+            text
+          )}
+        </span>
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

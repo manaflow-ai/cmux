@@ -134,7 +134,7 @@ import Testing
             }
             for (index, word) in words.enumerated() {
                 guard let first = word.first, first.isLowercase else { continue }
-                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                if word.hasPrefix("cmux") || word == "acpmux" || word.contains(".") { continue }
                 #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
             }
         }

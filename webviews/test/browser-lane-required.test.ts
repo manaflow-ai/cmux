@@ -3,7 +3,12 @@
 // engines CI installs (#24458 review: a skip after requireBrowserLane passed reported a required
 // file's tests as passing while none ran).
 import { expect, test } from "bun:test";
-import { browserLaneRequired, probeEngineOrSkip, type BrowserLaunchOptions } from "./support/requireBrowserLane";
+import {
+  browserLaneRequired,
+  probeEngineOrSkip,
+  requireBrowserLane,
+  type BrowserLaunchOptions,
+} from "./support/requireBrowserLane";
 
 /// Playwright's launch timeout: a TimeoutError whose message goes on with the launch's call log.
 const timeout = Object.assign(new Error("launch: Timeout 30000ms exceeded.\nCall log:\n  - <launched> pid=1"), {
@@ -112,4 +117,79 @@ test("the probe uses a bounded launch and closes the browser", async () => {
   expect(options).toEqual([{ headless: true, timeout: 30_000 }]);
   expect(skips).toEqual([]);
   expect(reports).toEqual([]);
+});
+
+// No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+// Mac or a fleet Mac, and Playwright turns the Chromium sandbox off whatever Chrome it drives. On a
+// Mac outside GitHub Actions a browser file skips before it registers or launches anything, whatever
+// CI, CMUX_CI_STEP_KEY or CMUX_BROWSER_TESTS say.
+const NO_PLAYWRIGHT_ON_MACS =
+  "browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM";
+
+async function lane(env: Record<string, string | undefined>, platform: string) {
+  const reports: string[] = [];
+  const skips: string[] = [];
+  let registered = 0;
+  let probed = 0;
+  await requireBrowserLane("thread minimap motion", () => void (registered += 1), {
+    env,
+    platform,
+    report: (line) => reports.push(line),
+    skip: (name) => skips.push(name),
+    unlaunchable: async () => ((probed += 1), []),
+  });
+  return { reports, skips, registered, probed };
+}
+
+test("on a Mac outside GitHub Actions the browser lane skips before it registers or launches", async () => {
+  for (const env of [
+    // CI=true without a fleet step key: the path that otherwise registers the file and launches.
+    { CI: "true" },
+    { CI: "true", CMUX_BROWSER_TESTS: "1" },
+    { CI: "true", CMUX_CI_STEP_KEY: "step", CMUX_BROWSER_TESTS: "1" },
+    { CMUX_BROWSER_TESTS: "1" },
+  ]) {
+    const { reports, skips, registered, probed } = await lane(env, "darwin");
+    expect({ reports, skips, registered, probed }).toEqual({
+      reports: [NO_PLAYWRIGHT_ON_MACS],
+      skips: ["thread minimap motion"],
+      registered: 0,
+      probed: 0,
+    });
+  }
+});
+
+test("GitHub Actions and Linux keep the browser lane", async () => {
+  for (const [env, platform] of [
+    [{ CI: "true", GITHUB_ACTIONS: "true" }, "darwin"],
+    [{ CI: "true", GITHUB_ACTIONS: "true" }, "linux"],
+    [{ CI: "true" }, "linux"],
+    [{ CMUX_BROWSER_TESTS: "1" }, "linux"],
+  ] as const) {
+    const { reports, skips, registered } = await lane(env, platform);
+    expect({ reports, skips, registered }).toEqual({ reports: [], skips: [], registered: 1 });
+  }
+});
+
+test("on a Mac outside GitHub Actions an engine probe skips without launching", async () => {
+  let launches = 0;
+  const reports: string[] = [];
+  const skips: string[] = [];
+  const result = await probeEngineOrSkip(
+    "thread minimap motion",
+    "chromium",
+    { launch: async () => ((launches += 1), { close: async () => {} }) },
+    {
+      env: { CI: "true", CMUX_BROWSER_TESTS: "1" },
+      platform: "darwin",
+      report: (l) => reports.push(l),
+      skip: (n) => skips.push(n),
+    },
+  );
+  expect({ result, launches, reports, skips }).toEqual({
+    result: false,
+    launches: 0,
+    reports: [NO_PLAYWRIGHT_ON_MACS],
+    skips: ["thread minimap motion"],
+  });
 });

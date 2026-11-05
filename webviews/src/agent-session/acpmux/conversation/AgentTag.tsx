@@ -1,10 +1,9 @@
 import type { MouseEvent, ReactNode } from "react";
-import { ArrowUpRight } from "./icons";
 import "./AgentTag.css";
 
 /** A compact agent or lane name tag shared by transcript activity rows. One that opens a chat is a
- *  link chip: the link colour, real padding and an open cue (↗), lit on its own on hover, never
- *  with its row (Leo, 2026-11-01: "this highlight is both not aligned with the icon vertically and
+ *  link chip: the theme's text on a wash of it and real padding, lit on its own on hover, never
+ *  with its row, and no arrow glyph (Leo, 2026-11-01: "nobody asked for that up right arrow") (Leo, 2026-11-01: "this highlight is both not aligned with the icon vertically and
  *  too small and also not prominent enough because the whole line gets highlighted and it's not
  *  obvious that clicking on this will be a new thing"). */
 export function AgentTag({
@@ -13,12 +12,15 @@ export function AgentTag({
   onClick,
   ariaLabel,
   className,
+  attributes,
 }: {
   name: ReactNode;
   title?: string;
   onClick?(event: MouseEvent<HTMLButtonElement>): void;
   ariaLabel?: string;
   className?: string;
+  /// More attributes on the button (`openSessionAttributes`).
+  attributes?: Record<string, string>;
 }) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
@@ -29,10 +31,10 @@ export function AgentTag({
         title={title}
         aria-label={ariaLabel}
         data-interactive=""
+        {...attributes}
         onClick={onClick}
       >
         <span className="cv-agent-tag__label">{name}</span>
-        <ArrowUpRight size={12} strokeWidth={1.4} className="cv-agent-tag__cue" />
       </button>
     );
   }

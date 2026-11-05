@@ -77,6 +77,11 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
+    // The three delivered lines next to each other are one "Received 3 messages" row (#32720):
+    // open it, so fanout-infra's line shows.
+    const received = page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle").first();
+    await received.waitFor();
+    if ((await received.getAttribute("aria-expanded")) === "false") await received.click();
     await toggleOf(page).waitFor();
     await settled(page);
     return page;
@@ -84,6 +89,16 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
 
   test("opening a line grows its panel under it; the line does not move", async () => {
     const page = await open();
+    // Off the very bottom: there, opening a line pushes the text above it up instead (Leo,
+    // 2026-11-02, transcript-expand-at-bottom.test.ts).
+    const fromEnd = await page.locator(".acpmux-scroll").evaluate(async (node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 48);
+      node.dispatchEvent(new Event("scroll"));
+      await window.cmuxPaintFrame();
+      return node.scrollHeight - node.clientHeight - node.scrollTop;
+    });
+    await settled(page);
+    expect(fromEnd).toBeGreaterThan(8);
     const before = await topOf(page);
     await toggleOf(page).click();
     await page.locator(".cv-received__text table").waitFor();

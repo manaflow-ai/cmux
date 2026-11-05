@@ -86,6 +86,7 @@ const paths: Record<string, ReactNode> = {
   filter: <path d="M2.4 3.4h11.2L9.4 8.4v4.4l-2.8-1.4v-3L2.4 3.4Z" />,
   layers: <path d="M8 2.4 14 5.6 8 8.8 2 5.6 8 2.4ZM2 8.4l6 3.2 6-3.2M2 11l6 3.2 6-3.2" />,
   check: <path d="m3.6 8.4 2.8 2.8 6-6.4" />,
+  star: <path d="m8 1.9 1.85 3.85 4.2.55-3.08 2.92.78 4.17L8 11.37l-3.75 2.02.78-4.17L1.95 6.3l4.2-.55L8 1.9Z" />,
   lock: (
     <>
       <rect x="3.2" y="7" width="9.6" height="6.8" rx="1.4" />

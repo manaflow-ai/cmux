@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
+import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
+import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -24,7 +26,12 @@ import {
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
-import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
+import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
+import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { experimentArm } from "../../experiments/experiment";
+import type { SlashNames, SlashTrigger } from "./slashCommands";
+import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -41,7 +48,7 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { baseKeymap, chainCommands, lift, selectAll } from "@milkdown/kit/prose/commands";
-import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
+import { closeHistory, redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
@@ -84,6 +91,9 @@ export type MarkdownFieldHandle = {
   insertTyped(text: string): void;
   /// Pastes `text` as the clipboard would: through `onBeforeInput` first.
   pasteText(text: string): void;
+  /// Paste as Plain Text is starting (the prompt's menu; ⌘⇧V the field hears itself): its paste goes
+  /// in as plain lines, never as the rich blocks a list or heading would make.
+  plainPaste(): void;
   /// Replaces the prompt without reporting it as the user's edit (a new tab adopted, a chat sent).
   reset(markdown?: string): void;
   /// `markdown` (the field's value) as the agent gets it: the characters the user typed, with
@@ -113,6 +123,9 @@ export type MarkdownFieldHandle = {
   /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
   /// is text), in order, each once; undefined before the editor is made.
   inlineIds(): string[] | undefined;
+  /// Writes `/name ` over the `/word` the caret ends (composer/slashTokens.ts), the text around it
+  /// kept, as one undoable edit; false when there is no such word or no editor yet.
+  insertCommand(name: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -125,7 +138,7 @@ export type MarkdownFieldProps = {
   /// The prompt as markdown. A value the field did not emit itself (cleared after a send, a
   /// command the menu wrote) replaces the document.
   value: string;
-  /// The new markdown, and the caret's offset in the first paragraph (where `/` commands live).
+  /// The new markdown, and the caret's offset in the first paragraph (`/` commands: `onSlash`).
   onChange(markdown: string, caret: number): void;
   onCaret?(caret: number): void;
   /// Runs before the editor's own keys; preventDefault keeps the editor from handling the key.
@@ -171,6 +184,10 @@ export type MarkdownFieldProps = {
   onPasteFirst?(event: ClipboardEvent): boolean;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
+  /// The command names a `/name` word draws blue for (slashCommands.ts `slashNames`); unset, none.
+  slashNames?: SlashNames;
+  /// The `/word` the caret ends, as it changes (undefined: none), for the `/` menu.
+  onSlash?(trigger: SlashTrigger | undefined): void;
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   /// Commands keep literal characters: no Markdown input rules or formatting shortcuts.
@@ -229,9 +246,14 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onWholeSelection === next.onWholeSelection &&
     previous.onPasteFirst === next.onPasteFirst &&
     previous.plugins === next.plugins &&
+    previous.slashNames === next.slashNames &&
+    previous.onSlash === next.onSlash &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
 }
+
+/// No command words: a field with no `/` commands colours nothing.
+const NO_SLASH_NAMES: SlashNames = { leading: new Set(), anywhere: new Set() };
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -312,6 +334,41 @@ function insertPlain(view: EditorView, text: string) {
   const tr = view.state.tr.replaceWith(from, to, fragment);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to))));
   view.dispatch(tr.scrollIntoView());
+}
+
+/** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
+ * lines, as a plain paste does (`plainFragment`), where Markdown would join them. */
+function withLineBreaks(fragment: Fragment, view: EditorView): Fragment {
+  const { schema } = view.state;
+  const hardbreak = schema.nodes.hardbreak;
+  if (!hardbreak) return fragment;
+  const nodes: ProseNode[] = [];
+  fragment.forEach((node) => {
+    if (node.isText && node.text?.includes("\n"))
+      node.text.split("\n").forEach((line, index) => {
+        if (index > 0) nodes.push(hardbreak.create());
+        if (line) nodes.push(schema.text(line, node.marks));
+      });
+    else if (node.isLeaf || node.type.spec.code) nodes.push(node);
+    else nodes.push(node.copy(withLineBreaks(node.content, view)));
+  });
+  return Fragment.from(nodes);
+}
+
+/** A paste as Markdown when it has blocks to draw (Leo, 2026-11-05: "we don't even render bullet
+ * points properly in our thing when we're pasting that stuff in"): HTML with lists, headings,
+ * quotes or tables (a web page, Notes, Docs, Slack, a reply copied from the transcript) read as
+ * Markdown, else plain text that is Markdown with a list or fenced code (Claude's and ChatGPT's
+ * Copy). Anything else is undefined and goes in as its plain lines. */
+function richPasteMarkdown(data: DataTransfer): string | undefined {
+  // A copy with a picture (image Markdown in its text, an <img> in its HTML) goes in as written,
+  // through the plain path and the image intake: the rich path has no place for the picture and
+  // would drop it.
+  const html = data.getData("text/html");
+  if (/<img\b/i.test(html) || /!\[[^\]\n]*\]\([^)\s]+[^)]*\)/.test(data.getData("text/plain"))) return undefined;
+  if (html && htmlHasBlocks(html)) return htmlMarkdown(html, { escape: true }) || undefined;
+  const text = withoutBreakPlaceholders(data.getData("text/plain"));
+  return looksLikeMarkdown(text) ? text : undefined;
 }
 
 /** The copy's text/plain: the lines as the field shows them (a block or line break a newline, an
@@ -462,6 +519,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onWholeSelection,
     onPasteFirst,
     plugins = [],
+    slashNames,
+    onSlash,
     multiline = true,
     literal = false,
     plainInput = false,
@@ -478,6 +537,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const view = useRef<EditorView | undefined>(undefined);
   const remark = useRef<RemarkParser | undefined>(undefined);
   const literalNow = useRef(literal);
+  // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
+  const plainPasteAt = useRef(-Infinity);
   literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
   plainInputNow.current = plainInput || literal;
@@ -543,6 +604,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onCopy,
     onWholeSelection,
     onPasteFirst,
+    onSlash,
   });
   latest.current = {
     onChange,
@@ -560,8 +622,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onCopy,
     onWholeSelection,
     onPasteFirst,
+    onSlash,
   };
+  const slashNamesNow = useRef(slashNames);
+  slashNamesNow.current = slashNames;
   const composing = useRef(false);
+  /// The `/word` last told to `onSlash`.
+  const slashTold = useRef<SlashTrigger | undefined>(undefined);
+  /// Tells `onSlash` the `/word` at the caret. Not while an input method composes: its text is not
+  /// typed yet (a candidate may still replace it); `compositionend` tells it.
+  const tellSlash = (state: EditorState) => {
+    const tell = latest.current.onSlash;
+    if (!tell || composing.current) return;
+    const next = slashTriggerAt(state);
+    const told = slashTold.current;
+    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    slashTold.current = next;
+    tell(next);
+  };
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
   const pendingFocus = useRef(false);
@@ -673,6 +751,28 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (!disposed && field) field.scrollTop = field.scrollHeight;
         });
       };
+      // A paste read as Markdown (`richPasteMarkdown`) goes in as the blocks typing it would make; a
+      // paragraph at either end joins the text around the caret. False when the
+      // editor is not made yet or the Markdown does not parse: the paste goes in as plain lines.
+      const insertMarkdown = (editorView: EditorView, markdown: string) => {
+        const made = editor.current;
+        if (!made) return false;
+        let parsed: ProseNode | undefined;
+        try {
+          parsed = made.action((ctx) => ctx.get(parserCtx)(markdown));
+        } catch {
+          return false;
+        }
+        if (!parsed?.content.size) return false;
+        // Open only at an end that is a paragraph: a pasted list or heading after typed words stays a
+        // list or heading, never its first item joined to the words.
+        const content = withLineBreaks(parsed.content, editorView);
+        const paragraph = editorView.state.schema.nodes.paragraph;
+        const open = (node: ProseNode | null) => (node?.type === paragraph ? 1 : 0);
+        const slice = new Slice(content, open(content.firstChild), open(content.lastChild));
+        editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView());
+        return true;
+      };
       // Keys reach the composer first, as a textarea's keydown would.
       const composerKeys = $prose(
         () =>
@@ -688,6 +788,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // was selected. Its own keydown flushes only pending DOM mutations, so read the
                   // selection here, before the surface's keys and ProseMirror's see it.
                   if (!event.isComposing && event.keyCode !== 229 && !_view.composing) readDomSelection(_view);
+                  if (!event.isComposing && isPasteAsPlainTextKey(event)) plainPasteAt.current = performance.now();
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
@@ -767,6 +868,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   compositionEndedAt = event.timeStamp;
                   composing.current = false;
                   latest.current.onCompositionChange?.(false);
+                  tellSlash(_view.state);
                   return false;
                 },
                 // A paste that carries images (files, or a data: <img> in its HTML: Chrome's Copy Image
@@ -886,6 +988,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // an HTML one as rich nodes (Leo 2026-10-21: "line breaks ... as <br />").
                 // VS Code's paste is Milkdown's (a code block in its language).
                 const data = event.clipboardData;
+                // Paste as Plain Text covers the one paste that follows it.
+                const plainOnly = performance.now() - plainPasteAt.current < PLAIN_PASTE_MS;
+                plainPasteAt.current = -Infinity;
+                const markdown =
+                  data &&
+                  !plainOnly &&
+                  !data.getData("vscode-editor-data") &&
+                  !editorView.state.selection.$from.parent.type.spec.code
+                    ? richPasteMarkdown(data)
+                    : undefined;
+                if (markdown !== undefined) {
+                  // The surface sees the text as copied first (a huge paste is the composer's chip).
+                  if (beforeInput(editorView, data?.getData("text/plain") || markdown, true)) return true;
+                  if (insertMarkdown(editorView, markdown)) {
+                    showPastedEnd(editorView.state);
+                    return true;
+                  }
+                }
                 if (data && !data.getData("vscode-editor-data")) {
                   const html = data.getData("text/html");
                   const text = data.getData("text/plain");
@@ -922,6 +1042,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             // Report every document and caret change; the composer's menu follows the caret.
             view: () => ({
               update: (next, previous) => {
+                tellSlash(next.state);
                 const whole = wholeSelected(next.state);
                 if (whole !== wholeNow) {
                   wholeNow = whole;
@@ -1095,6 +1216,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(history)
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+        .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
+        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1110,6 +1234,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           showPlaceholder(known.current);
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
+          tellSlash(view.current.state);
           if (pendingFocus.current) view.current.focus();
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
@@ -1171,6 +1296,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   }, [value]);
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);
+  // A new command list colours the prompt's command words again (an editor made later reads it).
+  useLayoutEffect(() => {
+    const current = view.current;
+    if (current) current.dispatch(setSlashNames(current.state.tr, slashNames ?? NO_SLASH_NAMES));
+  }, [slashNames]);
 
   const wrapper = useRef<HTMLDivElement | null>(null);
   // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
@@ -1189,9 +1319,6 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
-  // Under the scrollbar fade (agentPane.debug.scrollerFade, on by default since Lawrence 2026-10-23)
-  // a long draft's thumb fades in and out with the scrolling marks, as the transcript's does.
-  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -1316,6 +1443,19 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);
+        },
+        plainPaste: () => {
+          plainPasteAt.current = performance.now();
+        },
+        insertCommand: (name) => {
+          const current = view.current;
+          const tr = current && commandEdit(current.state, name);
+          if (!current || !tr) return false;
+          refocus.current = null;
+          current.dispatch(tr);
+          // What is typed next is its own undo step too.
+          current.dispatch(closeHistory(current.state.tr));
+          return true;
         },
         inlineIds: () => (view.current ? inlineIds(view.current.state.doc) : undefined),
         orderInline: (ids) => {

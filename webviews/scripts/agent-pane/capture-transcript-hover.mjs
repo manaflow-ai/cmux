@@ -10,7 +10,7 @@ const before = fs.readFileSync(process.argv[2], "utf8");
 const after = fs.readFileSync(current, "utf8");
 const out = process.argv[3];
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: "chrome" });
 try {
   for (const [version, css] of [
     ["before", before],

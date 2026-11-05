@@ -1,6 +1,10 @@
 //! The session pool's policy, apart from processes. Per cwd at most two
 //! entries are wanted: the harness used before the current one (`LastUsed`)
-//! and the one the pane hints at (`Hinted`). Across folders a harness keeps
+//! and the one the pane hints at (`Hinted`). Apart from those, each harness
+//! the machine used keeps one spare (`Spare`): an entry of the shape of its
+//! newest session, in that session's folder, so the next new session of it
+//! takes a running agent instead of a cold start; a newer session of the
+//! harness elsewhere moves the spare there. Across folders a harness keeps
 //! at most `hinted_per_harness` hinted entries (default 1, the newest hint
 //! wins): typing in new chats in several folders never leaves a warm agent
 //! per folder. A hint can be released (`release`). An entry no role wants is
@@ -61,6 +65,9 @@ pub enum Role {
     LastUsed,
     /// The harness the pane is about to switch to (`_acpmux/prewarm`).
     Hinted,
+    /// The shape of this harness's newest session: one per harness across
+    /// folders (`pool.spare`), kept for `pool.spareIdleMinutes`.
+    Spare,
 }
 
 enum Slot<T> {
@@ -73,6 +80,7 @@ struct Entry<T> {
     key: PoolKey,
     last_used: bool,
     hinted: bool,
+    spare: bool,
     /// When the newest hint for this key came (the per-harness cap keeps the newest).
     hinted_at: Duration,
     slot: Slot<T>,
@@ -86,7 +94,7 @@ struct Entry<T> {
 
 impl<T> Entry<T> {
     fn wanted(&self) -> bool {
-        self.last_used || self.hinted
+        self.last_used || self.hinted || self.spare
     }
 
     fn settle(&self) {
@@ -123,6 +131,8 @@ impl<T> Default for Wanted<T> {
 pub struct Pool<T> {
     entries: Vec<Entry<T>>,
     idle: Duration,
+    /// A spare's idle time (`pool.spareIdleMinutes`), never under `idle`.
+    spare_idle: Duration,
     next_generation: u64,
     /// Most hinted entries one harness keeps across folders (at least 1).
     hinted_per_harness: usize,
@@ -134,17 +144,29 @@ pub struct EntryView {
     pub key: PoolKey,
     pub last_used: bool,
     pub hinted: bool,
+    pub spare: bool,
     pub state: &'static str,
     pub deadline: Duration,
 }
 
 impl<T> Pool<T> {
     pub fn new(idle: Duration) -> Self {
-        Self { entries: Vec::new(), idle, next_generation: 1, hinted_per_harness: 1 }
+        Self {
+            entries: Vec::new(),
+            idle,
+            spare_idle: idle,
+            next_generation: 1,
+            hinted_per_harness: 1,
+        }
     }
 
     pub fn set_idle(&mut self, idle: Duration) {
         self.idle = idle;
+    }
+
+    /// How long a spare waits unused (`pool.spareIdleMinutes`).
+    pub fn set_spare_idle(&mut self, idle: Duration) {
+        self.spare_idle = idle;
     }
 
     /// Most hinted entries one harness keeps across folders (`pool.hintedPerHarness`); 0 counts as 1.
@@ -186,15 +208,32 @@ impl<T> Pool<T> {
                         e.hinted_at = now;
                     }
                 }
+                Role::Spare => {}
+            }
+        }
+        // One spare per harness, whatever the folder: the newest session's shape.
+        if role == Role::Spare {
+            for e in self
+                .entries
+                .iter_mut()
+                .filter(|e| e.key.origin == key.origin && e.key.harness == key.harness)
+            {
+                let was = e.spare;
+                e.spare = e.key == key;
+                // A role that only the spare held longer falls back to the pool's idle time.
+                if was && !e.spare {
+                    e.deadline = e.deadline.min(now + self.idle);
+                }
             }
         }
         if role == Role::Hinted {
             self.cap_hinted(&key);
         }
-        let idle = self.idle;
+        let (idle, spare_idle) = (self.idle, self.spare_idle.max(self.idle));
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
             Some(e) => {
-                e.deadline = now + idle;
+                // A spare waits its own (longer) time, whichever role wanted it now.
+                e.deadline = now + if e.spare { spare_idle } else { idle };
                 if matches!(e.slot, Slot::Empty) {
                     let generation = self.next_generation;
                     self.next_generation += 1;
@@ -210,10 +249,11 @@ impl<T> Pool<T> {
                 self.entries.push(Entry {
                     last_used: role == Role::LastUsed,
                     hinted: role == Role::Hinted,
+                    spare: role == Role::Spare,
                     hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
-                    deadline: now + idle,
+                    deadline: now + if role == Role::Spare { spare_idle } else { idle },
                     ready_at: now,
                     settled: watch::channel(0).0,
                 });
@@ -430,6 +470,22 @@ impl<T> Pool<T> {
         Some(t)
     }
 
+    /// A local entry of `harness` holds the spare role (ready, warming or empty).
+    pub fn has_spare(&self, harness: &str) -> bool {
+        self.entries
+            .iter()
+            .any(|e| e.spare && e.key.origin == Origin::Local && e.key.harness == harness)
+    }
+
+    /// Spares holding nothing (a start failed, or a dead one was removed): their keys, to start again.
+    pub fn empty_spares(&self) -> Vec<PoolKey> {
+        self.entries
+            .iter()
+            .filter(|e| e.spare && matches!(e.slot, Slot::Empty))
+            .map(|e| e.key.clone())
+            .collect()
+    }
+
     /// Empty the pool (config reload, shutdown); returns every ready session.
     pub fn clear(&mut self) -> Vec<T> {
         let mut out = Vec::new();
@@ -449,6 +505,7 @@ impl<T> Pool<T> {
                 key: e.key.clone(),
                 last_used: e.last_used,
                 hinted: e.hinted,
+                spare: e.spare,
                 state: match e.slot {
                     Slot::Empty => "empty",
                     Slot::Warming(_) => "warming",

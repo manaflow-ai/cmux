@@ -14,10 +14,13 @@ extension WorkspaceRowView {
         let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
         let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
-        let center = lines > 0 ? stackTop + th / 2 : b.midY
-        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: center, baseline: title.font.ascender,
+        // The title centers its capitals on its line of the stack (#27598).
+        let titleCenter = stackTop + th / 2
+        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
                                                                     capHeight: title.font.capHeight)
-        return (th, sh, top, center)
+        // The icon and the trailing marks center on the whole row, one line or two (Leo 2026-10-14: "wait that's
+        // not centered? why is it superscript?"); only an expanded row puts them on its title's line.
+        return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
@@ -45,19 +48,18 @@ extension WorkspaceRowView {
     /// its minX while it shows. An unpinned row draws no pin, at rest or on
     /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
     /// symbol by default").
-    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
         let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        setHoverShown(pinSlot, showMore && pinned, fades: fades)
         guard pinned else { return nil }
-        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
-            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+            let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreFrame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+            pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinButton.frame.minX : nil
+        return showMore ? pinSlot.frame.minX : nil
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.
@@ -65,12 +67,12 @@ extension WorkspaceRowView {
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        // The second and meta lines stack under the title's line box, so a two-line row keeps a one-line row's room
+        // below its last line (Leo 2026-10-20, `SidebarRowLineSpacingTests`). Stepping them by the title's capital
+        // center instead put the second line about a point lower and ate that room.
         subtitle.isHidden = !hasSubtitle
-        let titleCenter = top + title.font.ascender - title.font.capHeight / 2
-        let subtitleCenter = titleCenter + th + lineGap
-        subtitle.frame = NSRect(x: x, y: SidebarStyle.textY(subtitle, centerY: subtitleCenter), width: lineWidth, height: sh)
+        subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        let metaCenter = hasSubtitle ? subtitleCenter + sh + lineGap : titleCenter + th + lineGap
-        metaLabel.frame = NSRect(x: x, y: SidebarStyle.textY(metaLabel, centerY: metaCenter), width: lineWidth, height: sh)
+        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + lineGap, width: lineWidth, height: sh)
     }
 }

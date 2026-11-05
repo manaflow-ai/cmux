@@ -9,6 +9,7 @@ import {
   type IndexEntry,
   type ListResult,
   type NewsLayout,
+  type SheetLayout,
   type ReleaseNotes,
 } from "./types";
 
@@ -58,6 +59,13 @@ export function parseNewsLayout(hash: string): NewsLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const news = new URLSearchParams(query).get("news");
   return news === "alternate" || news === "stack" || news === "lead" ? news : "grid";
+}
+
+/** The What's New sheet's row layout the route names (`sheet=stack|grid`); inline by default. */
+export function parseSheetLayout(hash: string): SheetLayout {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const sheet = new URLSearchParams(query).get("sheet");
+  return sheet === "stack" || sheet === "grid" ? sheet : "inline";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
@@ -130,10 +138,23 @@ export class ChangelogStore {
     for (const listener of this.listeners) listener();
   }
 
-  /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
-  start(span?: UpdateSpan): Promise<void> {
-    this.started = this.load(span);
+  /** Loads the list, then the span's newest notes, else the running build's (or the newest listed).
+      `cachedFirst` (the Updated card after a relaunch) takes the list the host kept on disk when it
+      lists the span's newest build, and asks the network only when it does not. */
+  start(span?: UpdateSpan, options: { cachedFirst?: boolean } = {}): Promise<void> {
+    this.started = this.load(span, options.cachedFirst === true);
     return this.started;
+  }
+
+  /** The host's list from disk (`cached: true`, no network) when it lists `span`'s newest build. */
+  private async cachedList(span: UpdateSpan): Promise<ListResult | undefined> {
+    if (!this.client) return undefined;
+    try {
+      const list = await this.client.call<ListResult>(ChangelogOps.list, { cached: true });
+      return list.builds.some((b) => compareVersions(b.shortVersion, span.to) === 0) ? list : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Settles once the first screen's data has: the list, the selected build's notes and the notes
@@ -148,11 +169,13 @@ export class ChangelogStore {
     }
   }
 
-  private async load(span?: UpdateSpan): Promise<void> {
+  private async load(span?: UpdateSpan, cachedFirst = false): Promise<void> {
     if (!this.client) return;
     this.latestSpan = span;
     try {
-      const list = await this.client.call<ListResult>(ChangelogOps.list, {});
+      const list =
+        (cachedFirst && span ? await this.cachedList(span) : undefined) ??
+        (await this.client.call<ListResult>(ChangelogOps.list, {}));
       const builds = list.builds.length ? list.builds : [];
       this.listed = true;
       this.set({ builds, current: list.current, loading: false });

@@ -1,16 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample paths and code), not shipped UI.
 // Session Info beside what the chat pane shows: the header with its toggle, the transcript, and a
-// turn's diff open in place over the pane (App.tsx DiffPanel). Leo, 2026-10-22, Session Info over a
-// diff: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" The panel is the
-// real useSessionInfo's, open as the viewer left it (sessionInfoState.ts), wired as App.tsx wires it
-// (`covered` while the diff is in place, `beside` with a document in the side panel), so each state
-// shows where it draws, and whether its toggle can be reached, with the surface under it.
-import { useState } from "react";
+// document in the side panel. A turn's diff never opens in the pane (it is a tab on the chat's right,
+// turnChanges/viewChanges.ts). The panel is the real useSessionInfo's, open as the viewer left it
+// (sessionInfoState.ts), wired as App.tsx wires it (`beside` with a document in the side panel), so
+// each state shows where it draws, and whether its toggle can be reached, with the surface under it.
+import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import { ArtifactPanel, useArtifactCoversPane } from "../conversation/ArtifactPanel";
-import { DiffPanel } from "../DiffPanel";
+import { ChatFindBar } from "../conversation/ChatFindBar";
+import { useChatFind } from "../conversation/chatFind";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { setHeaderState } from "../header/headerState";
@@ -74,19 +73,35 @@ const DOCUMENT = {
   code: "# Lane briefs\n\n- app-efficiency: one perf harness first\n- sidebar-rows: new workspaces at the top\n",
 };
 
-type Surface = "transcript" | "diff" | "document";
-type Props = { surface: Surface };
+type Surface = "transcript" | "document";
+type Props = { surface: Surface; find?: boolean };
 
-function GalleryPane({ surface: initial }: Props) {
+/// Find in Chat over the pane's sample rows, opened by Cmd-F as the App's page action opens it.
+function GalleryFind() {
+  const find = useChatFind(snapshot.rows);
+  const { show } = find;
+  useEffect(() => {
+    const open = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        show();
+      }
+    };
+    document.addEventListener("keydown", open);
+    return () => document.removeEventListener("keydown", open);
+  }, [show]);
+  return find.open ? <ChatFindBar find={find} /> : null;
+}
+
+export function GalleryPane({ surface: initial, find }: Props) {
   const [surface, setSurface] = useState<Surface>(initial);
   const narrowPane = useArtifactCoversPane();
   const [shell, setShell] = useState<HTMLElement | null>(null);
-  const diff = surface === "diff";
   const sessionInfo = useSessionInfo({
     snapshot,
     machineName: "Studio Mac",
     shell,
-    covered: diff || (narrowPane && surface === "document"),
+    covered: narrowPane && surface === "document",
     onUncover: () => setSurface("transcript"),
     beside: surface === "document" ? 1 : undefined,
   });
@@ -99,7 +114,7 @@ function GalleryPane({ surface: initial }: Props) {
       }}
     >
       <div className="acpmux-main">
-        <div className={`acpmux-stage${diff ? " acpmux-reviewing" : ""}`}>
+        <div className="acpmux-stage">
           <header className="acpmux-header">
             <div />
             <div className="acpmux-handoff-header-tools">
@@ -107,7 +122,7 @@ function GalleryPane({ surface: initial }: Props) {
                 onTerminal={() => undefined}
                 onBrowser={() => undefined}
                 hasChanges
-                onChanges={() => setSurface("diff")}
+                onChanges={() => undefined}
                 summary={null}
                 menu={() => []}
                 sessionInfo={sessionInfo.button}
@@ -115,6 +130,7 @@ function GalleryPane({ surface: initial }: Props) {
             </div>
           </header>
           <div className="acpmux-scroll" style={{ padding: "16px 24px", overflow: "hidden" }}>
+            {find && <GalleryFind />}
             {TRANSCRIPT.map((line, index) =>
               index % 2 === 0 ? (
                 <div key={line} className="acpmux-user" style={{ margin: "12px 0" }}>
@@ -127,7 +143,6 @@ function GalleryPane({ surface: initial }: Props) {
               ),
             )}
           </div>
-          {diff && <DiffPanel files={files} onClose={() => setSurface("transcript")} />}
         </div>
       </div>
       {sessionInfo.panel}
@@ -135,9 +150,6 @@ function GalleryPane({ surface: initial }: Props) {
     </section>
   );
 }
-
-const panelState = (ctx: Parameters<Play>[0]) =>
-  ctx.document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") ?? "none";
 
 export default componentEntry<Props>({
   id: "agent-pane.chat-inspector-surfaces",
@@ -158,21 +170,9 @@ export default componentEntry<Props>({
       note: "Session Info open over the transcript: it starts under the header, so its toggle (pressed) and its own x both close it.",
       props: { surface: "transcript" },
     },
-    "diff-in-place": {
-      note: "A turn's diff open in place over the pane, with Session Info left open: Session Info steps aside, so the diff's toolbar and code lines are clear. Its open state is kept.",
-      props: { surface: "diff" },
-    },
     "document-beside": {
       note: "A document open in the side panel beside the chat: Session Info measures the chat's room without it and pushes the chat, never lying over the document.",
       props: { surface: "document" },
-    },
-    "diff-closed": {
-      note: "The diff's back button returns to the transcript: Session Info the viewer left open is there again.",
-      props: { surface: "diff" },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button.acpmux-diff-back" });
-        await ctx.waitFor(() => panelState(ctx) === "shown");
-      },
     },
   },
 });

@@ -39,8 +39,17 @@ final class QuitCoordinator {
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
-    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave).
-    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait) }
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
+    /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
+    /// so a decided quit looks done instead of a frozen window; the deadline ends the process after.
+    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: QuitCoordinator.hideWindowsForEngineStop)
+    }
+
+    /// Orders out every visible window: the quit is decided and its saves ran (`stopBrowserEngines`).
+    static func hideWindowsForEngineStop() {
+        for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) }
+    }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).

@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextImportCards
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -17,7 +18,8 @@ extension SidebarBridge {
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks)
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -38,19 +40,20 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
-    /// one task, so the bridge cancels both together. `registry` gives the
-    /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`, over the app's own sidebar
+    /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
+                      document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
                       settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry, asks: asks)
         guard window != nil else { return cards }
-        let whatsNew = model.followTopItems()
+        let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
     static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        Task {
+        model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
+        return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
                 (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
             }) {
@@ -84,6 +87,8 @@ enum SidebarCardFeed {
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
+        case .noticeAction(let card, let action) where ImportSuggestionsCenter.shared.answerConductorNote(card, action: action): break
+        case .dismissNotice(let card) where ImportSuggestionsCenter.shared.answerConductorNote(card, action: nil): break
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
@@ -166,9 +171,9 @@ enum SidebarCardFeed {
 
     /// The shared notice card (Lawrence 2026-10-09), one message at a time:
     /// the update status (a check's progress and result, a found update),
-    /// then the active test feed, then the newest announcement, then today's
-    /// "Did you know" tip. Nil while the staged update card shows;
-    /// announcements and the tip also wait for the "cmux Updated!" card.
+    /// then the active test feed, then Import from Conductor's note (until Nov 20), then the newest
+    /// announcement, then today's "Did you know" tip. Nil while the staged update card shows;
+    /// the note, announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
         if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
@@ -177,6 +182,7 @@ enum SidebarCardFeed {
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])
         }
         guard !updater.whatsNew.showsUpdatedCard else { return nil }
+        if let note = ImportSuggestionsCenter.shared.conductorNote { return note }
         if let item = updater.announcements.first {
             let actions = item.action.flatMap { id in
                 PageDescriptor.changelogTryItActions.contains(id) ? [SidebarNoticeCard.Action(id: id, title: UpdaterService.announcementActionTitle)] : nil

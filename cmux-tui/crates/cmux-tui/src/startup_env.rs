@@ -9,7 +9,9 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 /// removes it from the process environment (cloud-client-contract.md 1.7,
 /// G3/G4). Also takes the brain's tools socket (`CMUX_TUI_CHIEF_TOOLS_SOCKET`,
 /// chief-inspect) the same way, so no shell, agent or hook the daemon spawns
-/// learns the path.
+/// learns the path, and R-LIFECYCLE stage 1's switch (`CMUX_TUI_OWNER_KEEPERS`,
+/// headless.rs), which an `ensure` passes on, when off, only to the owner it
+/// spawns.
 ///
 /// # Safety
 ///
@@ -31,6 +33,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     // SAFETY: as above.
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
+    // SAFETY: as above.
+    unsafe { crate::headless::take_owner_keepers_switch() };
 }
 
 /// cmux-link and its token verifier exist only on unix; nothing to take.
@@ -50,6 +54,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { crate::headless::take_owner_keepers_switch() };
 }
 
 /// Read the Cloud template settings and remove them from this process's

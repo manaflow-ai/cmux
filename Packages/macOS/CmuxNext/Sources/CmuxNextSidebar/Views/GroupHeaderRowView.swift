@@ -32,7 +32,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The disclosure chevron: one glyph that turns as the group opens and closes (Lawrence msg 15763).
     private let chevron = DisclosureChevronView()
     /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
+    /// It draws at its box's size whatever the scale setting, as the rows' badges do (`RowBadgeView`), so a header's
+    /// mark and its rows' marks read at one size (Leo 2026-11-03: "symbol size discrepancy groups vs workspaces").
+    private let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        view.usesStatusColors = true
+        view.ignoresScaleSetting = true
+        return view
+    }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -46,6 +53,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The row's fill: the band (`SidebarGroupHeaderStyle.band` and `.wash`); internal so tests can
     /// read its frame and radius.
     let pill = CALayer()
+    /// The glass pane's specular rim (`SurfaceRole.group`), over the pill; hidden on the solid bar, the quiet looks and
+    /// under Reduce Transparency.
+    let rim = GlassRimView(cornerRadius: SidebarStyle.rowCornerRadius, look: FloatingGlassStyle.group.look(isDark: true))
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     let dot = CALayer()
@@ -56,6 +66,12 @@ final class GroupHeaderRowView: SidebarRowView {
     /// the Edge group header). Shows with the more button.
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
+    /// A pinned group's Unpin button (#27700): shows with the + and more, left of them, as a pinned
+    /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
+    /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
+    /// its menu and editor.
+    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+                                      label: GroupEditorStrings.unpin)
     private var pinned = false
     /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
     let machineMark = DecorativeImageView()
@@ -97,21 +113,27 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
     var onEdit: (() -> Void)?
     var onAdd: (() -> Void)?
+    /// Unpins the group: the pin button of a pinned header (nil where the group has no pin, a machine's).
+    var onUnpin: (() -> Void)?
 
-    override var interactiveSubviews: [NSView] { [addButton, moreButton] }
+    override var interactiveSubviews: [NSView] { [addButton, moreButton, pinButton] }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(pill)
+        rim.isHidden = true
+        addSubview(rim)
+        ReduceTransparency.shared.register(repainting: self)
         layer?.addSublayer(dot)
         layer?.addSublayer(machineDot)
         machineDot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton].forEach(addSubview)
+        [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton, pinButton].forEach(addSubview)
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
+        pinButton.onPress = { [weak self] in self?.onUnpin?() }
         // The + and more show only on hover; VoiceOver reaches the editor and the menu here always.
         setAccessibilityCustomActions([
             NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { [weak self] in
@@ -143,6 +165,7 @@ final class GroupHeaderRowView: SidebarRowView {
         onMore = nil
         onEdit = nil
         onAdd = nil
+        onUnpin = nil
     }
 
     private struct Content: Hashable {
@@ -200,6 +223,7 @@ final class GroupHeaderRowView: SidebarRowView {
         setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue)")
         moreButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).more")
         addButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).add")
+        pinButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).unpin")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
@@ -222,6 +246,10 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
+    var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
+    /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
+    var debugActivityIgnoresScale: Bool { activity.ignoresScaleSetting }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
@@ -267,7 +295,10 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
     /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = {
+            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value)
+            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
+        }
         guard !observesLook else { return read() }
         observesLook = true
         return withObservationTracking(read) { [weak self] in
@@ -288,7 +319,14 @@ final class GroupHeaderRowView: SidebarRowView {
             // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
-            if look.style != .band { return paintQuiet(tokens, look) }
+            // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
+            if look.style != .band || tint.isNone {
+                rim.isHidden = true
+                return paintQuiet(tokens, look)
+            }
+            let glass = SidebarGroupGlass.tunable.value
+            if glass != .solid { return paintGlass(tokens, look, glass) }
+            rim.isHidden = true
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered { fill = tokens.hoverFill.composited(over: fill) }
@@ -304,6 +342,7 @@ final class GroupHeaderRowView: SidebarRowView {
             chevron.contentTintColor = ink
             moreButton.tintOverride = ink
             addButton.tintOverride = ink
+            pinButton.tintOverride = ink
             paintMachine(ink: ink)
             // The bar carries the group's color: no dot over it (cx-rcby).
             dot.isHidden = true
@@ -318,6 +357,57 @@ final class GroupHeaderRowView: SidebarRowView {
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
             CATransaction.commit()
         }
+    }
+
+    /// The band as tinted glass (Leo 2026-11-05: "Why is it just one solid opaque block? Why does it not have any sort
+    /// of rim at all?"): the shared `group` surface role (`SurfaceRole.group`), its veil over the sidebar's own glass
+    /// tinted by the group's color raised in chroma (`GroupTint.glassRGB`, `sidebar.groupGlass` sets how much), and its
+    /// specular rim (`GlassRimView`). The name is the theme's ink, held readable over the pane. Under Reduce
+    /// Transparency the role's opaque fallback: the same pane composited over the sidebar's opaque background, a hairline.
+    /// Hover and a drop step over the pane, as on the solid bar.
+    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool), _ glass: SidebarGroupGlass) {
+        let dark = tokens.isDark, opaque = ReduceTransparency.shared.isEnabled
+        let role = FloatingGlassStyle.group.look(isDark: dark)
+        let veil = ThemeRGB(red: role.veil.white, green: role.veil.white, blue: role.veil.white, alpha: role.veil.alpha)
+        var fill = Self.over(tint.glassRGB(themed: look.themed).withAlpha(glass.tint(dark: dark)), veil)
+        if isHovered { fill = Self.over(tokens.hoverFill, fill) }
+        if isDropTarget { fill = Self.over(tokens.pressedFill, fill) }
+        let shown = fill.composited(over: tokens.sidebarBackground)
+        if opaque { fill = shown }
+        let ink = ThemeTokens.readable(tokens.textPrimary.withAlpha(1), over: shown, minimum: ThemeTokens.minimumTextContrast)
+            .nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
+        name.textColor = ink
+        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        glyph.symbolInk = ink
+        pin.contentTintColor = ink
+        chevron.contentTintColor = ink
+        moreButton.tintOverride = ink
+        addButton.tintOverride = ink
+        pinButton.tintOverride = ink
+        paintMachine(ink: ink)
+        dot.isHidden = true
+        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        paintFill(nil)
+        rim.look = role
+        rim.isHidden = opaque
+        rim.alphaValue = archived ? SidebarStyle.archivedAlpha : 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.borderWidth = opaque ? Metrics.lineWidth(1) : 0
+        pill.borderColor = tokens.separator.nsColor.cgColor
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        layer?.borderColor = Palette.focusRing.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+    }
+
+    /// `top` painted over `bottom`, both possibly translucent (source-over): the pane stays see-through.
+    private static func over(_ top: ThemeRGB, _ bottom: ThemeRGB) -> ThemeRGB {
+        let alpha = top.alpha + bottom.alpha * (1 - top.alpha)
+        guard alpha > 0 else { return top }
+        func mix(_ t: Double, _ b: Double) -> Double { (t * top.alpha + b * bottom.alpha * (1 - top.alpha)) / alpha }
+        return ThemeRGB(red: mix(top.red, bottom.red), green: mix(top.green, bottom.green), blue: mix(top.blue, bottom.blue), alpha: alpha)
     }
 
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
@@ -336,6 +426,7 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.contentTintColor = quiet
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
+        pinButton.tintOverride = quiet
         paintMachine(ink: quiet)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -348,7 +439,7 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        guard look.style == .wash else {
+        guard look.style == .wash, !tint.isNone else {
             pill.backgroundColor = nil
             return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
         }
@@ -362,6 +453,7 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // a roll-up's dot, as every row's (Lawrence msg 19696)
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -410,16 +502,23 @@ final class GroupHeaderRowView: SidebarRowView {
         let offersAdd = onAdd != nil
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
+        // A pinned group's Unpin sits left of the + (of the more when there is no +).
+        let offersUnpin = pinned && onUnpin != nil
+        pinButton.frame = columns.trailingFrame(index: offersAdd ? 3 : 2, centerY: b.midY, side: control)
+        setHoverShown(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
+        pinButton.setAccessibilityElement(offersUnpin && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
         // column every row's dot and spinner share (a296). Leo 2026-10-28: "If you're hovering over a
         // workspace or whatever, just don't show the spinner": a hover hides it at once and brings the
         // chevron back on the column, with the + and more left of it; never the spinner beside them.
         setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
-        var trailing = columns.trailingEdge(before: showsActions ? (offersAdd ? addButton.frame : moreButton.frame) : chevronFrame)
+        let leadingAction = offersUnpin ? pinButton.frame : offersAdd ? addButton.frame : moreButton.frame
+        var trailing = columns.trailingEdge(before: showsActions ? leadingAction : chevronFrame)
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
-            let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
+            // A dot is round, the status dot's diameter; a count is the badge's height.
+            let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
             trailing = columns.trailingEdge(before: badge.frame)
         } else {
@@ -427,8 +526,10 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
-        let ind = SidebarStyle.indicatorSize
-        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+        // The mark's box is a workspace row's for the same state (`SidebarStyle.statusMarkSide(for:)`): the warning's
+        // 14 pt, the spinner's status glyph size, on the column every row's mark centers on.
+        let markSide = SidebarStyle.statusMarkSide(for: activity.state)
+        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: markSide)
         setHoverSlotShown(activitySlot, onColumn, frame: slotFrame, fades: (fadesNextActivity || fades) && !showsActions) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
@@ -470,6 +571,8 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = b
+        rim.frame = b
+        rim.cornerRadius = SidebarStyle.rowCornerRadius
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
         pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
         // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).
@@ -502,6 +605,18 @@ extension GroupHeaderRowView {
     /// The status the remote group's dot shows (tests).
     var debugMachineTone: SectionHeaderRowView.StatusTone? { machineDot.isHidden ? nil : machineTone }
 
+    /// The machine mark's side: a status mark's in the trailing column, as every row's trailing marks; the leading
+    /// glyph's in the icon column.
+    func machineMarkSide(_ look: SidebarHostGroupLook) -> CGFloat {
+        look == .leadingMark ? SidebarStyle.leadingGlyphSide : SidebarStyle.statusGlyphSize
+    }
+
+    /// The machine's emoji or symbol, else its kind's glyph (a Cloud machine, another computer), `side` square.
+    fileprivate static func machineImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
+        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
+        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
+    }
+
     fileprivate func configureMachine(_ machine: SidebarMachine?) {
         guard let machine else {
             self.machine = nil
@@ -515,8 +630,11 @@ extension GroupHeaderRowView {
         let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
         machineTone = tone
         let look = hostLook
-        let symbol: IconName = machine.kind == .cloud ? .cloud : .machineRemote
-        machineMark.image = NSImage.icon(symbol, size: SidebarStyle.leadingGlyphSide)
+        // The machine's own icon at a status mark's size, the size of every row's trailing mark: drawn at the leading
+        // glyph's side it read larger than the rows' under it (Leo 2026-11-02: "the sizes of the icons for groups and
+        // workspaces aren't the same size anymore they should be"). Leading, it takes the icon column's glyph size, as a
+        // group's own icon does.
+        machineMark.image = Self.machineImage(SidebarMachineMark(machine), side: machineMarkSide(look))
         machineMark.isHidden = look == .dotOnly
         // The quiet look keeps the dot for a machine that needs the person (or is on its way).
         let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
@@ -566,7 +684,7 @@ extension GroupHeaderRowView {
             x = machineWords.frame.minX - Metrics.space1
         }
         if !machineMark.isHidden, !leadsWithMachineMark {
-            let side = SidebarStyle.leadingGlyphSide
+            let side = machineMarkSide(hostLook)
             machineMark.frame = NSRect(x: x - side, y: (height - side) / 2, width: side, height: side)
             x = machineMark.frame.minX - Metrics.space2
         }

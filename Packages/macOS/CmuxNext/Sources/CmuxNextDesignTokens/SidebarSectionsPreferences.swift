@@ -79,6 +79,16 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
     /// stands alone, and its right-click menu still holds the same chooser.
     public var showNewWorkspaceChooser = false
+    /// The sidebar prototypes Leo asked for as first-class toggles instead of palette or Debug
+    /// switches (2026-10-21: "They're just toggles in the app store area"), each off by default and
+    /// on when its key or its Debug tunable is (`SidebarFeatures`):
+    /// `sidebar.workspacesAsTabs`, one line per workspace and Cmd-Shift-[ / ] step workspaces;
+    public var workspacesAsTabs = false
+    /// `sidebar.chromeGroups`, a group's chip joined to a thicker rail with a clipped join and a rounded end;
+    public var chromeGroups = false
+    /// `sidebar.sideBySide`, a row press navigates on release, so a held row drags onto a pane's
+    /// edge to show its workspace beside the shown one.
+    public var sideBySide = false
     /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
     /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
     public var noFade = false

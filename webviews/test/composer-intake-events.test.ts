@@ -2,8 +2,11 @@
 // is its chip once its preview is made, whatever its original's upload does, a host that never says
 // where the files are holds nothing past its deadline, and a cancelled file is never uploaded.
 import { afterEach, expect, test } from "bun:test";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { createHash } from "node:crypto";
+import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles, LOCAL_PATHS_DEADLINE_MS } from "../src/agent-session/acpmux/composer/intakeFiles";
+import { fitPromptBudget } from "../src/agent-session/acpmux/promptBudget";
 
 const g = globalThis as Record<string, unknown>;
 function imageEngine() {
@@ -29,6 +32,74 @@ afterEach(() => {
 const png = (name: string) => new File(["png"], name, { type: "image/png" });
 const zip = (name: string) => new File(["zip"], name, { type: "application/zip" });
 const never = <T>() => new Promise<T>(() => {});
+
+test("large PDF, text and audio files reach the prompt by reference, with bounded reads and upload progress", async () => {
+  const chunkSize = 512 * 1024;
+  const entries = [
+    { name: "document.pdf", type: "application/pdf", size: 16 * 1024 * 1024 + 17 },
+    { name: "notes.txt", type: "text/plain", size: 4 * 1024 * 1024 + 3 },
+    { name: "recording.wav", type: "audio/wav", size: 8 * 1024 * 1024 + 1 },
+  ];
+  const expected = new Map<string, string>();
+  const files = entries.map(({ name, type, size }) => {
+    const bytes = Uint8Array.from({ length: size }, (_, index) => index % 251);
+    expected.set(name, createHash("sha256").update(bytes).digest("hex"));
+    const file = new File([bytes], name, { type });
+    // Intake must not call the old inline readers, even for a recognized PDF/text/audio type.
+    file.arrayBuffer = () => Promise.reject(new Error("whole-file read"));
+    const slice = file.slice.bind(file);
+    file.slice = (start = 0, end = size, contentType = "") => {
+      expect(end - start).toBeLessThanOrEqual(chunkSize);
+      return slice(start, end, contentType);
+    };
+    return file;
+  });
+  const stages = new Map<string, { offset: number; digest: ReturnType<typeof createHash> }>();
+  const progress: number[][] = files.map(() => []);
+  const completed: string[] = [];
+  const host = async (method: string, params: Record<string, unknown>) => {
+    const token = String(params.token ?? params.name);
+    if (method === "chat.upload.begin") {
+      stages.set(token, { offset: 0, digest: createHash("sha256") });
+      return { token, size: params.size, chunkSize, batchToken: "large-intake" };
+    }
+    const stage = stages.get(token)!;
+    if (method === "chat.upload.chunk") {
+      const bytes = Buffer.from(params.data as string, "base64");
+      expect(bytes.length).toBeLessThanOrEqual(chunkSize);
+      expect(params.offset).toBe(stage.offset);
+      stage.digest.update(bytes);
+      stage.offset += bytes.length;
+      return { offset: stage.offset };
+    }
+    if (method === "chat.upload.finish") {
+      expect(stage.offset).toBe(files.find((file) => file.name === token)!.size);
+      expect(stage.digest.digest("hex")).toBe(expected.get(token)!);
+      completed.push(token);
+      return { path: `/uploads/${token}` };
+    }
+    throw new Error(`unexpected upload method: ${method}`);
+  };
+  const result = await intakeFiles(files, {
+    allowImages: false,
+    upload: (batch, cancelled) => uploadToMachine(batch, host, cancelled, (index, done) => progress[index]!.push(done)),
+  });
+  expect(result.error).toBeUndefined();
+  expect(completed).toEqual(entries.map(({ name }) => name));
+  for (const updates of progress) {
+    expect(updates.length).toBeGreaterThan(1);
+    expect(updates[0]).toBeGreaterThan(0);
+    expect(updates[0]).toBeLessThan(1);
+    expect(updates.at(-1)).toBe(1);
+  }
+  expect(result.attachments.map(({ kind, name, size }) => ({ kind, name, size }))).toEqual(
+    entries.map(({ name, size }) => ({ kind: "link", name, size })),
+  );
+  const blocks = promptBlocks("read all files", fitPromptBudget("read all files", result.attachments));
+  expect(blocks.filter((block) => block.type === "resource_link")).toEqual(
+    entries.map(({ name }) => ({ type: "resource_link", uri: `file:///uploads/${name}`, name })),
+  );
+});
 
 test("an image is its chip at once while its original's upload never ends", async () => {
   imageEngine();
@@ -90,6 +161,25 @@ test("a failed upload fails each file it held, with the host's reason", async ()
     { failed: (index, error) => failed.push([index, error]) },
   );
   expect(failed).toEqual([[0, { text: "The disk is full." }]]);
+});
+
+test("keeps completed files when a later upload fails", async () => {
+  const ready: number[] = [];
+  const failed: [number, unknown][] = [];
+  const result = await intakeFiles(
+    [zip("one.zip"), zip("two.zip")],
+    {
+      allowImages: true,
+      upload: async () => ({ paths: ["/tmp/one.zip", ""], error: "Disconnected" }),
+    },
+    {
+      ready: (index) => ready.push(index),
+      failed: (index, error) => failed.push([index, error]),
+    },
+  );
+  expect(ready).toEqual([0]);
+  expect(failed).toEqual([[1, { text: "Disconnected" }]]);
+  expect(result.attachments.map((attachment) => attachment.name)).toEqual(["one.zip"]);
 });
 
 /// An image engine whose decoding waits for `decoded()`, as a slow preview does.

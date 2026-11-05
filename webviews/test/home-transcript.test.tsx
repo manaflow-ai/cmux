@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PresentationToggle, readPresentation } from "../src/pages/home-channels/presentation";
 import { runBlocks } from "../src/pages/home-channels/runBlocks";
+import { HomeToolGroup } from "../src/pages/home-channels/HomeToolGroup";
 import { RunTranscript } from "../src/pages/home-channels/RunTranscript";
 import { RunsContext } from "../src/pages/home-channels/RunCard";
 import { MessageRow } from "../src/pages/home-channels/MessageRow";
@@ -105,6 +106,25 @@ test("the mapper keeps every tool, thought, talk and note in sequence beyond the
       block.kind === "tools" ? block.row.items!.map((item) => item.tool!.id) : [block.step.id],
     ),
   ).toEqual(steps.map((step) => step.id));
+});
+
+test("Home renders a grouped tool summary and keeps details behind it", async () => {
+  const container = installDom();
+  const tools = [
+    { ...step("command", "tool", 1), tool: { name: "Bash", input: { command: "bun test" }, files: [] } },
+    { ...step("read", "tool", 2), tool: { name: "Read", input: { file_path: "src/retry.ts" }, files: [] } },
+    { ...step("loaded", "tool", 3), tool: { name: "ToolSearch", input: undefined, files: [] } },
+  ];
+  const block = runBlocks(run, tools)[0]!;
+  expect(block.kind).toBe("tools");
+  if (block.kind !== "tools") throw new Error("expected a tool block");
+  await act(async () => root!.render(<HomeToolGroup row={block.row} steps={tools} agentNames={new Map()} collapsed />));
+  const summary = container.querySelector(".lg-home-tool-summary")!;
+  expect(summary.textContent).toContain("Ran 1 command, 1 read");
+  expect(summary.textContent).toContain("bun test");
+  expect(summary.textContent).not.toContain("ToolSearch");
+  expect(container.querySelector(".lg-home-tool-group")?.hasAttribute("open")).toBe(false);
+  expect(container.querySelector(".cv-tool")).toBeTruthy();
 });
 
 test("the toggle defaults to Messages, persists per conversation, and restores on remount", async () => {

@@ -206,7 +206,8 @@ impl Hub {
             let busy = session.turn_lock.try_lock().is_err()
                 || session.spawn_lock.try_lock().is_err()
                 || session.harness_use.try_write().is_err();
-            if busy || !self.idle_eligible(&session) {
+            // A recap the person will want is asked before the process goes (`away_recap.rs`).
+            if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
                 self.touch(&session);
                 continue;
             }
@@ -411,11 +412,7 @@ impl Hub {
     pub(crate) async fn in_use(&self) -> Option<&'static str> {
         // Still loading: queued prompts and cut turns the last daemon left resume from the chat
         // logs, and adoption reattaches running agents.
-        if !self.store_loaded()
-            || !*self.startup_ready.borrow()
-            || !*self.adoption_ready.borrow()
-            || !*self.logs_ready.borrow()
-        {
+        if !self.startup_settled() {
             return Some("its startup");
         }
         // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
@@ -453,14 +450,7 @@ impl Hub {
             if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
                 return Some("a running agent");
             }
-            if session.turn().is_some()
-                || session.harness_turn.load(Ordering::SeqCst)
-                || session.queued() > 0
-                || !session.pending_permissions().is_empty()
-                || session.asks_in_flight.load(Ordering::SeqCst) > 0
-                || session.agent_requests.load(Ordering::SeqCst) > 0
-                || self.continuation_pending(&session)
-            {
+            if self.turn_at_work(&session) {
                 return Some("a turn");
             }
             if self.bg_running(&session) {
@@ -475,6 +465,87 @@ impl Hub {
         }
         None
     }
+}
+
+impl Hub {
+    /// Whether this daemon's startup has settled: the store and chat logs are loaded, startup
+    /// ran and adoption reattached the agents that outlived the last daemon. Until then a turn
+    /// a surviving agent host still runs, or a cut turn about to resume, is not counted yet.
+    pub(crate) fn startup_settled(&self) -> bool {
+        self.store_loaded()
+            && *self.startup_ready.borrow()
+            && *self.adoption_ready.borrow()
+            && *self.logs_ready.borrow()
+    }
+
+    /// A turn or anything one waits on: running (by acpmux or by the harness), queued, a
+    /// permission or question pending, an agent request on its way, or a continuation of a cut
+    /// turn still due.
+    fn turn_at_work(&self, session: &Session) -> bool {
+        session.turn().is_some()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.queued() > 0
+            || !session.pending_permissions().is_empty()
+            || session.asks_in_flight.load(Ordering::SeqCst) > 0
+            || session.agent_requests.load(Ordering::SeqCst) > 0
+            || self.continuation_pending(session)
+    }
+
+    /// This daemon's own sessions at work: a turn or anything one waits on, a background task
+    /// running, a background process the harness started (a Claude background shell) still
+    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as
+    /// open sessions in its activity report (`daemon/cloud_activity.rs`), so it is never paused
+    /// for idleness mid-turn or under a command a turn left running. Reads each chat's
+    /// background-task and process records, so call it off the async workers.
+    #[cfg(test)]
+    pub(crate) fn sessions_at_work(&self) -> usize {
+        self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
+    }
+
+    /// Each of this daemon's own sessions at work ([`Self::sessions_at_work`]) with what holds
+    /// it, for the Cloud activity report's phases (`daemon/cloud_activity.rs`). Reads the same
+    /// records, so call it off the async workers as well.
+    pub(crate) fn sessions_at_work_detail(&self) -> Vec<SessionAtWork> {
+        self.sessions().iter().filter_map(|s| self.at_work(s)).collect()
+    }
+
+    /// What holds `session` at work, or None when nothing does.
+    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+        let turn = self.turn_at_work(session);
+        let subagents =
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
+        let below = session.work_below_since.lock().map_or(true, |v| *v != 0);
+        let processes = self.running_processes(session) + self.bg_running_count(session);
+        if !(turn || subagents > 0 || below || processes > 0) {
+            return None;
+        }
+        Some(SessionAtWork {
+            id: session.id.clone(),
+            turn,
+            person: !session.pending_permissions().is_empty()
+                || session.asks_in_flight.load(Ordering::SeqCst) > 0,
+            processes,
+            below: subagents > 0 || below,
+            shown: self.shown(session),
+        })
+    }
+}
+
+/// One session at work and what holds it ([`Hub::sessions_at_work_detail`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SessionAtWork {
+    pub id: String,
+    /// A turn runs or waits ([`Hub::turn_at_work`]).
+    pub turn: bool,
+    /// The turn waits on the person: a permission or a question is pending.
+    pub person: bool,
+    /// Processes the agent left running outside its turn's own tool calls: the harness's
+    /// background shells and this chat's background tasks.
+    pub processes: usize,
+    /// A background subagent or sub-session is at work.
+    pub below: bool,
+    /// An attached client shows the chat.
+    pub shown: bool,
 }
 
 /// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;

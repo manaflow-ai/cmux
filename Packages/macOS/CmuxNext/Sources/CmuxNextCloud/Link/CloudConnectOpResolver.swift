@@ -69,8 +69,9 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
         guard answer.state == "up" else { throw CloudLinkError.notUp(state: answer.state) }
         guard let socket = answer.socket, !socket.isEmpty else { throw CloudLinkError.invalidAnswer("no socket") }
         try check(socket)
-        return CloudLinkSocket(key: key, path: socket, generation: answer.generation, callerOwnsVM: answer.vmKind == "owner",
-                               callerIsTeammate: answer.vmKind == "team")
+        let kind = CloudStartCore().vmKind(answer.vmKind) // the word's rules are Rust's (cmux-cloud-start-core `vm_kind`)
+        return CloudLinkSocket(key: key, path: socket, generation: answer.generation, callerOwnsVM: kind.ownsVm,
+                               callerIsTeammate: kind.teammate)
     }
 
     /// `cloud.machine.disconnect` ends the carrier. A failure leaves nothing

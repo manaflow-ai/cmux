@@ -76,7 +76,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     }, classic);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field").waitFor();
+    await page.locator(classic ? ".acpmux-newtab-field .ProseMirror" : ".nt-field").waitFor();
     return page;
   }
 
@@ -281,7 +281,8 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     "%s: on the Classic New Tab page, Backspace undoes a prefix first, then removes the last image",
     async (name) => {
       const page = await newTab(name, true);
-      const field = page.locator("input.acpmux-newtab-field");
+      // Its field is the composer's Markdown prompt too (MarkdownField).
+      const field = page.locator(".acpmux-newtab-field .ProseMirror");
       await field.click();
       for (const file of ["One.png", "Two.png"]) {
         const data = await transfer(page, file);
@@ -299,7 +300,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.waitForFunction(
         () => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal",
       );
-      expect(await field.inputValue()).toBe("");
+      expect(await field.evaluate((node) => node.textContent ?? "")).toBe("");
       // A frame after the press, so a chip removed by mistake is gone before the count.
       await page.keyboard.press("Backspace");
       await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");

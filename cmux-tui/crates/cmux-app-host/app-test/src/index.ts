@@ -91,8 +91,8 @@ export interface CommandDecl {
 export type Result = { ok: true; value: unknown } | { ok: false; error: { code: string; message: string; details?: unknown } }
 
 const GESTURE_MS = 2000
-/** Mutations that never change view state: the app's own storage and settings, the clipboard. */
-const APP_PRIVATE = /^(app\.storage\.|app\.settings\.set$|clipboard\.write$)/
+/** Mutations that never change view state: the app's own storage and settings, the clipboard, a toast. */
+const APP_PRIVATE = /^(app\.storage\.|app\.settings\.set$|clipboard\.write$|toast\.show$)/
 
 const READ_VERBS = new Set(["list", "get", "search", "query", "read", "count", "counts", "find", "show", "info", "status"])
 
@@ -120,6 +120,8 @@ export class AppHarness {
   readonly ops = { calls: [] as OpCall[], log: [] as OpLogEntry[] }
   readonly storage = new Map<string, unknown>()
   clipboard: string | null = null
+  /** Every `cmux.toast(...)`, oldest first. */
+  toasts: Array<{ title: string; message?: string; tone?: string }> = []
   readonly scopes = new Map<string, ScopeDecl>()
   readonly commandDecls: Map<string, CommandDecl>
   /** The supervisor's last snapshot per scope (manifest id) and which ones an event invalidated. */
@@ -240,7 +242,7 @@ export class AppHarness {
   }
 
   granted(scope: string, op: string, params: any): boolean {
-    if (this.grants.has(scope)) return true
+    if (scope === "none" || this.grants.has(scope)) return true
     if (scope.startsWith("net:")) {
       const host = scope.slice(4)
       return [...this.grants].some((g) => g.startsWith("net:*.") && host.endsWith(g.slice(5)))
@@ -261,7 +263,7 @@ export class AppHarness {
   private async answer(op: string, params: any, origin: Origin): Promise<{ ok: boolean; body: unknown }> {
     if (generated.never.includes(op)) return opError("operation.forbidden", `apps never call ${op}`, { op })
     const hasFixture = Object.hasOwn(this.fixtures, op)
-    const builtin = op.startsWith("app.storage.") || op === "clipboard.write"
+    const builtin = op.startsWith("app.storage.") || op === "clipboard.write" || op === "toast.show"
     if (!hasFixture && !builtin && !generated.ops[op]) return opError("operation.unsupported", `no owner implements ${op} (add a fixture to test against it)`, { op })
     const scope = this.scopeFor(op, params)
     if (scope && !this.granted(scope, op, params)) return opError("scope.missing", `${op} needs scope ${scope}`, { op, scope })
@@ -298,6 +300,9 @@ export class AppHarness {
         return { ok: true, body: { value: [...this.storage.keys()] } }
       case "clipboard.write":
         this.clipboard = String(params.text ?? "")
+        return { ok: true, body: { value: null } }
+      case "toast.show":
+        this.toasts.push(structuredClone(params))
         return { ok: true, body: { value: null } }
     }
     return opError("fixture.missing", `${op} is in the catalog but the test gave no fixture for it`, { op })

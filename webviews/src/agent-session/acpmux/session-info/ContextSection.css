@@ -40,23 +40,9 @@
 }
 .acpmux-session-info-context__compact {
   flex: none;
-  height: var(--cmux-control-height);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
-  color: var(--agent-text);
-  font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
-}
-.acpmux-session-info-context__compact:hover {
-  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
-}
-.acpmux-session-info-context__compact:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
 }
 .acpmux-session-info-context__bar {
   display: flex;
@@ -167,4 +153,22 @@
   margin: 0 -4px;
   padding: 0 4px;
   width: calc(100% + 8px);
+}
+
+/* Session Info owns its vertical gaps. The composer's independent popover keeps its layout. */
+.acpmux-session-info .acpmux-session-info-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  padding: 0;
+}
+.acpmux-session-info .acpmux-session-info-context__total {
+  gap: var(--grid-gap);
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+}
+.acpmux-session-info .acpmux-session-info-context__bar {
+  margin: 0 var(--grid-gap);
+}
+.acpmux-session-info .acpmux-context-breakdown__items {
+  padding-left: var(--grid-sidebar-depth-indent);
 }

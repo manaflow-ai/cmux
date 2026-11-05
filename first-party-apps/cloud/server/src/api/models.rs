@@ -117,6 +117,12 @@ pub struct Machine {
     /// the session-host operations rather than this record.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Provider operations are a separate field from the guest/session
+    /// capability names above. This keeps `agent_session` and similar wire
+    /// capabilities from being interpreted as provider feature gates by the
+    /// app. Older backends omit this field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "providerCapabilities")]
+    pub provider_operations: Vec<String>,
     pub revision: Revision,
 }
 

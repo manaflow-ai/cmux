@@ -73,7 +73,10 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
         content: ".acpmux-minimap__bar, .acpmux-minimap__dot { animation-play-state: paused !important; }",
       });
     await page.evaluate((shown) => {
-      const win = window as unknown as { __showRows(rows: unknown): void; __setMarks(seqs: number[]): void };
+      const win = window as unknown as {
+        __showRows(rows: unknown): void;
+        __setMarks(seqs: number[]): void;
+      };
       win.__setMarks([13]);
       win.__showRows(shown);
     }, rows);
@@ -110,6 +113,42 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
         dot: dot ? { color: dot.backgroundColor, opacity: Number(dot.opacity) } : undefined,
       };
     }, index);
+
+  test("the doubled rail keeps equal resting ticks and lights only the on-screen band", async () => {
+    const page = await open({ reduce: true });
+    try {
+      const geometry = await page.evaluate(() => {
+        const rail = document.querySelector(".acpmux-minimap__rail")!;
+        const ticks = [...rail.querySelectorAll<HTMLElement>("[data-tick]")];
+        const bars = ticks.map((tick) => {
+          const bar = tick.querySelector(".acpmux-minimap__bar")!;
+          return {
+            width: bar.getBoundingClientRect().width,
+            opacity: Number(getComputedStyle(bar).opacity),
+            current: tick.getAttribute("aria-current") === "true",
+            marked: tick.hasAttribute("data-bookmarked"),
+          };
+        });
+        return {
+          height: rail.getBoundingClientRect().height,
+          pitch: ticks[1]!.getBoundingClientRect().top - ticks[0]!.getBoundingClientRect().top,
+          bars,
+        };
+      });
+      expect(geometry.height).toBe(480);
+      expect(geometry.pitch).toBe(20);
+      expect(new Set(geometry.bars.map((bar) => bar.width)).size).toBe(1);
+      const current = geometry.bars.filter((bar) => bar.current);
+      const rest = geometry.bars.filter((bar) => !bar.current && !bar.marked);
+      expect(current.length).toBeGreaterThan(0);
+      expect(rest.length).toBeGreaterThan(0);
+      expect(Math.min(...current.map((bar) => bar.opacity))).toBeGreaterThan(
+        Math.max(...rest.map((bar) => bar.opacity)),
+      );
+    } finally {
+      await page.close();
+    }
+  });
 
   test("a bookmarked tick is the resting grey a step brighter, and the text only when hovered", async () => {
     const page = await open();
@@ -149,10 +188,43 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
     await page.close();
   });
 
-  test("the ticks come in on an eased curve with a bounded stagger down the rail", async () => {
+  test("initial history ticks have their final width even with entrances paused", async () => {
     const page = await open({ hold: true });
+    try {
+      const ticks = await page.locator(".acpmux-minimap__tick .acpmux-minimap__bar").evaluateAll((bars) =>
+        bars.map((bar) => ({
+          width: bar.getBoundingClientRect().width,
+          entering: bar
+            .getAnimations()
+            .some((entry) => (entry as CSSAnimation).animationName === "acpmux-minimap-tick-in"),
+        })),
+      );
+      expect(ticks).toHaveLength(18);
+      for (const tick of ticks) {
+        expect(tick.entering).toBe(false);
+        expect(tick.width).toBeGreaterThanOrEqual(5.9);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("new prompts come in on an eased curve with a bounded stagger down the rail", async () => {
+    const page = await open({ hold: true });
+    const more = [
+      ...rows,
+      ...[19, 20, 21].flatMap((index) => [
+        row(`user-${index}`, "user", `New prompt ${index}`),
+        row(`answer-${index}`, "assistant", `Reply ${index}`),
+        row(`summary-${index}`, "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
+      ]),
+    ];
+    await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), more);
+    await page.waitForSelector('[data-tick="20"]');
     const entrance = await page.evaluate(() => {
-      const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick .acpmux-minimap__bar")];
+      const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick .acpmux-minimap__bar")].filter(
+        (bar) => Number(bar.closest("[data-tick]")?.getAttribute("data-tick")) >= 18,
+      );
       return bars.map((bar) => {
         const animation = bar
           .getAnimations()
@@ -170,7 +242,7 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
         return { delay, duration, easing: getComputedStyle(bar).animationTimingFunction, half: half / end };
       });
     });
-    expect(entrance.length).toBe(18);
+    expect(entrance.length).toBe(3);
     for (const tick of entrance) {
       expect(tick).toBeDefined();
       expect(tick!.easing).not.toBe("linear");

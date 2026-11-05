@@ -55,3 +55,37 @@ export function doingDetail(t: Translate, doing: string | undefined, tool: strin
   if (!doing || !tool || !doing.endsWith(tool)) return doing;
   return doing.slice(0, doing.length - tool.length) + toolDetail(t, tool);
 }
+
+/// The last line of what an agent said that has words in it, Markdown marks taken off the line's
+/// start (`- `, `## `, `> `, `**`), so a report's closing line reads as a sentence.
+export function lastSaidLine(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const lines = text.split("\n");
+  for (let at = lines.length - 1; at >= 0; at -= 1) {
+    const line = lines[at]!.trim()
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|>\s*)+/u, "")
+      .replace(/\*\*|__|`/gu, "")
+      .trim();
+    if (/[\p{L}\p{N}]/u.test(line)) return line;
+  }
+  return undefined;
+}
+
+/// What a running tray line says its agent did last, on its second line (trayLatest.experiment.ts):
+/// for one that stopped to wait on background work of its own, the last line it said; else its
+/// latest step in words (``toolDetail``), else the last line it said. Never its prompt.
+export function latestLine(
+  t: Translate,
+  agent: {
+    action?: string;
+    actionShell?: boolean;
+    lastMessage?: string;
+    result?: string;
+    reaction?: { text?: string };
+  },
+  ownWork: boolean,
+): string | undefined {
+  const said = lastSaidLine(agent.reaction?.text) ?? lastSaidLine(agent.lastMessage ?? agent.result);
+  if (ownWork) return said ?? toolDetail(t, agent.action, agent.actionShell);
+  return toolDetail(t, agent.action, agent.actionShell) ?? said;
+}

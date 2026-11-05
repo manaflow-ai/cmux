@@ -83,7 +83,10 @@ const rows = (running: boolean): AcpmuxActivity[] => [
       result: {
         query: "browser tab",
         tools: [
-          { name: "tab_create_browser", description: "Opens a browser tab.\nTakes url and an optional pane." },
+          {
+            name: "tab_create_browser",
+            description: "Opens a browser tab.\nTakes url and an optional pane.",
+          },
           { name: "workspace_open_url", description: "Opens a URL in the workspace's browser." },
         ],
       },
@@ -100,16 +103,12 @@ function BeforeRow({ item, open }: { item: AcpmuxActivity; open: boolean }) {
     <>
       <button type="button" className="cv-tool is-toggle is-strong" aria-expanded={open}>
         <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text">
           <ToolLabel text={mcpLabel(t, [call], new Map())} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <McpCallDetails
@@ -156,13 +155,17 @@ function CmuxExecRowsGallery({ look, mode }: Props) {
         data-look={look}
         data-cmux-exec-rows
       >
-        <ToolVerbColumn className="cv-tools">
-          {look === "before" ? (
-            items.map((item, index) => <BeforeRow key={item.tool!.id} item={item} open={index === 1} />)
-          ) : (
+        {look === "before" ? (
+          <ToolVerbColumn className="cv-tools">
+            {items.map((item, index) => (
+              <BeforeRow key={item.tool!.id} item={item} open={index === 1} />
+            ))}
+          </ToolVerbColumn>
+        ) : (
+          <div className="cv-tools">
             <AfterRows items={items} />
-          )}
-        </ToolVerbColumn>
+          </div>
+        )}
       </main>
     </TranscriptDisclosureProvider>
   );

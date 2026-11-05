@@ -1184,7 +1184,7 @@ async fn handshake(
                 StepStatus::Fail,
                 &e,
                 Some(if protocol_mismatch && codex {
-                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --host HOST -m codex -d`".into()
+                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --machine MACHINE -m codex -d`".into()
                 } else if protocol_mismatch {
                     format!("the configured command did not speak ACP session/new; check its ACP mode, then run `acpmux harness doctor {harness_id}` again")
                 } else if auth {
@@ -1198,7 +1198,7 @@ async fn handshake(
                 step.reason = Some("harness_protocol_mismatch");
                 let mut data = json!({"try": "acpmux daemon harnesses"});
                 if codex {
-                    data.set("next", json!("acpmux new --host HOST -m codex -d"));
+                    data.set("next", json!("acpmux new --machine MACHINE -m codex -d"));
                 }
                 step.data = Some(data);
             }

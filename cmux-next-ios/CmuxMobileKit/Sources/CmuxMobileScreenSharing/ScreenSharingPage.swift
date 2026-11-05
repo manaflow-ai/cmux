@@ -13,9 +13,14 @@ private let theme = CmuxMobileTheme.standard
 /// phone asks, the Mac shows Allow / Deny.
 public struct ScreenSharingPage: View {
     let service: ScreenSharingService
+    /// A Mac to share as soon as the account lists it (a workspace's + › Screen Sharing names
+    /// its Mac); nil, or no Mac by that name, leaves the choice to the list.
+    let connectTo: String?
+    @State private var connectedOnce = false
 
-    public init(service: ScreenSharingService) {
+    public init(service: ScreenSharingService, connectTo: String? = nil) {
         self.service = service
+        self.connectTo = connectTo
     }
 
     public var body: some View {
@@ -27,12 +32,32 @@ public struct ScreenSharingPage: View {
         .navigationTitle("Screen Sharing")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await service.refresh() }
-        .onAppear { service.start() }
+        .onAppear {
+            service.start()
+            connectToNamedMac()
+        }
+        .onChange(of: service.macs.map(\.id)) { connectToNamedMac() }
         .fullScreenCover(item: Binding(get: { service.viewer }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
             ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
                                       close: { service.dismissViewer() })
         }
         .accessibilityIdentifier("screenSharing.page")
+    }
+
+    /// Once per showing: the Mac named `connectTo`, when exactly one Mac has that name.
+    private func connectToNamedMac() {
+        guard !connectedOnce, service.viewer == nil, let name = Self.normalized(connectTo) else { return }
+        let matches = service.macs.filter { Self.normalized($0.name) == name }
+        guard matches.count == 1, let mac = matches.first else { return }
+        connectedOnce = true
+        service.connect(to: mac, scope: service.preferences.defaultScope)
+    }
+
+    static func normalized(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let folded = name.replacingOccurrences(of: "\u{2019}", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return folded.isEmpty ? nil : folded
     }
 
     @ViewBuilder private var statusSection: some View {

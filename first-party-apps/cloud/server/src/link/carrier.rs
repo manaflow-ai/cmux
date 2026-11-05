@@ -17,7 +17,7 @@
 //! are ended by it (by their own handles, never by name or pattern).
 
 use super::argv::{LinkCommand, dial_failed_line, ready_line};
-use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, parse_reply};
+use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, Refusal, parse_reply};
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
 use crate::app_env::private_dir;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
@@ -63,9 +63,9 @@ pub(crate) fn open_dial(
     args: &[String],
     env: &[(String, String)],
     children: &Children,
-) -> Result<Dialed, DialCode> {
+) -> Result<Dialed, Refusal> {
     if !binary.is_absolute() {
-        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()));
+        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()).into());
     }
     let mut process = Command::new(binary);
     process.args(args).env_clear();
@@ -75,20 +75,22 @@ pub(crate) fn open_dial(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| DialCode::Unavailable(format!("cmux link dial did not start: {e}")))?;
+        .map_err(|e| {
+            Refusal::from(DialCode::Unavailable(format!("cmux link dial did not start: {e}")))
+        })?;
     let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let child = Arc::new(Mutex::new(child));
     lock(children).push(Arc::clone(&child));
     let (Some(stdin), Some(stdout), Some(stderr)) = pipes else {
         end_child(&child, children);
-        return Err(DialCode::Unavailable("cmux link dial has no pipes".into()));
+        return Err(DialCode::Unavailable("cmux link dial has no pipes".into()).into());
     };
     let mut stderr = BufReader::new(stderr);
     let mut line = Vec::new();
     let read = (&mut stderr).take(MAX_REPLY_BYTES as u64).read_until(b'\n', &mut line);
     let reply = match read {
         Ok(_) => parse_reply(&String::from_utf8_lossy(&line)),
-        Err(e) => DialReply::Refused(DialCode::Unavailable(format!("cmux link dial: {e}"))),
+        Err(e) => DialReply::Refused(DialCode::Unavailable(format!("cmux link dial: {e}")).into()),
     };
     // Drain the rest of stderr so the child never blocks on a full pipe.
     let _ = std::thread::Builder::new().name("cmux-link-dial-stderr".into()).spawn(move || {
@@ -96,9 +98,9 @@ pub(crate) fn open_dial(
     });
     match reply {
         DialReply::Connected { .. } => Ok(Dialed { child, stdin, stdout }),
-        DialReply::Refused(code) => {
+        DialReply::Refused(refusal) => {
             end_child(&child, children);
-            Err(code)
+            Err(refusal)
         }
     }
 }
@@ -297,14 +299,15 @@ fn run(
                 Ok(dialed) => splice(connection, dialed, &children),
                 // The client sees end of stream. A refusal that ends access
                 // finds the machine paused, or cannot reach it goes to the supervisor, typed.
-                Err(code) if ends_generation(&code) => {
-                    let line = dial_failed_line(&code);
+                Err(refusal) if ends_generation(&refusal.code) => {
+                    let line = dial_failed_line(&refusal.code, refusal.detail.as_deref());
                     let _ = events.send(LinkProcessEvent::Line { tag, line });
                 }
-                Err(code) => eprintln!(
-                    "cmux-cloud: a stream to {} was refused: {}",
+                Err(refusal) => eprintln!(
+                    "cmux-cloud: a stream to {} was refused: {}{}",
                     tag.machine,
-                    code.as_str()
+                    refusal.code.as_str(),
+                    refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
                 ),
             }
         });
@@ -325,7 +328,7 @@ mod tests {
             binary: PathBuf::from("/bin/sh"),
             args: vec![
                 "-c".into(),
-                r#"printf '%s\n' '{"ok":false,"error_code":"unreachable"}' >&2"#.into(),
+                r#"printf '%s\n' '{"ok":false,"error_code":"unreachable","error_detail":"connect_info: cloud.machine.not_bound"}' >&2"#.into(),
             ],
             env: vec![],
             state_dir: root.join("state"),
@@ -350,7 +353,8 @@ mod tests {
         assert_eq!(supervisor.refusal("vm-test"), Some(&DialCode::Unreachable));
         assert!(matches!(
             supervisor.state("vm-test"),
-            Some(LinkState::Down { retryable: true, .. })
+            Some(LinkState::Down { retryable: true, reason })
+                if reason == "cmux link refused the dial: unreachable (connect_info: cloud.machine.not_bound)"
         ));
         assert!(supervisor.carrier("vm-test").is_none(), "a refused dial is not a ready link");
         drop(connection);

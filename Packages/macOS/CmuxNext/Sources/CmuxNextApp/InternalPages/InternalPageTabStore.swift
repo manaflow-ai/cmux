@@ -376,7 +376,7 @@ final class InternalPageTabStore {
     }
 
     private func forget(_ key: String) {
-        views.removeValue(forKey: key)?.removeFromSuperview()
+        views.removeValue(forKey: key)?.removeFromSuperviewDetachingSubviews() // never a page leaving its hierarchy in a dealloc
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }

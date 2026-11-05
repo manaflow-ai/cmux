@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 use super::super::*;
-use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, check_frame};
+use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, REMOTE_CAPABILITIES, check_frame};
 use super::{NO_PRINCIPAL, Principal};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, PairingRecords, RelayLock, RelayStateError, RevocationClock,
@@ -71,6 +71,60 @@ fn remote(fixture: &Fixture, install: &str, user: &str) -> u64 {
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
     fixture.mux.bind_remote_peer(client, &peer(install, user)).unwrap();
     client
+}
+
+/// A Cloud mobile stream has both a verified link-token admission and the
+/// owner's pairing principal; the capability alone is never enough.
+fn cloud_mobile(fixture: &Fixture, install: &str, user: &str) -> u64 {
+    fixture.mux.record_remote_check(install).unwrap();
+    let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    fixture.mux.bind_remote_peer_checked(client, &peer(install, user), true).unwrap();
+    fixture
+        .mux
+        .control_clients
+        .set_info(
+            client,
+            Some("ios".into()),
+            None,
+            Some(vec![
+                "cloud-mobile-chat-v1".into(),
+                "conversation-tabs-v1".into(),
+                "agent-session-tabs-v1".into(),
+            ]),
+        )
+        .unwrap();
+    client
+}
+
+#[test]
+fn cloud_mobile_frame_path_is_exact_and_owner_scoped() {
+    let fixture = fixture();
+    let owner = cloud_mobile(&fixture, "inst_mobile", OWNER);
+    assert!(fixture.mux.cloud_mobile_client(owner));
+    assert_eq!(send(&fixture.mux, owner, json!({"id": 1, "cmd": "list-workspaces"}))["ok"], true);
+
+    for command in [
+        "agent-session-start",
+        "agent-session-trust",
+        "agent-session-folders",
+        "agent-session-unknown",
+    ] {
+        let reply = send(&fixture.mux, owner, json!({"id": 2, "cmd": command}));
+        assert_eq!(reply["error_code"], "remote_denied", "{command} escaped the exact allowlist");
+    }
+    let malformed = send(
+        &fixture.mux,
+        owner,
+        json!({"id": 3, "cmd": "agent-session-attach", "surface": "not-a-number", "unknown": true}),
+    );
+    assert_eq!(malformed["ok"], false);
+
+    let teammate = cloud_mobile(&fixture, "inst_teammate", "7");
+    assert!(!fixture.mux.cloud_mobile_client(teammate));
+    assert_eq!(
+        send(&fixture.mux, teammate, json!({"id": 4, "cmd": "list-workspaces"}))["error_code"],
+        "remote_denied"
+    );
 }
 
 /// One frame through the remote frame path (`handle_frame`, the path the
@@ -214,6 +268,9 @@ fn only_the_section_4_commands_pass_the_gate() {
         "conversation-snapshot",
         "conversation-typing",
         "identify",
+        // Passes the frame gate only; `intercept` admits it for a verified
+        // Cloud mobile owner alone (`cloud_mobile_frame_path_is_exact_and_owner_scoped`).
+        "list-workspaces",
         "set-client-info",
         "subscribe",
     ];
@@ -256,8 +313,11 @@ fn set_client_info_takes_only_conversation_capabilities_and_ignores_identity() {
     let client = remote(&fixture, "inst_1", OWNER);
     let loopback = json!({"id":1,"cmd":"set-client-info","capabilities":["loopback-forward"]});
     assert_code(&send(&fixture.mux, client, loopback), "remote_denied");
+    // `kind` passes the gate (the Cloud mobile carrier sends one) but is
+    // dropped: a remote never takes a frontend kind such as native-browser.
     let kind = json!({"id":1,"cmd":"set-client-info","kind":"native-browser"});
-    assert_code(&send(&fixture.mux, client, kind), "remote_denied");
+    assert_eq!(send(&fixture.mux, client, kind)["ok"], json!(true));
+    assert_eq!(fixture.mux.control_clients.state.lock().unwrap().clients[&client].kind, None);
     let reply = send(
         &fixture.mux,
         client,
@@ -292,7 +352,7 @@ fn a_remote_identify_reveals_no_local_state() {
     let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
     keys.sort();
     assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
-    assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+    assert_eq!(data["capabilities"], json!(REMOTE_CAPABILITIES));
     assert_eq!(data["protocol"], json!(PROTOCOL_VERSION), "{reply}");
 }
 
@@ -308,7 +368,7 @@ fn cmux_next_machine_identity_reader_remote_opt_in_still_reveals_no_local_state(
         let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
         keys.sort();
         assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
-        assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+        assert_eq!(data["capabilities"], json!(REMOTE_CAPABILITIES));
     }
 }
 
@@ -895,6 +955,15 @@ fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
 // Poisoned relay locks (lane 10 lock slice): every admission, binding and
 // revocation step fails closed and returns a typed error.
 
+/// Poisons a published value: a panic while its lock is held.
+fn poison_published<T, S>(value: &crate::published::Published<T, S>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = value.lock();
+        panic!("poisons the value for a fail-closed test");
+    }));
+    assert!(value.is_poisoned());
+}
+
 /// Poisons `mutex`: a panic while it is held.
 fn poison<T>(mutex: &Mutex<T>) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -944,28 +1013,55 @@ fn a_poisoned_pairing_lock_denies_the_owner_scope() {
 }
 
 /// A poisoned peers lock cannot say which clients have a peer record, so
-/// no client gets a principal from it and none is trusted as local.
+/// no client gets a principal from it and none is trusted as local. The
+/// same on the input lane (R-DAEMON-STATE stage S1), whose readers load the
+/// published records instead of the lock.
 #[test]
 fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
-    let fixture = fixture();
-    let client = remote(&fixture, "inst_1", OWNER);
-    poison(&fixture.mux.remote_relay().peers);
-    assert_eq!(fixture.mux.principal(client), None);
-    assert!(fixture.mux.is_remote_client(fixture.local));
-    assert_eq!(fixture.mux.principal(fixture.local), None);
-    let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    assert_eq!(
-        fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
-        Err(BindRefused::State(POISONED_PEERS))
-    );
+    for lane in [false, true] {
+        let fixture = fixture();
+        fixture.mux.set_input_lane_for_test(lane);
+        let client = remote(&fixture, "inst_1", OWNER);
+        poison_published(&fixture.mux.remote_relay().peers);
+        assert_eq!(fixture.mux.principal(client), None, "lane {lane}");
+        assert!(fixture.mux.is_remote_client(fixture.local), "lane {lane}");
+        assert_eq!(fixture.mux.principal(fixture.local), None, "lane {lane}");
+        let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+        assert_eq!(
+            fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
+            Err(BindRefused::State(POISONED_PEERS)),
+            "lane {lane}"
+        );
+    }
 }
 
+/// A panic while the session state is held: with the lane on, the next surface read takes the old path and fails
+/// as it does, never routing by tables that a guard which recovered the poison may have published. No terminal:
+/// the mux has none, so nothing else locks the poisoned state.
+#[test]
+fn a_poisoned_session_state_never_routes_by_the_published_tables() {
+    let fixture = fixture();
+    fixture.mux.set_input_lane_for_test(true);
+    assert!(fixture.mux.surface(424_242).is_none());
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fixture.mux.with_state(|_| panic!("poisons the session state"));
+    }));
+    let read =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fixture.mux.surface(424_242)));
+    assert!(read.is_err(), "the lane read the published routes of a poisoned session state");
+}
+
+/// The same for the client registry, also on the input lane, whose readers
+/// load the registry's published facts instead of its lock.
 #[test]
 fn a_poisoned_registry_lock_trusts_no_client_as_local() {
-    let fixture = fixture();
-    poison(&fixture.mux.control_clients.state);
-    assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none());
-    assert!(fixture.mux.is_remote_client(fixture.local));
+    for lane in [false, true] {
+        let fixture = fixture();
+        fixture.mux.set_input_lane_for_test(lane);
+        poison_published(&fixture.mux.control_clients.state);
+        assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none(), "lane {lane}");
+        assert!(fixture.mux.is_remote_client(fixture.local), "lane {lane}");
+    }
 }
 
 /// A revoke that meets a poisoned lock cannot tell the install's streams
@@ -975,7 +1071,7 @@ fn a_revoke_on_a_poisoned_lock_closes_every_remote_stream() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
     let other = remote(&fixture, "inst_2", OWNER);
-    poison(&fixture.mux.remote_relay().peers);
+    poison_published(&fixture.mux.remote_relay().peers);
     assert_eq!(fixture.mux.revoke_remote_install("inst_1"), Err(POISONED_PEERS));
     assert!(!fixture.mux.control_clients.is_remote(one));
     assert!(!fixture.mux.control_clients.is_remote(other));
@@ -1074,7 +1170,7 @@ fn a_remote_bind_on_a_poisoned_bindings_lock_refuses_without_a_panic() {
 fn a_poisoned_registry_trusts_no_unix_client_and_still_removes_a_record() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
-    poison(&fixture.mux.control_clients.state);
+    poison_published(&fixture.mux.control_clients.state);
     assert!(!fixture.mux.control_clients.is_unix(fixture.local));
     assert_eq!(fixture.mux.principal(fixture.local), None);
     assert!(fixture.mux.control_clients.remove(one).is_some());

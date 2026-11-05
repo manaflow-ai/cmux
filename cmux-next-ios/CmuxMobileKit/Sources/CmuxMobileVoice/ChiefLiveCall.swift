@@ -76,6 +76,8 @@ public final class ChiefLiveCall {
             return true
         }
         guard let store, let key = keys.key() else { return false }
+        // One audio line at a time: a call ends voice mode.
+        AgentVoiceMode.shared.stop()
         let toolbox = ChiefCallToolbox(sources: sources, store: store, userName: userName)
         let config = VoiceCallSessionConfig(model: preferences.modelID, voice: preferences.voiceID,
                                             instructions: toolbox.briefing().instructions(now: Date()))

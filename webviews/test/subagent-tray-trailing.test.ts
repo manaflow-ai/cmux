@@ -64,8 +64,8 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
         more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
         lines: [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")].map((line) => ({
           row: box(line)!,
-          // The lines time: on its row of controls, the last thing before Stops track (a done or
-          // running line says no state word; design/chat-transcript.md "Subagent row anatomy").
+          // The line's time: on its row of controls, after its state word; the pair ends before Stop's
+          // track on every line, empty or not (Leo, 2026-11-03: "let's align the right").
           time: box(line.querySelector(".acpmux-agent-line__time"))!,
           track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
           slot: box(line.querySelector(".acpmux-agent-line__stop-slot"))!,
@@ -110,7 +110,8 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(
               Math.abs((slot.left + slot.right) / 2 - (line.track.left + line.track.right) / 2),
             ).toBeLessThanOrEqual(1);
-            expect(slot.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
+            // Every line's time ends before Stop's track, a line with no Stop too.
+            expect(line.track.left).toBeGreaterThanOrEqual(line.time.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(slot.right - 0.5);
           }
           // A populated slot targets its Stop button; an empty slot targets the line's own button.

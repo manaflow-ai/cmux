@@ -129,6 +129,17 @@ export function newTabScreenActions(deps: {
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
+    // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
+    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInNewProfile: (url, name) =>
+      ignore(
+        callNative("tab.open", {
+          kind: "browser",
+          text: url,
+          newProfile: true,
+          ...(name ? { profileName: name } : {}),
+        }),
+      ),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
@@ -142,7 +153,7 @@ export function newTabScreenActions(deps: {
     },
     // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
     // Tab page instead of turning into an empty chat.
-    onOpenChat: (key) => ignore(callNative("chats.open", { key })),
+    onOpenChat: (key) => callNative("chats.open", { key }).then(() => undefined),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,

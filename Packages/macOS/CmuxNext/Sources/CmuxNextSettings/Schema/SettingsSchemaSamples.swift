@@ -13,6 +13,9 @@ nonisolated enum SettingsSchemaSamples {
                     [.string("my-tight"), .array([.object([:])]), .array([.object(["id": .string("Bad Id"), "name": .string("x")])]),
                      .array([.object(["id": .string("a"), "name": .string("A"), "level": .string("1")])])])
         }
+        if descriptor.path == CommandLabelsSetting().configPath {
+            return (CommandLabelsSetting.acceptedSamples, CommandLabelsSetting.refusedSamples)
+        }
         if descriptor.path == ChatSettings.rootsPath {
             return ([.array([]), .array([.string("/opt/cmux-chat-data")])],
                     [.string("/opt/cmux-chat-data"), .array([.string("~/chats")]), .array([.string("/")]), .array([.string("/Volumes/chats")]), .array([.number(1)])])

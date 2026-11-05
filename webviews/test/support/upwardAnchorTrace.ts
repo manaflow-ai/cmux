@@ -10,6 +10,10 @@ export type UpwardAnchorFrame = {
   drift: number | null;
   wheelGeometryPixels: number;
   rowBoxGap: number;
+  expectedRowBoxGap: number;
+  unexpectedRowBoxGap: number;
+  missingRow: boolean;
+  overlap: number;
   topEdgeGap: number;
   bottomEdgeGap: number;
   rowBoxIds: string[];
@@ -27,6 +31,100 @@ export async function traceUpwardAnchors({
 }) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
+  // Keep the oracle's spacing contract in the browser, next to the rendered boxes.  The
+  // virtualizer uses these same grid tokens (transcriptGrid.ts); reading the computed values
+  // avoids baking in an interface scale while still rejecting a gap that is merely close to a
+  // token, or a gap in the wrong row pair.
+  const transcriptMark = {
+    other: 0,
+    prompt: 1,
+    message: 2,
+    indicator: 3,
+    footer: 4,
+    step: 5,
+    footerRow: 6,
+    footerSlot: 7,
+  } as const;
+
+  function gridPx(name: string): number {
+    const probe = document.createElement("span");
+    probe.style.cssText = `position:absolute;width:var(${name});height:0;visibility:hidden`;
+    document.body.append(probe);
+    const value = Number.parseFloat(getComputedStyle(probe).width);
+    probe.remove();
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function markFor(row: HTMLElement): number | null {
+    const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
+    if (
+      row.classList.contains("acpmux-row--line") ||
+      row.classList.contains("acpmux-row--after-step") ||
+      row.classList.contains("acpmux-row--before-step") ||
+      kind === "acpmux-activity" ||
+      kind === "acpmux-backgroundTask" ||
+      kind === "acpmux-subagentDone" ||
+      kind === "acpmux-compaction" ||
+      kind === "acpmux-failover" ||
+      kind === "acpmux-policyUnenforced" ||
+      kind === "acpmux-agentPair" ||
+      kind === "acpmux-sessionStart" ||
+      kind === "acpmux-backgroundTurn" ||
+      kind === "acpmux-messageRun" ||
+      kind === "acpmux-laneNoticeBatch" ||
+      kind === "acpmux-pendingMessages"
+    )
+      return transcriptMark.step;
+    if (kind === "acpmux-user")
+      return row.querySelector(".cv-incoming, .cv-received, .acpmux-task-received")
+        ? transcriptMark.other
+        : transcriptMark.prompt;
+    if (kind === "acpmux-assistant") return transcriptMark.message;
+    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine")
+      return row.classList.contains("acpmux-row--below") ? transcriptMark.footerSlot : transcriptMark.indicator;
+    if (kind === "acpmux-turnSummary")
+      return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
+        ? transcriptMark.footerRow
+        : transcriptMark.footer;
+    return kind === undefined ? null : transcriptMark.other;
+  }
+
+  function expectedGap(
+    previous: number | null,
+    next: number | null,
+    tokens: { footer: number; block: number; turn: number; run: number },
+  ): number {
+    if (previous === null || next === null) return 0;
+    const { footer, block, turn, run } = tokens;
+    if (
+      (next === transcriptMark.footerRow || next === transcriptMark.footerSlot) &&
+      previous === transcriptMark.message
+    )
+      return footer;
+    if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
+      return block;
+    if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
+    if (
+      previous === transcriptMark.step &&
+      (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
+    )
+      return 0;
+    // A run of steps or a status line and the reply's prose by it (transcriptGrid.ts TRANSCRIPT_RUN_GAP,
+    // design/transcript-spacing.md rule 4).
+    if (
+      (previous === transcriptMark.step && next === transcriptMark.message) ||
+      (previous === transcriptMark.message && next === transcriptMark.step)
+    )
+      return run;
+    return block;
+  }
+
+  const gridTokens = {
+    footer: gridPx("--grid-gap-footer"),
+    block: gridPx("--grid-gap-block"),
+    turn: gridPx("--grid-gap-turn"),
+    run: gridPx("--grid-gap-run"),
+  };
   const read = () => {
     const view = scroller.getBoundingClientRect();
     const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => {
@@ -38,10 +136,15 @@ export async function traceUpwardAnchors({
         y: box.top - view.top,
         bottom: box.bottom - view.top,
         height: box.height,
+        mark: markFor(row),
       };
     });
     const visible = mounted.filter((row) => row.height > 0 && row.bottom > 0 && row.y < view.height);
-    return { mounted: new Map(mounted.map((row) => [row.id, row])), visible, viewHeight: view.height };
+    return {
+      mounted: new Map(mounted.map((row) => [row.id, row])),
+      visible,
+      viewHeight: view.height,
+    };
   };
   const snapshotGeometry = (phase: string) => {
     const row = scroller.querySelector<HTMLElement>(`[data-row-id="${previous.visible[0]?.id}"]`);
@@ -104,7 +207,10 @@ export async function traceUpwardAnchors({
           const toggle = scroller.querySelector<HTMLButtonElement>(
             '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
           );
-          foldTransitions.push({ before: pendingFold, after: toggle?.getAttribute("aria-expanded") ?? null });
+          foldTransitions.push({
+            before: pendingFold,
+            after: toggle?.getAttribute("aria-expanded") ?? null,
+          });
           pendingFold = undefined;
         }
         // Usually the previous first visible row. At a boundary, use the next row that the two
@@ -114,14 +220,45 @@ export async function traceUpwardAnchors({
         const bottom = current.visible.at(-1);
         // Only a transcript's true first/last row may leave intentional space at its ends.
         // Else row boxes must cover both viewport edges as well as every adjacent pair.
-        const topEdgeGap = top ? (top.index > 0 ? Math.max(0, top.y) : 0) : current.viewHeight;
+        const mountedBefore = top
+          ? [...current.mounted.values()]
+              .filter((row) => row.index < top.index)
+              .sort((a, b) => a.index - b.index)
+              .at(-1)
+          : undefined;
+        const mountedAfter = bottom
+          ? [...current.mounted.values()].filter((row) => row.index > bottom.index).sort((a, b) => a.index - b.index)[0]
+          : undefined;
+        const topEdgeGap = top
+          ? top.index > 0
+            ? Math.max(0, top.y - (mountedBefore ? expectedGap(mountedBefore.mark, top.mark, gridTokens) : 0))
+            : 0
+          : current.viewHeight;
         const bottomEdgeGap =
-          bottom && bottom.index < bottom.count - 1 ? Math.max(0, current.viewHeight - bottom.bottom) : 0;
+          bottom && bottom.index < bottom.count - 1
+            ? Math.max(
+                0,
+                current.viewHeight -
+                  bottom.bottom -
+                  (mountedAfter ? expectedGap(bottom.mark, mountedAfter.mark, gridTokens) : 0),
+              )
+            : 0;
         const rowBoxGaps = current.visible.flatMap((row, index, rows) => {
           const previous = rows[index - 1];
           if (!previous) return [];
           const gap = row.y - previous.bottom;
-          return gap > 1 / 64 ? [{ gap, previous: previous.id, next: row.id }] : [];
+          const expected = expectedGap(previous.mark, row.mark, gridTokens);
+          return [{ gap, expected, previous: previous.id, next: row.id }];
+        });
+        const positiveGaps = rowBoxGaps.filter((each) => each.gap > 0);
+        const unexpectedRowBoxGaps = rowBoxGaps.filter((each) => Math.abs(each.gap - each.expected) > 1 / 64);
+        const mountedIndexes = new Set([...current.mounted.values()].map((row) => row.index));
+        const missingRow = current.visible.some((row, index, rows) => {
+          const previous = rows[index - 1];
+          if (previous === undefined || row.index <= previous.index + 1) return false;
+          for (let missing = previous.index + 1; missing < row.index; missing += 1)
+            if (!mountedIndexes.has(missing)) return true;
+          return false;
         });
         const drift = anchor ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied : null;
         samples.push({
@@ -135,7 +272,11 @@ export async function traceUpwardAnchors({
           scrollTop: scroller.scrollTop,
           anchorId: anchor?.id ?? null,
           drift,
-          rowBoxGap: Math.max(0, ...rowBoxGaps.map((each) => each.gap)),
+          rowBoxGap: Math.max(0, ...positiveGaps.map((each) => each.gap)),
+          expectedRowBoxGap: Math.max(0, ...rowBoxGaps.map((each) => each.expected)),
+          unexpectedRowBoxGap: Math.max(0, ...unexpectedRowBoxGaps.map((each) => Math.abs(each.gap - each.expected))),
+          missingRow,
+          overlap: Math.max(0, ...rowBoxGaps.map((each) => -each.gap)),
           topEdgeGap,
           bottomEdgeGap,
           rowBoxIds: rowBoxGaps.flatMap((each) => [each.previous, each.next]),
@@ -197,8 +338,13 @@ export async function traceUpwardAnchors({
     compared: compared.length,
     missingAnchors: samples.length - compared.length,
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
-    blankBandFrames: samples.filter((sample) => sample.rowBoxGap > 8).length,
+    blankBandFrames: samples.filter((sample) => sample.unexpectedRowBoxGap > 1 / 64 || sample.missingRow).length,
+    unexpectedRowBoxFrames: samples.filter((sample) => sample.unexpectedRowBoxGap > 1 / 64).length,
+    missingRowFrames: samples.filter((sample) => sample.missingRow).length,
+    overlapFrames: samples.filter((sample) => sample.overlap > 1 / 64).length,
     maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
+    maxExpectedRowBoxGap: Math.max(0, ...samples.map((sample) => sample.expectedRowBoxGap)),
+    maxUnexpectedRowBoxGap: Math.max(0, ...samples.map((sample) => sample.unexpectedRowBoxGap)),
     blankEdgeFrames: samples.filter((sample) => Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8).length,
     maxViewportEdgeGap: Math.max(0, ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap])),
     cancelledWheels,

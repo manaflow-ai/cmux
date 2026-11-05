@@ -9,6 +9,10 @@ enum HomeConversationStrings {
     /// The sidebar search section of teammates the user has no DM with yet.
     static var teammatesSection: String { String(localized: "home.list.teammates", defaultValue: "Teammates", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
+    /// The list's on-filter chip (Unread ×): what a click does.
+    static var filterChipHelp: String {
+        String(localized: "home.list.filterChipHelp", defaultValue: "Turns the Unread filter off and shows every chat", bundle: .module)
+    }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
     /// Group info's Invite by Email… after a `not_reachable` refusal.

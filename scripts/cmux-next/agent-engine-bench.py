@@ -9,14 +9,14 @@ Launches a tagged DEBUG app once per mode, with the mock agent host, and measure
 Per mode: the engine that showed the chat (`debug.agent_pane engine`); time from the open action to
 the first text and to a visible composer, for the first chat and for each of `--chats` more; memory
 (physical footprint of the app, its Chromium helpers and the WebKit processes it is responsible
-for, bench_memory.py) at launch, with one chat and with `--chats`; flings over 5000 seeded rows; and
+for, bench_memory.py) at launch, with one chat and with `--chats`; flings over `--rows` seeded rows; and
 typing latency in the composer (keydown to the next frame and to its paint, the page's own
 typingStats) for `--keys` keys sent with `debug.key`. With `--activate` the app runs active and the
 report adds which window holds the keys once the chat is focused (a Chromium page is its own child
 window). Runs on a fleet mini, never a laptop:
   agent-engine-bench.py --tag TAG --app BUNDLE [--modes own,page,chromium] [--chats 10] [--json FILE]
 """
-import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
@@ -29,6 +29,9 @@ parser.add_argument("--modes", default="own,page,chromium")
 parser.add_argument("--chats", type=int, default=10)
 parser.add_argument("--keys", type=int, default=40)
 parser.add_argument("--flings", type=int, default=3)
+parser.add_argument("--rows", type=int, default=5000, help="seeded transcript rows")
+parser.add_argument("--fling-seconds", type=float, default=3, help="duration of each measured bottom-to-top fling")
+parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of idle cadence")
 parser.add_argument("--settle", type=float, default=10)
 parser.add_argument("--activate", action="store_true", help="run the app active, to see which window takes the keys")
 parser.add_argument("--open", action="store_true",
@@ -37,6 +40,9 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 parser.add_argument("--shots", help="a folder: light and dark screen captures of the open session in each mode, with the window glass on")
 opts = parser.parse_args()
+if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
+        or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
+    parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
 # LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
 TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -86,6 +92,74 @@ def wait(check, seconds, step=0.25):
 def median(values):
     values = [v for v in values if v is not None]
     return round(statistics.median(values), 1) if values else None
+
+
+def finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def fling_metrics(fling, perf, seed, requested_rows, seconds, target_hz):
+    """Validate an observed fling independently of whether its performance meets a budget."""
+    samples = perf.get("samples") if isinstance(perf, dict) else None
+    intervals = [s.get("interval_ms") for s in samples] if isinstance(samples, list) and all(isinstance(s, dict) for s in samples) else None
+    valid = bool(intervals) and all(finite_number(ms) and ms >= 0 for ms in intervals)
+    finished = (not fling.get("error") and fling.get("running") is False and isinstance(perf, dict)
+                and not perf.get("error") and perf.get("running") is False)
+    # syntheticRows emits complete three-row turns (5000 requested becomes 4998).
+    expected_rows = max(1, requested_rows // 3) * 3
+    seed_valid = (isinstance(seed, dict) and not seed.get("error") and seed.get("rows") == expected_rows
+                  and finite_number(seed.get("commit_ms")) and seed["commit_ms"] >= 0)
+    duration = sum(intervals) if valid else None
+    nominal = 1000 / target_hz if target_hz else fling.get("nominal_ms")
+    has_nominal = finite_number(nominal) and nominal > 0
+    distance = fling.get("distance_px")
+    count = fling.get("frames")
+    full_ring = valid and type(count) is int and len(intervals) == count - 1
+    full_duration = valid and duration > 0 and duration >= max(0.1, seconds) * 1000 - 0.005 * len(intervals)
+    # perf_stats is a bounded ring; a long fling may retain only its tail. Never divide a
+    # whole-fling dropped count by that tail's duration or report its blank count as complete.
+    complete = bool(finished and seed_valid and fling.get("rows") == seed.get("rows") and full_ring
+                    and full_duration and finite_number(distance) and distance > 0 and has_nominal)
+    dropped = sum(max(0, math.floor(ms / nominal + 0.5) - 1) for ms in intervals) if valid and has_nominal else None
+    return {
+        "source": "debug.agent_pane fling + perf_stats(raw=true); requestAnimationFrame timestamps",
+        "duration_precision": "sum of intervals rounded by the API to 0.01 ms",
+        "complete": complete,
+        "expected_seed_rows": expected_rows,
+        "seed_valid": seed_valid,
+        "full_ring": bool(full_ring),
+        "full_duration": bool(full_duration),
+        "target_hz": target_hz,
+        "nominal_ms": nominal,
+        "measured_interval_p50_ms": statistics.median(intervals) if valid else None,
+        "intervals_ms": intervals,
+        "sampled_duration_ms": duration,
+        "observed_duration_ms": duration if complete else None,
+        "dropped_slots": dropped if complete else None,
+        "dropped_slots_per_s": dropped * 1000 / duration if complete and duration > 0
+                               and isinstance(dropped, (int, float)) else None,
+        "blank_model_frames": perf.get("blank_frames") if finished and valid else None,
+        "blank_model_source": "mounted spans at last React commit versus scroll geometry, sampled before paint",
+        "blank_model_scope": "whole fling intervals" if complete else "retained samples only",
+        "blank_ms": None,  # The existing flag does not establish painted blank duration.
+    }
+
+
+def measured_fling(seed):
+    """Keep the existing fling stats plus its recorder, before another fling resets it."""
+    options = {"nominal_ms": 1000 / opts.target_hz} if opts.target_hz else {}
+    fling = pane("fling", seconds=opts.fling_seconds, wait=True, timeout=max(60, opts.fling_seconds + 30), **options)
+    if not isinstance(fling, dict):
+        fling = {"error": "invalid fling reply", "raw_reply": fling}
+    perf = pane("perf_stats", raw=True)
+    fling["perf_stats"] = perf
+    fling["frame_metrics"] = fling_metrics(fling, perf, seed, opts.rows, opts.fling_seconds, opts.target_hz)
+    return fling
+
+
+def flings_complete(flings, requested):
+    return (isinstance(flings, list) and len(flings) == requested
+            and all(isinstance(f, dict) and (f.get("frame_metrics") or {}).get("complete") is True for f in flings))
 
 
 def open_chat():
@@ -262,10 +336,11 @@ def run_mode(mode):
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
-    pane("seed_rows", count=5000, timeout=60)
+    result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
-    result["flings"] = [pane("fling", seconds=3, wait=True, timeout=60) for _ in range(opts.flings)]
+    result["flings"] = [measured_fling(result["seed"]) for _ in range(opts.flings)]
+    result["measurement_complete"] = flings_complete(result["flings"], opts.flings)
     more = [open_chat() for _ in range(opts.chats - 1)]
     result["more_chats"] = more
     time.sleep(opts.settle)  # test harness: the chats settle before they are measured
@@ -288,7 +363,8 @@ def run_mode(mode):
 
 
 def main():
-    results = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "modes": {}}
+    results = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "modes": {},
+               "requested_rows": opts.rows, "requested_fling_seconds": opts.fling_seconds, "target_hz": opts.target_hz}
     for mode in opts.modes.split(","):
         try:
             results["modes"][mode] = run_mode(mode)
@@ -296,10 +372,11 @@ def main():
             quit_app()
         time.sleep(3)  # test harness: the last mode's processes leave
     print("\nSUMMARY", json.dumps({m: r.get("summary", r) for m, r in results["modes"].items()}, indent=1), flush=True)
+    results["measurement_complete"] = all(r.get("measurement_complete") is True for r in results["modes"].values())
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         json.dump(results, open(opts.json, "w"), indent=1)
-    return all("summary" in r for r in results["modes"].values())
+    return results["measurement_complete"] and all("summary" in r for r in results["modes"].values())
 
 
 ok = False

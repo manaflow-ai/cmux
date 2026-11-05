@@ -40,10 +40,18 @@ public struct FeedReadMarks: Sendable {
         let url = url
         // Empty until the delete lands; queued after any earlier write, so that write cannot
         // bring the file back, and before any later save, which then writes its marks.
-        let operation = Self.pending.withLock { $0.begin(url, .removed) }
-        Self.queue.async {
-            try? FileManager.default.removeItem(at: url)
-            Self.pending.withLock { $0.end(url, operation) }
+        // Numbered and queued under one lock, so the queue runs operations in the order
+        // they were numbered: a save on another thread can never queue ahead of this removal
+        // (its write would land first and this delete would then take it).
+        Self.pending.withLock { files in
+            let operation = files.begin(url, .removed)
+            Self.queue.async {
+                // Only while still the newest: a later save then writes its marks after this.
+                if Self.pending.withLock({ $0.isNewest(url, operation) }) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                Self.pending.withLock { $0.end(url, operation) }
+            }
         }
     }
 
@@ -76,6 +84,8 @@ public struct FeedReadMarks: Sendable {
 
         func state(_ url: URL) -> Pending? { files[url]?.state }
 
+        func isNewest(_ url: URL, _ operation: UInt64) -> Bool { files[url]?.operation == operation }
+
         /// The newest marks to write when `operation` is still the file's newest.
         func marks(_ url: URL, _ operation: UInt64) -> [String]? {
             guard let entry = files[url], entry.operation == operation, case .marks(let marks) = entry.state else { return nil }
@@ -101,15 +111,18 @@ public struct FeedReadMarks: Sendable {
     public func save(_ ids: [String]) {
         let ids = Array(ids.suffix(Self.limit))
         let url = url
-        let operation = Self.pending.withLock { $0.begin(url, .marks(ids)) }
-        Self.queue.async {
-            // Only the newest operation writes (a later save or removal is queued after this).
-            guard let next = Self.pending.withLock({ $0.marks(url, operation) }) else { return }
-            if let data = try? JSONEncoder().encode(next) {
-                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? data.write(to: url, options: [.atomic])
+        // Numbered and queued under one lock (see `remove`).
+        Self.pending.withLock { files in
+            let operation = files.begin(url, .marks(ids))
+            Self.queue.async {
+                // Only the newest operation writes (a later save or removal is queued after this).
+                guard let next = Self.pending.withLock({ $0.marks(url, operation) }) else { return }
+                if let data = try? JSONEncoder().encode(next) {
+                    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? data.write(to: url, options: [.atomic])
+                }
+                Self.pending.withLock { $0.end(url, operation) }
             }
-            Self.pending.withLock { $0.end(url, operation) }
         }
     }
 

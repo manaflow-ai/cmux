@@ -51,8 +51,10 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
   screens (`overlaid`) and shows the close sizing it leaves (derived on every overlay, nothing held per split);
   it moves the model's focus to the `successor` (the first pane of the closed pane's sibling) when
   the closed pane had it. A pane with a sibling in its split tree, or a column's only pane while
-  another column stays (its column goes with it, see Doubts), closes this way: the last pane of a
-  screen and a pane in a column with rows leave with the daemon's tree, as before. The hold ends when a snapshot no longer holds the pane, or
+  another column stays (its column goes with it, see Doubts), closes this way, and so does a pane in
+  a column with rows (`removingRowPane`, cmux-tui's `normalize_rows`: an emptied row leaves its
+  column, the rows left keep their heights, one row left is a plain column): only the last pane of a
+  screen leaves with the daemon's tree. The hold ends when a snapshot no longer holds the pane, or
   after `settlePaneClose` (the next snapshot wins); `cancelPaneClose` brings the pane back.
 - **The last tab:** `PaneController.close(_:)` shows the pane close when its strip has no tab left
   (`PaneController+PaneClose.swift`), moves the window's focus to the successor when the pane had

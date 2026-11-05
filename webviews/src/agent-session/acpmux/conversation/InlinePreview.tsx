@@ -29,6 +29,7 @@ import {
   INLINE_PREVIEW_SANDBOX,
   inlinePreviewDocument,
   inlinePreviewHtml,
+  nativePassiveHtml,
   previewNonce,
   reportedHeight,
 } from "./previewDocument";
@@ -38,21 +39,38 @@ export function InlinePreview({
   code,
   lang,
   actions,
+  artifactIdentity,
+  artifactRevision,
 }: {
   kind: "html" | "svg";
   code: string;
   lang: string;
   actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const t = useT();
   const [showCode, setShowCode] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // The frame left its document (its frame counts its loads): the card shows the source.
   const [left, setLeft] = useState(false);
-  const scripted = useMemo(() => artifactNeedsRun(code), [code]);
+  // Scripted as written, or after the inert rewrite (previewDocument.ts passiveDocument).
+  const scripted = useMemo(
+    () => artifactNeedsRun(code) || artifactNeedsRun(inlinePreviewHtml(kind, code)),
+    [kind, code],
+  );
   // Only the native frame or the gallery can draw it; anywhere else (the dev server) shows the source.
   const framed = artifactFrameURL() !== undefined || artifactGallery();
-  if (scripted || left || !framed) return <CodeBlock code={code} lang={lang} actions={actions} />;
+  if (scripted || left || !framed)
+    return (
+      <CodeBlock
+        code={code}
+        lang={lang}
+        actions={actions}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
+    );
   const toggle = (
     <button
       type="button"
@@ -68,6 +86,8 @@ export function InlinePreview({
       <CodeBlock
         code={code}
         lang={lang}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
         actions={
           <>
             {toggle}
@@ -87,7 +107,7 @@ export function InlinePreview({
       head={
         <>
           {toggle}
-          <OpenPreview code={code} lang={lang} />
+          <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
           <CopyButton text={code} label={t("code.copy")} />
           {actions}
         </>
@@ -153,7 +173,7 @@ function NativeFrame({
   onHeight(height: number): void;
 }) {
   const t = useT();
-  const html = useMemo(() => inlinePreviewHtml(kind, code), [kind, code]);
+  const html = useMemo(() => nativePassiveHtml(inlinePreviewHtml(kind, code)), [kind, code]);
   const { frame, height } = useRenderFrame(html);
   useEffect(() => onHeight(height), [onHeight, height]);
   return (

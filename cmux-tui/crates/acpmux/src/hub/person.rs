@@ -18,6 +18,13 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
+//!   - an unsigned daemon on a Cloud machine (Linux, not root): the VM provisioning exec, which
+//!     runs as root, gives the RUNNING daemon the key with `_acpmux/person_enroll`
+//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). Such a daemon is not
+//!     dumpable for its whole run, takes the key only from a connection whose peer uid is 0, and
+//!     the provisioner checks the process that writes the daemon's replies before it sends the
+//!     key. An agent runs as the daemon's user and cannot. One daemon (acpmux.service) then
+//!     owns the home: nothing stops and restarts it for a key.
 //! - The key never crosses a socket after enrollment (cx-fcaq): whatever
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
@@ -716,6 +723,21 @@ impl PersonGate {
         Ok(())
     }
 
+    /// The key the VM provisioning exec gives the running daemon (`daemon/provision.rs`). The
+    /// caller checked that the connection is the provisioner (root, while this daemon is not
+    /// root) and that this daemon is not signed. It replaces any key this run holds: the
+    /// provisioning exec could restart the daemon with a key of its own anyway, and a new app
+    /// launch makes a new key. A connection that proved the earlier key stays the person it
+    /// proved; every new proof needs the new key.
+    pub fn provision(&self, key: &str) -> Result<Value, RpcError> {
+        if !valid_key(key) {
+            return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
+        }
+        *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
+        self.from_spawn.store(true, Ordering::SeqCst);
+        Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
+    }
+
     /// Whether `proof` answers the challenge (`nonce`, `connection`) with
     /// the current key (constant time).
     pub fn proves(&self, transport: &str, nonce: &str, connection: &str, proof: &str) -> bool {
@@ -1061,17 +1083,23 @@ impl Hub {
                     ))
                 }
             }
-            // The handoff target tag decides which session a handoff adopts.
+            // The handoff target tag decides which session a handoff adopts; the agent hold tag
+            // holds a manager's messages (`agent_hold.rs`), which its manager must not lift.
             method::MUX_TAG => {
+                let guarded =
+                    |k: &str| k == super::handoff::TARGET_TAG || k == super::agent_hold::HOLD_TAG;
                 let sets = params
                     .get("set")
                     .and_then(Value::as_object)
-                    .is_some_and(|o| o.contains_key(super::handoff::TARGET_TAG));
-                let removes = params.get("remove").and_then(Value::as_array).is_some_and(|a| {
-                    a.iter().any(|v| v.as_str() == Some(super::handoff::TARGET_TAG))
-                });
+                    .is_some_and(|o| o.keys().any(|k| guarded(k)));
+                let removes = params
+                    .get("remove")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(guarded)));
                 if sets || removes {
-                    Err(person_required("the handoff target tag"))
+                    Err(person_required("the handoff target and agent hold tags"))
+                } else if self.identity_tag_locked(params) {
+                    Err(person_required("changing a manager tag while its chat is taken over"))
                 } else {
                     Ok(())
                 }
@@ -1102,7 +1130,13 @@ impl Hub {
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
-                    Err(mode_person_required(mode, None, false, starts_modes))
+                    // The full-access mode new chats start in, which the person chose for every
+                    // chat (`start_mode.rs`); never for a Web or peer connection.
+                    if starts_modes && self.is_start_full_access(&s.meta(), mode).await {
+                        Ok(())
+                    } else {
+                        Err(mode_person_required(mode, None, false, starts_modes))
+                    }
                 } else {
                     Err(person_required("a mode that does not ask"))
                 }
@@ -1244,3 +1278,7 @@ impl Hub {
         matches!(offered.as_slice(), [one] if matches!(one["kind"].as_str(), Some("reject_once" | "reject_always")))
     }
 }
+
+#[cfg(test)]
+#[path = "person/provision_tests.rs"]
+mod provision_tests;

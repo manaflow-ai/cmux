@@ -34,6 +34,13 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         "The edits card's header is one full-width toggle (headerToggle.ts); its chevron is that toggle's keyboard control and shares its wash, never a second box.",
     },
     {
+      selector: ".cv-turn-retry",
+      kind: "hover",
+      control: ".cv-turn-retry > .cv-iconbtn",
+      reason:
+        "A reply footer's Retry and its model switch are one split control (TurnRows.tsx TurnFooter); both halves share one pill, never a box around the row.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
@@ -196,6 +203,12 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   const filter = process.env.GALLERY_CONTROL_ENTRIES;
   if (process.env.CI && filter) throw new Error("CI cannot filter the gallery control guard");
   const selected = filter ? cases.filter((c) => filter.split(",").includes(c.id)) : cases;
+  // Both phases share the file's 900 s limit (header). Measured on Linux CI with 372 web entries
+  // (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and 267 s with 8 (Vite's
+  // transforms bound it, not the browser), and the audit 240 s. The old 300 s warm-up budget left
+  // ~10% and went red (run 41597839583); this split keeps ~1.8x on the warm-up and ~1.6x on the audit.
+  const WARM_MS = 480_000;
+  const AUDIT_MS = 380_000;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -216,83 +229,89 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         warmGalleryFrame(
           vite,
           ids.filter((_, index) => index % 4 === worker),
-          { browser, timeoutMs: 300_000 },
+          { browser, timeoutMs: WARM_MS },
         ),
       ),
     );
     console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
-  }, 320_000);
+  }, WARM_MS + 20_000);
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
-  test("every web gallery entry keeps trailing surfaces clear and hover inside its control", async () => {
-    expect(selected.length).toBeGreaterThan(0);
-    const port = (vite.httpServer!.address() as { port: number }).port;
-    const failures: string[] = [],
-      pending = [...selected];
-    let visited = 0,
-      groups = 0,
-      hovered = 0;
-    await Promise.all(
-      Array.from({ length: 4 }, async () => {
-        for (let entry = pending.shift(); entry; entry = pending.shift()) {
-          // A fresh context prevents one gallery's saved settings/draft from leaking into another.
-          const page = await browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: "reduce" });
-          page.setDefaultTimeout(30_000);
-          const name = `${entry.id}/${entry.variant}`;
-          try {
-            await page.setViewportSize({ width: 1000, height: Math.min(1200, entry.height) });
-            await page.goto(
-              `http://127.0.0.1:${port}${galleryFrame(entry.id, { variant: entry.variant, reducedMotion: "true", colorScheme: process.env.GALLERY_CONTROL_THEME })}`,
-            );
-            await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
-            if ((await page.locator("html").getAttribute("data-gallery-ready")) !== "1")
-              throw new Error((await page.locator("body").innerText()).slice(0, 400));
-            await page.addStyleTag({
-              content: "*, *::before, *::after { transition: none !important; animation: none !important; }",
-            });
-            await page.mouse.move(-10, -10);
-            await page.evaluate(installAudit, ALLOW);
-            const baseline = await page.evaluate(() => ({
-              findings: (window as unknown as AuditWindow).controlSurfaceAudit.findings,
-              groups: (window as unknown as AuditWindow).controlSurfaceAudit.groups,
-              controls: (window as unknown as AuditWindow).controlSurfaceAudit.controls,
-            }));
-            groups += baseline.groups;
-            failures.push(...baseline.findings.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
-            for (let index = 0; index < baseline.controls; index++) {
-              await page.mouse.move(-10, -10);
-              const point = await page.evaluate(
-                (i) => (window as unknown as AuditWindow).controlSurfaceAudit.before(i),
-                index,
+  test(
+    "every web gallery entry keeps trailing surfaces clear and hover inside its control",
+    async () => {
+      expect(selected.length).toBeGreaterThan(0);
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      const failures: string[] = [],
+        pending = [...selected];
+      let visited = 0,
+        groups = 0,
+        hovered = 0;
+      await Promise.all(
+        Array.from({ length: 4 }, async () => {
+          for (let entry = pending.shift(); entry; entry = pending.shift()) {
+            // A fresh context prevents one gallery's saved settings/draft from leaking into another.
+            const page = await browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: "reduce" });
+            page.setDefaultTimeout(30_000);
+            const name = `${entry.id}/${entry.variant}`;
+            try {
+              await page.setViewportSize({ width: 1000, height: Math.min(1200, entry.height) });
+              await page.goto(
+                `http://127.0.0.1:${port}${galleryFrame(entry.id, { variant: entry.variant, reducedMotion: "true", colorScheme: process.env.GALLERY_CONTROL_THEME })}`,
               );
-              if (!point) continue;
-              await page.mouse.move(point.x, point.y);
-              const changes = await page.evaluate(() => (window as unknown as AuditWindow).controlSurfaceAudit.after());
-              const capture = process.env.GALLERY_CONTROL_CAPTURE_DIR;
-              const selectors = process.env.GALLERY_CONTROL_CAPTURE_SELECTORS?.split(",") ?? [];
-              if (capture && selectors.some((selector) => point.selector.includes(selector))) {
-                await mkdir(capture, { recursive: true });
-                await page.screenshot({ path: path.join(capture, `${entry.id}-${index}.png`) });
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
+              if ((await page.locator("html").getAttribute("data-gallery-ready")) !== "1")
+                throw new Error((await page.locator("body").innerText()).slice(0, 400));
+              await page.addStyleTag({
+                content: "*, *::before, *::after { transition: none !important; animation: none !important; }",
+              });
+              await page.mouse.move(-10, -10);
+              await page.evaluate(installAudit, ALLOW);
+              const baseline = await page.evaluate(() => ({
+                findings: (window as unknown as AuditWindow).controlSurfaceAudit.findings,
+                groups: (window as unknown as AuditWindow).controlSurfaceAudit.groups,
+                controls: (window as unknown as AuditWindow).controlSurfaceAudit.controls,
+              }));
+              groups += baseline.groups;
+              failures.push(...baseline.findings.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
+              for (let index = 0; index < baseline.controls; index++) {
+                await page.mouse.move(-10, -10);
+                const point = await page.evaluate(
+                  (i) => (window as unknown as AuditWindow).controlSurfaceAudit.before(i),
+                  index,
+                );
+                if (!point) continue;
+                await page.mouse.move(point.x, point.y);
+                const changes = await page.evaluate(() =>
+                  (window as unknown as AuditWindow).controlSurfaceAudit.after(),
+                );
+                const capture = process.env.GALLERY_CONTROL_CAPTURE_DIR;
+                const selectors = process.env.GALLERY_CONTROL_CAPTURE_SELECTORS?.split(",") ?? [];
+                if (capture && selectors.some((selector) => point.selector.includes(selector))) {
+                  await mkdir(capture, { recursive: true });
+                  await page.screenshot({ path: path.join(capture, `${entry.id}-${index}.png`) });
+                }
+                hovered++;
+                failures.push(...changes.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
               }
-              hovered++;
-              failures.push(...changes.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
+              visited++;
+            } catch (error) {
+              failures.push(`${name}: load/audit error ${String(error).slice(0, 500)}`);
+            } finally {
+              await page.close();
             }
-            visited++;
-          } catch (error) {
-            failures.push(`${name}: load/audit error ${String(error).slice(0, 500)}`);
-          } finally {
-            await page.close();
           }
-        }
-      }),
-    );
-    console.log(
-      `Gallery control audit: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
-    );
-    expect(failures).toEqual([]);
-    expect(groups).toBeGreaterThan(0);
-    expect(hovered).toBeGreaterThan(0);
-  }, 550_000);
+        }),
+      );
+      console.log(
+        `Gallery control audit: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
+      );
+      expect(failures).toEqual([]);
+      expect(groups).toBeGreaterThan(0);
+      expect(hovered).toBeGreaterThan(0);
+    },
+    AUDIT_MS,
+  );
 });

@@ -17,6 +17,8 @@ import CmuxNextDesign
 final class BrowserCookieImportCard: NSView {
     static let maximumIcons = 3
     var onChoice: ((BrowserCookieImportChoice) -> Void)?
+    /// Hidden while another tab of the pane shows; it shows again when this tab binds (`BrowserChromeTabSwitch`).
+    weak var heldFor: BrowserChromeTabState?
     /// Set while the close animation runs; a new offer then gets a new card.
     var isDismissing = false
     private(set) var offer: BrowserCookieImportOffer

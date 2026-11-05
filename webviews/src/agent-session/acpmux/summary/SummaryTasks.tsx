@@ -1,5 +1,5 @@
 // The summary card's Background tasks (SummaryBody.tsx), with Session Info off (Debug Settings
-// `agent.inspector`; on, Session Info's TasksSection.tsx lists them): the chat's background
+// `agent.sessionInfo`; on, Session Info's TasksSection.tsx lists them): the chat's background
 // commands (session-info/processes.ts `backgroundCommands`), running ones first and newest first, each
 // with its description, state, elapsed time and a Stop button (session-info/TasksSection.tsx
 // `StopButton`). Finished work stays visible as compact cards so a completed or failed task does

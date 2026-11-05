@@ -10,8 +10,10 @@ import type { DiffSource } from "../diff/generated/protocol";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
 
 export const DIFF_FINGERPRINT_OP = "cmux.diff.git.fingerprint";
-/** How often a visible viewer compares, in ms. */
+/** How often a focused viewer compares, in ms. */
 export const FRESHNESS_INTERVAL = 4000;
+/** Keep a visible background window current without running git every four seconds. */
+export const UNFOCUSED_FRESHNESS_INTERVAL = 30_000;
 
 /** Reads the fingerprint of the diff `shown` compares; undefined where the host can't say. */
 export function diffFingerprintReader(
@@ -81,17 +83,31 @@ export function useDiffFreshness(
       }
     };
     void check(false);
-    const timer = setInterval(() => void check(false), FRESHNESS_INTERVAL);
-    const back = () => void check(true);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const schedule = (focused: boolean) => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.visibilityState === "hidden") return;
+      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
+    };
+    schedule(document.hasFocus());
+    const back = () => {
+      schedule(true);
+      void check(true);
+    };
+    const blur = () => schedule(false);
     const visible = () => {
-      if (document.visibilityState === "visible") back();
+      schedule(document.hasFocus());
+      if (document.visibilityState === "visible") void check(true);
     };
     window.addEventListener("focus", back);
+    window.addEventListener("blur", blur);
     document.addEventListener("visibilitychange", visible);
     return () => {
       current = false;
       clearInterval(timer);
       window.removeEventListener("focus", back);
+      window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visible);
     };
   }, [read, generation, latest]);

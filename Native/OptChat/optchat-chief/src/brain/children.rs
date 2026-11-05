@@ -29,6 +29,49 @@ impl Brain {
                 self.agents_up = true;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
+                // Every saved pending request, even on a previously completed
+                // run, must still have its acpmux session after a reconnect.
+                let missing: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| {
+                        s.peer.is_none()
+                            && s.permission.is_some()
+                            && !sessions
+                                .iter()
+                                .any(|session| Some(&session.session_id) == s.session_id.as_ref())
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in &missing {
+                    self.cancel_home_approval(id);
+                    if let Some(sub) = self.state.sub_mut(id) {
+                        sub.permission = None;
+                    }
+                }
+                if !missing.is_empty() {
+                    // Persist the cleared request and deliver its terminal card now.
+                    self.save();
+                    self.flush_outbox();
+                }
+                self.reconcile_home_approvals();
+                // Restore the watchdog for every hidden pending request with
+                // no Allow button: a delivered Home card or a workspace waits.
+                let pending: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| s.permission.is_some())
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in pending {
+                    self.rewatch_permission(&id);
+                }
+                let sessions_listed: Vec<String> =
+                    sessions.iter().map(|s| s.name.clone()).collect();
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
                 self.sessions = sessions
@@ -41,6 +84,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
+                self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
                 self.reconcile_children();
                 self.maybe_start_turn();
@@ -271,6 +315,9 @@ impl Brain {
             self.orphan_wait = None;
             return;
         }
+        // A person's message that came before the agent link was back (a
+        // restart) does not wait for it either (`queue_in`).
+        let force = force || self.queue.iter().any(super::Queued::is_owner_message);
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
         let mut running = false;

@@ -6,7 +6,12 @@ import CmuxNextMobile
 /// included) and every ephemeral workspace the local daemon flags, before or after a window lists it.
 @MainActor enum PhoneIncognitoHiding {
     static func publish(_ ids: Set<String>, _ windows: WindowManager) {
-        let ephemeral = windows.services.daemon.store.workspaces.lazy.filter(\.ephemeral).map(\.id)
-        windows.services.mobile.access.setHiddenWorkspaces(ids.union(ephemeral))
+        windows.services.mobile.access.setHiddenWorkspaces(ids.union(ephemeralIDs(windows.services.daemon)))
+    }
+
+    /// The workspaces `daemon` flags ephemeral. Membership observes them (`observeMembership`): a flag can land
+    /// after reconcile placed its workspace in a normal window, and phones hide it then (#31039).
+    static func ephemeralIDs(_ daemon: DaemonService) -> Set<String> {
+        Set(daemon.store.workspaces.lazy.filter(\.ephemeral).map(\.id))
     }
 }

@@ -60,6 +60,8 @@
     "closed.list",
     "closed.reopen",
     "column.update",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.draft",
     "conversation.events",
     "conversation.get",
@@ -463,6 +465,7 @@
       "set-default-colors",
       "set-frontend-browser-history",
       "set-host-size-policy",
+      "set-layout-sizes",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -536,7 +539,9 @@
       "url-open-result",
       "terminal-clipboard-subscribe",
       "terminal-clipboard-reply",
-      "snapshot-request"
+      "snapshot-request",
+      "set-attach-visibility",
+      "chief-work"
     ],
     "local-admin": [
       "server-stats",
@@ -611,7 +616,11 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "remote-host-status",
+      "remote-host-call",
+      "remote-host-config",
+      "remote-host-app"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -918,6 +927,18 @@
     },
     {
       "name": "screen-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "selection-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-presentation-changed",
       "streams": [
         "subscribe-deltas"
       ]

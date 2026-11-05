@@ -5,7 +5,9 @@
 export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
-/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
+/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay; or `paused` /
+/// `resuming` for a Cloud machine acpmux has no link to that the account says sleeps
+/// (cloudMachines.ts `withCloudSleep`).
 /// `loadWarning`: a ready machine's load warning (machineResources.ts), as the composer words it.
 export type Environment = {
   id: string;
@@ -192,6 +194,30 @@ export type SavedEnvironmentDraft = {
 /// A saved environment: the host assigned its id and time.
 export type SavedEnvironment = SavedEnvironmentDraft & { id: string; updatedAt: number };
 
+/// A saved environment that is only a folder on this computer (no worktree): a place, not a
+/// machine. The picker lists it with the folders, never among the machines (Leo, 2026-11-03, on
+/// Claude Desktop listing such a folder as an environment of its own: "imo claude has kinda s***ty
+/// ways to deal with remote stuff. chatgpt's is better.").
+export function savedEnvironmentIsFolder(environment: SavedEnvironmentDraft): boolean {
+  return environment.kind === "local" && Boolean(environment.folder) && !environment.worktree;
+}
+
+/// A saved environment's name as the picker shows it: an SSH one says its machine too, unless its
+/// name already does, so a row named after a folder ("Projects") never hides which machine it is on.
+/// One named just after its machine says its folder ("cmux16 · Projects"), so it never reads as the
+/// machine's own row (Claude Desktop listed "cmux16" twice).
+export function savedEnvironmentLabel(environment: SavedEnvironmentDraft): string {
+  const host = environment.kind === "ssh" ? environment.host : undefined;
+  if (!host) return environment.name;
+  const name = environment.name.toLowerCase();
+  if (name === host.toLowerCase()) {
+    const folder = environment.folder?.replace(/\/+$/, "").split("/").pop();
+    return folder ? `${environment.name} · ${folder}` : environment.name;
+  }
+  if (name.includes(host.toLowerCase())) return environment.name;
+  return `${environment.name} · ${host}`;
+}
+
 export type SavedEnvironmentHost = {
   list(): Promise<SavedEnvironment[]>;
   save(environment: SavedEnvironmentDraft): Promise<SavedEnvironment>;
@@ -295,5 +321,17 @@ export function knownMachines(
     const peer = chat.peer ?? (chat.hostKind === "cloud" ? chat.host : undefined);
     if (peer) add(peer, chat.host ?? peer, !chat.peer);
   }
-  return machines;
+  // One name, one row: a chat's peer acpmux no longer lists is labelled by its host, which can be
+  // a listed machine's name (an earlier link to the same box, or another box of the same name). Its
+  // row then says its peer too ("cmux16 (cmux16-tailnet)"), so no two rows read the same.
+  const named = new Map<string, number>();
+  for (const machine of machines) {
+    const key = machine.label.toLowerCase();
+    named.set(key, (named.get(key) ?? 0) + 1);
+  }
+  return machines.map((machine) =>
+    (named.get(machine.label.toLowerCase()) ?? 0) > 1 && machine.label !== machine.id
+      ? { ...machine, label: `${machine.label} (${machine.id})` }
+      : machine,
+  );
 }

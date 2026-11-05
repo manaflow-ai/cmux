@@ -8,6 +8,13 @@
 .acpmux-session-info-usage__value {
   color: var(--agent-text);
 }
+/* Own metrics use the same leading icon/text columns as peer-session rows. The empty slot keeps
+   the numbers quiet; the icon arm is gallery-only and is intentionally not the shipped default. */
+.acpmux-session-info-usage__lead-slot {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
 .acpmux-session-info-usage__head {
   display: flex;
   align-items: center;

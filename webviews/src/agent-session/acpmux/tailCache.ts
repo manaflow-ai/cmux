@@ -4,11 +4,12 @@
 // The page keeps its own tails (`keptTails`), which is all a chat switch inside one pane needs.
 // A chat opened in a NEW TAB lands on a new page, whose map starts empty, so the page also hands
 // each tail to the app host (`chat.tail`) and asks it for one before it attaches
-// (`chat.tail.get`). The host holds them IN MEMORY ONLY: nothing is written to disk, so there is
-// no new place a transcript persists, and quitting the app forgets them (AgentPaneTailCache.swift).
+// (`chat.tail.get`). On a memory miss the host forwards the local daemon's bounded persisted
+// peer snapshot, so restarting the app does not make a remote chat wait for its connection.
 //
 // A host that does not serve these ops (the page outside the app, the gallery, an older app) is no
 // failure: the chat opens cold, as it did before.
+import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
 import type { EventRecord } from "./direct";
 import type { QueuedPrompt } from "./model";
@@ -16,6 +17,8 @@ import type { QueuedPrompt } from "./model";
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
 /// open; what it says about what the chat is *doing* is not (direct.ts `drawKeptTail`).
 export type KeptTail = {
+  /// Provenance of a persisted peer copy, retained until a live attach reconciles it.
+  peerCopy?: PeerCopy;
   events: EventRecord[];
   summary: Record<string, any> | undefined;
   turnOpener: EventRecord | undefined;
@@ -143,7 +146,11 @@ function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
   if (already) return already;
   const read: Promise<KeptTail | undefined> = callHost<unknown>("chat.tail.get", { sessionId })
     .then((value) => {
-      const tail = tailFromHost(value);
+      const envelope = value as { stale?: unknown; sessionId?: unknown; qualifiedSessionId?: unknown } | null;
+      const snapshot = envelope?.stale === true;
+      const named = envelope?.sessionId === sessionId || envelope?.qualifiedSessionId === sessionId;
+      const copy = snapshot && named ? peerCopyTail(value, sessionId) : undefined;
+      const tail = snapshot ? copy?.tail : tailFromHost(value);
       // Only when this page read nothing of its own meanwhile (its own tail is the newer one) and
       // only while this read is still the chat's: `forgetTail` drops the entry for a chat this page
       // no longer stands behind, and an answer already in flight must not put it back.

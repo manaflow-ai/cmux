@@ -277,7 +277,8 @@ async fn unreadable_logs_and_failed_appends_never_acknowledge_or_consume_informa
 async fn heartbeat_claims_follow_the_labs_flag() {
     let (hub, _) = hub();
     let session = session(&hub);
-    hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    hub.update_live_session_index(&session);
     assert_eq!(hub.mesh_rows().await[0].team_address.as_deref(), Some("coordinator"));
     hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
     assert_eq!(hub.mesh_rows().await[0].team_address, None);

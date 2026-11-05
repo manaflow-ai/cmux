@@ -19,6 +19,7 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
         #expect(Self.request("cloudMachine.attach", ["id": "vm-1"]) == .cloudMachine(.attach(id: "vm-1")))
         #expect(Self.request("cloudMachine.pause", ["id": "vm_0123"]) == .cloudMachine(.pause(id: "vm_0123")))
+        #expect(Self.request("cloudMachine.prewarm", ["id": "vm_0123"]) == .cloudMachine(.prewarm(id: "vm_0123")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -33,6 +34,7 @@ struct AgentPaneCloudMachineRequestTests {
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
             #expect(Self.request("cloudMachine.attach", params) == .unsupported("cloudMachine.attach"))
             #expect(Self.request("cloudMachine.pause", params) == .unsupported("cloudMachine.pause"))
+            #expect(Self.request("cloudMachine.prewarm", params) == .unsupported("cloudMachine.prewarm"))
         }
     }
 
@@ -62,6 +64,10 @@ struct AgentPaneCloudMachineRequestTests {
         _ = await model.respond(to: .cloudMachine(.list))
         #expect(!model.userTouched)
         _ = await model.respond(to: .cloudMachine(.recoveryList))
+        #expect(!model.userTouched)
+        machines.prewarm = { _ in true }
+        model.cloudMachines = machines
+        _ = await model.respond(to: .cloudMachine(.prewarm(id: "vm-1")))
         #expect(!model.userTouched)
     }
 
@@ -106,6 +112,18 @@ struct AgentPaneCloudMachineRequestTests {
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
     }
 
+    @Test func typingPrewarmIsPassiveAndDoesNotConsumeAGesture() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var hinted: [String] = []
+        machines.prewarm = { id in hinted.append(id); return true }
+        gestures.record(click: true)
+        let reply = await AgentPaneCloudMachineRequest.prewarm(id: "vm-paused").reply(machines, gestures: gestures)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(hinted == ["vm-paused"])
+        #expect(gestures.isAvailable)
+    }
+
     @Test func withoutTheAppTheGestureIsKept() async {
         let gestures = AgentPaneUserGestures()
         gestures.record(click: true)
@@ -125,6 +143,17 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool == true)
         #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool != true)
         #expect(attached == ["vm-1"])
+    }
+
+    /// A send in a chat whose machine is paused wakes it with the Enter that sent the prompt: the
+    /// attach takes that gesture's scope-add credit and leaves its grant for the prompt itself.
+    @Test func aWakeLeavesTheSendsGrant() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        machines.attach = { _ in true }
+        gestures.record()
+        #expect(await AgentPaneCloudMachineRequest.attach(id: "vm-1").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(gestures.consumeForSend())
     }
 
     /// Review of cmux#27031: a refresh that was superseded or failed leaves the earlier registry in

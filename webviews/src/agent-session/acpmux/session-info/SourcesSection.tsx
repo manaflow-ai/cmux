@@ -1,14 +1,21 @@
 import { useEffect, useState } from "react";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
+import { numberedImageLabels } from "../imageLabel";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
+import { extraFolderName } from "../extraFolders";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
 
 export const SOURCES_SHOWN = 5;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
+  onOpenImage?: (src: string, alt: string) => void;
+  /// A pasted image's bytes by its id, when its prompt did not carry them.
+  readImage?: (id: string) => Promise<string | undefined>;
   onOpenFile?: (path: string) => unknown;
   cwd?: string;
 };
@@ -26,7 +33,20 @@ export async function openSourceFile(
   }
 }
 
-function scopedPath(path: string, cwd?: string): string | undefined {
+/// Each source's row name, in order: a pasted image with no name of its own (WebKit's "image.png")
+/// is "Screenshot 1", "Screenshot 2", ... in chat order, numbered across the whole list so a row
+/// keeps its number when View all unfolds; every other source is its label.
+export function sourceLabels(t: Translate, sources: readonly SummarySource[]): string[] {
+  const images = sources.filter((source) => source.kind === "image");
+  const named = numberedImageLabels(
+    t,
+    images.map((source) => ({ name: source.label, source: source.image?.source })),
+  );
+  const labels = new Map(images.map((source, index) => [source, named[index]!]));
+  return sources.map((source) => labels.get(source) ?? source.label);
+}
+
+export function scopedPath(path: string, cwd?: string): string | undefined {
   if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
   const normalize = (value: string) => {
     const parts: string[] = [];
@@ -42,22 +62,42 @@ function scopedPath(path: string, cwd?: string): string | undefined {
 
 export function SourcesSection({
   sources,
+  folders = [],
   expanded,
   onExpandedChange,
   ...navigation
 }: Omit<RowProps, "source"> & {
   sources: readonly SummarySource[];
+  /// The folders the chat sees beside its own (acpmux `additionalDirectories`), listed first. Leo,
+  /// 2026-11-03: "being able to have chatgpt (and in this case, any harnesses) see whatever
+  /// folders/files would be cool".
+  folders?: readonly string[];
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
+  const labels = sourceLabels(t, sources);
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="sources">
-        {shown.map((source) => (
-          <SourceRow key={`${source.kind}:${source.url ?? source.label}`} source={source} {...navigation} />
+        {folders.map((folder) => (
+          // tooltip-allow: the row shows the folder's name; the tooltip is its full path
+          <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
+            <span className="acpmux-session-info-source__link">
+              <Icon name="folder" size={rowIconSize(12)} row />
+              <span className="acpmux-session-info-source__label">{extraFolderName(folder)}</span>
+            </span>
+          </li>
+        ))}
+        {shown.map((source, index) => (
+          <SourceRow
+            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+            source={source}
+            label={labels[index]!}
+            {...navigation}
+          />
         ))}
       </ul>
       {folds && (
@@ -74,7 +114,15 @@ export function SourcesSection({
   );
 }
 
-function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
+function SourceRow({
+  source,
+  label,
+  onOpenBeside,
+  onOpenImage,
+  readImage,
+  onOpenFile,
+  cwd,
+}: RowProps & { label: string }) {
   const t = useT();
   const [failure, setFailure] = useState<string>();
   useEffect(() => {
@@ -88,16 +136,36 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
     pullRequest: "git.pullrequest",
     issue: "git.pullrequest",
     url: "link.web",
+    image: "site.permission.images",
   } as const;
   const content = (
     <>
       <Icon name={icon[source.kind ?? "url"]} size={rowIconSize(12)} row />
-      <span className="acpmux-session-info-source__label">{source.label}</span>
+      <span className="acpmux-session-info-source__label">{label || t("image.viewer")}</span>
     </>
   );
   const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
+  const image = source.image;
   let target = content;
-  if (path && onOpenFile)
+  if (image && onOpenImage && (image.src || readImage))
+    target = (
+      <button
+        type="button"
+        className="acpmux-session-info-source__link"
+        onClick={() => {
+          setFailure(undefined);
+          Promise.resolve(image.src ?? readImage?.(image.id))
+            .then((src) => {
+              if (!src) throw new Error(t("image.unavailable"));
+              onOpenImage(src, label || t("image.viewer"));
+            })
+            .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("image.actionFailed")));
+        }}
+      >
+        {content}
+      </button>
+    );
+  else if (path && onOpenFile)
     target = (
       <button
         type="button"
@@ -126,5 +194,31 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
         {content}
       </a>
     );
-  return <li className="acpmux-session-info-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
+  // A pull request the chat named opens its diff from its ⋯ menu, as a Changes row does.
+  const diffUrl = onOpenBeside && source.kind === "pullRequest" ? pullRequestDiffUrl(source.url) : undefined;
+  return (
+    <li className="acpmux-session-info-source">
+      {failure ? <span role="alert">{failure}</span> : target}
+      {diffUrl && !failure && (
+        <Menu>
+          <MenuButton
+            className="acpmux-session-info-icon-button acpmux-session-info-source__more"
+            label={t("sessionInfo.changes.more", { reference: source.label })}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            className="acpmux-session-info-menu"
+            label={t("sessionInfo.changes.actions", { reference: source.label })}
+            align="end"
+          >
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+              {t("sessionInfo.changes.viewDiff")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      )}
+    </li>
+  );
 }

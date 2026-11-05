@@ -84,7 +84,7 @@ final class PaneToolbar {
                   newTabMenu: { [weak pane] in
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       // Its rows join the "…" menu, so no Customize Menu… of the New Tab menu.
-                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), customize: false) }
+                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), customize: false, machineID: $0.daemon.machineID) }
                   },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID })
@@ -98,14 +98,14 @@ final class PaneToolbar {
             }
         }
         refreshCurrent = { [weak self, weak pane] in
-            guard let self, let pane else { return }
-            self.apply(Self.state(pane), owner: pane.view.nativeToolOwner)
+            if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
         }
+        let (first, later) = ObservationStream.current({ [weak pane] in pane.map(Self.state) })
+        if let first { apply(first, owner: pane.view.nativeToolOwner) } // now: a relaunched pane's first frame had a 0 pt toolbar
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
-            for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
-                guard let self, let state else { return }
-                guard let pane else { return }
+            for await state in later {
+                guard let self, let state, let pane else { return }
                 apply(state, owner: pane.view.nativeToolOwner)
             }
         }
@@ -120,6 +120,11 @@ final class PaneToolbar {
         guard state.nativeOwnerID == model.map(ObjectIdentifier.init) else { return }
         view.onNativeTool = { [weak model, weak owner] id, menuItemID in
             guard let model, owner?.model === model, model.tabRow.nativeToolsEnabled else { return }
+            model.onTabRowToolInvoked?(id, menuItemID)
+        }
+        view.onNativeToolURL = { [weak model, weak owner, weak view] id, menuItemID, url in
+            guard let model, let view, owner?.model === model, model.tabRow.nativeToolsEnabled else { return }
+            view.openURL(url)
             model.onTabRowToolInvoked?(id, menuItemID)
         }
         update(target: state.behind ? target : state.target, kind: state.behind ? kind : state.kind,
@@ -213,7 +218,7 @@ final class PaneToolbar {
 
     private func perform(_ id: ActionID) {
         if Self.creationActions.contains(id), let paneTarget {
-            _ = registry()?.perform(id, invocation: ActionInvocation(target: paneTarget, origin: .user))
+            _ = registry()?.perform(id, invocation: ActionInvocation(target: paneTarget, origin: .user).onMachine(machineID()))
             return
         }
         guard let invocation = tabInvocation() else { return }

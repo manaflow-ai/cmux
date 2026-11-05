@@ -1,4 +1,7 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { translate } from "./i18n";
+import { errorMessage } from "./transportErrors";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /// A chat starting in Cloud, as the chat shows it (CloudStartView; cloud work mode, leo-workspace
 /// design/cloud-work-mode.md): while the host's `cloud.startChat` runs (a new machine boots in
@@ -55,6 +58,9 @@ export type CloudStartProgress = {
   setup?: CloudStartupSetup;
   /// True after the harness has started. The checklist stays available but folds to one quiet line.
   initialized?: boolean;
+  /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
+  /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
+  refusedHere?: boolean;
 };
 
 export type CloudStartupOperation = {
@@ -63,10 +69,19 @@ export type CloudStartupOperation = {
   finishedAt?: number;
   error?: string;
   phase?: string;
+  /// A seed that copied the folder instead: the reason's code (`not_git`, `seed.needs_github`, ...).
+  fallback?: string;
+  /// The cmux GitHub App's install page, when the machine could not read a private repository.
+  installUrl?: string;
   progress?: {
     receivedBytes?: number;
     objects?: number;
     totalObjects?: number;
+    /// The upload's or the copy's whole size, beside `receivedBytes` done.
+    bytesTotal?: number;
+    /// The copy's files done and in all.
+    filesDone?: number;
+    filesTotal?: number;
   };
 };
 
@@ -104,13 +119,13 @@ export function cloudStartBegun(
 function line(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.replace(/\s+/g, " ").trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 function logLine(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 /// `current` with the host's push `push` taken in: only for the same start while it runs, field by
@@ -164,7 +179,9 @@ export function cloudStartPushed(
     if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
   }
   const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
-  if (clone) next.clone = clone;
+  // The copy's final answer does not repeat why a seed copied: its live lines said so, and it stays.
+  const ended = clone?.state === "done" || clone?.state === "failed";
+  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
   return next;
@@ -200,6 +217,23 @@ function prefixedTiming(
   } as Record<string, number>;
 }
 
+/** An `https:` address, else undefined; the card links to it. */
+function httpsUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2048) return undefined;
+  try {
+    return new URL(value).protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The named fields of `value` that are set. */
+function pick<T extends object, K extends keyof T>(value: T | undefined, keys: readonly K[]): Partial<Pick<T, K>> {
+  const picked: Partial<Pick<T, K>> = {};
+  for (const key of keys) if (value?.[key] !== undefined) picked[key] = value[key];
+  return picked;
+}
+
 function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -223,19 +257,29 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const receivedBytes = number(progressRecord?.receivedBytes ?? progressRecord?.received_bytes);
   const objects = number(progressRecord?.objects);
   const totalObjects = number(progressRecord?.totalObjects ?? progressRecord?.total_objects);
+  const bytesTotal = number(progressRecord?.bytesTotal ?? progressRecord?.bytes_total);
+  const filesDone = number(progressRecord?.filesDone ?? progressRecord?.files_done);
+  const filesTotal = number(progressRecord?.filesTotal ?? progressRecord?.files_total);
   const progress = progressRecord
     ? {
         ...(receivedBytes !== undefined && { receivedBytes }),
         ...(objects !== undefined && { objects }),
         ...(totalObjects !== undefined && { totalObjects }),
+        ...(bytesTotal !== undefined && { bytesTotal }),
+        ...(filesDone !== undefined && { filesDone }),
+        ...(filesTotal !== undefined && { filesTotal }),
       }
     : undefined;
+  const fallback = line(record.fallback, 80);
+  const installUrl = httpsUrl(record.installUrl ?? record.install_url);
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
     ...(finishedAt !== undefined && { finishedAt }),
     ...(error && { error }),
     ...(phase && { phase }),
+    ...(fallback && { fallback }),
+    ...(installUrl && { installUrl }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }
@@ -290,6 +334,40 @@ export function cloudStartEnded(
 ): CloudStartProgress | undefined {
   if (current?.key !== key) return current;
   if (answer.ok) return undefined;
-  const message = line(answer.message, 240);
-  return { ...current, state: "failed", ...(message ? { message } : {}) };
+  // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
+  // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
+  const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
+  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
+  return { ...current, state: "failed", ...(message ? { message } : {}), ...(refusedHere ? { refusedHere } : {}) };
 }
+
+/// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own
+/// asks the person to pick it (a pick grants it, `workspace.useFolder`); a folder that is gone, home
+/// or above it, or a credential folder each says so (AgentPaneCloudFolderRefusal; the secret's host
+/// words are its `~/` spelling); any other `transport.*` code reads as the pane's refusal text
+/// (transportErrors.ts).
+export function cloudRefusalText(code: string, hostWords?: string): string {
+  if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
+  if (code === "cloud_folder_missing") return translate("cloudStartup.folderMissing");
+  if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
+  if (code === "cloud_folder_secret")
+    return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
+  if (code.startsWith("transport.")) return errorMessage({ code });
+  // The attachment refusal's words are the host's own sentence; the others carry only their code.
+  if (code === "cloud_attachments")
+    return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
+/// (AgentPaneHandOff.refusedHereCodes, the same list): no step ran, so none is marked failed.
+const REFUSED_HERE = new Set([
+  "cloud_attachments",
+  "unsupported",
+  "unavailable_now",
+  "sandbox_busy",
+  "sandbox_spent",
+  "cloud_folder_missing",
+  "cloud_folder_home",
+  "cloud_folder_secret",
+]);

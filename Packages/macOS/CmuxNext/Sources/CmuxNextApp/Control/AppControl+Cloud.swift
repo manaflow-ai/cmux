@@ -21,7 +21,10 @@ extension AppControl {
                     "user": user.map { .object(["id": .string($0.id), "email": $0.primaryEmail.map(JSONValue.string) ?? .null]) } ?? .null,
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
-                    "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
+                    "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
+                    "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
@@ -30,6 +33,7 @@ extension AppControl {
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
+                                       "link_route": .string(services.cloud.linkRoute()),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
@@ -40,6 +44,7 @@ extension AppControl {
             }.withDeadline(.fixed(.seconds(30))),
         ])
         registerRunMethods(services)
+        registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
@@ -118,6 +123,7 @@ extension AppControl {
             "api_status": .string(session.machine.status.rawValue),
             "stage": .string(session.stage.name),
             "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
+            "link_ended_detail": session.linkEndedDetail.map(JSONValue.string) ?? .null,
             // Why a paused machine is paused (`idle` or `user`), and its idle auto-pause (0: Off).
             "pause_reason": session.machine.pauseReason.map { .string($0.rawValue) } ?? .null,
             "idle_pause_minutes": session.machine.idlePauseMinutes.map { .number(Double($0)) } ?? .null,
@@ -132,7 +138,8 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
+            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
+            "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }
 }
@@ -187,7 +194,7 @@ extension AppControl {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
             guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
-            guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }
+            guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)) }
             return services.cloud.api
         }
     }
@@ -211,7 +218,7 @@ extension AppControl {
 
     /// The control error a Run API failure answers with (internal for its tests).
     nonisolated static func runError(_ error: CloudAPIError) -> ControlError {
-        let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)
+        let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
         switch error {
         case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
         case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "cmux.com didn't answer in time.", table: "Runs", bundle: .module))
@@ -235,5 +242,41 @@ extension AppControl {
         // A refusal a paid plan lifts: the CLI tells the person which plan, nothing ran.
         case let .planRequired(_, _, plan): return ControlError(code: "plan_required", message: CloudStrings.apiErrorText(error), data: .object(["plan": .string(plan)]))
         }
+    }
+}
+
+extension AppControl {
+    /// The CLI has persisted Rust's validated selection; this only tears down native resources and relaunches.
+    func registerCloudEnvironmentMethods(_ services: AppServices) {
+        service?.router.register([
+            .mainActor("cloud.environment.apply") { call in
+                guard call.connection != .inProcess else {
+                    throw ControlError.invalidParams("Apply a saved Cloud backend through the bundled CLI.")
+                }
+                guard let selected = services.cloud.configuration.runtimeSelection, selected.mutable,
+                      call.params["bundle_id"]?.stringValue == Bundle.main.bundleIdentifier,
+                      call.params["bundle_id"]?.stringValue == selected.bundleId,
+                      let name = call.params["name"]?.stringValue,
+                      let namespace = call.params["auth_namespace"]?.stringValue else {
+                    throw ControlError.invalidParams("The Cloud environment does not belong to this mutable app bundle.")
+                }
+                let task = try services.cloudEnvironmentSwitch.apply(selected: selected, name: name, namespace: namespace,
+                    bootstrap: CloudEnvironmentBootstrap(work: services.work), signOut: { await services.cloud.signOut() },
+                    stopServices: { services.cloud.stop(); services.feed.stop(); services.iphone.stop() },
+                    stopDaemon: { try await services.daemon.stopKeepingHosts() })
+                // The CLI reads the acknowledgement then closes its connection. Quit only after
+                // that EOF, so even a fast teardown cannot drop restart_scheduled's response.
+                _ = ControlConnectionClosures.shared.add(call.connection) {
+                    Task { @MainActor in
+                        if (try? await task.value) == true { services.quit.requestQuit(.signal) }
+                    }
+                }
+                return .followUp { [task] in
+                    let scheduled = try await task.value
+                    return .object(["restart_scheduled": .bool(scheduled), "name": .string(name)])
+                }
+            // timeout: remote sign-out/revocation may hang; report a saved selection that needs restart.
+            }.withDeadline(.fixed(.seconds(120))),
+        ])
     }
 }

@@ -59,7 +59,9 @@ import Testing
     /// target supplies), unless the action says why not. A placement in an
     /// object-less menu (the sidebar or screen bar background) also counts:
     /// creating actions take their place from the focused object there; so
-    /// does a menu on a contained object (a tab's menu reaches its pane).
+    /// does a menu on a contained object (a tab's menu reaches its pane), and
+    /// a menu whose rows act on what its object holds (the tab bar's empty
+    /// area, on its pane, offers New Tab: `ActionMenuContext.contentKinds`).
     @Test func everyTargetKindMenuShowsItsActions() {
         let kindsWithMenus = Set(ActionMenuContext.allCases.compactMap(\.targetKind))
         var gaps: [String] = []
@@ -71,6 +73,7 @@ import Testing
             let placed = plan.contextMenus.contains { placement in
                 guard let menuKind = placement.context.targetKind else { return true }
                 return kinds.contains(menuKind) || !kinds.isDisjoint(with: menuKind.containers)
+                    || !kinds.isDisjoint(with: placement.context.contentKinds)
             }
             if !placed && plan.contextMenuExemption == nil {
                 gaps.append("\(descriptor.id.rawValue) (\(kind.rawValue))")

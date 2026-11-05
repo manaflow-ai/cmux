@@ -15,7 +15,7 @@ ours: the What's New Ledger page, the update card and its popover.
 ```
 title: Every chat on your Mac, in one place
 category: new                       (new | improved | fixed | security)
-docs: https://cmux.com/docs/agents        (optional)
+docs: https://cmux.com/docs/next/agents   (optional)
 
 cmux finds your Claude Code, Codex and other agent chats on this Mac and lists them in All
 chats at the bottom of the sidebar. Open one to resume it.
@@ -27,8 +27,14 @@ chats at the bottom of the sidebar. Open one to resume it.
   the setting, the shortcut). Benefit first, then the detail.
 - **Fixed entries** say what works now, not what was broken inside: "Restart to Update works after
   a background download", not "Fix race in installer".
-- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names. Use the
-  names people see in the app.
+- **Docs link.** Link a page that exists: a cmux-next page is `https://cmux.com/docs/next/<slug>`, with
+  a slug from `web/data/next-docs/pages.ts` (agents, cli, settings, ...), or a page under
+  `web/app/[locale]/(landing)/docs/`. The validator checks only that it is an https URL.
+- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names, and no
+  work-stream codes ("P0 RESIZE KEYS K4", "REOPEN-F7", "part 1 of 2"; `validate.py` rejects them). Use
+  the names people see in the app.
+- **The body adds to the title.** Never the title again, never the rest of its sentence ("And name the
+  check that refuses it"), never "Fixes and improvements".
 - **Never a commit subject.** "fix(sidebar): …" and "sidebar: …" are rejected.
 - **One change, one file.** Join small related changes into one entry, as Conductor does
   ("Sidebar sections collapse, and clearer feature errors").

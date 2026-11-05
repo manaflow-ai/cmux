@@ -35,6 +35,18 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    // Received messages next to each other draw as one "Received N messages" row (#32720), whose
+    // messages show once it opens; inside, each message keeps its own line, toggle and preview.
+    const batch = page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle");
+    if ((await batch.count()) === 0) return;
+    if ((await batch.first().getAttribute("aria-expanded")) !== "true") await batch.first().click();
+    await page.locator(".cv-lane-batch__body .cv-received").first().waitFor();
+    await page
+      .locator(".cv-lane-batch")
+      .first()
+      .evaluate((row) =>
+        Promise.all(row.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined))),
+      );
   };
   /// The received messages' toggles: each message is its own disclosure line (IncomingMessageCard.tsx).
   const toggle = () => page.locator(".cv-received .cv-disclosure__toggle");
@@ -122,7 +134,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
-    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    // Open, the toggle button holds no preview and has no width since #32867 put the chevron right
+    // after the words; the whole line still toggles, so close it from its chevron.
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
     await page.locator(".cv-message .cv-agentmsg__toggle").click();
     expect(await page.locator(".cv-message__more").getAttribute("aria-expanded")).toBe("true");
     await page.locator(".cv-message__more").press("Enter");

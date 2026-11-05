@@ -2,6 +2,7 @@
 // "Edited a file, read 6 files, ran 4 commands", opened to list the calls.
 import type { Translate } from "../i18n";
 import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
+import { toolKind } from "../toolNames";
 import { editedPaths } from "../toolPaths";
 import { mcpCall } from "./mcpCalls";
 
@@ -29,10 +30,10 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-/// What one call did. An MCP call used a tool whatever kind its harness gives it (Codex says
-/// "execute" for every one).
+/// What one call did, by its canonical tool (toolNames.ts `toolKind`). An MCP call used a tool
+/// whatever kind its harness gives it (Codex says "execute" for every one).
 function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategory {
-  return mcpCall(tool) ? "used" : toolRunCategory(tool.kind);
+  return mcpCall(tool) ? "used" : toolRunCategory(toolKind(tool));
 }
 
 /// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
@@ -60,11 +61,28 @@ export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCa
   return main;
 }
 
+/// Whether the run did more than one kind of work, so its glyph is the several-tools one, not one
+/// kind's. Reads and searches count as one kind: both draw the magnifier (ToolRun.tsx `runIcon`).
+export function isMixedToolRun(items: readonly AcpmuxActivity[]): boolean {
+  return new Set(toolRunCategories(items).map((category) => (category === "read" ? "searched" : category))).size > 1;
+}
+
 /// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
 /// run (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). Reads count the distinct
 /// files they opened, edits the files they changed, every other category its calls.
 export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
+  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
+  // conjunctions in some languages, while the run reads as a plain comma list.
+  const text = toolRunPhrases(t, items).join(t("toolRun.separator"));
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The summary's phrases, one per category in the order the run first did each ("read 6 files",
+/// "ran 4 commands"), lower case as they read inside a line; a message run's line
+/// (messageRuns.ts) puts them between its own.
+export function toolRunPhrases(t: Translate, items: readonly AcpmuxActivity[]): string[] {
   const tools = items.filter((item) => item.tool);
+  const finished = finishedBackgroundPhrase(t, items);
   const count = (category: ToolRunCategory) =>
     category === "edited"
       ? editedFiles(tools)
@@ -89,10 +107,20 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
         return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
     }
   };
-  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
-  // conjunctions in some languages, while the run reads as a plain comma list.
-  const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const phrases = toolRunCategories(items).map(phrase);
+  return finished ? [finished, ...phrases] : phrases;
+}
+
+/// The background tasks a run's calls started that have ended (finished, failed or stopped), as the
+/// lead of its summary: "finished 6 background tasks", the way Claude Code desktop opens a run's
+/// header ("Finished 6 background tasks, ran 5 commands (4 failed)"; Leo, 2026-11-03: "claude code
+/// desktop's summarization of tool calls/parsing of them seem kinda good?"). Undefined with none.
+/// The calls still count where they belong ("ran 5 commands"): a background shell is a command too.
+export function finishedBackgroundPhrase(t: Translate, items: readonly AcpmuxActivity[]): string | undefined {
+  let n = 0;
+  for (const item of items) if (item.tool?.background && item.tool.background.state !== "running") n += 1;
+  if (n === 0) return undefined;
+  return n === 1 ? t("toolRun.finishedBackground.one") : t("toolRun.finishedBackground.other", { n });
 }
 
 /// The distinct files a run's reads opened, by their locations, or one per read without any.
@@ -115,7 +143,7 @@ function editedFiles(tools: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const { tool } of tools) {
-    if (toolRunCategory(tool!.kind) !== "edited") continue;
+    if (toolRunCategory(toolKind(tool!)) !== "edited") continue;
     const named = tool!.diffs?.length
       ? [...tool!.diffs, ...(tool!.locations ?? [])].map(pathKey)
       : editedPaths(tool!).map((path) => toolCanonical(tool!, path) ?? path);

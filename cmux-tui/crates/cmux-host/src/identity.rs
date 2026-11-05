@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::{BIND_FILE, BOUND_FILE, INSTALL_KEY_FILE};
+use crate::cloud::wire::INSTALL_KEY_FILE;
+// Used only by `scoped`, which is compiled on Linux and in tests (#31721).
+#[cfg(any(target_os = "linux", test))]
+use crate::cloud::wire::BIND_FILE;
+#[cfg(any(target_os = "linux", test))]
 use crate::config::Paths;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
@@ -18,7 +22,10 @@ pub const SOCKET: &str = "/run/cmux-host/identity.sock";
 pub const RECEIPT: &str = "/var/lib/cmux/install/identity.json";
 /// Platform-scope enrollment is deliberately kept separate from legacy bind state.  A
 /// late scoped read must never rotate the key or receipt owned by normal enrollment.
+/// Like `scoped`, they exist on Linux and in tests only.
+#[cfg(any(target_os = "linux", test))]
 const SCOPED_INSTALL_KEY_FILE: &str = "/var/lib/cmux/install/platform-scope-key.json";
+#[cfg(any(target_os = "linux", test))]
 const SCOPED_RECEIPT: &str = "/var/lib/cmux/install/platform-scope-identity.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,14 +101,14 @@ pub(crate) fn enrolled(store: &dyn Store, fresh_instance: &str) -> Result<HostId
     Ok(receipt)
 }
 
-/// Establish a host identity for a platform-provisioned Cloud scope that has
-/// no legacy bind record. The scope file is root-owned and was written by the
-/// platform, so it is the authority for the logical machine id; the key is
-/// still generated and retained locally, and bind-in-progress machines refuse
-/// this path until their normal enrollment completes.
+/// Establish a host identity for a platform-provisioned Cloud scope. The scope file is
+/// root-owned and was written by the platform, so it is the authority for the logical
+/// machine id; the scoped key and receipt never touch normal enrollment state. A bind
+/// in progress or an already enrolled legacy receipt keeps this path fenced, while a
+/// bound machine with no receipt can bootstrap the separate scoped enrollment.
 #[cfg(any(target_os = "linux", test))]
 pub(crate) fn scoped(store: &mut dyn Store, paths: &Paths) -> Result<HostIdentity, String> {
-    if store.present(BIND_FILE)? || store.present(BOUND_FILE)? || store.present(RECEIPT)? {
+    if store.present(BIND_FILE)? || store.present(RECEIPT)? {
         return Err("identity enrollment is pending".to_owned());
     }
     let values =

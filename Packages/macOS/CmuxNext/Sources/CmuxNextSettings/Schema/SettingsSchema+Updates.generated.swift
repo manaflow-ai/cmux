@@ -15,12 +15,18 @@ extension UpdatesSettings {
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
     public nonisolated static let downloadAutomaticallyDefault = false
+    /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
+    public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
+    public nonisolated static let oneClickInstallDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
     /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
     public nonisolated static let webPath = ["updates", "web"]
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
+    /// `updates.liveWebReload`: Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: "we probably want to have this feature like toggleable on by default"); a missing web-dev.json changes nothing.
+    public nonisolated static let liveWebReloadPath = ["updates", "liveWebReload"]
+    public nonisolated static let liveWebReloadDefault = true
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
@@ -106,6 +112,16 @@ nonisolated enum UpdateSettingsSchema {
                 keywords: ["update", "download", "background", "metered"]
             ),
             SettingDescriptor(
+                UpdatesSettings.oneClickInstallPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.oneClickInstall", "Update in One Click"),
+                help: SettingsText.keyed("settings.updates.oneClickInstall.help", "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.oneClickInstallDefault),
+                keywords: ["update", "install", "restart", "relaunch", "one click"]
+            ),
+            SettingDescriptor(
                 UpdatesSettings.meteredNetworkPath,
                 section: .general,
                 group: group,
@@ -132,6 +148,16 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.webDefault.rawValue),
                 keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.liveWebReloadPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.liveWebReload", "Live Web Reload"),
+                help: SettingsText.keyed("settings.updates.liveWebReload.help", "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.liveWebReloadDefault),
+                keywords: ["web", "live", "hot reload", "reload", "dev server", "overlay", "edit", "web-dev"]
             ),
             SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,

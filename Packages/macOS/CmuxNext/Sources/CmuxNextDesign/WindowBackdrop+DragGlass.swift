@@ -16,7 +16,7 @@ public extension WindowBackdrop {
     /// the scope the preview is lifted from: a workspace that pins its own background, or none,
     /// differs from the app's.
     @MainActor static func dragPreview(_ scope: ThemeScope,
-                                       reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency) -> WindowBackdrop {
+                                       reduceTransparency: Bool = ReduceTransparency.shared.isEnabled) -> WindowBackdrop {
         WindowBackdrop(scope.tokens, reduceTransparency: reduceTransparency, art: scope.backdropArt,
                        selection: scope.backdropSelection, tuning: scope.appearanceTuning,
                        tintOpacity: scope.backdropTintOpacity)

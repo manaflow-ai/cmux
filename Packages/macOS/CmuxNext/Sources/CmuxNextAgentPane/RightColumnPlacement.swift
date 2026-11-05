@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import CoreGraphics
 
 /// The one rule for what opens on the right of a pane: transcript subagents (``AgentSubagentPanes``),
@@ -13,6 +14,13 @@ public import CoreGraphics
 ///   browser pane already on the right: "imo in this case, just open it on the existing. you only
 ///   need the rightmost botom auto split when there's a terminal that gets opened when there's
 ///   already a browser, and vice versa".
+/// - A document (the Changes viewer's diff, an edited-files card's View changes): a tab in the pane
+///   on the right that already shows a diff, else in the lowest pane on the right, never a lower
+///   split; with nothing there a split right (half the chat), whatever the width floors say. It never
+///   opens over the chat, in its pane or its page. Leo 2026-11-03, of the Changes viewer: "just put
+///   it in a tab???"; Lawrence 2026-11-03: "clicking view changes needs to open diff in pane split
+///   right". The diff tab itself is reused (DiffPageService: one per repository, one chat patch tab
+///   per window), so a second click on the same edit selects the tab it opened.
 /// - One pane on the right: a new split below it, the right column's lower pane. What the right
 ///   pane shows stays; closing the lower pane's last tab collapses the split back.
 /// - Two or more: a tab in the lowest pane, never another split.
@@ -27,11 +35,13 @@ public struct RightColumnPlacement {
     /// The narrowest the right column may be for a split in it.
     public static let minimumRightColumnWidth: CGFloat = 420
 
-    /// What an open shows, for the same-kind rule: only the two kinds Leo named. Anything else (a
-    /// chat, a subagent, a file page) opens with no kind and splits as before.
+    /// What an open shows, for the same-kind rule: only the two kinds Leo named, and a document,
+    /// which is a tab in any pane on the right. Anything else (a chat, a subagent, a file page) opens
+    /// with no kind and splits as before.
     public enum Kind: Sendable, Hashable {
         case terminal
         case browser
+        case document
     }
 
     /// Where the item opens. `Pane` is the caller's pane identity.
@@ -64,6 +74,9 @@ public struct RightColumnPlacement {
     /// holds a tab of a kind. An unknown width sets no floor.
     public static func decide<Pane>(sourceWidth: CGFloat?, column: [Pane], width: (Pane) -> CGFloat?, opening kind: Kind? = nil,
                                     holds: (Pane, Kind) -> Bool = { _, _ in false }) -> Decision<Pane> {
+        // A document never stays in the source's pane, so the chat is never what it replaces.
+        // The pane already showing a diff first, so diffs gather in one pane; else the lowest.
+        if kind == .document { return (column.last { holds($0, .document) } ?? column.last).map { .tab($0) } ?? .splitRight }
         guard let right = column.first else {
             // A split right halves the source: both halves must stay wide enough.
             let fits = sourceWidth.map { $0 / 2 >= minimumChatWidth && $0 / 2 >= minimumRightColumnWidth } ?? true
@@ -92,6 +105,33 @@ public struct RightColumnPlacement {
     public static func decide(_ column: Column, opening kind: Kind? = nil) -> Decision<String> {
         decide(sourceWidth: column.sourceWidth, column: column.panes, width: { column.widths[$0] }, opening: kind,
                holds: { column.kinds[$0]?.contains($1) == true })
+    }
+}
+
+public extension RightColumnPlacement.Kind {
+    /// The kind of an existing tab that opens beside a chat: a browser, a local terminal, or a
+    /// document (`document`: the tab shows the Changes diff page); nil for anything else, a remote
+    /// terminal included.
+    init?(opening tab: TabKind, document: Bool) {
+        switch tab {
+        case .browser: self = .browser
+        case .pty: self = .terminal
+        default:
+            guard document else { return nil }
+            self = .document
+        }
+    }
+}
+
+public extension RightColumnPlacement.Kind {
+    /// Whether `tab` makes its pane hold this kind for the same-kind rule: a local or remote terminal,
+    /// a browser tab, or (`document`: the tab shows the Changes diff page) a diff.
+    func isHeld(by tab: TabModel, document: Bool) -> Bool {
+        switch (self, tab.kind) {
+        case (.terminal, .pty), (.terminal, .remoteTerminal), (.browser, .browser): true
+        case (.document, _): document
+        default: false
+        }
     }
 }
 

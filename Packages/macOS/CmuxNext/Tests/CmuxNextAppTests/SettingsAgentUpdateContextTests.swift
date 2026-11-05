@@ -1,4 +1,5 @@
 import CmuxNextActions
+@testable import CmuxNextAccounts
 @testable import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages

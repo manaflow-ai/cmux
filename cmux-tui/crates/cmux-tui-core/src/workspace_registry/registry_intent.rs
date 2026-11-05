@@ -42,6 +42,9 @@ pub(crate) type SettleState = Box<dyn FnOnce(&mut crate::State, &RegistryReceipt
 #[derive(Debug)]
 pub(crate) enum RegistryIntent {
     Effect(EffectCommitIntent),
+    /// Effect intents that commit together, in order: the creations of one
+    /// creation group (`Mux::commit_created_views_projection`).
+    EffectGroup(Vec<EffectCommitIntent>),
     Terminal(TerminalCommitIntent),
     Workspace(WorkspaceCommitIntent),
 }
@@ -50,6 +53,7 @@ pub(crate) enum RegistryIntent {
 #[derive(Debug)]
 pub(crate) enum RegistryReceipt {
     Effect(EffectCommitReceipt),
+    EffectGroup(Vec<EffectCommitReceipt>),
     Terminal(TerminalRegistryCommit),
     Workspace(WorkspaceCommitReceipt),
 }
@@ -78,6 +82,9 @@ impl RegistryIntent {
     pub(crate) fn estimated_bytes(&self) -> usize {
         match self {
             Self::Effect(intent) => intent.estimated_bytes(),
+            Self::EffectGroup(intents) => {
+                intents.iter().map(EffectCommitIntent::estimated_bytes).sum()
+            }
             Self::Terminal(intent) => intent.estimated_bytes(),
             Self::Workspace(intent) => intent.estimated_bytes(),
         }
@@ -87,6 +94,12 @@ impl RegistryIntent {
     fn apply(&self, transaction: &Transaction<'_>) -> anyhow::Result<RegistryReceipt> {
         Ok(match self {
             Self::Effect(intent) => RegistryReceipt::Effect(intent.apply(transaction)?),
+            Self::EffectGroup(intents) => RegistryReceipt::EffectGroup(
+                intents
+                    .iter()
+                    .map(|intent| intent.apply(transaction))
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            ),
             Self::Terminal(intent) => RegistryReceipt::Terminal(intent.apply(transaction)?),
             Self::Workspace(intent) => RegistryReceipt::Workspace(intent.apply(transaction, None)?),
         })
@@ -126,6 +139,7 @@ impl RegistryReceipt {
     pub(crate) fn resource_revision(&self) -> Option<u64> {
         match self {
             Self::Effect(receipt) => Some(receipt.revision()),
+            Self::EffectGroup(receipts) => receipts.last().map(EffectCommitReceipt::revision),
             Self::Terminal(_) => None,
             Self::Workspace(receipt) => receipt.resource_revision,
         }
@@ -135,6 +149,13 @@ impl RegistryReceipt {
         match self {
             Self::Effect(receipt) => Ok(receipt),
             _ => anyhow::bail!("registry receipt is not an effect receipt"),
+        }
+    }
+
+    pub(crate) fn into_effect_group(self) -> anyhow::Result<Vec<EffectCommitReceipt>> {
+        match self {
+            Self::EffectGroup(receipts) => Ok(receipts),
+            _ => anyhow::bail!("registry receipt is not an effect group receipt"),
         }
     }
 

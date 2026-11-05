@@ -42,6 +42,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     /// `cmux_shim_set_file_dialogs`: 1 sends page file choosers to the host (`CMUX_SHIM_FILE_DIALOG`).
     let setFileDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_browser_set_file_dialogs(browser, on)`: 1 sends that browser's choosers to the host.
+    let browserSetFileDialogs: @convention(c) (Int32, Int32) -> Void
     /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
     let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
@@ -102,7 +104,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
     let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
+    /// The background the next DevTools starts with (`cmux_shim_devtools_set_background`).
+    let devToolsSetBackground: @convention(c) (Int32, UInt32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    /// The host's dock side into the DevTools frontend's own setting (`cmux_shim_devtools_set_frontend_dock_side`).
+    let devToolsSetFrontendDockSide: @convention(c) (Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
     /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
@@ -136,6 +142,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let liveBrowserCount: @convention(c) () -> Int32
     let windowCount: @convention(c) () -> Int32
     let shutdown: @convention(c) () -> Void
+    /// Quit: commits every profile's cookie store before CefShutdown; REPLY answers (reply id).
+    let flushCookieStores: @convention(c) (Int32) -> Int32
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
@@ -247,6 +255,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
+    /// The same for a byte range: token, status, MIME, `Content-Range` and `Accept-Ranges` lines, body, length.
+    let pageResourceRespondRanged: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                   UnsafeRawPointer?, Int) -> Int32
+    /// The same with the answer's CSP: token, status, MIME, range lines, CSP, body, length (nil in an
+    /// older shim, whose answers always carry the page's own CSP).
+    let pageResourceRespondPage: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                  UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32)?
+    /// Sends every first-party page request to the page host (1) or serves page folders (0): the live
+    /// web loop. Nil in an older shim, which always serves the folders.
+    let pageSchemeSetLive: (@convention(c) (Int32) -> Void)?
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -324,6 +342,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         setFileDialogs = try r("cmux_shim_set_file_dialogs")
+        browserSetFileDialogs = try r("cmux_shim_browser_set_file_dialogs")
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
@@ -357,7 +376,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
         setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
+        devToolsSetBackground = try r("cmux_shim_devtools_set_background")
         devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsSetFrontendDockSide = try r("cmux_shim_devtools_set_frontend_dock_side")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
@@ -386,6 +407,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
+        flushCookieStores = try r("cmux_shim_flush_cookie_stores")
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
         setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
@@ -443,6 +465,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
         pageResourceRespond = try r("cmux_shim_page_resource_respond")
+        pageResourceRespondRanged = try r("cmux_shim_page_resource_respond_ranged")
+        pageResourceRespondPage = r.optional("cmux_shim_page_resource_respond_page")
+        pageSchemeSetLive = r.optional("cmux_shim_page_scheme_set_live")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

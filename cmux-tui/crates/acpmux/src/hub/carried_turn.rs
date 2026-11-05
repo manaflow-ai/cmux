@@ -274,6 +274,7 @@ impl Hub {
         begin: Option<(String, Carried)>,
         continues: Continues,
     ) {
+        self.resume_before_turn();
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if running.is_some() {
@@ -350,6 +351,7 @@ impl Hub {
             "turnId": turn.turn_id,
             "control": turn.control.as_str(),
             "trustGate": continues.trust_gate,
+            "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
         });

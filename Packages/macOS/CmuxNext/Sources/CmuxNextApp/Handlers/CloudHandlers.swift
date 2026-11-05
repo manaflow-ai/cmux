@@ -24,6 +24,7 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
+        CloudStartSession.bindRelayChat(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -61,7 +62,7 @@ enum CloudHandlers {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
-                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
@@ -103,9 +104,8 @@ enum CloudHandlers {
     /// Only a person's own gesture in this app may mean "the machine I'm looking at" (the active
     /// window's machine, else the only one). A CLI, MCP, script, page or remote run must name
     /// its machine (`--target machine:<id>`): an agent's `cloud kill-machine --confirm true`
-    /// never kills whatever machine the window happens to show. `fallsBack` keeps the old
-    /// fallback for an action whose miss costs nothing (New Cloud Workspace).
-    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
+    /// never kills whatever machine the window happens to show.
+    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
             // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
@@ -116,7 +116,7 @@ enum CloudHandlers {
             }
             return session
         }
-        guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
+        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
         if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
@@ -165,7 +165,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
+                return ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))
             }
         }
         context.services.registry.track(task)
@@ -214,44 +214,18 @@ enum CloudHandlers {
         return false
     }
 
-    /// The machine's first workspace, created (with a terminal) when it has none.
+    /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
     private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
-        let daemon = session.daemon
+        let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return try await firstWorkspaceResult(in: daemon.store, beforeCreate: beforeCreate) {
-            await context.services.windows.createWorkspace(on: daemon)
-        }
-    }
-
-    @MainActor static func firstWorkspaceResult(in store: DaemonStore, beforeCreate: () throws -> Void,
-                                                create: () async -> String?) async throws -> (id: String, created: Bool) {
-        if let first = try await existingWorkspace(in: store) { return (first, false) }
-        // The live tree, rather than the stale pre-wait tree, decides whether creation needs consent.
-        try beforeCreate()
-        guard let id = await create() else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return (id, true)
+        return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
+                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
     }
 
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         try await firstWorkspaceResult(on: session, context).id
-    }
-
-    /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
-    /// before its first tree is applied (right after a resume), and the list then is the last
-    /// connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`), up to
-    /// `limit`, so an open never makes a second workspace. The connection is published before the
-    /// store hears `.connected` (which moves the epoch), so the store must say connected too. A tree
-    /// that never comes within `limit` throws "not connected": never "none", which would make one.
-    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async throws -> String? {
-        let current = { @MainActor @Sendable in
-            if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
-            return false
-        }
-        if !(await current()), await !CloudWait.holds(within: limit, until: current) {
-            throw ActionFailure(message: CloudStrings.notConnected)
-        }
-        return store.workspaces.first?.id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
@@ -375,16 +349,19 @@ enum CloudHandlers {
     /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
     /// waits for its daemon instead of refusing with "not connected". A
     /// legacy machine with no connection reads its record again first, since
-    /// the app's copy may still say running. A machine that is not paused
-    /// returns at once, as before.
+    /// the app's copy may still say running. `waitsForLink` (Open Machine, Leo 2026-11-01: "when i tried to
+    /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
-                         within limit: Duration = .seconds(300)) async throws {
-        try requireAttachableState(session)
+                         within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
+        // A machine that is resuming is waited for, not refused (``requireAttachableState(_:waitingOutResume:)``).
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         await session.refreshIfMaybePaused()
-        try requireAttachableState(session)
+        try await requireAttachableState(session, waitingOutResume: min(limit, CloudStartSession.connectWait))
         session.attach(origin: connectOrigin(for: invocation))
-        guard session.resuming else { return }
         let daemon = session.daemon
+        if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
+            within: limit, connected: { daemon.connection != nil }, failure: { session.stage.failure }, deadline: CloudStrings.notConnected) { throw ActionFailure(message: reason) }
+        guard session.resuming else { return }
         _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -405,15 +382,21 @@ enum CloudHandlers {
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
-        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) {
-            throw ActionFailure(message: reason)
-        }
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
+    }
+
+    /// ``requireAttachableState(_:)`` after waiting out a resume (``CloudWait/outwaitResume(of:within:read:)``): a
+    /// machine that is resuming is waited for, up to `limit`, instead of refused with "This machine is resuming"
+    /// (prod, 2026-11-05: `cloud start-chat` refused at once after `cloud resume-machine`, then worked in 12 s once
+    /// the machine ran). A pause or delete still refuses at once, and so does a resume still running at `limit`.
+    static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
+        await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        try requireAttachableState(session)
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-            throw ActionFailure(message: CloudStrings.commandRequired)
-        }
+        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
     }
 }

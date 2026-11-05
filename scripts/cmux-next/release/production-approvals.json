@@ -1,5 +1,5 @@
 {
-  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_*, HOME_INVITES_*, CHIEF_BRAIN_*, CHIEF_CREDITS_*, CHIEF_RUN_TOKEN_CAP_USD, CLOUD_PLAN_ENTITLEMENTS and PLATFORM_MACHINES that were approved, as NAME=value (prod-promote.ts GUARDED_VAR).",
+  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_*, HOME_INVITES_*, CHIEF_BRAIN_*, CHIEF_CREDITS_*, CHIEF_RUN_TOKEN_CAP_USD, CLOUD_PLAN_ENTITLEMENTS, PLATFORM_MACHINES and PLATFORM_SURFACES that were approved, as NAME=value (prod-promote.ts GUARDED_VAR).",
   "required_secrets": [
     "JWT_PRIVATE_JWK",
     "STACK_SECRET_SERVER_KEY",
@@ -15,9 +15,13 @@
     },
     "v16": {
       "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; sandbox hands and Mac hands stay closed in production (no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED); with CHIEF_BRAIN_ENABLED=1 the pairing routes /hand/install.sh, /v1/hands/pair and /v1/hands/pair-codes answer signed-in users, inert without those)"
+    },
+    "v20": {
+      "reviewer": "cloud-clouddo lane 2026-11-03 (new_sqlite_classes TrajectoryDO from #25682; additive, no rename, delete or transfer; inert in production: CLOUD_TRAJECTORIES_ENABLED is set only in development, so cloud-trajectory.ts answers 404 cloud.trajectory.disabled and nothing instantiates the class)"
     }
   },
   "guarded_vars": {
+    "PLATFORM_SURFACES=cloud": "cloud-clouddo lane 2026-11-02 (cmux#32467, Codex review): NEXT Cloud's routes and CloudDO move to cmux-platform-production as in staging (#32387); machine-inert (no CLOUD_ALLOWED_TEAMS, no CLOUD_PLAN_ENTITLEMENTS); landed only after the production saved-environment count and the platform secrets were checked",
     "PLATFORM_MACHINES=on": "leo 2026-10-31 (relayed): the platform Worker's workspace machines answer in production too; creates still need a paid plan or grant (no stub plan in production)",
     "INFERENCE_ENABLED=1": "lawrence 2026-10-12 via the chief (cx-f5tk4): paid teams on",
     "INFERENCE_FREE_ENABLED=0": "lawrence 2026-10-12 via the chief (cx-f5tk4): free tier off until cx-ds09i",

@@ -214,3 +214,134 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
 });
+
+// Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,
+// like, a bit more metadata. Like, at the very least tell you what model did it, what effort level."
+// The name's tooltip and the mark's name the sender's harness, model and effort: a listed chat's own,
+// else the ones its message names (`fromHarness`, `fromModel`, `fromEffort`).
+test("a listed sender's hover names its harness, model and effort", async () => {
+  const listed = entry({
+    sessionId: "mux-lane",
+    name: "gcp-lane",
+    hostKind: "local",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    effort: "high",
+  });
+  const store = new SubsessionStore();
+  store.set([...sessions, listed]);
+  root = createRoot(host);
+  const text = "Rebased.";
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => undefined }}>
+        <IncomingMessageLine
+          id="row-1"
+          message={{ name: "gcp-lane", sessionId: "mux-lane", text, raw: text }}
+          onOpen={() => undefined}
+        />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+  expect(open.getAttribute("title")).toBe(`${t("subagents.open", { name: "gcp-lane" })}\nCodex · gpt-6.1-sol high`);
+  expect(open.getAttribute("aria-label")).toBe(t("subagents.open", { name: "gcp-lane" }));
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBe("Codex · gpt-6.1-sol high");
+});
+
+test("an unlisted sender's hover reads the harness, model and effort its message names", async () => {
+  const parsed = incomingPrompt("Tests pass", {
+    _meta: {
+      provenance: {
+        kind: "session_message",
+        from: "peer-lane-1",
+        fromName: "peer-lane",
+        fromHarness: "codex",
+        fromModel: "gpt-6-astra",
+        fromEffort: "xhigh",
+      },
+    },
+  });
+  const message = parsed?.kind === "message" ? parsed.message : undefined;
+  expect(message).toMatchObject({ harness: "codex", model: "gpt-6-astra", effort: "xhigh" });
+  await line({ ...message!, sessionId: undefined });
+  const from = host.querySelector<HTMLElement>(".cv-received__from")!;
+  expect(from.getAttribute("title")).toBe("Codex · gpt-6-astra xhigh");
+});
+
+test("a sender nothing describes keeps no tooltip", async () => {
+  await line({ name: "gone-lane" });
+  expect(host.querySelector(".cv-received__from")?.getAttribute("title")).toBeNull();
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBeNull();
+});
+
+// Leo, 2026-11-05, on two lanes' received lines: "i can't click to go to these for some reason". A sender the page's list cannot name was
+// a plain pill a click did nothing on. Where acpmux resolves sessions (`_acpmux/resolve`, the
+// `HOST/NAME` refs' resolver, sessionRefs.ts), its chip is the session link: a click opens the
+// session acpmux names, on whatever machine, and a name acpmux has no chat for says so.
+const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+
+async function asked(name: string, answers: Record<string, { sessionId: string; name: string; host: string }>) {
+  const queries: string[] = [];
+  refs.resetSessionRefs();
+  refs.setSessionRefResolver(async (query) => {
+    queries.push(query);
+    const session = answers[query];
+    if (!session) throw new Error("not found");
+    return { session };
+  });
+  const store = new SubsessionStore();
+  store.set(sessions);
+  const opened: string[] = [];
+  const missing: string[] = [];
+  const text = "the hq#7125 lane is up";
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider
+        value={{ store, open: () => undefined, senderMissing: (who) => void missing.push(who) }}
+      >
+        <IncomingMessageLine id="row-1" message={{ name, text, raw: text }} onOpen={(id) => void opened.push(id)} />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open");
+  return { open, opened, missing, queries };
+}
+
+test("an unlisted sender on another machine opens the session acpmux resolves, by its id", async () => {
+  try {
+    const remote = {
+      sessionId: "mock-remote-lane",
+      name: "side-lane",
+      host: "gcp-agent-lane-1",
+    };
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/side-lane", {
+      "gcp-agent-lane-1/side-lane": remote,
+    });
+    expect(open).not.toBeNull();
+    await act(async () => open!.click());
+    expect(queries).toEqual(["gcp-agent-lane-1/side-lane"]);
+    expect(opened).toEqual([remote.sessionId]);
+    // Resolved, the chip names the session and its machine, and carries it for the right-click menu.
+    const chip = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+    expect(chip.getAttribute("data-open-session")).toBe(remote.sessionId);
+    expect(chip.getAttribute("aria-label")).toBe(
+      t("subagents.openOnHost", { name: "gcp-agent-lane-1/side-lane", host: "gcp-agent-lane-1" }),
+    );
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a sender acpmux has no chat for says so on the click, never a silent no-op", async () => {
+  try {
+    const { open, opened, missing } = await asked("gone-mesh", {});
+    expect(open).not.toBeNull();
+    await act(async () => open!.click());
+    expect(opened).toEqual([]);
+    expect(missing).toEqual(["gone-mesh"]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});

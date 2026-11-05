@@ -1,9 +1,9 @@
 public import CoreGraphics
 
 /// The one tab shape: every tab pill, the strip's + and a tab's hover card share
-/// `tabCornerRadius`: Helium's 8 pt circular corner (Lawrence 2026-10-31), or concentric with
-/// the pane's own card under Floating Panes (Lawrence 2026-10-29: "i dont think both the tab
-/// roundness matches the bg pane roundness").
+/// `tabCornerRadius`, concentric with the card the strip sits in, in every window style
+/// (Lawrence 2026-10-29: "i dont think both the tab roundness matches the bg pane roundness";
+/// 2026-11-04: one radius setting for tabs and panes, inner = outer minus padding).
 ///
 /// A shape nested in a rounded corner reads as part of it only when it is concentric: its
 /// radius is the outer radius less the gap between the two. A top-row pane's first pill sits
@@ -30,18 +30,19 @@ extension Metrics {
 
     /// Points from the card's top (and leading) edge to the first tab pill: the pane padding
     /// between the card and the strip (none under Floating Panes, where the card is the padded
-    /// cell) plus the pill's inset in the strip, on the 2x pixel grid.
+    /// cell) plus the pill's inset in the strip (`layout.cornerPadding` when set), on the 2x
+    /// pixel grid.
     public static var tabStripCardInset: CGFloat { PaneChromeMetrics.current.tabGap(scale: 2) }
 
-    /// Corner radius of every tab pill, the strip's + and a tab's hover card: Helium's
-    /// (``heliumTabCornerRadius``, 8 pt circular; Lawrence 2026-10-31 "match helium roundess"),
-    /// at most half the tab's height. Under Floating Panes, whose own card is only 6-8 pt, the
-    /// pill stays concentric with that card (its radius less ``tabStripCardInset``, at least
-    /// `space2`), so it never pokes out of the corner it sits in.
+    /// Corner radius of every tab pill, the strip's + and a tab's hover card: concentric with
+    /// the rounded card the strip sits in (``tabStripCardRadius``, else the one outer
+    /// ``cornerRadius`` where the strip's corner is square or outlined), that radius less
+    /// ``tabStripCardInset`` (``ConcentricCorners``), at most half the tab's height. The
+    /// defaults (10 pt outer, 2 pt gap) keep Helium's 8 pt tab.
     public static var tabCornerRadius: CGFloat {
-        if floatingPanes, let card = tabStripCardRadius {
-            return min(max(space2, card - tabStripCardInset), tabHeight / 2)
-        }
-        return min(heliumTabCornerRadius, tabHeight / 2)
+        let corners = Metrics.corners
+        let outer = tabStripCardRadius ?? corners.outer
+        return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),
+                              radius: corners.nested(in: outer, inset: tabStripCardInset))
     }
 }

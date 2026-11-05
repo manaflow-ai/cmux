@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8.
+// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -693,6 +693,15 @@ pub struct ScrollChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionChangedEvent {
+    pub active: bool,
+    pub active_workspace: Nullable<T::Id>,
+    pub screens: Vec<T::SelectionScreen>,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsChangedEventOrigin {
     #[serde(rename = "user")]
@@ -881,6 +890,8 @@ pub struct VtStateEvent {
     pub cols: u16,
     pub data: T::Base64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
@@ -953,6 +964,13 @@ pub struct WorkspaceMovedEvent {
     pub registry_id: String,
     pub workspace: T::Id,
     pub workspace_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspacePresentationChangedEvent {
+    pub entity: T::Workspace,
+    pub workspace: T::Id,
 }
 
 #[rustfmt::skip]
@@ -1043,6 +1061,7 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
@@ -1068,6 +1087,7 @@ pub enum Event {
     WorkspaceChanged(WorkspaceChangedEvent),
     WorkspaceClosed(WorkspaceClosedEvent),
     WorkspaceMoved(WorkspaceMovedEvent),
+    WorkspacePresentationChanged(WorkspacePresentationChangedEvent),
     WorkspaceRenamed(WorkspaceRenamedEvent),
     Unknown(UnknownEvent),
 }
@@ -1138,6 +1158,7 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
@@ -1163,6 +1184,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some("workspace-changed"),
             Self::WorkspaceClosed(_) => Some("workspace-closed"),
             Self::WorkspaceMoved(_) => Some("workspace-moved"),
+            Self::WorkspacePresentationChanged(_) => Some("workspace-presentation-changed"),
             Self::WorkspaceRenamed(_) => Some("workspace-renamed"),
             Self::Unknown(event) => event.name.as_deref(),
         }
@@ -1232,6 +1254,7 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
@@ -1257,6 +1280,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some(&WORKSPACE_CHANGED_EVENT_METADATA),
             Self::WorkspaceClosed(_) => Some(&WORKSPACE_CLOSED_EVENT_METADATA),
             Self::WorkspaceMoved(_) => Some(&WORKSPACE_MOVED_EVENT_METADATA),
+            Self::WorkspacePresentationChanged(_) => Some(&WORKSPACE_PRESENTATION_CHANGED_EVENT_METADATA),
             Self::WorkspaceRenamed(_) => Some(&WORKSPACE_RENAMED_EVENT_METADATA),
             Self::Unknown(_) => None,
         }
@@ -1763,6 +1787,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("selection-changed") => match serde_json::from_value::<SelectionChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SelectionChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
             Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1957,6 +1989,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("workspace-moved") => match serde_json::from_value::<WorkspaceMovedEvent>(raw.clone()) {
             Ok(event) => Event::WorkspaceMoved(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("workspace-presentation-changed") => match serde_json::from_value::<WorkspacePresentationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::WorkspacePresentationChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

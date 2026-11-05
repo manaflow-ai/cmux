@@ -190,7 +190,11 @@ test("a personal steer keeps reply A and final reply B expanded while other chat
       expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
       for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
-      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(1);
+      // Steered, reply A's stretch ends on its own copy row over the steer (turns.ts supersededFooters,
+      // #34939; Leo, 2026-11-03: "a lot of these should've been counted as "ended"-ish turns that allow
+      // me to copy/paste your stuff"); the turn keeps one footer of its own, at its end.
+      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(steered ? 2 : 1);
+      expect(Boolean(document.querySelector('[data-row-id="superseded-steer"] .cv-turn-actions'))).toBe(steered);
       expect(document.querySelectorAll(".cv-reply-actions").length).toBe(0);
     } finally {
       await act(async () => root.unmount());

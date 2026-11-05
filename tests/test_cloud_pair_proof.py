@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -20,6 +21,63 @@ def manifest():
 
 
 class ManifestTests(unittest.TestCase):
+    def test_public_evidence_contains_only_salted_hashes(self):
+        values = manifest()
+        evidence = proof.public_evidence(values, "proof-unique", "run-salt")
+        rendered = json.dumps(evidence)
+        for value in values.values():
+            self.assertNotIn(value, rendered)
+        self.assertNotIn("proof-unique", rendered)
+        allowed = {"schema", "hash", "owner_and_project_match", "history_copied_from_assistant",
+                   "reply_copied_from_assistant", "notification_tap", "notification_transport",
+                   "apns_delivery_proven"}
+        self.assertTrue(all(key.endswith("_sha256") or key in allowed for key in evidence))
+
+    def test_cloud_ui_captures_are_removed_before_public_zip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            screens = Path(directory, "screens")
+            screens.mkdir()
+            for name in ("phone-cloud-history.png", "phone-cloud-reply.png", "phone-cloud-notification-tap.png"):
+                Path(screens, name).write_bytes(b"private")
+            proof.remove_private_cloud_captures(directory)
+            self.assertEqual(list(screens.iterdir()), [])
+
+    def test_cloud_artifact_allowlist_removes_raw_failure_captures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "screens").mkdir()
+            (root / "screens" / "failure.png").write_bytes(b"private")
+            (root / "phone.log").write_text("machine-name and assistant reply")
+            (root / "cloud-ui-proof.json").write_text("{}")
+            proof.allowlist_public_cloud_artifact(directory)
+            self.assertEqual([path.name for path in root.iterdir()], ["cloud-ui-proof.json"])
+
+    def test_cloud_artifact_allowlist_rejects_missing_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(proof.ProofFailure):
+                proof.allowlist_public_cloud_artifact(directory)
+
+    def test_export_cli_success_and_failure_keep_only_safe_zip_entries(self):
+        module = Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_cloud_pair_proof.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "raw.log").write_text("machine and assistant reply")
+            (root / "cloud-ui-proof.json").write_text("{\"reply_copied_from_assistant\":true}\n")
+            success = subprocess.run(["python3", str(module), "--export-out", directory, "--status", "0"], capture_output=True)
+            self.assertEqual(success.returncode, 0)
+            import zipfile
+            with zipfile.ZipFile(root / "evidence.zip") as archive:
+                self.assertEqual(set(archive.namelist()), {"cloud-ui-proof.json", "SUMMARY.md"})
+            self.assertFalse((root / "raw.log").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "raw.log").write_text("machine and assistant reply")
+            failure = subprocess.run(["python3", str(module), "--export-out", directory, "--status", "143"], capture_output=True)
+            self.assertEqual(failure.returncode, 1)
+            with zipfile.ZipFile(root / "evidence.zip") as archive:
+                self.assertEqual(archive.namelist(), ["SUMMARY.md"])
+            self.assertFalse((root / "raw.log").exists())
+
     def test_runner_input_cannot_enter_the_artifact_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(proof.ProofFailure):
@@ -81,6 +139,17 @@ class ManifestTests(unittest.TestCase):
 
 
 class UIProofTests(unittest.TestCase):
+    def test_simulator_export_boundary_allowlists_cloud_mode(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh").read_text()
+        self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
+        self.assertIn('cmux_next_cloud_pair_proof.py --export-out "$out" --status', script)
+        self.assertIn('if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
+        self.assertIn('else\n  # The app log goes through the pairing redactor', script)
+
+    def test_simulator_script_parses(self):
+        script = Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh"
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
     def test_offscreen_copy_is_excluded_and_partial_control_is_visible(self):
         bounds = {"x": 0, "y": 0, "width": 400, "height": 800}
         self.assertFalse(proof.visible({"frame": {"x": 10, "y": 900, "width": 20, "height": 20}}, bounds))
@@ -102,6 +171,19 @@ class UIProofTests(unittest.TestCase):
 
         with self.assertRaises(proof.ProofFailure):
             UI([], "sim", "bundle", {}).reply("fresh-answer")
+
+    def test_manifest_machine_name_is_not_failure_description(self):
+        class UI(proof.PhoneUI):
+            def find(self, predicate):
+                return []
+
+            def wait(self, check, what, seconds=60):
+                raise proof.ProofFailure(f"missing {what}")
+
+        secret_name = "private-machine-name"
+        with self.assertRaisesRegex(proof.ProofFailure, "Cloud machine") as failure:
+            UI([], "sim", "bundle", {}).named(secret_name, "Cloud machine")
+        self.assertNotIn(secret_name, str(failure.exception))
 
     def test_visible_marker_and_wrong_assistant_clipboard_cannot_pass(self):
         class UI(proof.PhoneUI):

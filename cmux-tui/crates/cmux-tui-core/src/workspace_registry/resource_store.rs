@@ -10,7 +10,9 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
-pub(crate) use topology_load::{load_resource_topology, load_topology_frame};
+pub(crate) use topology_load::{
+    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -1445,17 +1447,6 @@ impl WorkspaceRegistry {
             terminal.lifecycle,
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting | TerminalLifecycle::Running
         ))
-    }
-
-    /// The topology's frame only: its revision, generation, active
-    /// workspace and active screens, without screens, panes, tabs or
-    /// browsers (a workspace list and a session ping need no more).
-    pub(crate) fn resource_topology_frame(&self) -> anyhow::Result<ResourceTopologySnapshot> {
-        load_topology_frame(
-            &self.connection.get(),
-            self.session_id.clone(),
-            self.generation.clone(),
-        )
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
@@ -4257,9 +4248,12 @@ fn validate_touched_resource_invariants(
                     &mut browsers,
                 )?;
             }
-            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            // An order change writes only the pane's tabs' positions: the set (set_resource_tab_order) and the
+            // contiguous positions (below) are its invariants, so it touches no tab's own rows, as
+            // `SetWorkspaceOrder` above. Validating every tab of the pane per create cost O(tabs in the pane):
+            // about 5 queries per tab, under the registry lock a person's next click waits on.
+            ResourceChange::SetTabOrder { pane_id, .. } => {
                 panes.insert(pane_id.to_string());
-                tabs.extend(tab_ids.iter().map(ToString::to_string));
             }
             ResourceChange::UpsertTerminal { public_id, .. }
             | ResourceChange::TombstoneTerminal { public_id, .. } => {
@@ -4588,7 +4582,15 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
+/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
+/// validation must be O(changed), never O(tabs in the pane).
+#[cfg(test)]
+pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
+    #[cfg(test)]
+    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision

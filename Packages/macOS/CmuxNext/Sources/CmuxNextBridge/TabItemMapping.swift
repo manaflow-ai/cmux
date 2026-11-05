@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -7,6 +7,36 @@ public import CmuxNextTabs
 /// Maps daemon tab records into tab strip items.
 public struct TabItemMapping {
     public static let shared = Self()
+
+    /// The small projection used by Home's first-run agent list. Unlike `item`, this does not
+    /// read hover facts, presence, user icons, or the session's usage/detail mirror. Those facts
+    /// are useful when a tab is drawn or hovered, but Home only needs its title and indicator;
+    /// reading them here made every usage update re-track every agent chat.
+    public struct Glance: Hashable, Sendable {
+        public var title: String
+        public var status: TabStatus
+        public var indicator: StatusIndicatorState
+        public var style: StatusIndicatorStyle?
+
+        public init(title: String, status: TabStatus, indicator: StatusIndicatorState = .idle, style: StatusIndicatorStyle?) {
+            self.title = title
+            self.status = status
+            self.indicator = indicator
+            self.style = style
+        }
+    }
+
+    /// Maps only the facts needed by Home's first-run agent rows.
+    public func glance(_ tab: TabModel, fallbackTitle: String) -> Glance {
+        let busy = StatusMapping.shared.loading(tab)
+        var indicator = busy.state.replacesTabIcon ? busy.state : .idle
+        // A terminal's title spinner is a working mark even when no status report replaces it.
+        if indicator == .idle, tab.titleActivity == .working,
+           DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs {
+            indicator = .working
+        }
+        return Glance(title: title(tab, fallbackTitle: fallbackTitle), status: status(tab), indicator: indicator, style: busy.style)
+    }
     /// `fallbackTitle` names a tab whose program set no title yet
     /// (localized by the App), and a browser tab on the New Tab or blank
     /// page, whose recorded title is that page's address.

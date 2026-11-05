@@ -143,7 +143,7 @@ final class SidebarKeycapView: NSView {
         digit.setColor(Palette.textTertiary)
         layer?.borderColor = Palette.separator.cgColor
         layer?.borderWidth = Metrics.lineWidth(1)
-        layer?.cornerRadius = Metrics.space1
+        layer?.cornerRadius = Metrics.controlCornerRadius
     }
 
     override var intrinsicContentSize: NSSize {

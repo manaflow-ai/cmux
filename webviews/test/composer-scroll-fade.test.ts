@@ -86,7 +86,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
         // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
-        // At most 20 of them, under 2,000 characters: a larger paste is a chip (pastedText.ts).
+        // At most 20 of them, under 750 words: a larger paste is a chip (pastedText.ts).
         const lines = Array.from(
           { length: count },
           (_, i) =>
@@ -137,8 +137,8 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
   const ROW = ".acpmux-composer .acpmux-attachments";
   const CHIP = ".acpmux-composer .acpmux-attachment-pasted";
 
-  /// Pastes `count` texts of 30 lines each, every one a Pasted text chip (over pastedText.ts's 20
-  /// lines), so the attachment row holds `count` more chips.
+  /// Pastes `count` texts of 110 lines each (770 words), every one a Pasted text chip (over
+  /// pastedText.ts's 750 words), so the attachment row holds `count` more chips.
   /// The row is Settings' attachment strip (the default inline view puts chips in the text), so the
   /// strip is turned on first.
   async function pasteChips(page: Page, count: number) {
@@ -149,7 +149,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       await page.evaluate(
         ({ selector, chip }) => {
           const data = new DataTransfer();
-          const lines = Array.from({ length: 30 }, (_, i) => `pasted ${chip} line ${i + 1}: the retry rules.`);
+          const lines = Array.from({ length: 110 }, (_, i) => `pasted ${chip} line ${i + 1}: the retry rules.`);
           data.setData("text/plain", lines.join("\n"));
           document
             .querySelector(selector)!

@@ -9,9 +9,24 @@ import CmuxNextCompat
 /// a reference (its chat or terminal tab, by name; a click reveals that tab),
 /// shows the agent's reason and its latest message large and first, then the
 /// source, the sites and the target profile, with Show Agent Chat, Deny and
-/// Allow. Non-activating: showing it never takes the person's focus (socket
-/// focus policy); the person clicks to answer. Closing the window, Escape or
-/// the time limit answer Deny.
+/// Allow, all standard dialog buttons (``CmuxDialogButtonView``). Non-activating:
+/// showing it never takes the person's focus (socket focus policy); the person
+/// clicks to answer. Closing the window, Escape, Deny or the time limit answer Deny.
+///
+/// SECURITY: only the person at this Mac answers Allow (review of #32983). The
+/// agent that asked may also drive the screen (cmux Computer Use, any
+/// computer-use tool), so, as macOS's own privacy prompts and Chrome's
+/// permission prompts do:
+/// - the panel is left out of screen capture and screen sharing
+///   (`sharingType = .none`): a screenshot never shows the agent Allow;
+/// - Allow answers only the person's own click, from the HID system
+///   (``CmuxDialogPersonClick`` with the app's strict check): no
+///   Accessibility press, programmatic click, key or posted click allows;
+/// - a click that begins less than a double-click interval after the panel
+///   shows or moves is not taken (Chrome's
+///   `InputEventActivationProtector`), so a click aimed at what was there
+///   before never allows.
+/// Deny stays easy: its button and Escape, by anyone.
 @MainActor
 final class CookieImportConsentPanel {
     static let accessibilityID = "app.cookieImportConsent"
@@ -19,7 +34,7 @@ final class CookieImportConsentPanel {
     static let limit: Duration = .seconds(180)
 
     private let request: CookieImportRequest
-    private let panel: NSPanel
+    let panel: CookieImportConsentWindow
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
     private var observers: [MainActorObservation] = []
@@ -29,19 +44,29 @@ final class CookieImportConsentPanel {
     private let limitNote = NSTextField(labelWithString: "")
     /// Reveals the requester's tab (the person's click; nil when the requester has none).
     private let onShowRequester: (() -> Void)?
+    /// The Allow button shown now: the panel reads the person's click on it, never its action.
+    private(set) weak var allowButton: CmuxDialogButtonView?
 
-    init(request: CookieImportRequest, onShowRequester: (() -> Void)?) {
+    /// - Parameter isPersonEvent: Whether an event is the person's own input from the HID system (the app
+    ///   passes `PersonInputCheck`); the default takes none, so Allow cannot answer.
+    init(request: CookieImportRequest, onShowRequester: (() -> Void)?,
+         isPersonEvent: @escaping @MainActor (NSEvent) -> Bool = { _ in false }) {
         self.request = request
         self.onShowRequester = onShowRequester
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = CookieImportConsentWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
+                                          styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.personClick.isPersonEvent = isPersonEvent
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
+        // Out of every screenshot, recording and screen share: an agent that reads the screen never sees it.
+        panel.sharingType = .none
         panel.contentView = makeContent()
+        panel.allow = { [weak self] in self?.allowButton }
+        panel.onPersonAllow = { [weak self] in self?.answer(.allow) }
     }
 
     /// Shows the panel on `window` and returns the person's answer (Deny on close or after ``limit``).
@@ -93,15 +118,19 @@ final class CookieImportConsentPanel {
         views.append(Self.wrapping(request.sourceIsSafari ? CookieImportStrings.afterAllowSafari : CookieImportStrings.afterAllow,
                                    size: TypeScale.caption, secondary: true))
 
-        let showChat = ThemedBezelButton(title: request.requester.kind == .terminal ? CookieImportStrings.showTerminal : CookieImportStrings.showAgentChat,
-                                         target: self, action: #selector(showRequester))
+        let showChat = CmuxDialogButtonView(standalone: CmuxDialogButton(
+            id: "showChat", title: request.requester.kind == .terminal ? CookieImportStrings.showTerminal : CookieImportStrings.showAgentChat),
+                                            target: self, action: #selector(showRequester))
         showChat.isEnabled = onShowRequester != nil
         showChat.setAccessibilityIdentifier(Self.accessibilityID + ".showChat")
-        let deny = ThemedBezelButton(title: CookieImportStrings.deny, target: self, action: #selector(deny))
-        deny.keyHint = .escape
+        let deny = CmuxDialogButtonView(standalone: CmuxDialogButton(id: "deny", title: CookieImportStrings.deny, role: .cancel),
+                                        target: self, action: #selector(deny))
         deny.setAccessibilityIdentifier(Self.accessibilityID + ".deny")
-        let allow = NSButton(title: CookieImportStrings.allow, target: self, action: #selector(allow))
+        // The default look with no key: a consent prompt never allows on Return (dialog-key-hints-AUDIT.md).
+        let allow = CmuxDialogButtonView(CmuxDialogButton(id: "allow", title: CookieImportStrings.allow, role: .default), hint: nil,
+                                         target: self, action: #selector(allowPressed))
         allow.setAccessibilityIdentifier(Self.accessibilityID + ".allow")
+        allowButton = allow
         limitNote.font = .systemFont(ofSize: TypeScale.caption)
         limitNote.textColor = .secondaryLabelColor
         let spacer = NSView()
@@ -132,7 +161,7 @@ final class CookieImportConsentPanel {
             stack.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             stack.widthAnchor.constraint(equalToConstant: 460),
         ])
-        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: 14)
+        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Metrics.surfaceCornerRadius)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(CookieImportStrings.title)
         return glass
@@ -158,7 +187,7 @@ final class CookieImportConsentPanel {
     private static func boxed(_ label: NSTextField, id: String) -> NSView {
         let box = NSBox()
         box.boxType = .custom
-        box.cornerRadius = 8
+        box.cornerRadius = Metrics.insetCornerRadius
         box.borderWidth = 1
         box.borderColor = .separatorColor
         box.fillColor = NSColor.textBackgroundColor.withAlphaComponent(0.35)
@@ -173,12 +202,15 @@ final class CookieImportConsentPanel {
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
         place()
+        panel.arm()
         // Draws the person's eye without activating cmux (a Dock bounce while another app is in front).
         NSApp.requestUserAttention(.informationalRequest)
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
                 self?.place()
+                // Moved under the pointer (AppKit moves a child window with its parent): armed again.
+                self?.panel.arm()
             })
         }
         observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
@@ -191,12 +223,16 @@ final class CookieImportConsentPanel {
         body.layoutSubtreeIfNeeded()
         let size = body.fittingSize
         let frame = parent.frame
-        panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height),
-                       display: true)
+        let placed = NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)
+        guard placed != panel.frame else { return }
+        panel.setFrame(placed, display: true)
     }
 
     @objc private func showRequester() { onShowRequester?() }
-    @objc private func allow() { answer(.allow) }
+    /// SECURITY: a press of Allow through its action (an Accessibility press, a programmatic click, a key)
+    /// answers nothing: only the person's own click on Allow allows, read by the panel window from the
+    /// click itself (``CookieImportConsentWindow``).
+    @objc private func allowPressed() {}
     @objc private func deny() { answer(.deny) }
 
     /// The one answer: later clicks, the close and the deadline find `finish` gone.
@@ -208,5 +244,42 @@ final class CookieImportConsentPanel {
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)
         finish(answer)
+    }
+}
+
+/// The consent panel's window: the person's click on Allow is read from its own events
+/// (``CmuxDialogPersonClick``), and only that click allows (``CookieImportConsentPanel``).
+@MainActor
+final class CookieImportConsentWindow: NSPanel {
+    /// Chrome's guard against a click aimed at what was there before: a double-click interval.
+    let personClick = CmuxDialogPersonClick(activationDelay: NSEvent.doubleClickInterval)
+    /// The Allow button shown now (nil when none).
+    var allow: @MainActor () -> NSControl? = { nil }
+    /// Runs once per click of the person's on Allow.
+    var onPersonAllow: @MainActor () -> Void = {}
+
+    /// The frame the guard was last armed for.
+    private var armedFrame: NSRect?
+
+    override func sendEvent(_ event: NSEvent) {
+        dispatch(event) { super.sendEvent(event) }
+    }
+
+    /// The panel shows or moves now (placed, or its parent moved): a click aimed at what was there
+    /// before is not taken.
+    func arm() {
+        armedFrame = frame
+        personClick.shown()
+    }
+
+    /// SECURITY: Allow answers here, from the person's click itself, never from the button's action. A
+    /// mouse-down on a panel that moved since it was armed (an Accessibility client set its position) arms
+    /// it again at that click, so that click is not taken.
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        if event.type == .leftMouseDown, frame != armedFrame {
+            armedFrame = frame
+            personClick.shown(at: event.timestamp)
+        }
+        if personClick.dispatch(event, allow: allow, in: windowNumber, body) { onPersonAllow() }
     }
 }

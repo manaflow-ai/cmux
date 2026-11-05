@@ -1,4 +1,5 @@
 public import SwiftUI
+import CmuxNextDesign
 
 /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): a list grouped
 /// Needs you / Today / Later / Paused on the left, the selected automation's detail and run
@@ -8,18 +9,24 @@ public struct AutomationsPageView: View {
     public struct Actions: Sendable {
         /// The header's New button; nil hides it (no create form yet).
         public var new: (@MainActor @Sendable () -> Void)?
-        public var runNow: @MainActor @Sendable (AutomationRow) -> Void
-        public var setEnabled: @MainActor @Sendable (AutomationRow, Bool) -> Void
-        public var edit: @MainActor @Sendable (AutomationRow) -> Void
+        /// Omit an operation until the hosting app supplies a real handler.
+        public var runNow: (@MainActor @Sendable (AutomationRow) -> Void)?
+        public var setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)?
+        public var edit: (@MainActor @Sendable (AutomationRow) -> Void)?
+        /// Sign In beside "Sign in to cmux to see your Cloud automations" (the shared ``SignInButton``);
+        /// nil shows the line alone.
+        public var signIn: (@MainActor @Sendable () -> Void)?
 
         public init(new: (@MainActor @Sendable () -> Void)? = nil,
-                    runNow: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in },
-                    setEnabled: @escaping @MainActor @Sendable (AutomationRow, Bool) -> Void = { _, _ in },
-                    edit: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in }) {
+                    runNow: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
+                    setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)? = nil,
+                    edit: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
+                    signIn: (@MainActor @Sendable () -> Void)? = nil) {
             self.new = new
             self.runNow = runNow
             self.setEnabled = setEnabled
             self.edit = edit
+            self.signIn = signIn
         }
     }
 
@@ -78,10 +85,20 @@ public struct AutomationsPageView: View {
     @ViewBuilder private var problemLines: some View {
         ForEach([AutomationRow.Target.thisMac, .cloud], id: \.self) { target in
             if let code = page.problems[target] {
-                Text(strings.problem(target, code: code)).font(palette.caption).foregroundStyle(palette.attention)
-                    .padding(.horizontal, 16).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    Text(strings.problem(target, code: code)).font(palette.caption).foregroundStyle(palette.attention)
+                    if let signIn = Self.signIn(for: target, code: code, actions: actions) {
+                        SignInButtonView { signIn() }.fixedSize()
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// The Sign In a problem line offers: only Cloud's signed-out line, and only when the app gave one.
+    static func signIn(for target: AutomationRow.Target, code: String, actions: Actions) -> (@MainActor @Sendable () -> Void)? {
+        target == .cloud && code == "automation.signed_out" ? actions.signIn : nil
     }
 
     private var list: some View {
@@ -113,14 +130,22 @@ public struct AutomationsPageView: View {
                 }
                 Text(row.task).font(palette.body).foregroundStyle(palette.text)
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.separator))
-                HStack(spacing: 6) {
-                    Button(strings.runNow) { actions.runNow(row) }.buttonStyle(.borderedProminent)
-                    Button(row.enabled ? strings.pause : strings.resume) { actions.setEnabled(row, !row.enabled) }
-                    Button(strings.edit) { actions.edit(row) }
+                    .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(palette.card))
+                    .overlay(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).stroke(palette.separator))
+                if actions.runNow != nil || actions.setEnabled != nil || actions.edit != nil {
+                    HStack(spacing: 6) {
+                        if let runNow = actions.runNow {
+                            Button(strings.runNow) { runNow(row) }.buttonStyle(.borderedProminent)
+                        }
+                        if let setEnabled = actions.setEnabled {
+                            Button(row.enabled ? strings.pause : strings.resume) { setEnabled(row, !row.enabled) }
+                        }
+                        if let edit = actions.edit {
+                            Button(strings.edit) { edit(row) }
+                        }
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
                 Text(strings.history.uppercased()).font(palette.caption).foregroundStyle(palette.tertiary).padding(.top, 6)
                 if row.runs.isEmpty {
                     Text(strings.noRuns).font(palette.caption).foregroundStyle(palette.secondary)

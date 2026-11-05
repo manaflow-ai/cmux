@@ -19,6 +19,11 @@
 // boxes frame by frame. A state whose row is 0 fails on any shift; a state with no row only warns.
 // A state that shifted is rendered again with the others, and fails only if it shifts every time.
 //
+// And each state must keep the design specs' geometry rules its row in invariant-baseline.json
+// keeps (invariant-baseline.ts, webviews/src/gallery/invariants.ts): one icon column, icons on
+// their line, gap tokens, menu label columns, row heights and widths. A violation the row does not
+// list fails, when every run shows it; a state with no row only warns.
+//
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
@@ -26,6 +31,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Timing, BUDGETS_PATH, fastest, lowerable, overBudget, readBudgets, readyTimes } from "./ready-budgets";
 import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } from "./runner";
+import { INVARIANT_BASELINE_PATH, type InvariantResult, everyRun, invariantSummary, invariantsOf, judgeInvariants, readInvariantBaseline } from "./invariant-baseline";
 import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
 
 export type HealthResult = {
@@ -37,6 +43,7 @@ export type HealthResult = {
   error?: string;
   play?: ({ status?: string; error?: string; motion?: { status?: string; problems?: string[] } | null } & ShiftResult["play"]) | null;
   load?: ShiftResult["load"];
+  invariants?: InvariantResult["invariants"];
 };
 
 /** Play errors (frame/playRunner.ts) that mean the state was never reached; they are their own label. */
@@ -132,6 +139,7 @@ async function main(): Promise<void> {
       allowlist: { type: "string", default: join(import.meta.dir, "broken-allowlist.json") },
       budgets: { type: "string", default: BUDGETS_PATH },
       "shift-baseline": { type: "string", default: SHIFT_BASELINE_PATH },
+      "invariant-baseline": { type: "string", default: INVARIANT_BASELINE_PATH },
       engines: { type: "string", default: "chromium" },
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
@@ -145,6 +153,7 @@ async function main(): Promise<void> {
   const allowlist = JSON.parse(await readFile(values.allowlist, "utf8")) as Record<string, string>;
   const budgets = readBudgets(values.budgets);
   const shiftBaseline = readShiftBaseline(values["shift-baseline"]);
+  const invariantBaseline = readInvariantBaseline(values["invariant-baseline"]);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
   const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
@@ -175,10 +184,18 @@ async function main(): Promise<void> {
         .map(([state]) => state),
     );
   let shifting = shiftingStates();
-  for (let attempt = 1; attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size); attempt++) {
+  const invariantRuns = [invariantsOf(results)];
+  const breakingStates = () =>
+    new Set(judgeInvariants(everyRun(invariantRuns), invariantBaseline).broke.map(({ state }) => state));
+  let breaking = breakingStates();
+  for (
+    let attempt = 1;
+    attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size || breaking.size);
+    attempt++
+  ) {
     // Render again only the cases of states still broken, slow or shifting; a state stays broken
     // only if it breaks again, slow only if it is slow again, and shifting only if it shifts again.
-    const retried = new Set([...broken.keys(), ...slow, ...shifting]);
+    const retried = new Set([...broken.keys(), ...slow, ...shifting, ...breaking]);
     const again: MatrixCase[] = cases.filter((item) => retried.has(stateKey(item)));
     const manifest = join(outputDir, `retry-${attempt}.json`);
     await writeFile(manifest, JSON.stringify(again));
@@ -189,6 +206,8 @@ async function main(): Promise<void> {
     slow = slowStates();
     shiftRuns.push(shiftScores(results));
     shifting = shiftingStates();
+    invariantRuns.push(invariantsOf(results));
+    breaking = breakingStates();
   }
   // runLocal sets a failing exit code for quality findings; this check judges only broken states.
   process.exitCode = 0;
@@ -199,14 +218,20 @@ async function main(): Promise<void> {
   const lower = lowerable(best, budgets);
   // A broken state answers to the allowlist, not to its shift baseline.
   const shift = judgeShift(new Map([...least(shiftRuns)].filter(([state]) => !broken.has(state))), shiftBaseline);
-  const text = [summary(verdict, cases.length), budgetSummary(over, lower), shiftSummary(shift)].filter(Boolean).join("\n");
+  const geometry = judgeInvariants(
+    new Map([...everyRun(invariantRuns)].filter(([state]) => !broken.has(state))),
+    invariantBaseline,
+  );
+  const text = [summary(verdict, cases.length), budgetSummary(over, lower), shiftSummary(shift), invariantSummary(geometry)]
+    .filter(Boolean)
+    .join("\n");
   await writeFile(
     join(outputDir, "health.json"),
-    `${JSON.stringify({ ...verdict, slow: over, lower, shifted: shift.shifted, unbaselined: shift.unbaselined, shiftLower: shift.lower }, null, 2)}\n`,
+    `${JSON.stringify({ ...verdict, slow: over, lower, shifted: shift.shifted, unbaselined: shift.unbaselined, shiftLower: shift.lower, geometry: geometry.broke, geometryUnlisted: geometry.unlisted, geometryMended: geometry.mended }, null, 2)}\n`,
   );
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
-  if (verdict.fresh.length || over.length || shift.shifted.length) process.exitCode = 1;
+  if (verdict.fresh.length || over.length || shift.shifted.length || geometry.broke.length) process.exitCode = 1;
 }
 
 if (import.meta.main) await main();

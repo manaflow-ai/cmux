@@ -246,6 +246,26 @@ test("the machine row says where the chat runs: Local, SSH or Cloud beside the m
   ]);
 });
 
+test("a Cloud chat says plainly what its machine is and how long its files last; a local or SSH chat does not", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const base = { sessionId: "s", cwd: SCRATCHPAD } as Summary;
+  const note = async (summary: Summary, peerKinds?: Record<string, "ssh" | "cloud">) => {
+    await act(async () =>
+      root!.render(<EnvironmentSection summary={summary} machineName="studio-mac" peerKinds={peerKinds} />),
+    );
+    return container.querySelector<HTMLElement>('[data-note="cloud-lifetime"]')?.textContent;
+  };
+  const lifetime = translate("cloudRepository.lifetime");
+  expect(lifetime).toContain("Linux");
+  expect(lifetime).toContain("until the machine is deleted");
+  // A Cloud chat with no repository and no repository route still says it.
+  expect(await note({ ...base, hostKind: "cloud", host: "cloud-01" })).toBe(lifetime);
+  expect(await note({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toBe(lifetime);
+  expect(await note(base)).toBeUndefined();
+  expect(await note({ ...base, peer: "build-box" }, { "build-box": "ssh" })).toBeUndefined();
+});
+
 test("Cloud repository rows follow the native route flag and keep the machine row", async () => {
   const container = installDom();
   root = createRoot(container);

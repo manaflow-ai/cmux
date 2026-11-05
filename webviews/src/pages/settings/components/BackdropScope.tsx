@@ -1,5 +1,6 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
+import { Button } from "../../../ui/Button";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
@@ -156,9 +157,9 @@ export function WorkspaceOpacity({
                 }}
               />
               {stored !== null && (
-                <button type="button" className="link-button" onClick={() => void save(null)}>
+                <Button variant="ghost" size="sm" type="button" className="link-button" onClick={() => void save(null)}>
                   {t("settingsWindow.backdropPicker.workspaceOpacityUseAll")}
-                </button>
+                </Button>
               )}
             </span>
           </div>

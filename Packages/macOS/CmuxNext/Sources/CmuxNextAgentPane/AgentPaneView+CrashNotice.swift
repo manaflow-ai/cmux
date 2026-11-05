@@ -19,6 +19,7 @@ extension AgentPaneView {
     /// The page host's crash report: the same as ``webContentProcessDidTerminate(_:)``, with the
     /// reload policy kept by the page host.
     func pageCrashed(reloading: Bool) {
+        model.sessionInfo.pageLoaded()
         guard !reloading else {
             dictation.handle(.cancel)
             return
@@ -27,6 +28,7 @@ extension AgentPaneView {
     }
 
     private func contentEnded(_ termination: PageTermination) {
+        model.sessionInfo.pageLoaded()
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
         let retries = crashRetry.ended(self)

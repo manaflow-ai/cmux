@@ -27,7 +27,7 @@ struct StandInReadRefusalTests {
             let standIn = try #require(pane.pane.tabs.first { ProvisionalTab.isProvisional(surface: $0.surface) && $0.kind == .pty },
                                        "the Ctrl-` tab shows no stand-in in its turn")
             // Reads that the boundary refuses on a stand-in end at once, before any daemon answer.
-            async let programs = DestructiveConfirmation.runningPrograms(bySurface: pane.pane.tabs, on: services.daemon)
+            async let programs = services.daemon.runningPrograms(of: pane.pane.tabs) // what the removed DestructiveConfirmation.runningPrograms(bySurface:on:) ran
             async let quit = QuitFactsReader.read(services)
             try await Task.sleep(for: .milliseconds(300)) // test-only: the refused reads report on the next frame
             #expect(kill(pid, SIGCONT) == 0)

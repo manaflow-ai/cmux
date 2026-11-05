@@ -32,15 +32,15 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
-use super::harness_login_thread::{self, HarnessLogins, Method, Platform, Setup as LoginSetup};
+use super::relay::{Relay, Runner};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
-    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
-    heartbeat_ms_for,
+    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT, DaemonInfo,
+    STATE_DIR, daemon_info_from_identify, heartbeat_ms_for,
 };
 use crate::config::Paths;
 use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
@@ -284,17 +284,28 @@ pub fn daemon_socket(paths: &Paths) -> Option<PathBuf> {
 }
 
 /// Live identify first; the bake-recorded `daemon.json` when the daemon
-/// does not answer. Never an empty list.
+/// does not answer. Never an empty list. Either way the image's own
+/// desktop ([`DESKTOP_CAPABILITY`]) is added when it has one.
 pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     if let Some(socket) = daemon_socket(paths)
         && let Ok(identify) = query_identify(&socket, Duration::from_secs(2))
     {
-        return Ok(daemon_info_from_identify(&identify, false));
+        return Ok(with_desktop(paths, daemon_info_from_identify(&identify, false)));
     }
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false))
+    Ok(with_desktop(paths, info.with_activity(false, false, false)))
+}
+
+/// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
+/// desktop's socket unit (a recorded daemon.json never decides it).
+fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
+    info.capabilities.retain(|c| c != DESKTOP_CAPABILITY);
+    if paths.at(DESKTOP_SOCKET_UNIT).is_file() {
+        info.capabilities.push(DESKTOP_CAPABILITY.to_owned());
+    }
+    info
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -470,6 +481,9 @@ struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
     bootstrap_retry_at: Option<u64>,
     bootstrap_backoff: Backoff,
+    /// The Native receiving failure last logged, so a retry loop logs each
+    /// new reason once instead of failing silently or flooding the journal.
+    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -485,10 +499,13 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
-    /// The person's harness logins, kept for their machines (`harness_login_thread.rs`).
-    harness_logins: Option<HarnessLogins<PosterHttp, PlatformHttp>>,
+    /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
+    relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
+    workload: super::workload::Tracker,
+    workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
 }
@@ -509,12 +526,12 @@ impl Worker {
         control.set_nonblocking(true)?;
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
-        let harness_logins =
-            spawn_harness_logins(&paths).map_err(|e| log(&format!("harness login: {e}"))).ok();
+        forget_harness_login_state(&paths);
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
             bootstrap_backoff: Backoff::new(1_000, 30_000),
+            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -535,9 +552,11 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             trajectories,
-            harness_logins,
+            relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            workload: super::workload::Tracker::default(),
+            workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
         })
@@ -564,6 +583,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.bootstrap_retry_at,
+                self.workload_at,
             ]
             .into_iter()
             .flatten()
@@ -770,21 +790,26 @@ impl Worker {
                 let valid = serde_json::from_str::<Request>(&line)
                     .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
                 let value = if valid {
-                    self.live.as_mut().and_then(|live| {
+                    self.live.as_mut().map(|live| {
                         super::receiver_files::reply(
                             &self.paths,
                             &self.instance_id,
                             &mut live.client,
                             wall_ms(),
                         )
-                        .ok()
                     })
                 } else {
                     None
                 };
-                let value = value.unwrap_or_else(
-                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
-                );
+                // `refused` revokes the receiver's retained policy at once;
+                // `unavailable` (no answer) lets local admission keep it.
+                let value = match value {
+                    Some(Ok(value)) => value,
+                    Some(Err(error)) if super::receiver::is_refusal(&error) => {
+                        json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
+                    }
+                    _ => json!({ "ok": false, "error": super::receiver::POLICY_UNAVAILABLE }),
+                };
                 let Some(client) = self.clients.get_mut(i) else { continue };
                 client.output = serde_json::to_vec(&value).unwrap_or_default();
                 if client.output.len() > 1024 * 1024 {
@@ -936,7 +961,16 @@ impl Worker {
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
         }
-        self.harness_logins_bound(&bound, &key);
+        // A rebind replaces the relay: dropping the old one closes its socket and ends its chats at once.
+        self.relay = None;
+        match (github_client(&bound, &key), relay_runner()) {
+            (Ok(client), Ok(runner)) => {
+                self.relay = Relay::spawn(client, runner, wall_ms, log)
+                    .map_err(|e| log(&format!("relay: {e}")))
+                    .ok();
+            }
+            (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
+        }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
@@ -946,31 +980,9 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
-    }
-
-    /// Hands the harness-login thread its client when the environment keeps
-    /// logins, and holds the first report until its boot pass (one list and
-    /// the writes it allows) is over or [`harness_login_thread::BOOT_WAIT`]
-    /// passed, so the first chat finds the person's login.
-    fn harness_logins_bound(&self, bound: &Bound, key: &InstallKey) {
-        let (Some(logins), Some(origin)) =
-            (self.harness_logins.as_ref(), bound.env.harness_login_origin())
-        else {
-            return;
-        };
-        let client = match github_client(bound, key) {
-            Ok(client) => client,
-            Err(e) => return log(&format!("harness login: {e}")),
-        };
-        let platform = match JsonPoster::new() {
-            Ok(poster) => PlatformHttp(poster),
-            Err(e) => return log(&format!("harness login: {e}")),
-        };
-        let booted = logins.bound(client, platform, origin);
-        if let Err(RecvTimeoutError::Timeout) = booted.recv_timeout(harness_login_thread::BOOT_WAIT)
-        {
-            log("harness login: boot pass still running; reporting anyway");
-        }
+        // A new session knows no workload yet: the first probe now, the first result one interval on.
+        self.workload = super::workload::Tracker::default();
+        self.workload_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1076,11 +1088,35 @@ impl Worker {
         if self.activity.retry_at.is_some_and(|at| at <= now) {
             self.connect_activity();
         }
+        if self.workload_at.is_some_and(|at| at <= self.now()) {
+            self.probe_workload();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
+    /// read makes the workload unknown, and the report then drops `activity-workload`.
+    fn probe_workload(&mut self) {
+        let now = self.now();
+        self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+            // The first probe has no CPU baseline yet: it changes nothing.
+            Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
+                Some(workload) => Some(workload),
+                None => return,
+            },
+            None => {
+                self.workload = super::workload::Tracker::default();
+                None
+            }
+        };
+        let reqs = live.session.workload(seen, now);
+        self.drive(reqs);
     }
 
     /// Sends each request and feeds its answer back until nothing is due.
@@ -1119,6 +1155,12 @@ impl Worker {
     }
 }
 
+/// The acpmux home of the user whose home is `home`: the default `~/.acpmux`, as the image runs
+/// acpmux. The one place cmux-host names it (the trajectory mirror, `clone_mark::marker`).
+pub fn acpmux_home(home: &Path) -> PathBuf {
+    home.join(".acpmux")
+}
+
 /// Where the trajectory mirror finds acpmux: the work user's home when the
 /// image has that user (the session host's layout, `linux/spawn.rs`
 /// `select_layout`), else root's. Its staging folder for restores is that
@@ -1138,7 +1180,7 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     }
     std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
     fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
-    let acpmux = home.join(".acpmux");
+    let acpmux = acpmux_home(&home);
     let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
     let importer = AcpmuxImporter {
         bin: binary_path(&home),
@@ -1152,40 +1194,35 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
 }
 
-/// The harness-login thread: the login files under the work user's home
-/// (read and written as that user), its state under the agent's root.
-fn spawn_harness_logins(paths: &Paths) -> io::Result<HarnessLogins<PosterHttp, PlatformHttp>> {
-    use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
+/// Who runs relay chats: the machine's acpmux as the work user (the
+/// trajectory mirror's layout), or root's on an image without that user.
+fn relay_runner() -> Result<Runner, String> {
     let user = lookup_user(WORK_USER)
         .or_else(|| lookup_user("root"))
-        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
+        .ok_or_else(|| "no work user and no root user".to_owned())?;
     let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
-    let setup = LoginSetup {
+    Ok(Runner {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        groups: crate::linux::spawn::group_list(&user.name, user.gid),
         home,
-        state_file: paths.at(super::harness_login::STATE_FILE),
-        vm_kind_file: paths.at(super::wire::VM_KIND_FILE),
-        team_files: vec![paths.at(TEAM_ENROLL_FILE), paths.at(TEAM_BOUND_FILE)],
-        fs_identity: Some((user.uid, user.gid)),
-    };
-    HarnessLogins::spawn(setup, wall_ms, random_unit, log)
+    })
 }
 
-/// [`Platform`] over cmux-server's HTTPS client.
-pub struct PlatformHttp(pub JsonPoster);
+/// The harness-login sync (removed) kept its state here on machines that ran
+/// it. The state held fingerprints and revisions only, never a login; it is
+/// removed so nothing reads it again. A person's login stays in Claude Code's
+/// and Codex's own files on the machine's disk, and a new machine of theirs
+/// gets it from their own machine's snapshot, never from a cmux store.
+const OLD_HARNESS_LOGIN_STATE: &str = "/var/lib/cmux/harness-login-sync.json";
 
-impl Platform for PlatformHttp {
-    fn send(
-        &self,
-        method: Method,
-        url: &str,
-        body: Option<&Value>,
-        bearer: &str,
-    ) -> Result<(u16, Value), String> {
-        let verb = match method {
-            Method::Get => "GET",
-            Method::Put => "PUT",
-        };
-        self.0.send(verb, url, body, Some(bearer))
+fn forget_harness_login_state(paths: &Paths) {
+    match fs::remove_file(paths.at(OLD_HARNESS_LOGIN_STATE)) {
+        Ok(()) => log("harness login: removed the old sync state"),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => log(&format!("harness login: old sync state: {e}")),
     }
 }
 
@@ -1205,6 +1242,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
         return Some(super::github_repos::ReposAsk::from_json(ask).into());
+    }
+    if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
+        return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

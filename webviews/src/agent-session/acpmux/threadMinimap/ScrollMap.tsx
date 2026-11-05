@@ -6,7 +6,7 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { type AcpmuxRow, type ConversationLayout } from "../model";
+import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -14,7 +14,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { railEdge, useRailSide } from "./railSide";
+import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -66,7 +66,7 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
-  layout: ConversationLayout;
+  layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
@@ -175,7 +175,7 @@ export function ScrollMap({
       physicalScrollTop(
         node,
         Math.min(
-          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, THREAD_PADDING_TOP + rowTop(layoutGeometry(layout), mark.row) - LANDING_OFFSET),
           Math.max(0, layout.totalHeight - node.clientHeight),
         ),
       );
@@ -253,6 +253,7 @@ export function ScrollMap({
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
+          id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
           style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
@@ -449,3 +450,7 @@ const Mark = memo(function Mark({
     </MinimapTick>
   );
 });
+
+/// A row's layout top, 0 past the placed rows (as an unplaced row's `tops[index] ?? 0`).
+const rowTop = (geometry: ReturnType<typeof layoutGeometry>, index: number) =>
+  index >= 0 && index < geometry.count ? geometry.topAt(index) : 0;

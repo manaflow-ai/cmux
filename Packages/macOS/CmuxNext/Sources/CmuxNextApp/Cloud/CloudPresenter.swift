@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextPages
 import os
@@ -65,10 +67,13 @@ enum CloudPresenter {
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
                         in window: NSWindow?, done: @escaping (Bool) -> Void) {
-        let spec = CmuxDialogSpec(title: title, lines: [body],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: identifier)
-        present(spec, in: window) { answer in done(answer?.button == "confirm") }
+        present(confirmSpec(title, body, button: button, identifier: identifier), in: window) { answer in done(answer?.button == "confirm") }
+    }
+
+    /// The yes/no question ``confirm(_:_:button:identifier:in:done:)`` shows; its yes button's id is `confirm`.
+    static func confirmSpec(_ title: String, _ body: String, button: String, identifier: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: title, lines: [body], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                       identifier: identifier)
     }
 
     /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
@@ -94,8 +99,7 @@ enum CloudPresenter {
 
     /// Confirms provider setup for the tab’s resolved Cloud VM and reports failures in its window.
     @MainActor static func recoverCredentials(chat: String, request: AgentPaneCloudCredentialTransferRequest, services: AppServices) async -> Bool {
-        guard AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource,
-                                                                isSignedIn: services.cloud.isSignedIn),
+        guard AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.isSignedIn),
               let userID = services.cloud.auth.user?.id,
               let (tab, _) = services.locateTab(chat, onMachine: request.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
@@ -105,6 +109,12 @@ enum CloudPresenter {
 
         let teamID = services.cloud.auth.teamID
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
+        guard await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: provider == .claude, automatic: request.automatic) else { return false }
+        if request.automatic {
+            guard provider == .claude, CloudHarnessLoginChoices.allowsAutomaticCopy(session.harnessLogin, stored: CloudHarnessLoginChoices().load(userID: userID)),
+                  await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID,
+                                                               otherTeams: CloudStartChat.loginScopes(services.cloud)) else { return false }
+        }
         let providerName = provider == .claude ? "Claude" : "Codex"
         let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
         let body: String
@@ -113,18 +123,17 @@ enum CloudPresenter {
         } else {
             body = codexBrokerDisclosure
         }
-        let spec = CmuxDialogSpec(
-            title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), providerName, session.machine.title),
-            lines: [body, String(format: String(localized: "cloud.credentialRecovery.restartDisclosure", defaultValue: "This replaces %@'s login on this VM and restarts this chat before retrying its failed prompt.", table: "CloudCredentialRecovery", bundle: .module), providerName)],
-            buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module)),
-                      CmuxDialogButton(id: "transfer", title: String(localized: "cloud.credentialRecovery.transfer", defaultValue: "Transfer and restart", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
-            identifier: credentialRecoveryIdentifier)
         guard let window = services.windows.active?.window else { return false }
-        let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
-        guard answer.button == "transfer", !answer.isDismissal else { return false }
-        // The confirmation and provider login are asynchronous. Revalidate the tab and account
-        // after the gesture so a chat switch or account change cannot install credentials for the
-        // stale request that opened the dialog.
+        if !request.automatic {
+            let spec = CmuxDialogSpec(
+                title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), providerName, session.machine.title),
+                lines: [body, String(format: String(localized: "cloud.credentialRecovery.restartDisclosure", defaultValue: "This replaces %@'s login on this VM and restarts this chat before retrying its failed prompt.", table: "CloudCredentialRecovery", bundle: .module), providerName)],
+                buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module)),
+                          CmuxDialogButton(id: "transfer", title: String(localized: "cloud.credentialRecovery.transfer", defaultValue: "Transfer and restart", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
+                identifier: credentialRecoveryIdentifier)
+            let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+            guard answer.button == "transfer", !answer.isDismissal else { return false }
+        }
         guard services.cloud.auth.user?.id == userID,
               services.cloud.auth.teamID == teamID,
               tab.agentSession?.session == request.sessionID,
@@ -135,6 +144,8 @@ enum CloudPresenter {
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
+            allowsCreatorTeamGuest: CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard),
+            otherTeams: CloudStartChat.loginScopes(services.cloud),
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })
@@ -143,8 +154,11 @@ enum CloudPresenter {
                 let scope = CloudCodexBrokerScope(userID: userID, teamID: teamID)
                 try await services.cloud.codexBroker.run(
                     machineID: session.machineID, scope: scope, confirmed: true, forceRefresh: true,
+                    askLocalSignIn: { [weak services] in
+                        guard let services else { return false }
+                        return await CloudStartChat.askCodexSignIn(services, mayAsk: !request.automatic, in: nil)
+                    },
                     presentDeviceCode: { [weak services, tabID = tab.id] prompt in
-                        // The code dialog blocks only this chat's tab: the sign-in page opens in a cmux tab beside it.
                         let view = services?.madeAgentTabs?.existingView(tabID).flatMap { $0.window == nil || $0.isHiddenOrHasHiddenAncestor ? nil : $0 }
                         return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))
                     })
@@ -152,8 +166,9 @@ enum CloudPresenter {
                 try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
-                                       confirmed: true, refresh: true,
-                                       callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       confirmed: true, refresh: !request.automatic,
+                                       callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
                   let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
@@ -161,7 +176,7 @@ enum CloudPresenter {
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
             let pinned = services.cloud.machineAPI.pinningTeam(teamID)
-            guard try await restartCredentialSession(request.sessionID, exec: {
+            guard try await restartCredentialSession(request.sessionID, guestCheck: transfer.restartGuestCheck, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
                 CloudPresenter.show(String(localized: "cloud.credentialRecovery.installedTitle", defaultValue: "Credentials installed", table: "CloudCredentialRecovery", bundle: .module),
@@ -192,6 +207,14 @@ enum CloudPresenter {
             identifier: firstLoginIdentifier)
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         return answer.button == "setUp" && !answer.isDismissal
+    }
+
+    /// The one-time consent (``CloudLoginCopyConsent``): true for yes, false for no or a dismissal,
+    /// nil with no window to show it on (nothing is kept then, so it is asked next time).
+    @MainActor static func confirmLoginCopy(services: AppServices) async -> Bool? {
+        guard let window = services.windows.active?.window else { return nil }
+        let answer = await CmuxDialogCenter.shared.present(CloudLoginCopyConsent.spec, in: .window(window))
+        return answer.button == CloudLoginCopyConsent.accept && !answer.isDismissal
     }
 
     static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)
@@ -244,10 +267,10 @@ enum CloudPresenter {
 
     /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail
     /// closed rather than restarting a different daemon. No provider output reaches the UI.
-    @MainActor static func restartCredentialSession(_ sessionID: String, exec: (String) async throws -> CloudExecResult) async throws -> Bool {
+    @MainActor static func restartCredentialSession(_ sessionID: String, guestCheck: String, exec: (String) async throws -> CloudExecResult) async throws -> Bool {
         let command = """
             set -eu
-            [ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]
+            \(guestCheck)
             [ -x /home/cmux/.cmux/bin/cmux-tui ]
             if [ "$(id -u)" = 0 ]; then
               set -- setpriv --reuid=cmux --regid=cmux --init-groups
@@ -255,7 +278,7 @@ enum CloudPresenter {
               [ "$(id -un)" = cmux ]; set --
             fi
             "$@" env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color \
-              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartSession.shellQuoted(sessionID))
+              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartCore.shellQuoted(sessionID))
             """
         let result = try await exec(command)
         guard result.exitCode == 0, result.stdout.utf8.count < 65_536,

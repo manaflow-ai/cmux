@@ -33,6 +33,7 @@
 .acpmux-pr-card__glyph[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-status-merged)}
 .acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
+.acpmux-pr-card__glyph[data-state=draft]{color:var(--agent-muted)}
 .acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
 .acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

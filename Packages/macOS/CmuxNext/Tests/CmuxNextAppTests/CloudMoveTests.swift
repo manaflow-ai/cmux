@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -67,7 +68,7 @@ struct CloudMoveTests {
 
     /// How a move stops: the stand-in `cmux link agent move` answer (or the machine tab's failure).
     enum Stop: String, CaseIterable, Sendable {
-        case unresolved, inProgress, badAnswer, timeout, tabFailed, teamMachine
+        case unresolved, inProgress, badAnswer, timeout, tabFailed, teamMachine, unavailable
     }
 
     /// A move that stops keeps this Mac's tab and leaves the right Retry: one that may not have
@@ -86,7 +87,9 @@ struct CloudMoveTests {
             switch stop {
             case .teamMachine:
                 #expect(retry == nil, "a team machine is offered Retry")
-            case .unresolved, .inProgress, .badAnswer, .timeout:
+            // `unavailable`: the machine had no acpmux up to take the chat (cmux#31198); it comes
+            // back here, so the same move can run again.
+            case .unresolved, .inProgress, .badAnswer, .timeout, .unavailable:
                 #expect(retry == .move(machineID: "vm-move"), "Retry does not finish the move on its machine: \(String(describing: retry))")
             case .tabFailed:
                 guard case .show(let shown) = retry else {
@@ -290,6 +293,24 @@ struct CloudMoveTests {
         }
     }
 
+    /// The person's own Move to Cloud on a machine too old for it updates the machine, then moves the
+    /// chat, with no stop asking them to press "Update Machine" (lens review of the UI ceremony audit,
+    /// 2026-11-05: the app does the step it would ask for).
+    @Test func thePersonsMoveUpdatesAnOutdatedMachineFirstThenMoves() async throws {
+        try await Self.withMove("updates") { move in
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                              arguments: ["path": .string(move.project.path), "machine": .string("vm-move")], origin: .user)
+            #expect(move.services.registry.perform(CloudMove.action, invocation: invocation))
+            let moved = try await move.read()
+            let calls = moved.calls.map { Array($0.prefix(3)) }
+            #expect(calls == [["link", "seed", "push"], ["link", "agent", "move"], ["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]],
+                    "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
+            #expect(!moved.macStillHasTab)
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
     /// A machine too old to update in place says so and offers no button: retrying can't help.
     @Test func aMachineTooOldToUpdateSaysSoAndKeepsTheChat() async throws {
         try await Self.withMove("updateUnsupported") { move in
@@ -319,11 +340,28 @@ struct CloudMoveTests {
         }
     }
 
-    /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
+    /// By default an agent's Move to Cloud moves its chat at once, with no card asking first (Leo, 2026-11-04:
+    /// "just auto/bypass permissions by default"): the person lets agents use Cloud without asking
+    /// (`cloud.agentsStartWithoutAsking`, on unless they turn it off).
+    @Test func anAgentsMoveMovesItsChatWithNoCardByDefault() async throws {
+        try await Self.withMove("moves") { move in
+            #expect(CloudAgentStartSetting().delegated(in: move.services.settings?.snapshot.root ?? .object([:])))
+            if let error = await move.runAsAgent() { Issue.record("the agent's move was refused: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.calls.count == 2, "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the agent's move did not move the chat")
+            #expect(!moved.macStillHasTab)
+            let cards = await move.toolCards(waiting: false) ?? []
+            #expect(!cards.contains { Self.text($0, "state") == "ask" }, "the agent's move asked first: \(cards)")
+        }
+    }
+
+    /// With asking turned on, an agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
     /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
     /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
     @Test func anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() async throws {
         try await Self.withMove("moves") { move in
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let cards = try #require(await move.toolCards(), "the chat has no page")
             let card = try #require(cards.first, "no card in the chat")
@@ -351,6 +389,7 @@ struct CloudMoveTests {
         try await Self.withMove("moves") { move in
             let refused = await move.runAsAgent("cloud bring-back")
             #expect(refused?.message.contains(CloudMoveAskStrings.bringBackIsPersons) == true, "an agent's Bring Back Local was not refused as one: \(String(describing: refused?.message))")
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let card = try #require(await move.toolCards()?.first, "no card in the chat")
             let id = try #require(Self.text(card, "id"))
@@ -672,6 +711,7 @@ struct CloudMoveTests {
                 badAnswer) echo 'thread main panicked'; exit 101 ;;
                 timeout) exec sleep 30 ;;
                 teamMachine) echo '{"ok":false,"error":"a team machine","error_code":"agent_session.team_vm_blocked"}'; exit 1 ;;
+                unavailable) echo '{"ok":false,"error":"this daemon has no acpmux or host to move chats with","error_code":"agent_transfer.unavailable","side":"target"}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the target daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"target"}'; exit 1 ;;
                 macOutdated) echo '{"ok":false,"error":"the source daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"source"}'; exit 1 ;;
                 *)
@@ -690,14 +730,9 @@ struct CloudMoveTests {
     }
 
     /// A Cloud machine whose link this test replaces: its daemon is started on the second
-    /// daemon's socket, so the link process never runs.
+    /// daemon's socket, and its app link answers `owner` with a socket no connect reaches.
     static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
-        let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
-        let api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
-        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test")
-        return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
-                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        CloudTestLink.session(id: "vm-move", name: "Move VM")
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.

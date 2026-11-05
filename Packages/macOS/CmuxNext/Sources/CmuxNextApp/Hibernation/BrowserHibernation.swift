@@ -64,7 +64,7 @@ final class BrowserHibernation {
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, and why the page goes, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?, cause: String)] = [:]
-    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
+    /// Hibernated pages' pictures (`HibernationSnapshots`), and their wakes (`debug.surfaces`).
     let snapshots = HibernationSnapshots()
     var wakeLog = HibernationWakes()
     /// A navigation that woke a hibernated page, applied once it is back; at most one per page.
@@ -171,17 +171,18 @@ final class BrowserHibernation {
         NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
     }
 
-    /// Starts following memory pressure (`memoryPressure`; event-driven, no polling). Each level arrives
-    /// on the main actor and `stop()` cancels the registration at once, so none lands after `stop()`.
+    /// Reads the memory pressure level now (the kernel sends no event for the level the app starts under), then
+    /// follows each change (`memoryPressure`; event-driven, no polling). Each level arrives on the main actor and
+    /// `stop()` cancels the registration at once, so none lands after `stop()`.
     func start() {
         guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] pressure in
-            self?.pressureDidChange(pressure)
-        }
+        pressureObservation = memoryPressure.observe { [weak self] pressure in self?.pressureDidChange(pressure) }
+        memoryPressure.refresh()
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
 
     func stop() {
+        agentPages?.pages.stop()
         settingsObservation?.cancel()
         pressureObservation?.cancel()
         pressureObservation = nil
@@ -717,10 +718,10 @@ final class BrowserHibernation {
         workspacePageOutcomes[outcome, default: 0] += 1
     }
 
-    /// Takes a hidden page's picture (a seam for tests).
+    /// Takes a hidden page's picture (a seam for tests): a thumbnail, so none from Chromium (P0 #1; `snapshot` then uses the leave picture).
     var capture: (any BrowserTab) async -> CGImage? = { tab in
         try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
-            try await tab.snapshot()
+            try await tab.thumbnail()
         }
     }
 

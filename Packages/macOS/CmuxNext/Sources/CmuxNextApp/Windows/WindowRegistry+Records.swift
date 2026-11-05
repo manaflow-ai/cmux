@@ -26,10 +26,8 @@ extension WindowRegistry {
             // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
             if record.isClosed { setRestored(record.id, open: false) }
         }
-        // Front window most recent.
+        // Front window most recent. With every window closed, none opens (#31514: `WindowManager.restore`).
         for window in windows.reversed() { activate(window.id) }
-        // With every window closed (the last one closed, then quit), the front one opens, as before.
-        if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }
     }
 
     private mutating func appendRestored(_ window: Window) {

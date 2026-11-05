@@ -10,14 +10,13 @@ import Foundation
 /// 2. `cloud.machine.create` goes once with one idempotency key and origin
 ///    `user` (the verified app; the server refuses a money op otherwise).
 /// 3. The Mac relay calls it with the install token, so the backend answers
-///    `approval.pending {request}`. The flow shows the native confirmation
-///    if no person clicked in this flow yet; on the click it answers that
-///    exact request as the person's session (`feed.answer`), then retries
-///    with the SAME key until the op's answer arrives (bounded; the
-///    approved op runs in the backend after the answer).
+///    `approval.pending {request}`. The flow answers that exact request as
+///    the person's session (`feed.answer`), then retries with the SAME key
+///    until the op's answer arrives (bounded; the approved op runs in the
+///    backend after the answer).
 ///
-/// The flow never answers an approval without a native confirmation click
-/// in this flow, and a declined confirmation sends nothing more.
+/// The flow answers an approval only after a person's native click: their
+/// own gesture, or step 1's confirmation (a no sends nothing more).
 @MainActor
 struct CloudMachineCreateFlow {
     /// What the person confirms: the exact machine the create asks for.
@@ -35,8 +34,6 @@ struct CloudMachineCreateFlow {
         case agentRequest(Machine)
         /// The backend holds the create for the person's approval.
         case approval(request: String, Machine)
-        /// The plan cannot create a machine: one upgrade card, never a create confirm.
-        case upgrade(Upgrade)
     }
 
     /// Why a create needs a plan upgrade.
@@ -48,11 +45,11 @@ struct CloudMachineCreateFlow {
     /// Whether the plan lets a create go out.
     enum Gate: Equatable { case allowed, upgrade(Upgrade) }
 
-    /// The plan gate from the last known limits; unknown limits leave the decision to the server.
-    static func gate(_ limits: CloudMachineLimits?) -> Gate {
+    /// The plan gate from the last known limits; unknown limits, or a cap the server makes room at (`makesRoom`), leave it to the server.
+    static func gate(_ limits: CloudMachineLimits?, makesRoom: Bool = false) -> Gate {
         guard let limits else { return .allowed }
         if limits.maxActiveVms == 0 || limits.planId?.lowercased() == "free" { return .upgrade(Upgrade(reason: .freePlan)) }
-        if let max = limits.maxActiveVms, limits.activeVmCount >= max { return .upgrade(Upgrade(reason: .atLimit(max))) }
+        if let max = limits.maxActiveVms, limits.activeVmCount >= max, !makesRoom { return .upgrade(Upgrade(reason: .atLimit(max))) }
         return .allowed
     }
 
@@ -65,8 +62,8 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
-        /// The plan cannot create a machine; nothing was created. A person's create showed the upgrade card
-        /// (for `reason`); an agent's shows none and reports the refusal.
+        /// The plan cannot create a machine; nothing was created. A person's create then shows the cap card
+        /// (``CloudService/createMachine``, ``CloudMachineCap``); an agent's shows none and reports the refusal.
         case upgradeRequired(CloudUpgradeReason)
     }
 
@@ -78,6 +75,8 @@ struct CloudMachineCreateFlow {
     var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
+    /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
+    var validateOptions: @MainActor (_ params: JSONValue) async throws -> Void = { _ in }
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
@@ -97,25 +96,41 @@ struct CloudMachineCreateFlow {
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
     /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
+    /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
+    func create(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
-                gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
-        if case .upgrade(let need) = gate {
-            if startedByPerson { _ = await confirm(.upgrade(need)) }
-            throw Failure.upgradeRequired(need.reason)
-        }
+                gate: Gate = .allowed, environment: String? = nil, request: CloudMachineRequest? = nil,
+                madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
+        if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
-        let confirmed = !startedByPerson
-        if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
-        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
+        // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
+        if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
+        let requestedMemory = request?.memoryMb ?? machine.memoryMB
+        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(requestedMemory)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
-        if let environment { args["environment"] = .string(environment) }
-        let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed,
-                                            approved: key == nil ? nil : approved, onApproved: onApproved,
-                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { request in
-            await confirm(.approval(request: request, machine))
+        // These are deliberately sent through the typed op boundary. Backends that do not
+        // advertise the option must reject it; the client never silently drops a request.
+        if let request {
+            if let size = request.size { args["size_name"] = .string(size) }
+            if request.persistent { args["idle_seconds"] = .number(0) }
+            if let script = request.script {
+                args["bootstrap"] = .object([
+                    "kind": .string(script.kind.rawValue),
+                    "contents_base64": .string(script.contents.base64EncodedString()),
+                    "repo": script.repo.map { .string($0.spec) } ?? .null,
+                ])
+            }
+            if let config = request.machineConfig {
+                args["machine_config_base64"] = .string(config.contents?.base64EncodedString() ?? "")
+            }
         }
+        if let environment { args["environment"] = .string(environment) }
+        try await validateOptions(.object(args))
+        let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
+        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
+                                            approved: key == nil ? nil : approved, onApproved: onApproved,
+                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
+        if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }
         return answer["machine"] ?? answer
     }
 
@@ -158,9 +173,15 @@ struct CloudMachineCreateFlow {
                 do {
                     try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
-                            where Self.alreadyAnswered(failure, request: request, answeredEarlier: request == answering) {
+                            where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
+                } catch let failure as CloudApprovalAnswer.Failure where failure.answeredElsewhere(request: request) {
+                    // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
+                    // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
+                    approved = request
+                    attempt = 1
+                    continue
                 }
                 approved = request
                 onApproved(request)
@@ -169,38 +190,6 @@ struct CloudMachineCreateFlow {
             }
         }
         throw Failure.stillPending(request: approved ?? "")
-    }
-
-    /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the
-    /// server's 402) shows one upgrade card and sends nothing. Otherwise a create no person started
-    /// goes out at once; only the opt-in `askFirst` ("ask before creating", default off) asks first,
-    /// and a no sends nothing. The plan picks its size, so none shows.
-    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
-                          confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
-        if case .upgrade(let need) = gate() {
-            // The upgrade card is for the person who asked for the machine; an agent's refused create
-            // only fails with the refusal, so the person is not prompted on every agent request.
-            if startedByPerson { _ = await confirm(.upgrade(need)) }
-            throw Failure.upgradeRequired(need.reason)
-        }
-        if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
-        do {
-            return try await create()
-        } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
-            _ = await confirm(.upgrade(Upgrade(reason: .server)))
-            throw Failure.upgradeRequired(.server)
-        }
-    }
-
-    /// The approval item for `request` is no longer open to answer: an attempt already answered it. The
-    /// request has ended ("state"), or, after an attempt with this key began answering it
-    /// (`answeredEarlier`), it still reads pending (`integration.approval.get` shows a running approved op
-    /// as pending) while its feed item is closed.
-    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String, answeredEarlier: Bool) -> Bool {
-        switch failure {
-        case .mismatch(let r, let reason) where r == request: reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
-        case .notInFeed, .mismatch, .refused: false
-        }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.

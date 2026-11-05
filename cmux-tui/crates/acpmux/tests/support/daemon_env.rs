@@ -325,7 +325,13 @@ pub fn acpmux(scratch: &Path) -> Command {
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,
 /// found on the test's PATH) to put on the daemon's PATH besides `python3`.
 pub fn command(scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
-    let mut cmd = Command::new(bin());
+    command_at(bin(), scratch, agents, tools)
+}
+
+/// A specific acpmux build with the same hermetic environment. Differential benchmarks
+/// can run one unchanged test harness against base and head without exposing host agents.
+pub fn command_at(binary: &Path, scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
+    let mut cmd = Command::new(binary);
     apply(&mut cmd, scratch, agents, tools);
     cmd
 }
@@ -347,6 +353,17 @@ pub fn apply<'c>(
     cmd.env_clear().envs(vars(scratch, agents, tools))
 }
 
+/// This test process as `ACPMUX_TEST_OWNER_PID` names it: `<pid>:<start>`, or the bare pid
+/// where its start time cannot be read.
+#[cfg(unix)]
+pub fn test_owner() -> String {
+    let pid = std::process::id();
+    match acpmux::daemon::process_start(pid) {
+        Some(start) => format!("{pid}:{start}"),
+        None => pid.to_string(),
+    }
+}
+
 /// The hermetic environment as pairs (for an agent host's `SpawnSpec.env`).
 pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
     let mut env = platform_vars(&home(scratch), tools);
@@ -357,6 +374,13 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
         "ACPMUX_TEST_SESSION_TMP_BASE".into(),
         scratch.join("session-tmp").display().to_string(),
     ));
+    // Every daemon and agent host a process started from here starts ends once this test process
+    // exits, even mid-turn, on a panic or a SIGKILL that skips the test's own teardown
+    // (`daemon/owner_exit.rs`, debug builds): hosts outlive their daemon on purpose, and 34 test
+    // hosts and 8 test daemons ran for days on one lane VM.
+    #[cfg(unix)]
+    // With its start time, so a reused pid never stands in for this process.
+    env.push(("ACPMUX_TEST_OWNER_PID".into(), test_owner()));
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }
@@ -365,6 +389,9 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     // background class on a loaded fleet Mac (load 13 to 21 on 10 performance cores) a Codex-steer
     // turn did not end in 18 to 30 s. `tests/cpu_class.rs` sets background itself.
     env.push((acpmux::cpu_class::ENV.into(), "normal".into()));
+    // No spare per harness used (`hub/pool/spare.rs`): a test counts the agents it started.
+    // `tests/session_pool.rs` turns it on for the spare's own tests.
+    env.push(("ACPMUX_SPARE_HARNESS".into(), "0".into()));
     env
 }
 

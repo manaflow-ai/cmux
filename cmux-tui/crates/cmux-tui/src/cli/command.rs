@@ -32,6 +32,7 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -151,6 +152,12 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
+    if let [scope, verb, rest @ ..] = args
+        && matches!(scope.as_str(), "settings" | "config")
+        && verb == "list"
+    {
+        return settings::request_list(rest);
+    }
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
@@ -1324,6 +1331,17 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
         }
         ["clear"] => {
             let mut params = Map::new();
+            // One row by its id (the notifications panel's Clear on a row);
+            // the daemon takes one of notification, terminal or workspace.
+            if let Some(notification) = flags.take("notification") {
+                if flags.values.contains_key("terminal") || flags.values.contains_key("workspace") {
+                    return Err(UsageError::new(
+                        "give one of --notification, --terminal or --workspace",
+                    ));
+                }
+                validate_prefixed_id("notification", "notification", &notification)?;
+                params.insert("notification_id".into(), Value::String(notification));
+            }
             notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
@@ -2984,6 +3002,9 @@ mod tests {
         let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
         assert_eq!(operation(&group), "workspace_group.create");
         assert_eq!(group.params["name"], "Work");
+        assert!(group.params.get("reuse").is_none(), "a plain create makes a group");
+        let reuse = protocol(&["workspace", "group", "create", "--name", "Leads", "--reuse"]);
+        assert_eq!(reuse.params["reuse"], true);
         let remove = protocol(&[
             "workspace",
             "group",
@@ -3088,6 +3109,14 @@ mod tests {
             assert!(tokens.flags.values.contains_key(*name));
             assert_eq!(tokens.flags.values[*name], None);
         }
+    }
+
+    #[test]
+    fn confirm_takes_no_value() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--confirm", "--name", "v"]))
+            .expect("--confirm must tokenize as a switch");
+        assert_eq!(tokens.flags.values.get("confirm"), Some(&None));
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("v".to_string())));
     }
 
     #[test]
@@ -3473,6 +3502,25 @@ mod tests {
                 parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
                 "{both:?}: a workspace and a terminal scope together"
             );
+        }
+    }
+
+    /// `notification clear --notification <id>` clears that one row (the
+    /// notifications panel's Clear on a row); it is one scope, never two.
+    #[test]
+    fn notification_clear_takes_one_notification_id() {
+        const NOTIFICATION: &str = "notification_00000000000000000000000000000041";
+        const WS: &str = "ws_00000000000000000000000000000042";
+        let clear = protocol(&["notification", "clear", "--notification", NOTIFICATION]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["notification_id"], NOTIFICATION);
+        assert!(clear.params.get("terminal_id").is_none());
+        assert!(clear.params.get("workspace_id").is_none());
+        for bad in [
+            &["notification", "clear", "--notification", NOTIFICATION, "--workspace", WS][..],
+            &["notification", "clear", "--notification", "ws_00000000000000000000000000000042"],
+        ] {
+            assert!(parse(&strings(bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
         }
     }
 

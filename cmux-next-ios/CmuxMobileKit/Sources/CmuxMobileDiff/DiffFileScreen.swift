@@ -86,6 +86,9 @@ public struct DiffFileScreen: View {
         .onChange(of: fileID) {
             hunkLine = nil
             matchIndex = 0
+            // The last file's jump: a new list (its coordinator has scrolled to nothing yet)
+            // would otherwise take it and scroll the new file to that line.
+            scrollTarget = nil
         }
         .onChange(of: state.hideWhitespace) { wasHidden, hides in
             // `hunkLine` indexes the shown lines; keep it on the same line of the file.

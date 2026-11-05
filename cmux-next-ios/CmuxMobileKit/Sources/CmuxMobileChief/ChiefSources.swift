@@ -309,6 +309,48 @@ public final class ChiefSources {
         }
     }
 
+    /// Make Primary Chief (the Mac's `home.setPrimaryChief`): the chief texts to the cmux line
+    /// reach. `chief.update {is_default: true}` at the chief's revision, as the account's own
+    /// write; the service clears the flag on every other chief. One revision conflict reads the
+    /// list again and tries once more.
+    public func makePrimary(_ chief: CloudChief) async {
+        guard let http, !isChanging else { return }
+        isChanging = true
+        changeError = nil
+        defer { isChanging = false }
+        do {
+            try await Self.makePrimary(http, chief: chief)
+            refresh()
+        } catch {
+            changeError = Self.changeMessage(error)
+        }
+    }
+
+    nonisolated static func makePrimary(_ http: ChiefCloudHTTP, chief: CloudChief) async throws {
+        var record = chief
+        for attempt in 0..<2 {
+            if record.isDefault { return }
+            let body = try ChiefCloudHTTP.json([
+                "op": "chief.update", "origin": "user",
+                "idempotency_key": "chief-primary-\(record.id)-\(record.rev)-\(UUID().uuidString.lowercased())",
+                "params": ["chief": record.id, "expected_rev": record.rev, "is_default": true],
+            ])
+            do {
+                _ = try ChiefCloudHTTP.value(try await http.send("POST", "/v1/ops", body: body))
+                return
+            } catch let ChiefCloudError.refused(_, code, _) where code == "revision.conflict" {
+                guard attempt == 0 else { break }
+                let list = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
+                let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: list)))
+                guard let fresh = chiefs.first(where: { $0.id == chief.id }) else {
+                    throw ChiefCloudError.badReply(String(localized: "This Chief is no longer on your account."))
+                }
+                record = fresh
+            }
+        }
+        throw ChiefCloudError.badReply(String(localized: "This Chief changed on another device. Try again."))
+    }
+
     /// Messages queued for the open Cloud Chief would go to another one.
     private func outboxIsEmpty() -> Bool {
         guard cloud.outbox.isEmpty else {

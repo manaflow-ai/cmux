@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture folder names, not shipped UI.
 // A granted folder trust stays revocable with default settings (the #28617 review's P1). The
 // composer's mode menu no longer lists grants (Leo, 2026-10-29: "What is this bottom fucking
-// bullshit?"), Session Info shows only with Debug Settings `agent.inspector` on (off by default), and
+// bullshit?"), Session Info shows only with Debug Settings `agent.sessionInfo` on (off by default), and
 // once trust is decided the trust bar is gone. The chat menu (…), in every chat, keeps the way back:
 // Revoke Granted Access names each grant, and picking one revokes it.
 import { afterEach, expect, test } from "bun:test";
@@ -25,7 +25,7 @@ function installDom(): HTMLElement {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  // Debug Settings `agent.inspector` at its default: off, so Session Info never shows.
+  // Debug Settings `agent.sessionInfo` at its default: off, so Session Info never shows.
   setHeaderState({ inspector: false });
   class FakeResizeObserver {
     observe() {}

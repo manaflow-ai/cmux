@@ -9,11 +9,12 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a workspace on the Cloud machine the focused window shows, else the only one. A connected \
-            machine gets a new workspace; one not connected is connected (a paused one resumes) and its first \
-            workspace opens. When neither picks a machine (none, or several and none focused) it creates one, \
-            which may ask the person first. Answers at once with no ids: \
-            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
+            Opens a Cloud workspace on a new small machine of its own, never a listed one (another \
+            workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target once the \
+            server has it (workspace_id once open); after 30 s, pending: true while the create goes on. A \
+            refused create fails with its reason. --target machine:<id> opens on that machine: a connected one \
+            returns workspace_id, another connects (a paused one resumes) and answers pending. In the app, \
+            the person's own gesture opens on the machine their window shows.
             """,
         "newCloudMachine": """
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
@@ -187,8 +188,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
-            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            machine_id, target (machine:<id>), title, status, owner, created_by, created_at and error. created_by is \
+            the creator's user ID, or null when unavailable. error is the platform's {code, message} for the \
+            machine's last failed change (why it failed), or null when there is none. loaded false means the list is not known yet \
             (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """

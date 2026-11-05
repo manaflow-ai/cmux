@@ -195,6 +195,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        // Before anything that reads or writes the home: this runs as root.
+        #[cfg(target_os = "linux")]
+        Some(Command::DaemonEnroll { person_key_fd }) => {
+            let status = crate::daemon::provision::enroll_running(person_key_fd).await?;
+            if json_out {
+                crate::cli::output::print_json(&status);
+            } else {
+                println!(
+                    "enrolled: personKey {} personInstance {}",
+                    status.get("personKey").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    status.get("personInstance").and_then(serde_json::Value::as_str).unwrap_or("")
+                );
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -214,12 +233,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
             person_key_fd,
             allow_dev_origin,
             dev,
+            take_over,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -227,15 +248,20 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::qos::enter(crate::qos::Role::Daemon);
+            // With `store.journal` on, an acknowledged reply waits on the journal's sync, which a
+            // utility disk tier throttles 15-30x under another app's disk work (STATUS 11554):
+            // the daemon stays at the default tier, and only its background threads yield.
+            crate::qos::enter_daemon(crate::config::store_journal_enabled());
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
+                take_over,
             })
             .await;
             if let Err(error) = result {
@@ -243,7 +269,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // this home. Keep its lock refusal a distinct, prevented
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
-                if error.to_string().starts_with("another acpmux daemon holds ") {
+                // A supervised owner (`--take-over`) exits 1 instead: the unit restarts it
+                // (`Restart=always`) until the home is its own, never leaving the unit failed.
+                if !take_over && error.to_string().starts_with("another acpmux daemon holds ") {
                     let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",
@@ -257,8 +285,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,
@@ -313,6 +342,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Resolve { query }) => {
             let json_out = cli.json;
             match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::WhoElse(args)) => {
+            let json_out = cli.json;
+            match crate::cli::who_else::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

@@ -105,9 +105,37 @@ enum LabelText {
 
     private static func isWrapping(_ mode: NSLineBreakMode) -> Bool { mode == .byWordWrapping || mode == .byCharWrapping }
 
+    /// A text layout: what ``measure(_:font:shape:width:scale:layOut:)`` asks for a text that
+    /// needs TextKit (by default ``laidOutMetrics(_:font:shape:width:scale:)``).
+    typealias Layout = @MainActor (NSAttributedString, NSFont?, Shape, CGFloat?, CGFloat) -> Metrics
+
     /// The layout of `text` (font set, no paragraph settings yet) with `width` points for the
-    /// text (nil: unbounded), at `scale` pixels per point.
-    static func measure(_ text: NSAttributedString, font: NSFont?, shape: Shape, width: CGFloat?, scale: CGFloat) -> Metrics {
+    /// text (nil: unbounded), at `scale` pixels per point. `layOut` lays out a text that needs it.
+    static func measure(_ text: NSAttributedString, font: NSFont?, shape: Shape, width: CGFloat?, scale: CGFloat,
+                        layOut: Layout = LabelText.laidOutMetrics) -> Metrics {
+        // An empty label at an unbounded width is one empty line of its font: as tall as
+        // ``WholePointLines`` sets that line, its baseline at the rounded ascender, no width. It
+        // needs no layout (REOPEN-F7: a window's sidebar makes about 100 empty labels before its
+        // first frame, and laying each out cost 22 to 25 ms profiled).
+        if text.length == 0, width == nil {
+            let line = emptyLine(font: font)
+            if let metrics = WholePointLines.metrics(of: line, in: NSRange(location: 0, length: line.length)) {
+                let scale = max(scale, 1)
+                let height = (metrics.height * scale).rounded(.up) / scale
+                return Metrics(size: NSSize(width: 0, height: height), firstBaseline: metrics.ascent,
+                               lastBaselineFromBottom: height - metrics.ascent)
+            }
+        }
+        return layOut(text, font, shape, width, scale)
+    }
+
+    /// The one empty line an empty label is: a space in `font` (nil: the system font).
+    private static func emptyLine(font: NSFont?) -> NSAttributedString {
+        NSAttributedString(string: " ", attributes: [.font: font ?? .systemFont(ofSize: NSFont.systemFontSize)])
+    }
+
+    /// ``measure(_:font:shape:width:scale:layOut:)`` laid out in the shared TextKit stack.
+    static func laidOutMetrics(_ text: NSAttributedString, font: NSFont?, shape: Shape, width: CGFloat?, scale: CGFloat) -> Metrics {
         // Alignment moves lines, not their breaks or heights: measure left-aligned, so an
         // unbounded width keeps the lines at the left edge.
         var measuring = shape
@@ -115,8 +143,7 @@ enum LabelText {
         // A field measures its lines whole; only its drawing truncates the last visible one.
         measuring.truncatesLastVisibleLine = false
         // An empty label is one empty line of its font.
-        let shown = text.length > 0 ? text
-            : NSAttributedString(string: " ", attributes: [.font: font ?? .systemFont(ofSize: NSFont.systemFontSize)])
+        let shown = text.length > 0 ? text : emptyLine(font: font)
         // A field measures the lines it shows: its first `lines` lines, laid out as if unlimited
         // (a limited container sets the rest of the text on its last line).
         let shownLines = measuring.wraps && measuring.lines > 0 ? measuring.lines : Int.max

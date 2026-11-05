@@ -20,7 +20,7 @@ import Testing
         .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
         .pink: (330, 0.95), .purple: (272, 0.9), .cyan: (186, 0.9), .orange: (24, 1),
     ]
-    /// The colors new groups take, groups 1...7: the palette's order without grey and blue.
+    /// The palette's colors without grey and blue, in order.
     static let order: [GroupColor] = [.red, .yellow, .green, .pink, .purple, .cyan, .orange]
 
     /// A palette color as Lawrence drew it: the color itself (`fill` false) or the
@@ -63,22 +63,6 @@ import Testing
         ]
     }
 
-    @Test func newGroupsTakeLawrencesPaletteOrder() {
-        var sections: [CmuxNextSidebar.SidebarSection] = []
-        var tabs: [GroupColor] = []
-        for expected in Self.order {
-            let sidebar = SidebarGroupBand.newGroupColor(in: sections)
-            #expect(sidebar == expected, "sidebar group \(sections.count + 1)")
-            sections.append(CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [
-                .group(SidebarGroup(id: GroupID("g\(sections.count)"), name: "", color: sidebar, workspaces: [])),
-            ]))
-            let tab = TabGroupOrdering.nextColor(used: tabs)
-            #expect(tab == expected, "tab group \(tabs.count + 1)")
-            tabs.append(tab)
-        }
-        #expect(ScreenGroupCommands.nextColor(in: nil) == Self.order[0])
-    }
-
     @Test func tabGroupChipsAndUnderlinesDrawLawrencesPaletteInEveryTheme() throws {
         for (name, scope) in try Self.themes() {
             let dark = scope.tokens.isDark
@@ -100,6 +84,11 @@ import Testing
     /// name background (moved only as far as its ink needs for 4.5:1), and the members'
     /// line the bar's color.
     @Test func sidebarGroupHeadersAndLinesDrawLawrencesPaletteInEveryTheme() throws {
+        // The solid bar (`sidebar.groupGlass` solid); the glass panes are pinned in `GroupHeaderGlassTests`.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+        defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
         for (name, scope) in try Self.themes() {
             let (sidebar, ids) = try Self.sidebar(Self.order)
             scope.root(sidebar)
@@ -162,10 +151,12 @@ import Testing
         // No More Group Actions row (Lawrence 2026-10-20): a right-click shows the flat menu, and
         // the editor offers Pin and Move to Top itself.
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
-                                   "workspaceGroup.togglePin", "workspaceGroup.moveToTop",
+                                   "workspaceGroup.togglePin", "workspaceGroup.moveToTop", "sidebar.group.sort",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete"])
         #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close All in Group",
-                                      "Pin Group", "Move to Top", "Ungroup", "Delete Group"])
+                                      "Pin Group", "Move to Top", "Sort", "Ungroup", "Delete Group"])
+        // The Sort row reads the group's sort where a row shows its shortcut: Manual until one is picked.
+        #expect(rows.first { $0.id == "sidebar.group.sort" }?.shortcut == "Manual")
     }
 
     /// A right-click on a group header shows the group's flat menu at once (Lawrence 2026-10-20:

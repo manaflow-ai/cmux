@@ -12,6 +12,7 @@ import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextGitHubViewer
 import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextIcons
@@ -37,8 +38,8 @@ enum TunableCatalog {
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionInfo.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all + CloudTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
+            + TitlebarHistoryTunables.all + CloudTunables.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
@@ -83,7 +84,7 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        BrowserResizeTunables.registerRenames(store)
+        for registerRenames in [BrowserResizeTunables.registerRenames, AgentPaneTunables.registerRenames] { registerRenames(store) }
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)

@@ -1,11 +1,13 @@
 // The update surfaces of the What's New system (cx-urd.61, Lawrence picked card A and popover A,
 // 2026-10-11), in the same tokens and type steps as the changelog page:
-//  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
-//    sidebar card (Leo 2026-10-13). Short (Lawrence 2026-10-31, msg 19218: "it looks like too much
+//  - UpdatedCard (after an update, the sidebar's bottom card slot): the theme's surface (Leo
+//    2026-11-02: "why is the update thing unthemed"; the sidebar's CardSurfaceView.takesThemeTint). Short (Lawrence 2026-10-31, msg 19218: "it looks like too much
 //    text"; picked from cmux-shots/whatsnew-variations): "Updated to Nightly", the update's one top
 //    change ("Sidebar: …", the first area's first change, updateSummary.ts) and a What's New button.
 //    No date, build line, change list or "+N more" (they were 2026-10-20 to 10-26): the full build
-//    is in About, and a click on "Nightly" copies it (no tooltip: "seems excessive"). An update
+//    is in About, and a click on "Nightly" copies it (no tooltip: "seems excessive"). An automatic
+//    install that relaunched cmux behind another app says "Updated to Nightly in the background"
+//    (2026-11-03: the card had seemed to come without a restart). An update
 //    with nothing a person would notice says "Maintenance and fixes"; "What's new in this build" is
 //    the last resort while nothing is known. The x shows only on hover or keyboard focus; in the
 //    sidebar the host draws it natively (SidebarUpdatedCardHost) and Escape closes it. Share cmux
@@ -23,6 +25,8 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEve
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
+import { Doodle, DoodleActions, DoodleHeadline } from "./doodle/UpdateDoodle";
+import { useDecoration } from "../../theme/decorations";
 import { distinctSummary, readableUpdate } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
@@ -129,6 +133,8 @@ export function UpdatedCard({
   actions,
   closeButton = true,
   glass = true,
+  decoration,
+  animate = true,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -141,15 +147,32 @@ export function UpdatedCard({
       CardSurfaceView, SidebarUpdatedCardHost): a page's glass sees nothing of the native sidebar,
       and with no `.ui-glass` in the document the lens draws no wallpaper copy over the host's. */
   glass?: boolean;
+  /** The decoration in the card's slot (ThemeDecorations `updated-card`); undefined reads the theme's. */
+  decoration?: string | null;
+  /** The doodle draws on (false: drawn from the start, for stills). */
+  animate?: boolean;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
+  const themed = useDecoration("updated-card");
+  const doodle = (decoration === undefined ? themed : decoration) === "doodle";
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const top = summary.rows[0];
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
-  const [before, after] = strings.format("updates.card.updatedTo", "\u0000").split("\u0000");
-  return (
-    <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId}>
+  const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
+  const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
+  const whatsNew = (
+    <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
+      {strings.t("changelog.page.title")}
+    </button>
+  );
+  const card = (
+    <section
+      className={glass ? "ui-glass wn-card" : "wn-card"}
+      aria-labelledby={titleId}
+      data-decoration={doodle ? "doodle" : undefined}
+    >
+      {doodle && <DoodleHeadline version={cardVersion(data.version)} strings={strings} />}
       <div className="wn-card-title" id={titleId}>
         {before}
         <CopyVersion version={data.version} strings={strings} onCopied={setCopied}>
@@ -180,23 +203,31 @@ export function UpdatedCard({
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
         )}
       </p>
-      <div className="wn-card-actions">
-        <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
-          {strings.t("changelog.page.title")}
-        </button>
-      </div>
+      {doodle ? (
+        <DoodleActions strings={strings} whatsNew={whatsNew} onGotIt={actions.dismiss} />
+      ) : (
+        <div className="wn-card-actions">{whatsNew}</div>
+      )}
     </section>
   );
+  return doodle ? <Doodle animate={animate}>{card}</Doodle> : card;
 }
+
+/** How the popover lays out an update with no change list (title, from line, link): the link
+ * under the from line (`stacked`, shipped), at the end of the from line (`inline`), or at the end
+ * of the title line (`title-row`). Gallery variants (Leo 2026-11-03: "stretched out wasted space"). */
+export type BriefLayout = "stacked" | "inline" | "title-row";
 
 export function UpdateReadyHighlights({
   data,
   strings,
   actions,
+  briefLayout = "stacked",
 }: {
   data: UpdateHighlights;
   strings: Strings;
   actions: UpdateSurfaceActions;
+  briefLayout?: BriefLayout;
 }) {
   const titleId = useId();
   const scroller = useRef<HTMLElement>(null);
@@ -204,6 +235,47 @@ export function UpdateReadyHighlights({
   const items = readable.items;
   const rest = readable.rest ?? null;
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
+  // No change list (Leo 2026-11-03: "MAN this looks ugly... stretched out wasted space"): the popover
+  // is as wide as its lines (at most the menu width) and the link sits with them, with no rule and
+  // no far edge to push it to. The host sizes the popover to the width this page reports.
+  if (items.length === 0 && (rest?.length ?? 0) === 0) {
+    const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
+    const link = (
+      <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+        {strings.t("updates.popover.seeReleaseNotes")}
+        <span aria-hidden="true"> →</span>
+      </button>
+    );
+    return (
+      <section
+        className="wn-pop wn-pop-brief"
+        data-layout={briefLayout}
+        aria-labelledby={titleId}
+        ref={scroller}
+        {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}
+      >
+        <div className="wn-pop-head">
+          <PopoverTitle id={titleId} version={data.version} strings={strings} />
+          {briefLayout === "title-row" && link}
+        </div>
+        {from && (
+          <div className="wn-pop-from">
+            {strings.format("updates.popover.from", cardVersion(from))}
+            {briefLayout === "inline" && (
+              <>
+                <span aria-hidden="true"> · </span>
+                {link}
+              </>
+            )}
+          </div>
+        )}
+        {(briefLayout === "stacked" || (briefLayout === "inline" && !from)) && link}
+        {data.moreCount > 0 && (
+          <div className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</div>
+        )}
+      </section>
+    );
+  }
   return (
     <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>
       <PopoverTitle id={titleId} version={data.version} strings={strings} />

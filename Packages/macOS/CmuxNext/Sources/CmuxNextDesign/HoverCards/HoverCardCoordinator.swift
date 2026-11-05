@@ -205,6 +205,10 @@ public final class HoverCardCoordinator {
     /// Whether the pointer rests on the shown card now.
     private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
 
+    /// The pointer rests on the shown card now (a source holds its targets still while it does: the card
+    /// follows its target, so a target moving would carry the card out from under the pointer).
+    public var pointerIsOnShownCard: Bool { pointerIsOnCard() }
+
     /// Content in `window` moved or changed (layout, strip or list scroll,
     /// column scroll, an animation frame, tabs added, removed or
     /// reordered). The pointer may now be over another target, or none,

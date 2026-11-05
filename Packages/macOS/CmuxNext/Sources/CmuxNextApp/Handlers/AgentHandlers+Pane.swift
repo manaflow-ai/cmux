@@ -56,7 +56,7 @@ extension AgentHandlers {
         let capturedByCaller = context.registry.isCapturingWork
         let task = Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure> in
             let result = await createOnHost(wanted, invocation: invocation, destinations: destinations, context: context)
-            if !capturedByCaller, case .failure(let failure) = result, !failure.shown { context.registry.refuse(failure.message) }
+            if !capturedByCaller, case .failure(let failure) = result { context.registry.refuse(failure: failure) }
             return result
         }
         context.registry.track(result: task)
@@ -144,7 +144,8 @@ extension AgentHandlers {
                     return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
                 }
                 let account = services.cloud.account
-                if session.daemon.connection == nil { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
+                await session.refreshIfMaybePaused() // the idle auto-pause may have parked it behind the app's record
+                if session.daemon.connection == nil { session.machine.status == .paused ? session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) : session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
                 let connected = await CloudWait.holds(within: CloudStartSession.connectWait) {
                     session.resumeFailure != nil || (session.daemon.connection != nil && AgentTabStore.registryHost(of: session.daemon) != nil)
                 }

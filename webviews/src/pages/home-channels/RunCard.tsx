@@ -5,6 +5,7 @@
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { RunTranscript } from "./RunTranscript";
+import { usePageNow } from "../../ui/pageClock";
 import { runBlocks } from "./runBlocks";
 export { runBlocks } from "./runBlocks";
 import type { Presentation } from "./presentation";
@@ -13,7 +14,7 @@ import { RunMessageCache } from "./runMessages";
 export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
-import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { HomeToolGroup } from "./HomeToolGroup";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
@@ -31,16 +32,10 @@ export function participantNames(people?: ReadonlyMap<string, HomeParticipant>):
   return new Map([...people].map(([id, participant]) => [id, participant.name]));
 }
 
-/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
+/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still.
+ * Every card shares the page's one second clock, which stops while the page is hidden. */
 export function useNow(running: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+  return usePageNow(running);
 }
 
 /** "Working for 42s" / "Worked for 1m 12s" / "Failed after 8s" / "Stopped after 3s", or
@@ -104,6 +99,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     [messageCache, steps, run.conversation, run.author, run.id],
   );
   const shown = useMemo(() => (open ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [open, run, work]);
+  const stepsById = useMemo(() => new Map(steps.map((step) => [step.id, step])), [steps]);
   const count = run.stepCount;
   // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
   // figure (pay-per-token API prices) is not what anyone pays. The run sheet keeps it, labelled.
@@ -126,7 +122,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
               {tokens && <span className="lg-run-meta">{strings.format("run.tokens", tokens)}</span>}
             </span>
           )}
-          <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         <button type="button" className="lg-link-button lg-run-open" onClick={() => onOpen(run)}>
           {strings.t("run.open")}
@@ -158,9 +154,16 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
           {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
           {shown.map((block) =>
             block.kind === "tools" ? (
-              <AgentNamesContext.Provider key={block.key} value={agentNames ?? EMPTY_AGENT_NAMES}>
-                <ToolRows row={block.row} />
-              </AgentNamesContext.Provider>
+              <HomeToolGroup
+                key={block.key}
+                row={block.row}
+                steps={(block.row.items ?? []).flatMap((item) => {
+                  const step = item.tool ? stepsById.get(item.tool.id) : undefined;
+                  return step ? [step] : [];
+                })}
+                agentNames={agentNames ?? EMPTY_AGENT_NAMES}
+                collapsed
+              />
             ) : null,
           )}
         </div>

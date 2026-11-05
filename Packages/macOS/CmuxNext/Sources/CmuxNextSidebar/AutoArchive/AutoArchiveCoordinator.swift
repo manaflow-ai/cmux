@@ -60,12 +60,12 @@ public final class AutoArchiveCoordinator {
     static let cardNames = 5
 
     /// - Parameters:
-    ///   - document: the active sidebar document (by default `SidebarDocStore.current` while active).
+    ///   - document: the app's sidebar document while it is active (its own store, from the composition root).
     ///   - ledgerStore: where the last-seen ledger lasts across launches.
     ///   - clock: drives the pass and save deadlines (tests pass a manual clock).
     ///   - now: the wall clock the idle times are measured on.
     public init(host: any AutoArchiveHost,
-                document: @escaping () -> (any AutoArchiveDocument)? = { SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil } },
+                document: @escaping () -> (any AutoArchiveDocument)?,
                 ledgerStore: AutoArchiveLedgerStore, clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.host = host
@@ -216,6 +216,36 @@ public final class AutoArchiveCoordinator {
         ledger.autoArchived.formUnion(items)
         markDirty()
         host.autoArchiveToast(AutoArchiveStrings.archived(items.count)) { [weak self] in self?.restore(items) }
+    }
+
+    /// The document items of `workspaces` that Archive Other Workspaces, Archive Workspaces Above or
+    /// Below would archive, in that order: placed, not pinned (top-level Pinned or pinned in a group)
+    /// and not archived yet, by itself or under an archived group.
+    public func archivableItems(workspaces: [String]) -> [String] {
+        guard let records = activeStore()?.records else { return [] }
+        var seen = Set<String>()
+        return workspaces.compactMap { host.autoArchiveItem(workspace: $0) }.filter { item in
+            records.items[item] != nil && seen.insert(item).inserted && !records.isPinned(item: item) && !records.isArchived(item: item)
+                && !groups(of: item, in: records).contains { records.isArchived(item: $0) }
+        }
+    }
+
+    /// Archives `workspaces` a person named (the bulk archive rows): their ``archivableItems(workspaces:)``
+    /// as one undo step, and a toast whose Undo brings the whole batch back. Returns how many it
+    /// archived; 0 sends nothing. Unlike the sweep it leaves the ledger alone: a hand archive is no
+    /// auto-archive, so showing the workspace again does not bring it back.
+    @discardableResult
+    public func archive(workspaces: [String]) throws(AutoArchiveRefusal) -> Int {
+        guard let store = activeStore() else { throw AutoArchiveRefusal(message: AutoArchiveStrings.needsDocument) }
+        let items = archivableItems(workspaces: workspaces)
+        guard !items.isEmpty else { return 0 }
+        do throws(SidebarDocSendRefusal) {
+            try store.setArchived(items, archived: true, title: AutoArchiveStrings.archiveWorkspacesTitle)
+        } catch {
+            throw AutoArchiveRefusal(message: error.message)
+        }
+        host.autoArchiveToast(AutoArchiveStrings.archivedByHand(items.count)) { [weak self] in self?.restore(items) }
+        return items.count
     }
 
     /// Unarchives `items` (the toast's Undo, Restore in the Archived list).

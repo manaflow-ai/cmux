@@ -1,0 +1,70 @@
+{
+  "$comment": "The design scale of cmux NEXT webviews: spacing, control heights, icon sizes, radii, glass levels, the two elevations and the colour roles (leo-workspace design/grid.md, tokens.md, glass.md). webviews/scripts/pages/gen-design-scale.mjs writes the --ds-* block of webviews/src/pages/shared/desktop.css, the Tailwind theme every Tailwind entry imports (webviews/src/ui/theme.generated.css: p-3, rounded-md, text-body, bg-hover, shadow-elevation-2 resolve to these) and the TypeScript list the gallery's token sheet renders (webviews/src/ui/designTokens.generated.ts). It also reads schemas/type-scale/type-scale.json and schemas/motion-scale/motion-scale.json for the type and motion utilities. Colour roles are never literals: each names the variable the host derives from the active terminal theme (WebTheme.swift, theme/appTheme.ts), with a system-colour fallback for a page with no host yet. `bun run check:design-scale` fails when a copy drifts.",
+  "spacing": {
+    "$comment": "Tailwind's spacing unit is the grid base (--grid-base, 4 px times the interface scale): p-1 is 4, p-3 is 12, gap-6 is 24. The named steps are the scale tokens.md names.",
+    "unit": "var(--grid-base)",
+    "steps": [
+      { "name": "1", "px": 4 },
+      { "name": "2", "px": 8 },
+      { "name": "3", "px": 12 },
+      { "name": "4", "px": 16 },
+      { "name": "5", "px": 24 },
+      { "name": "6", "px": 32 }
+    ],
+    "layout": [40, 48, 56]
+  },
+  "controls": [
+    { "name": "icon", "px": 20, "for": "an icon-only control's box" },
+    { "name": "compact", "px": 24, "for": "pills and compact controls" },
+    { "name": "row", "px": 28, "for": "compact rows, menu rows, default buttons" },
+    { "name": "primary", "px": 32, "for": "comfortable rows and primary buttons" }
+  ],
+  "icons": [
+    { "name": "12", "px": 12, "for": "status marks, chevrons, spinners, close marks, dots" },
+    { "name": "14", "px": 14, "for": "menu row icons and marks inline with text" },
+    { "name": "16", "px": 16, "for": "buttons and compact rows" },
+    { "name": "20", "px": 20, "for": "primary rows" }
+  ],
+  "radii": [
+    { "name": "sm", "px": 4, "for": "a row highlight inside a 4 px inset" },
+    { "name": "md", "px": 6, "for": "controls: buttons, fields, chips" },
+    { "name": "lg", "px": 8, "for": "popups and small cards" },
+    { "name": "xl", "px": 12, "for": "cards and the composer (grid.md's decided 12)" },
+    { "name": "2xl", "px": 16, "for": "code blocks (named exception)" }
+  ],
+  "namedRadii": [
+    { "name": "control", "px": 6 },
+    { "name": "popup", "px": 8 },
+    { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
+    { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
+    { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
+  ],
+  "glass": [
+    { "name": "plain", "tint": 60, "blur": "blur(20px) saturate(1.4)", "for": "panes and plain glass, the default" },
+    { "name": "popover", "tint": 70, "blur": "blur(24px) saturate(1.25)", "for": "popovers, cards and the composer: the level over dense text" },
+    { "name": "menu", "tint": 78, "blur": "blur(32px) saturate(1.6)", "for": "a select's menu over a dense settings row (design/settings.md, Glass)" },
+    { "name": "lens", "tint": 40, "blur": "blur(6px) saturate(1.3)", "for": "while the lens draws the wallpaper behind the glass" },
+    { "name": "fisheye", "tint": 50, "blur": "blur(2.5px) saturate(1.15)", "blurName": "frost", "for": "the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it" }
+  ],
+  "elevation": [
+    { "name": "1", "geometry": "0 1px 2px", "light": 7, "dark": 12, "for": "rows, cards and inline surfaces" },
+    { "name": "2", "geometry": "0 2px 6px", "light": 11, "dark": 16, "for": "popovers, menus, the palette, hover cards, the composer, sheets and find bars" }
+  ],
+  "colors": [
+    { "name": "surface", "var": "--cmux-surface-solid", "app": "--cmux-app-content", "fallback": "Canvas", "for": "the page and pane surface, opaque" },
+    { "name": "elevated", "var": "--cmux-elevated-background", "app": "--cmux-app-elevated", "fallback": "Canvas", "for": "menus, popovers and sheets under Reduce Transparency" },
+    { "name": "fg", "var": "--cmux-text", "app": "--cmux-app-text", "fallback": "CanvasText", "for": "primary text" },
+    { "name": "muted", "var": "--cmux-text-secondary", "app": "--cmux-app-text-secondary", "fallback": "color-mix(in srgb, CanvasText 62%, transparent)", "for": "secondary text" },
+    { "name": "faint", "var": "--cmux-text-tertiary", "app": "--cmux-app-icon", "fallback": "color-mix(in srgb, CanvasText 45%, transparent)", "for": "tertiary text, placeholders and quiet glyphs" },
+    { "name": "hover", "var": "--cmux-hover", "app": "--cmux-app-hover", "fallback": "color-mix(in srgb, CanvasText 6%, transparent)", "for": "a control under the pointer" },
+    { "name": "pressed", "var": "--cmux-app-pressed", "fallback": "color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent)", "for": "a control while pressed" },
+    { "name": "selection", "var": "--cmux-selection", "app": "--cmux-app-selection", "fallback": "color-mix(in srgb, CanvasText 10%, transparent)", "for": "a selected row or the checked segment" },
+    { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines and dividers" },
+    { "name": "focus", "var": "--cmux-focus-ring-color", "fallback": "currentColor", "for": "the keyboard focus ring (desktop.css: the host's ring at 48%)" },
+    { "name": "accent", "var": "--cmux-accent", "app": "--cmux-app-accent", "fallback": "CanvasText", "for": "the theme accent: the text colour unless the theme names a hue" },
+    { "name": "on-accent", "var": "--cmux-on-accent", "app": "--cmux-app-on-accent", "fallback": "Canvas", "for": "text and glyphs on the accent" },
+    { "name": "attention", "var": "--cmux-app-warning", "fallback": "light-dark(#a15c00, #f0c674)", "for": "warnings and needs-you marks" },
+    { "name": "danger", "var": "--cmux-app-danger", "fallback": "light-dark(#c0392b, #ff6b6b)", "for": "errors and destructive actions" },
+    { "name": "success", "var": "--cmux-app-success", "fallback": "light-dark(#2e7d32, #8ad48a)", "for": "success and healthy states" }
+  ]
+}

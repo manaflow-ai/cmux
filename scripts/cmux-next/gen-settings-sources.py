@@ -176,10 +176,24 @@ SECTIONS = [
         "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
     },
     {
+        "source": "schemas/settings/source/agent-retry.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
+        "type": "AgentRetrySettingsSchema",
+        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
         "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/agent-guidance.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentGuidance.generated.swift",
+        "type": "AgentGuidanceSettingsSchema",
+        "lists": {"agentGuidance": ("descriptors", "AgentGuidanceSettings")},
         "enums": {},
     },
     {

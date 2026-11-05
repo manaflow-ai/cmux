@@ -48,8 +48,9 @@ public nonisolated enum AgentPaneThoughtFoldThreshold: String, Sendable, CaseIte
     /// Every one, to "Thought for 12s" with none of its text inline, as Claude Desktop and Codex
     /// draw it (Leo 2026-10-20).
     case every
-    /// Only one taller than the transcript's view, never under 400px (#20948); a shorter one
-    /// shows in full after "Thought". With the live viewport on, taller than seven lines.
+    /// Only a long one (#20948); a shorter one shows in full after "Thought". A long thought
+    /// streams in the seven-line live viewport, so this folds one taller than seven lines, as
+    /// ``codex`` does.
     case viewport
     /// Only one taller than seven 20px lines, the 140px Codex gives a reasoning trace (#20963).
     case codex
@@ -171,11 +172,23 @@ public nonisolated struct AgentPaneTunables {
     /// put the old summary card back in every build (Leo, 2026-10-31: "omfg we already previouls
     /// yfucking built that shit").
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
-    /// Its key stays `agent.inspector`: it is the saved Debug Settings key, and renaming it would drop a saved choice.
+    /// It was `agent.inspector`, the panel's old name; ``registerRenames(_:)`` keeps a saved choice.
     public static let sessionInfo = Tunable<Bool>.toggle(
-        "agent.inspector", PageTunables.section, "Session Info",
+        "agent.sessionInfo", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: true, code: "AgentPaneTunables.sessionInfo")
+
+    /// The chat page draws Session Info by default, with its header buttons matching the native
+    /// panel's; this Debug Settings switch draws it natively instead.
+    public static let nativeSessionInfo = Tunable<Bool>.toggle(
+        "agent.sessionInfo.native", PageTunables.section, "Session Info drawn natively",
+        help: "The App draws Session Info over the agent pane; off, the chat page draws it.",
+        default: false, code: "AgentPaneTunables.nativeSessionInfo")
+
+    /// `sessionInfo` was `agent.inspector`, the panel's old name: a file that still holds it keeps its choice.
+    public static func registerRenames(_ store: TunableStore) {
+        store.registerRename(from: "agent.inspector", to: sessionInfo.key) { $0 as? Bool }
+    }
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -223,62 +236,21 @@ public nonisolated struct AgentPaneTunables {
         help: "Agent chats show the live plan card and the recap card.",
         default: false, code: "AgentPaneTunables.sessionStatus")
 
-    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
-    /// beside it, and the palette offers Ask a Side Question… when the gate is on.
-    /// On by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
-    public static let sideSessions = Tunable<Bool>.toggle(
-        "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
-        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
-        default: true, code: "AgentPaneTunables.sideSessions")
-
-    /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): the thoughts
-    /// ``thoughtFoldThreshold`` picks fold to one line that opens to their text. On by default (Leo
-    /// 2026-10-18, #20963) and then sets nothing on the page; off (`data-fold-long-thoughts="off"`)
-    /// keeps every thought in full, as #20330 drew it. New agent tabs read it.
-    public static let foldLongThoughts = Tunable<Bool>.toggle(
-        "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold finished thoughts in the agent pane",
-        help: "A finished thought folds to one line that opens to its text. New agent tabs.",
-        default: true, code: "AgentPaneTunables.foldLongThoughts")
-
-    /// A streaming reply grows a whole word at a time, each word fading in (webviews
-    /// conversation/RevealedMarkdown.tsx). On by default; off, it grows a character at a time as
-    /// before. New agent tabs read it.
-    public static let streamWords = Tunable<Bool>.toggle(
-        "agentPane.debug.streamWords", PageTunables.section, "Stream replies a word at a time",
-        help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
-        default: true, code: "AgentPaneTunables.streamWords")
-
-    /// A mouse wheel's notch glides the transcript over the motion scale's standard 180 ms instead
-    /// of jumping (webviews agent-session/acpmux/wheelGlide.ts); trackpad scrolling is the engine's
-    /// either way. On by default (Leo 2026-10-22: "smoother scrolling in webkit: i mean with a
-    /// mouse"); off (`data-wheel-glide="off"`), the wheel scrolls as WebKit does. New agent tabs
-    /// read it.
-    public static let wheelGlide = Tunable<Bool>.toggle(
-        "agentPane.debug.wheelGlide", PageTunables.section, "Smooth mouse wheel in the transcript",
-        help: "Each mouse wheel notch glides the transcript instead of jumping. Trackpads are unchanged. New agent tabs.",
-        default: true, code: "AgentPaneTunables.wheelGlide")
-
-    /// Which done thoughts fold (``foldLongThoughts``): every one by default (Leo 2026-10-20), or,
-    /// as before, only a tall one. New agent tabs read it.
+    /// Which done thoughts fold to one line that opens to their text (webviews
+    /// conversation/ThoughtRow.tsx): every one by default (Leo 2026-10-20), or, as before, only a
+    /// tall one. A long thought streams in a fixed seven-line viewport with its newest line in view,
+    /// as Codex's reasoning trace does, then folds once done. New agent tabs read it.
     public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
         "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Thought fold",
-        help: "Fold every finished thought to Thought for 12s, or only one taller than the transcript (never under 400px) or Codex's seven lines (140px), showing shorter ones in full. With Live thought viewport on, the taller choices fold past 140px. New agent tabs.",
+        help: "Fold every finished thought to Thought for 12s, or only one taller than Codex's seven lines (140px), the viewport a long thought streams in, showing shorter ones in full. New agent tabs.",
         default: .every, code: "AgentPaneTunables.thoughtFoldThreshold")
 
     /// What a folded thought's line reads: how long the agent thought, or its first line.
-    /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
+    /// Only a folded thought shows it (``thoughtFoldThreshold``). New agent tabs read it.
     public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(
         "agentPane.debug.thoughtHeader", PageTunables.section, "Folded thought header",
         help: "A folded thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
         default: .duration, code: "AgentPaneTunables.thoughtHeader")
-
-    /// A long thought streams in a fixed seven-line viewport with its newest line in view, as
-    /// Codex's reasoning trace does, then folds once done (``foldLongThoughts``). Off, it shows in
-    /// full while it streams. Only applies while ``foldLongThoughts`` is on. New agent tabs read it.
-    public static let liveThoughtViewport = Tunable<Bool>.toggle(
-        "agentPane.debug.liveThoughtViewport", PageTunables.section, "Live thought viewport",
-        help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
-        default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
     /// A turn that started or mentioned a local web page gets a preview card under its answer
     /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
@@ -352,36 +324,28 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
     @MainActor static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
-                   thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
+        attributes(topStripStyle: topStripStyle.value, thoughtHeader: thoughtHeader.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   streamWords: streamWords.value, iconFamily: IconFamily.tunable.value,
-                   wheelGlide: wheelGlide.value)
+                   iconFamily: IconFamily.tunable.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+    static func attributes(topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
-                           liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
                            turnPreviewCards: Bool = false,
-                           streamWords: Bool = true, iconFamily: IconFamily = .pack,
-                           wheelGlide: Bool = true) -> [String: String] {
+                           iconFamily: IconFamily = .pack) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
         if !needsYouPill { attributes["needs-you-pill"] = "off" }
-        if !foldLongThoughts { attributes["fold-long-thoughts"] = "off" }
         if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
-        if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
-        if !streamWords { attributes["stream-words"] = "off" }
         // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
         if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
-        if !wheelGlide { attributes["wheel-glide"] = "off" }
         return attributes
     }
 
@@ -445,16 +409,6 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    /// Whether a prompt the daemon dropped with its connection before acpmux took it (an acpmux
-    /// restart, a reset socket) goes again on the pane's next connection, under its promptId, so
-    /// acpmux runs it at most once (``AgentPanePromptJournal``). Off (the default), the page says
-    /// "Not sent" with Retry, as before; the page's recovery for a prompt sent again after its
-    /// "Not sent" lands with turning this on.
-    public static let lostPromptReplay = Tunable<Bool>.toggle(
-        "agentPane.debug.lostPromptReplay", PageTunables.section, "Send again a prompt a dropped connection lost",
-        help: "A prompt acpmux never took because its connection dropped goes again on the next connection.",
-        default: false, code: "AgentPaneTunables.lostPromptReplay")
-
     public static var all: [TunableDescriptor] {
         [
             agentPairGuard.descriptor,
@@ -465,11 +419,8 @@ public nonisolated struct AgentPaneTunables {
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
             escapeStopDoublePress.descriptor,
-            foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
             liveLineBelow.descriptor,
-            liveThoughtViewport.descriptor,
-            lostPromptReplay.descriptor,
             modelMenu.descriptor,
             harnessPlacement.descriptor,
             needsYou.descriptor,
@@ -483,10 +434,9 @@ public nonisolated struct AgentPaneTunables {
             reasoningSliderStyle.descriptor,
             updatePeersAutomatically.descriptor,
             sessionStatus.descriptor,
+            nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,
-            sideSessions.descriptor,
-            streamWords.descriptor,
             subagentTray.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
@@ -497,7 +447,6 @@ public nonisolated struct AgentPaneTunables {
             topStripStyle.descriptor,
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
-            wheelGlide.descriptor,
             agentLinks.descriptor,
             pointerInspector.descriptor,
         ]

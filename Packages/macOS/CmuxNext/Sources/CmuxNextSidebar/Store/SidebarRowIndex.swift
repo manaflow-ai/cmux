@@ -115,7 +115,8 @@ extension SidebarListView {
         let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
-            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
+            let previous = workspaces[ws.id]
+            let cardChanged = previous.map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
@@ -133,8 +134,9 @@ extension SidebarListView {
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
-                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
-                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
+                // again when that state moves, not on each step or title it reports.
+                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws) == true { heightChanged = true }
                 continue
             }
             let o = options ?? self.options(includeGap: true)
@@ -171,11 +173,14 @@ nonisolated extension SidebarLayout {
     }
 
     /// Whether `section` keeps its header (and its fold) in the one-list sidebar, where other
-    /// computers' sections draw none: a remote group the person made, and the local Chief's
+    /// computers' sections draw none: a remote group the person made, the local Chief's
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
-    /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
+    /// after the last group above them (Leo 2026-10-21), and a Cloud machine, whose rows otherwise
+    /// floated under this Mac's last group with no machine over them (Leo 2026-10-29: "why is there
+    /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
+    /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup && !section.drawsAsGroup
+        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar

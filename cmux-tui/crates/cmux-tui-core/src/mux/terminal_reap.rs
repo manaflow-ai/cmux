@@ -11,6 +11,11 @@
 //! The reaper is event-driven. It sleeps until the next deadline or until a
 //! topology, terminal-registry, or keep change wakes it; it never polls.
 //!
+//! The grace holds at most [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals: each keeps its
+//! shell and so its PTY (a shell cannot outlive its PTY), and a script that closes several tabs a
+//! second held the machine's PTYs until every new tab was refused (STATUS 7998). Past the cap the
+//! longest-closed ends at once.
+//!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
 //! (`workspace_registry/terminal_unplaced_store.rs`), and a restarted owner
@@ -33,6 +38,9 @@ use crate::state::kept_tab_store::{KeptTab, kept_title};
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 
+/// The most closed terminals that wait out the reap grace with their PTY at once (STATUS 7998).
+/// Past it, the reaper ends the longest-closed at once (its screen archived as at any reap).
+pub(crate) const MAX_TERMINALS_IN_REAP_GRACE: usize = 16;
 /// Largest accepted reap grace period: one week.
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -54,6 +62,10 @@ pub(crate) enum ReapOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
+    /// Terminals an attempt left running (`Retained`) or still listed
+    /// (`Reaped`): the earliest the next attempt may come, kept while each
+    /// stays reapable.
+    retry_floors: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
     /// The registry holds no unplaced time (the last pass removed or found
@@ -92,10 +104,13 @@ impl ReapSchedule {
     ) {
         self.scan_failures = 0;
         self.deadlines.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        self.retry_floors.retain(|terminal_id, _| reapable.contains_key(terminal_id));
         for (terminal_id, unplaced_for) in reapable {
-            self.deadlines
-                .entry(terminal_id.clone())
-                .or_insert_with(|| deadline_after(now, grace.saturating_sub(*unplaced_for)));
+            let floor = self.retry_floors.get(terminal_id).copied();
+            self.deadlines.entry(terminal_id.clone()).or_insert_with(|| {
+                let deadline = deadline_after(now, grace.saturating_sub(*unplaced_for));
+                floor.map_or(deadline, |floor| deadline.max(floor))
+            });
         }
     }
 
@@ -128,6 +143,33 @@ impl ReapSchedule {
         self.deadlines.remove(terminal_id);
     }
 
+    /// A reap of a due terminal was attempted at `now`; `outcome` is `None`
+    /// when the attempt failed.
+    pub(crate) fn tried(
+        &mut self,
+        terminal_id: &str,
+        outcome: Option<ReapOutcome>,
+        now: Instant,
+        grace: Duration,
+    ) {
+        let retry = deadline_after(now, grace.max(MIN_RETRY));
+        match outcome {
+            // The deadline goes, so a terminal placed again and closed
+            // again gets a fresh grace from its new unplaced time. The floor
+            // stays: a terminal the attempt left reapable is otherwise
+            // re-added at its durable unplaced time, already past the grace,
+            // due at once, and the reaper thread waited zero and ran pass
+            // after pass (the app's headless owner at 150% CPU).
+            Some(ReapOutcome::Reaped | ReapOutcome::Retained) => {
+                self.forget(terminal_id);
+                self.retry_floors.insert(terminal_id.to_string(), retry);
+            }
+            // An attached client keeps the terminal for another full grace
+            // period; its detach does not emit a topology event.
+            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+        }
+    }
+
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.values().min().copied()
     }
@@ -136,6 +178,20 @@ impl ReapSchedule {
     pub(crate) fn deadline(&self, terminal_id: &str) -> Option<Instant> {
         self.deadlines.get(terminal_id).copied()
     }
+}
+
+/// The closed terminals past [`MAX_TERMINALS_IN_REAP_GRACE`], longest closed first: each holds a PTY
+/// for its grace, and a burst of closes must not hold the machine's PTYs (STATUS 7998).
+fn over_grace_cap(reapable: &HashMap<String, Duration>) -> Vec<String> {
+    let Some(over) =
+        reapable.len().checked_sub(MAX_TERMINALS_IN_REAP_GRACE).filter(|over| *over > 0)
+    else {
+        return Vec::new();
+    };
+    let mut oldest: Vec<(&Duration, &String)> =
+        reapable.iter().map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id)).collect();
+    oldest.sort_by(|a, b| b.0.cmp(a.0).then_with(|| a.1.cmp(b.1)));
+    oldest.into_iter().take(over).map(|(_, terminal_id)| terminal_id.clone()).collect()
 }
 
 fn deadline_after(now: Instant, grace: Duration) -> Instant {
@@ -245,7 +301,7 @@ impl Mux {
     /// first saw it so (`terminal_unplaced_store.rs`).
     /// A pass that sees no unplaced terminal while the registry holds no
     /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
-    fn reapable_terminals_unplaced_for(
+    pub(super) fn reapable_terminals_unplaced_for(
         &self,
         unplaced_rows_empty: &mut bool,
     ) -> anyhow::Result<HashMap<String, Duration>> {
@@ -335,15 +391,24 @@ impl Mux {
         now: Instant,
     ) -> Vec<String> {
         let grace = self.terminal_reap_grace();
-        match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty) {
-            Ok(reapable) => schedule.observe_unplaced(now, grace, &reapable),
+        let over_cap = match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty)
+        {
+            Ok(reapable) => {
+                schedule.observe_unplaced(now, grace, &reapable);
+                over_grace_cap(&reapable)
+            }
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
                 schedule.defer_due_after_failed_scan(now);
                 return Vec::new();
             }
+        };
+        let mut due = schedule.due(now);
+        for terminal_id in over_cap {
+            if !due.contains(&terminal_id) {
+                due.push(terminal_id);
+            }
         }
-        let due = schedule.due(now);
         let outcomes: Vec<anyhow::Result<ReapOutcome>> = if due.len() <= 1 {
             due.iter().map(|terminal_id| self.reap_unplaced_terminal(terminal_id)).collect()
         } else {
@@ -366,23 +431,16 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            match outcome {
-                Ok(ReapOutcome::Reaped) => {
-                    schedule.forget(&terminal_id);
-                    reaped.push(terminal_id);
-                }
-                Ok(ReapOutcome::Retained) => schedule.forget(&terminal_id),
-                // An attached client keeps the terminal for another full
-                // grace period; its detach does not emit a topology event.
-                Ok(ReapOutcome::Attached) => {
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
-                Err(error) => {
+            let outcome = outcome
+                .inspect_err(|error| {
                     self.report_internal_diagnostic(format!(
                         "reap of unplaced terminal {terminal_id} failed: {error}"
                     ));
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
+                })
+                .ok();
+            schedule.tried(&terminal_id, outcome, now, grace);
+            if outcome == Some(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
             }
         }
         reaped

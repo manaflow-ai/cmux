@@ -748,6 +748,10 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("From claude-sr2: hi", "claude-sr2")).toBe("hi");
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
+  // A sender's name and a colon, its machine's prefix on the sender or not.
+  expect(unsigned("merge-timeout: please deploy", "lane-vm-01/merge-timeout")).toBe("please deploy");
+  expect(unsigned("merge-timeout: please deploy", "merge-timeout")).toBe("please deploy");
+  expect(unsigned("Note: please deploy", "merge-timeout")).toBe("Note: please deploy");
 });
 
 // acpmux's inbox notice (hub/inbox.rs `render`): its text is for the agent; the pane draws its threads.
@@ -916,4 +920,44 @@ test("hub inbox notices keep thread identity and participants without inventing 
   expect(incoming.notice.threads[0]).toMatchObject({ threadId: "from:review/pr:7", from: ["review", "builder"] });
   expect(incoming.notice.threads[0]?.fromSession).toBeUndefined();
   expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
+});
+
+test("Claude Code's SendMessage ([from NAME]) draws as that session's message, signed once", () => {
+  const raw = "[from claude-sr2-coord] From claude-sr2-coord: Leo's screenshot is saved.\n**Do** this next.";
+  for (const client of ["adopt", "watch"]) {
+    expect(incomingPrompt(raw, { client })).toEqual({
+      kind: "message",
+      message: { name: "claude-sr2-coord", text: "Leo's screenshot is saved.\n**Do** this next.", raw },
+    });
+  }
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "acpmux-cli#a1b2c3" })).toMatchObject({
+    kind: "message",
+    message: { name: "lane-a", text: "rebase when free" },
+  });
+  // The person's own prompt in a live chat stays theirs.
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "app" })).toBeUndefined();
+  // Not a sender: no name, or no message after it.
+  expect(incomingPrompt("[from] hi", adopted)).toBeUndefined();
+  expect(incomingPrompt("[from lane-a]", adopted)).toBeUndefined();
+  expect(unsigned("[from lane-a] From lane-a: done", "lane-a")).toBe("done");
+});
+
+// u20190: a sender that names its app and persona (`cmux chat send --from "Grok bot › Ada"`) is
+// shown as both, with no label left in its words; one with no persona names its app alone.
+test("a sender's [from APP › PERSONA] label names the app and the persona", () => {
+  const cli = incomingPrompt("[from Grok bot › Ada] Muse, can you take the review?", {
+    client: "acpmux-cli#01a2f3",
+  });
+  expect(cli?.kind === "message" && cli.message).toMatchObject({
+    name: "Grok bot › Ada",
+    app: "Grok bot",
+    persona: "Ada",
+    text: "Muse, can you take the review?",
+  });
+  const relayed = incomingPrompt(rendered("[from Muse] Yes, on it."), { _meta: { provenance } });
+  expect(relayed?.kind === "message" && relayed.message).toMatchObject({
+    name: "Muse",
+    app: "Muse",
+    text: "Yes, on it.",
+  });
 });

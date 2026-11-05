@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
+    "confirm",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
     "dry-run",
     // `workspace create --no-focus`: accepted and ignored (creation does not
@@ -21,6 +23,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "approve",
     "decline",
     "collapse",
+    // `workspace group create --reuse`: the room's group of that name when it has one.
+    "reuse",
     "patch",
     "candidates",
     "catalog",

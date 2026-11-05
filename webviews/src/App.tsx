@@ -159,6 +159,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const previousDraft = useRef(state.draft);
+  useLayoutEffect(() => {
+    // Pierre pins the gutter utility to its selection until the draft closes.
+    if (previousDraft.current != null && state.draft == null) codeViewRef.current?.clearSelectedLines();
+    previousDraft.current = state.draft;
+  }, [state.draft]);
   const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);

@@ -51,7 +51,7 @@ final class ImportProfileRow: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 8
+        avatar.layer?.cornerRadius = Metrics.controlCornerRadius
         avatar.layer?.masksToBounds = true
         avatar.imageScaling = .scaleProportionallyUpOrDown
         names.addArrangedSubview(name)
@@ -198,7 +198,7 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage.icon(.browser, size: 16)
+        return NSImage.icon(.browser, size: 30) // the icon view's side: a bitmap glyph is not stretched up
     }
 
     /// The cmux profiles this row can go into: "New Profile" (its own,

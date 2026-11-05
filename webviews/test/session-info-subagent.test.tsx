@@ -3,13 +3,19 @@
 // it might have different env worktree context bg tasks outputs and diffs etc"): while the pane shows
 // a subagent's own view, the panel lists that subagent's environment, context, background tasks and
 // outputs, read from its own rows, never merged with the chat's; the chat's panel keeps its own.
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { SessionInfo, useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  resetSessionInfoState,
+  setSessionInfoMore,
+  setSessionInfoOpen,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SubagentScope } from "../src/agent-session/acpmux/session-info/subagentScope";
@@ -65,7 +71,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-beforeEach(() => resetSessionInfoState());
+beforeEach(() => {
+  resetSessionInfoState();
+  setSessionInfoMore(true);
+});
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());

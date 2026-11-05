@@ -31,6 +31,7 @@ import Foundation
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
+// - `wait` (`selector`, `timeout_ms`, max 90000): one rendered selector match, observed without polling;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
@@ -40,7 +41,8 @@ extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
         #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
-            .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
+            .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) }
+                .withLimit { request, _ in request.params["action"]?.stringValue == "wait" ? .seconds(95) : nil },
         ])
         #endif
     }
@@ -110,7 +112,7 @@ enum DebugPages {
         case "press":
             let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
-            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1]))]
+            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true))]
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
@@ -129,6 +131,9 @@ enum DebugPages {
             return ["error": .string("no element matches \(selector) (\(reason))")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
+        case "wait":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            return await page.debugWait(selector: selector, timeoutMilliseconds: params["timeout_ms"]?.intValue ?? 30_000)
         case "route":
             page.open(route: params["route"]?.stringValue ?? "/"); return ["ok": true] // a hash route, as a hand-off opens it
         case "type":

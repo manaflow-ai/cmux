@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PendingSteer, takesSteersBack } from "./PendingSteer";
+import { markSentNow, NewestSteerContext, PendingSteer, takesSteersBack } from "./PendingSteer";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -87,6 +87,97 @@ test("a row drawn again after Send now worked shows no controls while the steer 
   await act(async () => root!.unmount());
   await render(true);
   expect(container.querySelector(".cv-user__send-now")).not.toBeNull();
+});
+
+// Leo, 2026-11-01: "why are ALL of these send now???? aren't these steers???". Send now stops the
+// agent's step and the agent then reads every waiting steer, so only the newest offers it; each
+// keeps its X (take that one back) and its Copy.
+test("with several steers waiting only the newest offers Send now; each keeps its X", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const rows: AcpmuxRow[] = [1, 2, 3].map((n) => ({ ...waiting, id: `user-many-${n}`, steerPromptId: `p-many-${n}` }));
+  await act(async () =>
+    root!.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+        <NewestSteerContext.Provider value="user-many-3">
+          {rows.map((row) => (
+            <div key={row.id} data-row={row.id}>
+              <PendingSteer row={row} send={async () => true} />
+            </div>
+          ))}
+        </NewestSteerContext.Provider>
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const sendNows = [...container.querySelectorAll(".cv-user__send-now")];
+  expect(sendNows.length).toBe(1);
+  expect(sendNows[0]!.closest("[data-row]")?.getAttribute("data-row")).toBe("user-many-3");
+  expect(container.querySelectorAll(".cv-user__take-back").length).toBe(3);
+});
+
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". Send now on the newest steer stops the agent's step, and the agent then reads every
+// waiting steer, so the earlier steers it covered drop their X and Copy line with it; left behind,
+// the earlier one looked held back while the newer one looked sent.
+test("Send now on the newest steer clears the earlier steers it covers", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const rows: AcpmuxRow[] = [1, 2].map((n) => ({
+    ...waiting,
+    id: `user-cover-${n}`,
+    at: n,
+    steerPromptId: `p-cover-${n}`,
+  }));
+  const draw = (list: AcpmuxRow[], newest: string) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+          <NewestSteerContext.Provider value={newest}>
+            {list.map((row) => (
+              <div key={row.id} data-row={row.id}>
+                <PendingSteer row={row} send={async () => true} />
+              </div>
+            ))}
+          </NewestSteerContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  await draw(rows, "user-cover-2");
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(2);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // acpmux still says both wait until the agent reads them.
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(0);
+  // A steer sent after that one waits on its own: it offers Send now, and the covered ones stay clear.
+  const later: AcpmuxRow = { ...waiting, id: "user-cover-3", at: 3, steerPromptId: "p-cover-3" };
+  await draw([...rows, later], "user-cover-3");
+  const pending = [...container.querySelectorAll(".cv-user__pending")];
+  expect(pending.map((node) => node.closest("[data-row]")?.getAttribute("data-row"))).toEqual(["user-cover-3"]);
+  expect(container.querySelectorAll(".cv-user__send-now").length).toBe(1);
+});
+
+// The same from the composer: a queued prompt sent now (its row's Send now, ComposerQueue.tsx)
+// becomes a steer under the same promptId while an earlier steer still waits. Its row must not offer
+// Send now again, and the earlier steer goes with it.
+test("a queued prompt sent now from the composer shows no Send now again, nor the earlier steer's X", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  markSentNow("p-queued-now");
+  const rows: AcpmuxRow[] = [
+    { ...waiting, id: "user-queue-1", at: 10, steerPromptId: "p-earlier-steer" },
+    { ...waiting, id: "user-queue-2", at: 11, text: "Then add a test", steerPromptId: "p-queued-now" },
+  ];
+  await act(async () =>
+    root!.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+        <NewestSteerContext.Provider value="user-queue-2">
+          {rows.map((row) => (
+            <PendingSteer key={row.id} row={row} send={async () => true} />
+          ))}
+        </NewestSteerContext.Provider>
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(0);
 });
 
 test("Send now remains available when delivery fails", async () => {

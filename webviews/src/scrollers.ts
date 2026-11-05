@@ -13,9 +13,9 @@
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
-// its thin thumb the whole time its content overflows (Leo 2026-10-21), unless the scrollbar fade
-// is on (`SCROLLER_FADE_ATTRIBUTE`; the agent pane turns it on by default since Lawrence
-// 2026-10-23, msg 11494: "auto-fades away").
+// its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
 // trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -29,6 +29,8 @@ export type ScrollerStyle = "overlay" | "legacy";
 
 /** The attribute a scrolling element carries until `SCROLLING_HIDE_MS` after its last scroll. */
 export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
+/** On a scrolling element whose scrollbar is hidden, so it needs no reveal or fade timer. */
+export const HIDDEN_SCROLLER_ATTRIBUTE = "data-cmux-hidden-scroller";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
@@ -161,6 +163,11 @@ const pending = new WeakMap<Element, unknown>();
 export function markScrolling(element: Element, timers: ScrollTimers = defaultTimers): void {
   const previous = pending.get(element);
   if (previous !== undefined) timers.clear(previous);
+  if (element.hasAttribute(HIDDEN_SCROLLER_ATTRIBUTE)) {
+    pending.delete(element);
+    element.removeAttribute(SCROLLING_ATTRIBUTE);
+    return;
+  }
   element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
@@ -650,6 +657,16 @@ export const CARD_SCROLLER_CSS = `
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
 }
+/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only] {
+  --cmux-card-scroll-only-thumb: transparent;
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only][${SCROLLING_ATTRIBUTE}] {
+  --cmux-card-scroll-only-thumb: var(--cmux-scroller-thumb);
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-card-scroll-only-thumb);
+}
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);
 }
@@ -674,8 +691,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
- * the whole time the content overflows, never faded on input, focus, hover or resize, whatever the
- * macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
+ * the whole time the content overflows, never faded on input, focus, hover or resize, and never at
+ * rest under the scrollbar fade, whatever the macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
  * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
@@ -688,6 +705,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
   overflow-y: scroll;
+  /* Its own ink, so a fading transcript around it never lends it its 0% at rest. */
+  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
@@ -707,12 +726,6 @@ export const MINIMAL_SCROLLER_CSS = `
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size);
   background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink, 38%), transparent) padding-box;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 0%;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {

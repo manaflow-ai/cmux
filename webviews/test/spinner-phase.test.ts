@@ -47,7 +47,7 @@ await requireBrowserLane("spinner-phase.test.ts", async () => {
   async function mount(p: Page, id: string): Promise<void> {
     await p.evaluate((name) => {
       const holder = document.createElement("span");
-      holder.innerHTML = `<svg class="cv-spinner" id="${name}" data-working viewBox="0 0 16 16"><g class="cv-spinner__spokes"></g></svg>`;
+      holder.innerHTML = `<svg class="cv-spinner" id="${name}" data-working viewBox="0 0 16 16"><path class="cv-spinner__arc"></path></svg>`;
       document.body.append(holder);
     }, id);
     await frames(p);

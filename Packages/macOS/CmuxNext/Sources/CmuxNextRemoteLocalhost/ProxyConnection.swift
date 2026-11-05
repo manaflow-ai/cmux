@@ -23,10 +23,11 @@ final class ProxyConnection: Sendable {
         self.machineListener = machineListener
     }
 
-    /// A machine listener's route when the peer is this app or its helpers.
-    private func trustedRoute() -> RemoteLocalhostProxy.Route? {
+    /// A machine listener's route when the peer is this app or its helpers. The process scan runs off
+    /// the cooperative pool (``PeerScan``).
+    private func trustedRoute() async -> RemoteLocalhostProxy.Route? {
         guard machineListener, case .hostPort(let peerHost, let peerPort) = client.endpoint,
-              PeerProcess.isTrusted(
+              await proxy.peerScan.isTrusted(
                   peerHost: peerHost,
                   peerPort: peerPort.rawValue,
                   localHost: .ipv4(.loopback),
@@ -52,8 +53,10 @@ final class ProxyConnection: Sendable {
             deadline.cancel()
             return
         }
+        // The deadline stays armed through the trust scan (itself bounded by its own timeout).
+        let trusted = await trustedRoute()
         deadline.cancel()
-        guard let route = trustedRoute() ?? proxy.route(forAuthorization: head.proxyAuthorization) else {
+        guard let route = trusted ?? proxy.route(forAuthorization: head.proxyAuthorization) else {
             proxy.count(\.unauthorized)
             proxy.note("407 \(head.kind == .connect ? "CONNECT" : head.method) \(head.host):\(head.port) credential=\(head.proxyAuthorization == nil ? "none" : "wrong")")
             try? await client.sendAll(ProxyResponses.authenticationRequired)

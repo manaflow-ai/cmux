@@ -48,6 +48,10 @@ mod closed_screen_layout;
 mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
+pub(crate) mod conductor_import_router;
+pub(crate) mod conductor_import_store;
+#[cfg(test)]
+mod conductor_import_tests;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
 pub(crate) mod ephemeral_moves;
@@ -60,10 +64,16 @@ mod group_delete_tests;
 mod group_icon_tests;
 #[cfg(test)]
 mod group_pin_tests;
+#[cfg(test)]
+mod group_reuse_tests;
+#[cfg(test)]
+mod group_update_latency_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
+#[cfg(test)]
+mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]

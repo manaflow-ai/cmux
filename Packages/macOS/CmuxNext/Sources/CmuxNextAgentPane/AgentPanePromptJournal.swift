@@ -16,8 +16,8 @@ import CmuxNextCompat
 ///   prompt id at most once: its ledger and its session log answer one it has seen as `duplicate`.
 /// - A connection the daemon closed while the app runs drops the prompts its page sent: the pane
 ///   shows each as not sent, with Retry, so the pane owns them from then on.
-/// - An entry older than ``maximumAge`` is dropped, never sent. The file holds at most
-///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
+/// - An entry older than ``maximumAge`` is dropped, never sent. All newer entries are kept so a
+///   prompt of any size or a burst of prompts cannot disappear during a restart.
 ///
 /// The host sends again only what it recorded from a frame the page rules let through; the page
 /// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
@@ -28,8 +28,6 @@ import CmuxNextCompat
 public nonisolated final class AgentPanePromptJournal: Sendable {
     /// How long a prompt may wait for its send again; an older one is dropped.
     public static let maximumAge: TimeInterval = 24 * 60 * 60
-    static let maximumEntries = 64
-    static let maximumParamsBytes = 8 << 20
     static let fileName = "agent-pane-unsent-prompts.json"
 
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
@@ -130,7 +128,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     struct NotWritten: Error {}
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended). Throws when
+    /// the main thread. False only when the connection has already ended. Throws when
     /// it could not be written: the journal is left as it was, an earlier record of the same prompt
     /// (the pane's Retry) included. Nothing of the record is in memory before it is on disk, so no
     /// other change ever sees, claims or writes a record that did not reach the disk.
@@ -141,18 +139,13 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// ``record(_:owner:)`` for the relay: `build` is told whether prompt `promptId` went to
     /// `daemon` before in this run (the pane's Retry, which goes as a resend) and returns its
     /// entry, nil when it does not go. The prompt is marked sent in the same step once it goes
-    /// (kept, or not journaled), never when its record was not written; records run one at a
+    /// (kept, or its connection ended), never when its record was not written; records run one at a
     /// time, so two connections sending the same prompt see each other's mark.
     func record(daemon: String, promptId: String, owner: UUID,
                 _ build: (_ sentBefore: Bool) -> Entry?) throws(NotWritten) -> Bool? {
         let key = Self.key(daemon, promptId)
         return try written.withLock { last throws(NotWritten) -> Bool? in
             guard let entry = build(state.withLock { $0.sent.contains(key) }) else { return nil }
-            guard entry.params.utf8.count <= Self.maximumParamsBytes else {
-                Self.logger.info("agent pane prompt not journaled: too large")
-                state.withLock { _ = $0.sent.insert(key) }
-                return false
-            }
             // What the journal would hold with the record; the state is not changed yet.
             let proposed = state.withLock { state -> (entries: [Entry], pendingTrust: [PendingTrust])? in
                 load(&state)
@@ -180,7 +173,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             // Older writes queued meanwhile are skipped (they would drop the record from the file);
             // when this write fails, the next of them writes the journal as it is. Until then the
             // file may hold what this record took out of it again (its connection ended meanwhile),
-            // as a failed write of any removal (``forget(daemon:promptId:)``, a daemon's close)
+            // as a failed write of any removal (``forget(daemon:promptId:)``)
             // leaves it: a relaunch sends it once more, under its promptId, and acpmux runs a
             // promptId at most once.
             last.generation = generation
@@ -191,16 +184,12 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     }
 
     /// The record of `entry` from connection `owner`: it replaces an earlier one of the same
-    /// prompt, and the oldest go past ``maximumEntries``.
+    /// prompt.
     private static func apply(_ entry: Entry, owner: UUID, to state: inout State) {
         let key = key(entry.daemon, entry.promptId)
         state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
         state.entries.append(entry)
         state.holders[key] = .page(owner)
-        while state.entries.count > maximumEntries {
-            let dropped = state.entries.removeFirst()
-            state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
-        }
     }
 
     /// Trust I/O uses the journal's file queue, never the main actor or cooperative task pool.
@@ -293,27 +282,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
-    /// Connection `owner` ended. `byDaemon`: the daemon's side closed it, and its page was told,
-    /// so the prompts that page sent are the page's again (Retry); the rest are left over. The
-    /// change is made at once (no file read on the caller's thread) and written off it.
-    func connectionEnded(owner: UUID, byDaemon: Bool) {
-        let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in
+    /// Connection `owner` ended: the prompts it held are left over, for the next connection to
+    /// send again. Nothing on disk changes.
+    func connectionEnded(owner: UUID) {
+        state.withLock { state in
             state.ended.insert(owner)
-            guard state.loaded else { return nil }
-            var changed = false
+            guard state.loaded else { return }
             for (key, holder) in state.holders where holder.owner == owner {
                 state.holders[key] = nil
-                if byDaemon, case .page = holder {
-                    state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
-                    changed = true
-                }
             }
-            guard changed else { return nil }
-            state.generation += 1
-            return (state.generation, state.entries, state.pendingTrust)
         }
-        guard let (generation, entries, pendingTrust) = snapshot else { return }
-        queue.async { [self] in write(entries, pendingTrust: pendingTrust, generation: generation) }
     }
 
     /// The prompts kept now (tests).
@@ -357,7 +335,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
             return
         }
-        state.entries = Array(document.entries.suffix(Self.maximumEntries))
+        state.entries = document.entries
         state.pendingTrust = document.pendingTrust
     }
 

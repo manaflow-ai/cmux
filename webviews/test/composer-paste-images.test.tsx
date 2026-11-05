@@ -378,7 +378,10 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
       asked.push(params);
       return { sources: [shot] };
     },
+    "attachment.sourceIcon": () => ({ src: "data:image/png;base64,iVBORw0KGgo=" }),
   };
+  const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
+  resetSourceIcons();
   try {
     const composer = await openComposer();
     const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
@@ -397,8 +400,14 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
       { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
     ]);
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+    // Its tile wears the source app's icon at its top-right corner, named for screen readers.
+    await until(() => host.querySelector(".acpmux-attachment .acpmux-source-badge img") !== null, "the chip's badge");
+    expect(host.querySelector(".acpmux-attachment .acpmux-source-badge img")?.getAttribute("alt")).toBe(
+      "From Screenshot",
+    );
   } finally {
     delete actions.cmuxAcpmuxActions;
+    resetSourceIcons();
   }
 });
 

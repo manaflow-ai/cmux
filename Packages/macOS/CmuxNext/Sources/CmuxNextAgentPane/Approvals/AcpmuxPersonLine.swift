@@ -72,9 +72,22 @@ public final class AcpmuxPersonLine {
 
     /// The pending prompts of `session` while this daemon holds it itself: empty when `_acpmux/info`
     /// says a peer holds it (`peer`), as ``AgentPanePendingAsks`` reads it.
-    func ownPending(of session: String) async -> [[String: Any]] {
+    func ownPending(of session: String, chiefHomeID: String? = nil) async -> [[String: Any]] {
         guard let info = await call("_acpmux/info", ["sessionId": session]), info["peer"] == nil else { return [] }
+        if let chiefHomeID, !Self.isOwnerSubagent(info, session: session, home: chiefHomeID) { return [] }
         return info["pending"] as? [[String: Any]] ?? []
+    }
+
+    /// Home cards can answer only this home's local owner subagents. Turn sessions,
+    /// another Chief, the ask floor and peers stay outside this surface.
+    nonisolated static func isOwnerSubagent(_ info: [String: Any], session: String, home: String) -> Bool {
+        guard session.hasPrefix("local/"), info["sessionId"] as? String == String(session.dropFirst(6)),
+              info["peer"] == nil, let tags = info["tags"] as? [String: String],
+              tags["mux.parent"] == "optchat-chief:" + home,
+              let subagent = tags["optchat.subagent"], !subagent.isEmpty,
+              tags["optchat.policy"] != "ask", info["policy"] as? String != "ask",
+              tags["cmux.chief.role"] != "turn" else { return false }
+        return true
     }
 
     public func close() {

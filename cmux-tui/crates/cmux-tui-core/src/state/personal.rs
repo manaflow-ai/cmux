@@ -34,6 +34,11 @@ pub(crate) enum PersonalChange {
         collapsed: bool,
         room: Option<String>,
         index: Option<usize>,
+        /// Answer the room's first group of that name (outer spaces trimmed)
+        /// instead of making another (`reuse: true`). Omitted when false, so
+        /// older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        reuse: bool,
     },
     GroupUpdate {
         group: String,
@@ -196,6 +201,10 @@ impl Mux {
         selectors: &crate::ResourceSelectors,
         change: PersonalChange,
     ) -> anyhow::Result<StateCommit> {
+        // A sidebar click (collapse, rename, move a group, place a
+        // workspace): its registry locks go next after the current holder,
+        // not behind every busy agent's write.
+        let _interactive = interactive_scope();
         let fingerprint = serde_json::json!({
             "operation": operation,
             "selectors": change.targets_workspace().then_some(selectors),
@@ -268,7 +277,14 @@ fn apply_personal_change(
     change: PersonalChange,
 ) -> anyhow::Result<StateChanges> {
     match change {
-        PersonalChange::GroupCreate { name, color, collapsed, room, index } => {
+        PersonalChange::GroupCreate { name, color, collapsed, room, index, reuse } => {
+            // An agent that puts each lane "in Leads" asks for the group once per lane: one
+            // group, not one per ask (Leo, 2026-11-02: fifteen "Leads" groups of one row each).
+            if reuse && let Some(existing) = personal::group_named(tx, room.as_deref(), &name)? {
+                let value = personal::workspace_group_snapshot(tx, &existing)?
+                    .context("named group vanished")?;
+                return Ok(StateChanges::new(value, Vec::new()));
+            }
             // A group made with no place (`cmux workspace group create`, MCP,
             // iOS, the Chief's subagent groups) forms where a new workspace
             // goes: under `workspaces.newPlacement` `top` (the default) the

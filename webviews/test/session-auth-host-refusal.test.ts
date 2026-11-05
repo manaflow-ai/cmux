@@ -6,6 +6,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
+import { RequestBudget } from "../src/agent-session/acpmux/requestBudget";
 import { UNKNOWN_AUTH } from "../src/agent-session/acpmux/sessionAuth";
 
 function clientRefusing(error: AcpmuxRpcError): AcpmuxDirectClient {
@@ -51,6 +52,7 @@ test("a request the host refuses as not allowlisted is said in the console, once
     socket: { readyState: WebSocket.OPEN, send: (text: string) => sent.push(text) },
     nextRequest: 1,
     pending,
+    budget: new RequestBudget(),
     wire: { sent: () => {} },
   });
   const request = (client as unknown as { request: (m: string, p: object) => Promise<unknown> }).request.bind(client);

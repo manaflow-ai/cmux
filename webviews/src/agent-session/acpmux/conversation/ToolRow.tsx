@@ -1,6 +1,7 @@
+import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
-// output, Shell block or diff below once opened.
+// output (under its input's labeled fields, ToolDetail.tsx), Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
 import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -10,23 +11,29 @@ import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
+import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { ApprovedMark } from "./ApprovedMark";
+import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
-import { cleanText, mcpCall } from "./mcpCalls";
+import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
+import { ToolDetail } from "./ToolDetail";
+import { inputFields, opensToFields } from "./toolInputFields";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -38,15 +45,15 @@ export function toolIcon(kind?: string): ReactNode {
     case "delete":
     case "move":
     case "fileChange":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "search":
       return <Magnifier />;
     case "execute":
       return <TerminalSquare />;
     case "fetch":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -55,8 +62,9 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
+export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -85,8 +93,6 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
-  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
   const failed = rowFailed(tool) && !recovery;
@@ -119,7 +125,12 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
     });
   }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
-  const hasDetails = shell || hasDiff || Boolean(result?.text.trim());
+  // A call whose input opens as fields has details even before (or without) any output (ToolDetail.tsx).
+  const hasInput = useMemo(
+    () => !shell && opensToFields(tool, failure) && Boolean(inputFields(tool.inputSummary)),
+    [shell, tool, failure],
+  );
+  const hasDetails = shell || hasDiff || Boolean(result?.text.trim()) || hasInput;
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
   const expandable = hasDetails || clipped;
@@ -137,28 +148,43 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
+  // Any other call opens to its input, one labeled field per argument, over its output
+  // (ToolDetail.tsx); read only while drawn, as the diff is.
+  const fields = useMemo(
+    () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
+    [fold.present, tool, failure],
+  );
+  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
+      <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
-        {failure && (
-          <span className="cv-tool__failed" data-find-skip>
-            {" "}
-            {failureWord(t, failure)}
-          </span>
-        )}
+        {words}
+        {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
+        {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
+      {/* The failure word is a tag after the words, outside their ellipsis, so a long label never
+          hides it (as CommandRow's "Failed"; conversation.css `.cv-tool > .cv-tool__failed`). */}
+      {failure && (
+        <span className="cv-tool__failed" data-find-skip>
+          {" "}
+          {failureWord(t, failure, step)}
+        </span>
+      )}
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
-          <BackgroundMark background={background} showActivity={!grouped} />
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+          <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
-        !foreground && (
+        (!foreground || tool.approved) && (
           <span className="cv-command__meta">
-            {!failed && <Check size={14} className="cv-command__ok" />}
+            <ReactionMark reaction={tool.reaction} />
+            {tool.approved && <ApprovedMark />}
+            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
             {duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )
@@ -169,33 +195,31 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
   // status such as "Wait 60000 ms" with no body is a plain row.
   return (
     <>
-      {expandable ? (
-        <button
-          type="button"
-          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
-          data-tool-id={tool.id}
-          aria-expanded={open}
-          aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
-          ref={fold.headerRef}
-          onClick={fold.toggle}
-        >
-          {content}
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
-        </button>
-      ) : (
-        <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
-          {content}
-        </div>
-      )}
+      <ToolVisualRow sources={images} label={label}>
+        {expandable ? (
+          <button
+            type="button"
+            className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
+            data-tool-id={tool.id}
+            aria-expanded={open}
+            aria-controls={open && (shell || files.length > 0 || body || fields) ? detailsId : undefined}
+            ref={fold.headerRef}
+            onClick={fold.toggle}
+          >
+            {content}
+            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+          </button>
+        ) : (
+          <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
+            {content}
+          </div>
+        )}
+      </ToolVisualRow>
       <WrittenArtifactButtons tools={[tool]} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
-      {fold.present && (shell || files.length > 0 || body) && (
+      {fold.present && (shell || files.length > 0 || body || fields) && (
         <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock
@@ -212,9 +236,12 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
+          ) : fields ? (
+            <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
+          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

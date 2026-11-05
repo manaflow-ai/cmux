@@ -64,8 +64,14 @@ const PANE = new URL("cmux-agent://pane/index.html");
 const GALLERY = new URL("http://127.0.0.1/gallery/frame.html?entry=agent-pane.inline-preview");
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { INLINE_PREVIEW_MAX_HEIGHT, INLINE_PREVIEW_SIZE, inlinePreviewDocument, inlinePreviewHtml, inlinePreviewKind } =
-  await import("../src/agent-session/acpmux/conversation/previewDocument");
+const {
+  INLINE_PREVIEW_MAX_HEIGHT,
+  INLINE_PREVIEW_SIZE,
+  inlinePreviewDocument,
+  inlinePreviewHtml,
+  inlinePreviewKind,
+  nativePassiveHtml,
+} = await import("../src/agent-session/acpmux/conversation/previewDocument");
 
 async function show(source: string, streaming = false, page = PANE) {
   scope.location = page;
@@ -117,7 +123,9 @@ test("in the app a closed svg fence draws in the native artifact frame, sandboxe
   await post(iframe.contentWindow, { type: "cmux-render-ready" });
   expect(sent).toHaveLength(1);
   expect(sent[0]!.type).toBe("cmux-render");
-  expect(sent[0]!.html).toBe(inlinePreviewHtml("svg", SVG));
+  // The inert document behind a policy of its own that runs no script (the frame's allows inline script).
+  expect(sent[0]!.html).toBe(nativePassiveHtml(inlinePreviewHtml("svg", SVG)));
+  expect(sent[0]!.html).toStartWith(`<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`);
   expect(sent[0]!.html).toContain(SVG);
 });
 
@@ -246,4 +254,25 @@ test("links that leave the document point nowhere, so no engine resolves their h
   for (const element of doc.querySelectorAll("*"))
     for (const attribute of element.attributes)
       if (/^(xlink:)?href$/i.test(attribute.name)) expect(attribute.value).not.toContain(".invalid");
+});
+
+/// Markup that carries no script as written, whose link text sits where a careless rewrite would
+/// close an attribute early and expose what follows (router review of cmux#31174).
+const BREAKOUTS = [
+  `<img src="data:," title="href='x' onerror='for(;;){}'">`,
+  `<img src="data:," title='href="x" onerror="for(;;){}"'>`,
+  `<p title="a xlink:href='y' onclick='1'">p</p>`,
+  `<svg><a title="href=z onload=1"><text>t</text></a></svg>`,
+  `<img src="data:," alt="x/href='q' onerror='1'" title="http-equiv='refresh' onerror='1'">`,
+];
+
+test("making a document inert never makes it scripted: no rewrite opens an attribute", async () => {
+  const { artifactNeedsRun } = await import("../src/agent-session/acpmux/conversation/artifactSandbox");
+  for (const code of BREAKOUTS) {
+    expect(artifactNeedsRun(code)).toBe(false);
+    const html = inlinePreviewHtml("html", code);
+    expect(artifactNeedsRun(html)).toBe(false);
+    for (const element of parse(html).querySelectorAll("*"))
+      for (const attribute of element.attributes) expect(attribute.name).not.toStartWith("on");
+  }
 });

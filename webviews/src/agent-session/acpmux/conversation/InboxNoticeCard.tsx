@@ -16,12 +16,13 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { useMessageLineLook } from "./messageLineLook";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
-import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
@@ -115,6 +116,10 @@ function InboxThreadLine({
   }, [holds, reveal]);
   // Several messages each say who sent them; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
+  // Single (the default, messageLineLook.ts): the preview on the line after the sender; stacked (a
+  // gallery version), on its own line under it.
+  const lineLook = useMessageLineLook();
+  const preview = thread.preview || t("message.noText");
   return (
     <DisclosureRow
       className="cv-received cv-inbox__thread"
@@ -127,12 +132,15 @@ function InboxThreadLine({
       label={
         <>
           {thread.label && <span className="cv-inbox__label">{thread.label}</span>}
-          <span className="cv-received__preview" data-find-skip="">
-            {thread.preview || t("message.noText")}
-          </span>
+          {lineLook === "single" && (
+            <span className="cv-received__preview" data-find-skip="">
+              {preview}
+            </span>
+          )}
           {thread.count > 1 && <span className="cv-inbox__more">{t("tools.more", { n: thread.count - 1 })}</span>}
         </>
       }
+      below={lineLook === "stacked" && !open ? preview : undefined}
     >
       <CardCopy text={whole} />
       <div className="cv-received__text selectable">
@@ -218,24 +226,25 @@ export function InboxNoticeCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n: messages })
       : t("message.waitingFrom", { n: messages, sessions: senders.length });
-  // One sender: its mark, from its newest thread (its session and bound harness); several: the
-  // messages glyph.
-  const lead = [...notice.threads].reverse().find((thread) => newestSender(thread) === senders[0]);
+  // One sender: its mark, from its newest thread (its session and bound harness); several, even
+  // under one name (two sessions, or two harnesses: cmux#30821), the messages glyph.
+  const lead =
+    senders.length === 1
+      ? groupSender(
+          notice.threads.map((thread) => ({
+            name: newestSender(thread) || senders[0]!,
+            text: "",
+            raw: "",
+            ...(thread.fromSession && { sessionId: thread.fromSession }),
+            ...(thread.fromHarness && { harness: thread.fromHarness }),
+          })),
+        )
+      : undefined;
   return (
     <div className="cv-inbox cv-inbox--group" data-look={look} data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
       <MessageGroupHead
-        sender={
-          senders.length === 1 && lead
-            ? {
-                name: senders[0]!,
-                text: "",
-                raw: "",
-                ...(lead.fromSession && { sessionId: lead.fromSession }),
-                ...(lead.fromHarness && { harness: lead.fromHarness }),
-              }
-            : undefined
-        }
+        sender={lead && { ...lead, name: senders[0]! }}
         count={count}
         senders={senders.join(", ")}
         open={open}

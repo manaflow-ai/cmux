@@ -18,6 +18,9 @@ public protocol WorkspaceSpawnSidebar: AnyObject {
 /// name, command, and extra environment through `newTab`'s arguments.
 public struct WorkspaceSpawn: Sendable {
     public var cwd: String?
+    /// The new workspace's key, fixed by a caller that records the workspace before it exists (Import
+    /// from Conductor, so a run cut off midway knows which workspace it half made); nil: a new key.
+    public var key: WorkspaceKey?
     public var inheritedCwd: String?
     public var name: String?
     public var command: String?
@@ -35,10 +38,15 @@ public struct WorkspaceSpawn: Sendable {
     public var firstChat: AgentPaneSeed?
     public var firstSession: String?
     public var inputToken: String?
+    /// Work on the first terminal, inside the create (a browser workspace opens its tab, then closes
+    /// the terminal; `WorkspaceHandlers.createAndShow`): a failure fails the create, which closes the
+    /// workspace while it is still empty and releases its window's claim.
+    public var onFirstTerminal: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)?
 
     public init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
-                profile: ProfileID? = nil, newTabPage: Bool = false) {
+                profile: ProfileID? = nil, newTabPage: Bool = false, key: WorkspaceKey? = nil) {
         opensNewTabPage = newTabPage
+        self.key = key
         self.cwd = cwd
         self.name = name
         self.command = command

@@ -49,7 +49,7 @@ final class AgentChatSplitToggles {
 
     /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
     /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
-    /// `extra`: more arguments for the action (Changes' chat turn, ``DiffTurnArgument``).
+    /// `extra`: more arguments for the action (Changes' chat turn or patch, ``AgentPaneDiffTurn/actionArguments``).
     func toggle(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
         if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions) }
@@ -186,9 +186,7 @@ final class AgentChatSplitToggles {
 
     /// Every tab of the workspace that shows chat tab `chat`; nil when the store does not list it.
     private static func workspaceTabs(of chat: String, in store: DaemonStore) -> [TabModel]? {
-        guard let surface = store.tab(id: chat)?.surface,
-              let pane = store.pane(containing: surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard let workspace = store.workspace(holdingTab: chat) else { return nil }
         return workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
     }
 }

@@ -148,12 +148,12 @@ extension SidebarListViewComponents {
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = selectionRevealKey
-            let sentBefore = SidebarDocStore.current?.lastIntentKey
+            let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
-            settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
+            settling?.key = doc.document?.lastIntentKey // nil already: refused inside the call
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
             // rows and the card go back as for a refusal.
-            if settling != nil, SidebarDocStore.current?.lastIntentKey == sentBefore { settling = nil }
+            if settling != nil, doc.document?.lastIntentKey == sentBefore { settling = nil }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
@@ -310,6 +310,9 @@ extension SidebarListViewComponents {
         let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
         drag.landingThen = then
+        drag.flightStart = drag.flightStart.map { $0.union(drag.lift.frame) } ?? drag.lift.frame
+        // A row the drop took away (an emptied group's header) goes now if the card is over it or lands on it.
+        dropLeavingRows(under: [drag.lift.frame, destination])
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else {
                 drag.lift.removeFromSuperview()
@@ -334,6 +337,7 @@ extension SidebarListViewComponents {
         if landing === drag { landing = nil }
         drag.landsOnModel = false
         drag.landingThen = nil
+        drag.flightStart = nil
         Motion.withoutAnimation {
             drag.lift.removeFromSuperview()
             // The dropped item, held invisible under the flying card (landSettled), shows in the same transaction.
@@ -355,6 +359,30 @@ extension SidebarListViewComponents {
         // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
         releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
+    }
+
+    /// Where a dropped card is drawn while it settles or flies (list coordinates): its whole path, from where its
+    /// flight began to its slot (the frame jumps to the slot at once; the layer flies there); none otherwise.
+    var flyingCardFrames: [NSRect] {
+        [settling?.drag, landing].compactMap { $0 }.filter { $0.lift.superview === self }.map { drag in
+            drag.flightStart.map { $0.union(drag.lift.frame) } ?? drag.lift.frame
+        }
+    }
+
+    /// Whether `frame` (a row's) sits under one of `cards`. The card draws no material of its own in a
+    /// translucent window (`DragLiftView`), so a row fading out under it reads through it: Leo 2026-11-05,
+    /// "it, like, briefly flickers", the emptied Coordinators header fading under the dropped
+    /// claude-sr2-coord. A row that leaves from under a card goes at once; rows elsewhere still fade.
+    func isUnderCard(_ frame: NSRect, _ cards: [NSRect]) -> Bool {
+        cards.contains { frame.intersection($0).height > 2 }
+    }
+
+    /// Ends at once the fades of rows leaving from under `cards` (`isUnderCard`).
+    func dropLeavingRows(under cards: [NSRect]) {
+        for view in fadingRows.values where isUnderCard(view.frame, cards) && !rowViews.values.contains(where: { $0 === view }) {
+            view.layer?.removeAnimation(forKey: "opacity")
+            recycle(view)
+        }
     }
 
     /// A new drag starts while a card still flies (the card takes no pointer: the held item can be grabbed
