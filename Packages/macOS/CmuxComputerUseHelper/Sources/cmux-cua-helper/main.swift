@@ -21,12 +21,15 @@ let consent = HostConsentChannel()
 let tools: any ToolInvoking
 let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"
 do {
-    tools = try CuaDriverRuntime(
+    let driver = try CuaDriverRuntime(
         libraryPath: libraryPath,
         allowedTargetBundleIDs: ProcessInfo.processInfo.environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] ?? "",
         hostBundleID: ProcessInfo.processInfo.environment["CMUX_CUA_HOST_BUNDLE_ID"],
         gate: ConsentGate(authority: consent)
     )
+    // The grounding fallback only when the app turned `computerUse.groundingFallback` on.
+    tools = GroundingConfig(environment: ProcessInfo.processInfo.environment)
+        .map { GroundingTools(inner: driver, config: $0) } ?? driver
 } catch {
     FileHandle.standardError.write(Data("cmux-cua-helper: \(error)\n".utf8))
     tools = UnavailableTools(reason: String(describing: error))

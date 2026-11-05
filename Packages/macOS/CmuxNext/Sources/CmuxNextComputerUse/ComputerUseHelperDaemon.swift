@@ -206,7 +206,7 @@ public final class ComputerUseHelperDaemon {
         } else {
             await apply(enabled: false)
             guard !quitting, !Task.isCancelled else { return }
-            await upstream.apply(enabled: route.upstream)
+            await upstream.apply(enabled: route.upstream, grounding: settings.groundingEndpointURL)
         }
     }
 

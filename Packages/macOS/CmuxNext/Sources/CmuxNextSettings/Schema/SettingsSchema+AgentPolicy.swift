@@ -391,6 +391,9 @@ extension SettingsSchema {
         "agents.promptCache": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // Sends app windows' screenshots to a model server: the person's call, never an agent's.
+        "computerUse.groundingFallback": .privacy,
+        "computerUse.groundingEndpoint": .network,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
