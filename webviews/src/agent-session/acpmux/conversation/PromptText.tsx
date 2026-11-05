@@ -28,6 +28,7 @@ import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
+import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
 import { ChevronDown } from "./icons";
@@ -287,24 +288,45 @@ export function PromptTyped({
   );
 }
 
-/// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps
-/// its break points (softBreaks.tsx).
+/// Literal prompt text with each bare web address a link (UrlChip, as in a reply) and each cmux app
+/// link (`cmux://workspace/…`, `cmux-nightly://agent/…`) a link the host opens in the app, as a
+/// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
-  const urls = text.includes("://") ? textLinks(text).filter((link) => link.kind === "url") : [];
-  if (!urls.length) return <SoftBroken text={text} />;
+  const links = text.includes("://") ? promptLinks(text) : [];
+  if (!links.length) return <SoftBroken text={text} />;
   const out: ReactNode[] = [];
   let at = 0;
-  urls.forEach((link, index) => {
+  links.forEach((link, index) => {
     if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
     out.push(
-      <UrlChip key={`u${index}`} href={link.value}>
-        {githubRefLabel(link.value) ?? link.value}
-      </UrlChip>,
+      link.app ? (
+        // A plain anchor, so the click takes the host's link path (opened in the app).
+        <a key={`a${index}`} className="cv-link is-app" href={link.value}>
+          <SoftBroken text={link.value} />
+        </a>
+      ) : (
+        <UrlChip key={`u${index}`} href={link.value}>
+          {githubRefLabel(link.value) ?? link.value}
+        </UrlChip>
+      ),
     );
     at = link.end;
   });
   if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
   return <>{out}</>;
+}
+
+/// The links of a literal prompt, in order: its web addresses and its cmux app links.
+function promptLinks(text: string): { start: number; end: number; value: string; app: boolean }[] {
+  const web = textLinks(text)
+    .filter((link) => link.kind === "url")
+    .map((link) => ({ start: link.start, end: link.end, value: link.value, app: false }));
+  const app = deeplinks(text)
+    .filter((link) => !link.href.startsWith("https:"))
+    .map((link) => ({ start: link.start, end: link.end, value: link.href, app: true }));
+  if (!app.length) return web;
+  const free = web.filter((link) => !app.some((other) => link.start < other.end && other.start < link.end));
+  return [...free, ...app].sort((a, b) => a.start - b.start);
 }
 
 /// One pasted block: a card of the paste's own first lines, wrapped in the prompt's font and the

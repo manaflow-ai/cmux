@@ -7,8 +7,9 @@ import type { MadeFile } from "./attachmentIntake";
 import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes
-/// through the host (`pane.edit`), which runs the web view's own paste.
-const PLAIN_PASTE_MS = 2000;
+/// through the host (`pane.edit`), which runs the web view's own paste. The prompt field keeps its
+/// paste plain for the same window (MarkdownField.tsx `plainPasteAt`).
+export const PLAIN_PASTE_MS = 2000;
 
 /// Paste and Match Style's key (⌘⇧V, the app's Edit menu, MainMenu.swift). A system menu key
 /// equivalent, not an app action: the bridge sends no keycap for it (shortcuts.ts), and the page

@@ -31,7 +31,7 @@ struct VaultRowView: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, Metrics.panelInset)
-        .background(RoundedRectangle(cornerRadius: 5).fill(isSelected ? colors.selection : .clear))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(isSelected ? colors.selection : .clear))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { actions.perform("vaultOpenSession", row.id) }
         .onTapGesture { actions.select(row.id) }

@@ -61,12 +61,13 @@ from pathlib import Path
 # to sys.path the way running it as a script does.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_execution_registry import load_registry, parse_registry  # noqa: E402
+from test_execution_registry import (  # noqa: E402
+    FRAGMENTS, LEGACY, Fragments, layout_findings, load_tree, load_tree_at, registry_sources,
+)
 import workload_entrypoints  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "tests" / "test-execution.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GUARDS = WORKFLOWS / "ci-guards.yml"
 # One invocation may run several lanes (`--lane a --lane b`), in any flag order.
@@ -236,12 +237,22 @@ def registration_hint(path: str, workflows: Path = WORKFLOWS, live_lanes: set[st
         )
     return (
         "\n      Run python3 scripts/ci/validate_test_execution_registry.py --write, or paste into\n"
-        "      tests/test-execution.toml:\n\n"
+        f"      {registry_file_hint(path, workflows.parents[1])} (entries sorted by path):\n\n"
         "          [[test]]\n"
         f'          path = "{path}"\n'
         f'          lane = "{lane}"\n\n'
         f"      {rationale}"
     )
+
+
+def registry_file_hint(path: str, root: Path = ROOT) -> str:
+    """The registry file a test's entry goes in: its area's fragment, or the old single file."""
+    if not (root / FRAGMENTS).is_dir():
+        return LEGACY
+    from test_execution_registry import fragment_for  # noqa: PLC0415
+
+    areas = {fragment.name.removesuffix(".toml") for fragment in (root / FRAGMENTS).glob("*.toml")}
+    return f"{FRAGMENTS}/{fragment_for(path, areas)}"
 
 
 def merge_base(base_sha: str, root: Path = ROOT) -> str | None:
@@ -274,15 +285,21 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
     """Append an entry for each unregistered test a workflow already runs; return their paths.
     With `only`, consider just those repository-relative paths: the pre-commit hook passes the
     commit's own tests, so it never writes the base's unregistered ones into a pull request."""
-    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
-    registered = {entry.get("path") for entry in load_registry(manifest)}
+    registered = {entry.get("path") for entry in load_tree(root)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
     added = [path for path in discovered
              if path not in registered and (only is None or path in only) and workflow_running(path, workflows)]
-    if added:
+    if added and (root / FRAGMENTS).is_dir():
+        # Each entry goes in its area's fragment, at its sorted place.
+        fragments = Fragments(root)
+        for path in added:
+            fragments.put(path, f'[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"')
+        fragments.write()
+    elif added:
+        manifest = root / LEGACY
         text = manifest.read_text(encoding="utf-8")
         blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
         manifest.write_text(text.rstrip("\n") + "\n" + blocks, encoding="utf-8")
@@ -324,13 +341,7 @@ def base_duplicated_paths(base_sha: str, root: Path = ROOT) -> set[str]:
     this branch's failure. `tests/test_sync_test_wiring.py` reached main this
     way through #13738 and #13739.
     """
-    point = comparison_point(base_sha, root)
-    text = subprocess.check_output(
-        ["git", "show", f"{point}:tests/test-execution.toml"],
-        cwd=root,
-        text=True,
-    )
-    return duplicated_paths(parse_registry(text, f"{point}:tests/test-execution.toml"))
+    return duplicated_paths(load_tree_at(root, comparison_point(base_sha, root)))
 
 
 def validate(
@@ -340,13 +351,13 @@ def validate(
     base_duplicates: set[str] | None = None,
 ) -> tuple[list[str], list[str], Counter[str]]:
     """Return (hard errors, warnings, lane counts) for the registry under `root`."""
-    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
 
     errors: list[str] = []
-    warnings: list[str] = []
+    # Where an entry sits never changes what runs, so a misplaced or unsorted one only warns.
+    warnings: list[str] = layout_findings(root)
 
-    entries = load_registry(manifest)
+    entries = load_tree(root)
 
     discovered = {
         path.relative_to(root).as_posix()
@@ -400,7 +411,7 @@ def validate(
             warnings.append(
                 f"{path}: registered more than once. The duplicate is already on the base "
                 "branch, so this is a warning and does not fail the build. Delete one of "
-                "its [[test]] blocks in tests/test-execution.toml."
+                "its [[test]] blocks in the registry (tests/test-execution.d/)."
             )
         else:
             errors.append(f"{path}: registered more than once")
@@ -518,7 +529,7 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     """
     exempt, errors = pr_lane_exemptions(root)
     text, lanes = pr_lane_tests(root, branch)
-    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_registry(root / "tests" / "test-execution.toml")}
+    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_tree(root)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
@@ -559,7 +570,9 @@ def base_tree_findings(root: Path, base_sha: str, judge) -> set[str]:
             except TypeError:  # Python without extraction filters
                 tar.extractall(directory)  # noqa: S202 - our own repository's archive
         base = Path(directory)
-        if not (base / "tests" / "test-execution.toml").is_file():
+        try:
+            registry_sources(base)
+        except OSError:
             return set()
         return set(judge(base))
 
@@ -678,7 +691,7 @@ def report_warnings(warnings: list[str]) -> None:
             "",
             "These do not fail this run: they were already so on the base, or this is a push "
             "(--warn-only). "
-            "Register unregistered tests in `tests/test-execution.toml`; route or exempt "
+            "Register unregistered tests in `tests/test-execution.d/` (--write); route or exempt "
             "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
         ]
