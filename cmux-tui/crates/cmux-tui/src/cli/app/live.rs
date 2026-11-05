@@ -104,7 +104,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                 passthrough.extend([flag.to_owned(), value]);
             }
             "--gpu" if inline.is_none() && verb == Some("start") => {
-                passthrough.push(flag.to_owned())
+                passthrough.push(flag.to_owned());
             }
             "--build-host" if verb == Some("start") => build_host = Some(value()?),
             "--session" if verb == Some("start") => session = Some(value()?),
