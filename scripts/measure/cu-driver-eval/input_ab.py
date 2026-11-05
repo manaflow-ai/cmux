@@ -276,6 +276,7 @@ class Run:
         self.app = str(self.bin / "cu-eval-app")
         self.procs: list[subprocess.Popen] = []
         self.errors: list[str] = []
+        self.obstruction: dict | None = None
         self.trials = open(self.out / "trials.jsonl", "w")
 
     def launch(self, argv: list[str], name: str) -> subprocess.Popen:
@@ -365,6 +366,10 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
                                     "amount": SCROLL_LINES})
     except Exception as error:
         row["error"] = str(error)[:1200]
+        # A driver that refuses because a window is in front: keep what was on screen, once a run.
+        if "in front" in row["error"] and run.obstruction is None:
+            run.obstruction = {"arm": arm, "target": target["name"], "error": row["error"],
+                               "windows": sh([run.inject, "windows"]).get("windows")}
     row["call_ms"] = round((time.monotonic() - started) * 1000, 1)
     time.sleep(AFTER_S)
     after = sh([run.inject, "observe"])
@@ -518,8 +523,11 @@ def main() -> int:
                     width = (facts.get("window_bounds") or {}).get("width")
                     if facts.get("screenshot_width") and width:
                         target["pixels_per_point"][arm] = facts["screenshot_width"] / width
-                    else:
-                        run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale")
+                    else:  # its own words for the missing image, when it gave any
+                        why = {k: v for k, v in facts.items() if isinstance(v, (str, bool, int, float))
+                               and any(w in k for w in ("screenshot", "capture", "error", "permission", "warning"))}
+                        run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale "
+                                          f"{json.dumps(why)[:600]}")
                 except Exception as error:
                     run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:1200]}")
             for rep in range(args.reps):
@@ -553,6 +561,7 @@ def main() -> int:
     result["rows"] = aggregate(all_trials)
     result["wins"] = wins(result["rows"], result["arms"], names)
     result["errors"] = run.errors
+    result["obstruction"] = run.obstruction
     (out / "input-ab.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     # Exit 4 when no trial got past setup: rows of setup failures alone are not a measurement.
     measured = any("setup_failed" not in t and "unsupported" not in t for t in all_trials)
