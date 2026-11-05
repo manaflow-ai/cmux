@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextDaemonService
 import CmuxNextServer
 import Foundation
 
@@ -25,7 +26,15 @@ extension PairInviteCardPanel {
         let approver = ServerModel(source: pairing)
         approver.start()
         let model = PairInviteModel(
-            service: .app(pairing: pairing, apiBaseURL: feed.apiBaseURL), approver: approver,
+            service: .cloud(
+                team: { try await pairing.workerTeam()?.id },
+                call: { try CloudPairingSource.okValue(try await pairing.call($0, $1)) },
+                texts: .init(
+                    failed: { RefusalStrings.format("refusal.server.inviteFailed", "Could not make a pairing code: %@", $0) },
+                    unreachable: RefusalStrings.text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again."),
+                    notMade: RefusalStrings.text("refusal.server.inviteNotMade", "cmux could not make a pairing code. Try again.")),
+                apiBaseURL: feed.apiBaseURL),
+            approver: approver,
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) })
         let card = PairInviteCardPanel(model: model)
@@ -35,11 +44,3 @@ extension PairInviteCardPanel {
     }
 }
 
-/// The invite card's approver needs no local server status: preview and approve go to the cloud
-/// (``CloudPairingSource``), so its inner source answers nothing.
-@MainActor
-private final class NoLocalServerSource: ServerSource {
-    func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {}
-    func send(_ intent: ServerIntent) {}
-    func stop() {}
-}
