@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension PairingCode {
     /// Invite code rules (the reverse of server pairing: a signed-in Mac shows the code and the new

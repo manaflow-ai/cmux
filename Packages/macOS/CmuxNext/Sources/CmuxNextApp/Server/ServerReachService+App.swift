@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHostedChief
 import CmuxNextRemote
+import CmuxNextServer
 import Foundation
 
 extension ServerReachService {
