@@ -159,14 +159,21 @@ def terminal_of(workspace_name):
 def seed_empty_workspaces(count):
     """Fill the requested topology with empty workspaces so large runs do not exhaust PTYs."""
     if count <= 0:
-        return 0
+        return {"requested": 0, "created": 0, "failures": []}
     # The probe adds one focused typing workspace and, unless disabled, one browser workspace.
     # Active agent workspaces are bounded by --agents; only the remainder needs empty rows.
     fixed = 1 + (0 if opts.no_browser else 1)
     empty = max(0, count - opts.agents - fixed)
+    failures = []
+    created = 0
     for index in range(empty):
-        cli("workspace", "create", "--name", f"scale empty {index}", "--empty")
-    return empty
+        done = cli("workspace", "create", "--name", f"scale empty {index}", "--empty")
+        if done.returncode == 0:
+            created += 1
+        else:
+            failures.append({"index": index, "returncode": done.returncode,
+                             "stderr": (done.stderr or "")[-300:]})
+    return {"requested": empty, "created": created, "failures": failures}
 
 
 # ---------------------------------------------------------------- load
@@ -373,7 +380,8 @@ def main():
     pid = APP.process.pid
     summary = {}
     try:
-        results["seeded_empty_workspaces"] = seed_empty_workspaces(opts.workspace_count)
+        seeded = seed_empty_workspaces(opts.workspace_count)
+        results["seeded_empty_workspaces"] = seeded
         names = [f"agent {i:02d}" for i in range(opts.agents)]
         for name in names:
             cli("workspace", "create", "--name", name, "--shell", "exec cat")
@@ -398,6 +406,15 @@ def main():
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
         typing = terminal_of("typing")
         results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
+        actual_workspaces = len(topology().get("workspaces") or [])
+        results["setup"]["workspace_count"] = actual_workspaces
+        if seeded["failures"] or (opts.workspace_count and actual_workspaces != opts.workspace_count):
+            results["invalid"] = {
+                "requested_workspace_count": opts.workspace_count,
+                "actual_workspace_count": actual_workspaces,
+                "seed_failures": seeded["failures"],
+            }
+            return 2
         for layout in LAYOUTS:
             if layout == "stress":
                 session = STRESS.Stress(rpc, log=note).build()
