@@ -100,7 +100,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     label = select(node, {"github.repository_owner": "manaflow-ai",
                                           "github.run_attempt": attempt,
                                           "github.ref": "refs/heads/main",
-                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured,
+                                          # One-mini mode off (tests/test_classic_nightly_one_mini.py).
+                                          "vars.CI_CLASSIC_NIGHTLY_MINI": ""})
                     self.assertTrue(label.startswith("glaeda-nightly-"), label)
                     self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
                                      else "glaeda-nightly-std-xcode-26.6")
@@ -111,7 +113,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 with self.subTest(ref=ref, event=event):
                     self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
                                                   "github.ref": ref, "github.event_name": event,
-                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}),
+                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "",
+                                                  "vars.CI_CLASSIC_NIGHTLY_MINI": ""}),
                                      "blacksmith-2vcpu-ubuntu-2404")
         # NEXT's push bootstrap uses the owned nightly control runner only on
         # its first attempt; retries keep the paid fallback route.
@@ -122,7 +125,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                           "github.run_attempt": attempt,
                                           "github.ref": "refs/heads/nightly-next",
                                           "github.event_name": "push",
-                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured,
+                                          # One-mini mode off (tests/test_classic_nightly_one_mini.py).
+                                          "vars.CI_CLASSIC_NIGHTLY_MINI": ""})
                     if attempt == "1":
                         self.assertTrue(label.startswith("glaeda-nightly-"), label)
                         self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")

@@ -306,6 +306,7 @@
 		2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */; };
 		A5F100000000000000000011 /* AppDelegate+NotificationOpen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000012 /* AppDelegate+NotificationOpen.swift */; };
 		A5F100000000000000000003 /* AppDelegate+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000004 /* AppDelegate+NotificationScroll.swift */; };
+		1C94111DE31940F41FB6F5E8 /* AppDelegate+NotificationsPopoverDigits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */; };
 		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
 		71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */; };
 		EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */; };
@@ -643,6 +644,7 @@
 		C41EF3684F6AEFB1FBCE143A /* ChiefControlRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */; };
 		D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */; };
 		C41EF9F9E5F927F28B6946A5 /* ChiefConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */; };
+		E0C2D88C793FF69C01AFE7AD /* ChiefDisabledHomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */; };
 		B5EDBC73F930461BB073BBEB /* ChiefDispatchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */; };
 		BB4B1E8F6FBC43FDBBD8A4BD /* ChiefDispatchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */; };
 		C41EFE522A9F79BCD582CCDE /* ChiefEngineSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */; };
@@ -2855,6 +2857,7 @@
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
+		922B7EE80D3411E502366C28 /* NotificationPopoverRowLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */; };
 		D78970000000000000000005 /* NotificationReplayRestoreContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78970000000000000000006 /* NotificationReplayRestoreContext.swift */; };
 		C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */; };
 		D79010000000000000000003 /* NotificationScrollRecordingSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */; };
@@ -2880,9 +2883,11 @@
 		B7F101000000000000000001 /* NotificationSoundStager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101000000000000000002 /* NotificationSoundStager.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		733B576F46794C01A2195B9A /* NotificationsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB29060C585943CD96C77929 /* NotificationsPanel.swift */; };
+		3D755E837D4C1800D86B13AF /* NotificationsPopoverDrawnRowsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */; };
 		D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000010 /* NotificationsPopoverMetrics.swift */; };
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
+		5F7B445DE18A4BFC87827684 /* NotificationsPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */; };
 		2C9949001245BCD676E5ACA6 /* NotificationSuppressWhenAppFocusedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */; };
 		CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */; };
 		F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */; };
@@ -3221,6 +3226,7 @@
 		7020C0DE7020C0DE7020B002 /* RemoteTmuxSSHTransport+InteractiveRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7020C0DE7020C0DE7020B001 /* RemoteTmuxSSHTransport+InteractiveRetry.swift */; };
 		7368BEEF7368BEEF7368B004 /* RemoteTmuxSSHTransport+MissingTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7368BEEF7368BEEF7368B003 /* RemoteTmuxSSHTransport+MissingTmux.swift */; };
 		6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */; };
+		6C9D4527F1AB28A02FA1B2B9 /* RemoteTmuxTabOrderFollowsTmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7799EB5BD69203749106FE2 /* RemoteTmuxTabOrderFollowsTmuxTests.swift */; };
 		0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */; };
 		0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */; };
 		0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */; };
@@ -5189,6 +5195,7 @@
 		2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationNavSeams.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000012 /* AppDelegate+NotificationOpen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationOpen.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000004 /* AppDelegate+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationScroll.swift"; sourceTree = "<group>"; };
+		067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationsPopoverDigits.swift"; sourceTree = "<group>"; };
 		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
 		B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneNumberShortcut.swift"; sourceTree = "<group>"; };
 		02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ProductAnalytics.swift"; sourceTree = "<group>"; };
@@ -5517,6 +5524,7 @@
 		C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefControlRequest.swift; sourceTree = "<group>"; };
 		293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefControlRequestTests.swift"; sourceTree = "<group>"; };
 		C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefConversationListView.swift; sourceTree = "<group>"; };
+		4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefDisabledHomeTests.swift"; sourceTree = "<group>"; };
 		2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefDispatchPlan.swift; sourceTree = "<group>"; };
 		C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefEngineSettings.swift; sourceTree = "<group>"; };
 		C41EFACFA450D15C2AD8EF63 /* ChiefFirstRunAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunAgents.swift; sourceTree = "<group>"; };
@@ -7549,6 +7557,7 @@
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
+		2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationPopoverRowLayoutTests.swift"; sourceTree = "<group>"; };
 		D78970000000000000000006 /* NotificationReplayRestoreContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationReplayRestoreContext.swift; sourceTree = "<group>"; };
 		C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRecordingSurfaceView.swift; sourceTree = "<group>"; };
@@ -7574,9 +7583,11 @@
 		B7F101000000000000000002 /* NotificationSoundStager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundStager.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		CB29060C585943CD96C77929 /* NotificationsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NotificationsPanel.swift; sourceTree = "<group>"; };
+		C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationsPopoverDrawnRowsTests.swift"; sourceTree = "<group>"; };
 		D77690000000000000000010 /* NotificationsPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverMetrics.swift; sourceTree = "<group>"; };
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
+		17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverView.swift; sourceTree = "<group>"; };
 		5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSuppressWhenAppFocusedTests.swift"; sourceTree = "<group>"; };
 		21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImageView+SidebarWorkspaceAccessory.swift"; sourceTree = "<group>"; };
 		F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewLayout.swift"; sourceTree = "<group>"; };
@@ -7906,6 +7917,7 @@
 		7020C0DE7020C0DE7020B001 /* RemoteTmuxSSHTransport+InteractiveRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxSSHTransport+InteractiveRetry.swift"; sourceTree = "<group>"; };
 		7368BEEF7368BEEF7368B003 /* RemoteTmuxSSHTransport+MissingTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxSSHTransport+MissingTmux.swift"; sourceTree = "<group>"; };
 		E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSSHTransport.swift; sourceTree = "<group>"; };
+		A7799EB5BD69203749106FE2 /* RemoteTmuxTabOrderFollowsTmuxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxTabOrderFollowsTmuxTests.swift"; sourceTree = "<group>"; };
 		0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxTransportRegistry.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersion.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersionTests.swift; sourceTree = "<group>"; };
@@ -12698,6 +12710,8 @@
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				B2FF2F6E11F05734767598A8 /* RemoteTmuxControlConnection+AgentHookInstall.swift */,
 				5473FB079C3601789D911B83 /* RemoteTmuxControlConnection+ReconnectAttemptWatch.swift */,
+				17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */,
+				067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14350,6 +14364,10 @@
 				7D2D166BB4CB7D744E17F544 /* RemoteTmuxViewWindowMarkTests.swift */,
 				4EC0D87215B4750ADF6087E8 /* RemoteTmuxControlPipeWriterTests.swift */,
 				4B01E15772100D1C65D63B85 /* RemoteTmuxReconnectAttemptStallTests.swift */,
+				A7799EB5BD69203749106FE2 /* RemoteTmuxTabOrderFollowsTmuxTests.swift */,
+				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
+				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
+				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15415,6 +15433,7 @@
 				2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */,
 				A5F100000000000000000011 /* AppDelegate+NotificationOpen.swift in Sources */,
 				A5F100000000000000000003 /* AppDelegate+NotificationScroll.swift in Sources */,
+				1C94111DE31940F41FB6F5E8 /* AppDelegate+NotificationsPopoverDigits.swift in Sources */,
 				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
 				71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */,
 				EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */,
@@ -16680,6 +16699,7 @@
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
+				5F7B445DE18A4BFC87827684 /* NotificationsPopoverView.swift in Sources */,
 				CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */,
 				F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */,
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,
@@ -18557,6 +18577,7 @@
 				852600010000000000000002 /* CanvasPaneContentMountTests.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */,
+				E0C2D88C793FF69C01AFE7AD /* ChiefDisabledHomeTests.swift in Sources */,
 				F3CF0E3AB3D16A241EF1C013 /* ChiefHomeNavigationFocusTests.swift in Sources */,
 				F6174997FACCB1C84EDEAC1C /* ChiefListAndSettingsCopyTests.swift in Sources */,
 				19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */,
@@ -19225,6 +19246,7 @@
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */,
+				922B7EE80D3411E502366C28 /* NotificationPopoverRowLayoutTests.swift in Sources */,
 				C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */,
 				D79010000000000000000003 /* NotificationScrollRecordingSurfaceView.swift in Sources */,
 				C7A507000000000000005796 /* NotificationScrollRestoreLifecycleTests.swift in Sources */,
@@ -19232,6 +19254,7 @@
 				C79010000000000000000003 /* NotificationScrollRestoreRowSpaceTests.swift in Sources */,
 				C79010000000000000000005 /* NotificationScrollRestoreTestSupport.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
+				3D755E837D4C1800D86B13AF /* NotificationsPopoverDrawnRowsTests.swift in Sources */,
 				2C9949001245BCD676E5ACA6 /* NotificationSuppressWhenAppFocusedTests.swift in Sources */,
 				645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */,
 				0A1107110000000000000001 /* OllamaAgentDetectionTests.swift in Sources */,
@@ -19358,6 +19381,7 @@
 				3AC9AB9046E742B93726A501 /* RemoteTmuxSessionRenameTitleTests.swift in Sources */,
 				9A5CF3AA2E6462E77144F9E6 /* RemoteTmuxSessionSnapshotTests.swift in Sources */,
 				BCDF8EB16135AB24D023889D /* RemoteTmuxSocketErrorTextTests.swift in Sources */,
+				6C9D4527F1AB28A02FA1B2B9 /* RemoteTmuxTabOrderFollowsTmuxTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */,
 				9EA7A34350C84A850797313A /* RemoteTmuxViewUnlinkedWindowTests.swift in Sources */,
 				3E04A276163216FDE369939B /* RemoteTmuxViewWindowMarkTests.swift in Sources */,
