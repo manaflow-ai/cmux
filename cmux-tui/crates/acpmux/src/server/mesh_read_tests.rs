@@ -26,9 +26,14 @@ fn machine_b() -> Arc<Hub> {
 
 /// A local client of machine B, to make its session and run a turn.
 async fn call(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
+    call_as(hub, Origin::Local, m, params).await
+}
+
+/// [`call`] from `origin`: the app's pane is `Origin::LocalApp`.
+async fn call_as(hub: &Arc<Hub>, origin: Origin, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut rx) = mpsc::channel(4096);
-    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     tx.send(crate::rpc::Message::request(1, m, params).to_line()).await.unwrap();
     loop {
         let line = tokio::time::timeout(Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
@@ -260,9 +265,10 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
     };
     a.set_mesh_book(hosts, vec![row]);
 
-    // As the pane sends it: the listed row's bare id.
-    let sent = call(
+    // As the pane sends it, over the app's own connection: the listed row's bare id.
+    let sent = call_as(
         &a,
+        Origin::LocalApp,
         method::SESSION_PROMPT,
         json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello from a"}]}),
     )
