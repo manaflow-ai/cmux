@@ -7,8 +7,7 @@ import CmuxNextServer
 /// machine's last check and the section's layout tunable, opens a workspace on a machine through
 /// `workspace.newOnMachine` and Add Device through `device.add`. It also lists the person's machines
 /// that joined through the hub (`cmux machine list`), read when the section is made and each
-/// time it shows, with Check, Rotate and Revoke; while on screen its online rows age past the hub's
-/// 90 s heartbeat window (``MachineSectionView/followAging(_:)``).
+/// time it shows, with Check, Rotate and Revoke; on screen, its online rows age (``MachineSectionView/followAging(_:)``).
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let section: MachineSectionView
     private let machines: MachineRegistry
