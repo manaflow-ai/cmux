@@ -520,7 +520,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the resumable import jobs. Pure model, no UI.
         .target(
             name: "CmuxNextImportSuggestions",
-            dependencies: ["CmuxNextBrowserImport"],
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat"],
             resources: [
                 .process("Resources"),
             ],
@@ -537,7 +537,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
-                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar"],
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
