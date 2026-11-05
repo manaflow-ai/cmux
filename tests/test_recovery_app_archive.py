@@ -14,6 +14,7 @@ reproduces on any Mac; on Linux, GNU tar writes no AppleDouble member and the ca
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / "scripts/ci/stage-outer-notarization-recovery.py"
 RESOLVE = ROOT / "scripts/ci/resolve-notarization-recovery.py"
+# nightly.yml's "Prepare pending notarization recovery artifact" and the outer stage both archive through it.
+ARCHIVE = ROOT / "scripts/ci/archive-recovery-app.sh"
 HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -48,6 +51,29 @@ def sha256(path: Path) -> str:
 
 
 class RecoveryAppArchiveTests(unittest.TestCase):
+    def test_nightly_archive_holds_only_the_app_and_extracts(self) -> None:
+        spec = importlib.util.spec_from_file_location("resolve_recovery", RESOLVE)
+        resolver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(resolver)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = make_app(root / "build/Build/Products/Release")
+            archive = root / "cmux-nightly-notarization-recovery-app.tar.gz"
+            archive.write_text("stale", encoding="utf-8")
+            subprocess.run(["bash", str(ARCHIVE), str(app), str(archive)], check=True, capture_output=True, text=True)
+            with tarfile.open(archive, "r:gz") as tar:
+                names = sorted(tar.getnames())
+            self.assertEqual(names, ["cmux NIGHTLY.app", "cmux NIGHTLY.app/Contents", "cmux NIGHTLY.app/Contents/MacOS",
+                                     "cmux NIGHTLY.app/Contents/MacOS/cmux"])
+            out = root / "out"
+            resolver.extract_app_archive(out, archive, "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app")
+            self.assertEqual((out / "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app/Contents/MacOS/cmux")
+                             .read_text(encoding="utf-8"), "signed-app-fixture\n")
+            not_app = root / "plain"
+            not_app.mkdir()
+            refused = subprocess.run(["bash", str(ARCHIVE), str(not_app), str(archive)], capture_output=True, text=True)
+            self.assertNotEqual(refused.returncode, 0)
+
     def test_staged_outer_archive_extracts_strictly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
