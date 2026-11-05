@@ -419,7 +419,7 @@ final class AgentTabStore {
     func tabKey(_ key: String, machine: String? = nil) -> AgentTabKey {
         if let machine { return AgentTabKey(machine: machine, key: resolve(key, machine: machine)) }
         var candidates = Set(views.entries.map { $0.key } + sessions.entries.map { $0.key } + tabStores.entries.map { $0.key })
-            .filter { $0.key == key || $0.key == aliases[AgentTabKey(machine: $0.machine, key: key)] }
+            .filter { $0.key == key || $0.key == aliases[AgentTabKey(machine: $0.machine, key: key)] }; if candidates.count == 1, let only = candidates.first { return only }; guard candidates.isEmpty else { return AgentTabKey(machine: "", key: resolve(key)) }
         candidates.formUnion(listTabsScoped().filter { tab in
             tab.key == key || resolve(tab.key, machine: tab.machine) == key
         }.map { AgentTabKey(machine: $0.machine, key: $0.key) })

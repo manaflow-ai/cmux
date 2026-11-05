@@ -23,7 +23,10 @@ public final class NewTabPageIDs {
         for key in encoded { pages[key] = true }
     }
 
-    public func contains(_ key: String) -> Bool { pages[key] == true }
+    public func contains(_ key: String) -> Bool {
+        let matches = pages.keys.filter { Self.key($0) == key }
+        return matches.count == 1 && pages[matches[0]] == true
+    }
 
     public func contains(_ key: String, machine: String?) -> Bool {
         guard let machine else { return contains(key) }

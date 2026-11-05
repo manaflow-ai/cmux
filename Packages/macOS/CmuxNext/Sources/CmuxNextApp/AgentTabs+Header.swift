@@ -150,7 +150,7 @@ extension AgentTabStore {
     @discardableResult
     func openBeside(_ provisional: String, machine: String? = nil, in paneKey: String? = nil, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: AgentTabOpen, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         let scoped = tabKey(provisional, machine: machine)
-        if split, let main, let placed = openInMainPaneScoped(resolvedKey(scoped), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
+        if split, let main, let placed = openInMainPaneScoped(resolvedKey(AgentTabKey(machine: scoped.machine, key: main)), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
         let located = if let paneKey { locatePaneScoped(resolvedKey(scoped), paneKey) } else { locateScoped(resolvedKey(scoped)) }
         guard let (pane, daemon) = located else { return false }
         let inSplit = split ? SplitDirection(splitFirst: direction, served: daemon.supports(DaemonCapability.conversationTabSplit.rawValue)) : nil
