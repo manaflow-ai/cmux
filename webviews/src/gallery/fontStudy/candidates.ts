@@ -27,6 +27,9 @@ import publicSans from "./fonts/public-sans.woff2";
 import recursive from "./fonts/recursive.woff2";
 import schibsted from "./fonts/schibsted-grotesk.woff2";
 import sourceSerif from "./fonts/source-serif-4.woff2";
+import cmuxSansA from "./fonts/cmux-sans-a.woff2";
+import cmuxSansB from "./fonts/cmux-sans-b.woff2";
+import cmuxSansC from "./fonts/cmux-sans-c.woff2";
 import geist from "../../agent-session/acpmux/chatFonts/Geist-latin-wght.woff2";
 import plexSans from "../../agent-session/acpmux/chatFonts/IBMPlexSans-latin-wght.woff2";
 import roboto from "../../agent-session/acpmux/chatFonts/Roboto-latin-wght.woff2";
@@ -38,6 +41,9 @@ const variable = (family: string, url: string): Face => ({ family, files: [{ url
 
 export const FACES = {
   atkinson: variable("Study Atkinson Hyperlegible Next", atkinson),
+  cmuxSansA: variable("Study cmux Sans A", cmuxSansA),
+  cmuxSansB: variable("Study cmux Sans B", cmuxSansB),
+  cmuxSansC: variable("Study cmux Sans C", cmuxSansC),
   bricolage: variable("Study Bricolage Grotesque", bricolage),
   dmSans: variable("Study DM Sans", dmSans),
   figtree: variable("Study Figtree", figtree),
@@ -88,7 +94,13 @@ export interface Pairing {
   prose?: FaceKey;
   mono?: FaceKey;
   proseSize?: number;
+  /// Letter-spacing per type-scale step in em (caption 11 px … heading 20 px), else 0 at every step.
+  tracking?: Readonly<Record<"caption" | "detail" | "body" | "field" | "title" | "heading", number>>;
 }
+
+/// cmux Sans's tracking table: open at caption and detail, where Source Sans 3's tight fit clots once the
+/// x-height is raised; zero at body; tighter as the size grows to titles and headings.
+const CMUX_SANS_TRACKING = { caption: 0.012, detail: 0.006, body: 0, field: -0.004, title: -0.008, heading: -0.016 };
 
 export const PAIRINGS: readonly Pairing[] = [
   { id: "inter-tuned", label: "cmux Inter (today)", why: "Today's default, the baseline.", ui: "inter-tuned" },
@@ -165,6 +177,27 @@ export const PAIRINGS: readonly Pairing[] = [
   },
   { id: "plex-sans", label: "IBM Plex Sans", why: "Engineered grotesque with humanist details.", ui: "plexSans" },
   { id: "source-sans", label: "Source Sans 3", why: "Adobe's humanist sans: calm and compact.", ui: "sourceSans" },
+  {
+    id: "cmux-sans-a",
+    label: "cmux Sans A (+1 px optical size)",
+    why: "Source Sans 3, every outline 8 % larger at the same em: 12 px draws as Source at 13 px.",
+    ui: "cmuxSansA",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-b",
+    label: "cmux Sans B (+½ px, x-height +5 %)",
+    why: "Source Sans 3, 4 % larger and its lowercase 5 % taller, ascenders unchanged.",
+    ui: "cmuxSansB",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-c",
+    label: "cmux Sans C (x-height +8 %)",
+    why: "Source Sans 3 at its own size, its lowercase 8 % taller: Inter's legibility at Source's width.",
+    ui: "cmuxSansC",
+    tracking: CMUX_SANS_TRACKING,
+  },
   { id: "fira-sans", label: "Fira Sans", why: "Mozilla's humanist sans, Meta's lineage.", ui: "fira" },
   { id: "figtree", label: "Figtree", why: "Friendly geometric with a large x-height.", ui: "figtree" },
   { id: "dm-sans", label: "DM Sans", why: "Low-contrast geometric.", ui: "dmSans" },

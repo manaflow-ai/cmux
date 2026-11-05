@@ -28,7 +28,7 @@ export async function applyFontStudy(id: string, doc: Document = document): Prom
   const rules: string[] = [];
   if (pairing.ui !== "inter-tuned") {
     rules.push(`--font-ui: ${stack(pairing.ui)};`, "--cv-tracking: 0px;");
-    for (const step of STEPS) rules.push(`--text-${step}--letter-spacing: 0em;`);
+    for (const step of STEPS) rules.push(`--text-${step}--letter-spacing: ${pairing.tracking?.[step] ?? 0}em;`);
   }
   if (pairing.prose) rules.push(`--cv-font: ${stack(pairing.prose)};`);
   if (pairing.proseSize)
