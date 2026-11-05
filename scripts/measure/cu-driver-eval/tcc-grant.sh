@@ -57,7 +57,26 @@ for path in "$@"; do
   done
   echo "tcc-grant.sh: granted ${clients[*]} (csreq ${csreq:0:4})"
 done
-sudo -n launchctl kickstart -k system/com.apple.tccd >/dev/null 2>&1 || true
+# The system tccd must restart to read the new rows: one that kept running answered a run's checks
+# from its old state ("Query for current DB state returns error: 1") and denied every grant. So
+# restart it until its pid changes, and say so.
+tccd_pid() { sudo -n launchctl print "$1" 2>/dev/null | awk '$1 == "pid" {print $3; exit}'; }
+before=$(tccd_pid system/com.apple.tccd)
+after=$before
+for attempt in 1 2 3; do
+  if (( attempt < 3 )); then
+    sudo -n launchctl kickstart -k system/com.apple.tccd >/dev/null 2>&1 || true
+  else
+    sudo -n launchctl kill SIGKILL system/com.apple.tccd >/dev/null 2>&1 || true
+  fi
+  for _ in $(seq 1 20); do
+    sleep 0.5
+    after=$(tccd_pid system/com.apple.tccd)
+    [[ -n "$after" && "$after" != "$before" ]] && break 2
+  done
+done
+echo "tcc-grant.sh: system tccd pid ${before:-none} -> ${after:-none}"
+[[ -n "$after" && "$after" != "$before" ]] || { echo "tcc-grant.sh: the system tccd did not restart" >&2; status=1; }
 # The user's tccd may hold an earlier answer; from inside the login session this restarts it too.
 launchctl kickstart -k "gui/$(id -u)/com.apple.tccd" >/dev/null 2>&1 || true
 sleep 2 # tccd answers once it has reread the databases
