@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
 import Testing
@@ -15,14 +16,14 @@ import Testing
         let rows = view.stack.arrangedSubviews
         let header = rows.firstIndex { $0 === view.computerHeader }
         let section = rows.firstIndex { $0 === view.computer }
-        let agent = rows.firstIndex { ($0 as? NSTextField)?.stringValue == HomeEngineStrings.agentSection }
+        let agent = rows.firstIndex { ($0 as? ChromeLabel)?.stringValue == HomeEngineStrings.agentSection }
         #expect(header != nil && section == header.map { $0 + 1 })
         #expect(section.flatMap { s in agent.map { s < $0 } } == true, "the computer comes before the Agent settings")
         #expect(view.computerHeader.isHidden && view.computer.isHidden, "nothing shows before the first read")
         view.computer.open()
         await until { view.computer.shown != nil }
         #expect(!view.computerHeader.isHidden)
-        #expect((view.computerHeader as? NSTextField)?.stringValue == HomeEngineStrings.computerSection)
+        #expect((view.computerHeader as? ChromeLabel)?.stringValue == HomeEngineStrings.computerSection)
         view.cardClosed()
         #expect(!view.computer.isOpen, "closing the card stops the reads")
         #expect(statuses >= 1)
