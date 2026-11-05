@@ -35,15 +35,14 @@ export const FIRST_SESSION_WORKLOADS: Record<string, string> = {
   "uv-install": `rm -rf /tmp/fs-uv && mkdir -p /tmp/fs-uv && cd /tmp/fs-uv && uv venv -q && uv pip install -q ${PY_DEPS.join(" ")}`,
 };
 
-/** The bake step under test: every workload once, then the project dirs go and only the package caches stay. */
-export function prewarmCommand(): string {
-  return [
-    ...Object.values(FIRST_SESSION_WORKLOADS).map(asUser),
-    "rm -rf /tmp/fs-npm /tmp/fs-bun /tmp/fs-pnpm /tmp/fs-uv",
-    `du -sb ${DEVBOX_WORK_HOME}/.npm ${DEVBOX_WORK_HOME}/.bun/install/cache ${DEVBOX_WORK_HOME}/.local/share/pnpm ${DEVBOX_WORK_HOME}/.cache/uv ${DEVBOX_WORK_HOME}/.cache/node/corepack 2>/dev/null`,
-    "sync && echo 3 > /proc/sys/vm/drop_caches",
-  ].join(" && ");
-}
+/** The bake step under test: every workload once, each its own exec (the provider caps one at 300 s). */
+export const PREWARM_STEPS: readonly string[] = [
+  ...Object.values(FIRST_SESSION_WORKLOADS).map(asUser),
+  // Only the package caches stay; the project dirs were the vehicle.
+  "rm -rf /tmp/fs-npm /tmp/fs-bun /tmp/fs-pnpm /tmp/fs-uv",
+  `du -sb ${DEVBOX_WORK_HOME}/.npm ${DEVBOX_WORK_HOME}/.bun/install/cache ${DEVBOX_WORK_HOME}/.local/share/pnpm ${DEVBOX_WORK_HOME}/.cache/uv ${DEVBOX_WORK_HOME}/.cache/node/corepack 2>/dev/null; true`,
+  "sync && echo 3 > /proc/sys/vm/drop_caches",
+];
 
 type Side = { vmId: string; firstExecMs: number; workloadsMs: Record<string, number>; failed: Record<string, string> };
 
@@ -82,9 +81,13 @@ export async function main(argv = process.argv): Promise<number> {
       timeWorkloads(cold.vm),
       (async () => {
         const t = Date.now();
-        const r = await run(seed.vm, prewarmCommand(), 290_000 * 3);
-        if (r.code !== 0) throw new Error(`prewarm failed: ${(r.stderr || r.stdout).slice(-600)}`);
-        return { ms: Date.now() - t, sizes: r.stdout.trim().split("\n").slice(-5) };
+        let out = "";
+        for (const step of PREWARM_STEPS) {
+          const r = await run(seed.vm, step, 290_000);
+          if (r.code !== 0) throw new Error(`prewarm failed: ${(r.stderr || r.stdout).slice(-600)}`);
+          out = r.stdout;
+        }
+        return { ms: Date.now() - t, sizes: out.trim().split("\n").slice(-5) };
       })(),
     ]);
     report.cold = { vmId: cold.vmId, firstExecMs: cold.firstExecMs, ...coldTimes } satisfies Side;

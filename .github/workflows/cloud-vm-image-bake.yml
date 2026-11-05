@@ -424,7 +424,8 @@ jobs:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
           KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot' || '' }}
-          LAYERED: ${{ inputs.layered && inputs.mode == 'bake' && 'true' || '' }}
+          # The bake step ignores layered for a dev tree (always a full bake), so the GC does too.
+          LAYERED: ${{ inputs.layered && !inputs.dev_tree && inputs.mode == 'bake' && 'true' || '' }}
         run: |
           if [ -f "$OUT_DIR/resources.tsv" ]; then
             # shellcheck disable=SC2086
