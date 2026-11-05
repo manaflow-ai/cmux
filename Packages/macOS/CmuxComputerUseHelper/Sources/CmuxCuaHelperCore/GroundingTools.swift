@@ -92,7 +92,7 @@ public struct GroundingTools: ToolInvoking {
             fields: fields)
     }
 
-    static let descriptor: [String: Any] = [
+    static var descriptor: [String: Any] { [
         "name": toolName,
         "description": """
             Find an element by a short description (e.g. "the red Export button", "the brush size slider") and \
@@ -112,7 +112,7 @@ public struct GroundingTools: ToolInvoking {
             ],
         ],
         "annotations": ["readOnlyHint": true, "title": "Point at element"],
-    ]
+    ] }
 
     static func result(text: String, fields: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: [
