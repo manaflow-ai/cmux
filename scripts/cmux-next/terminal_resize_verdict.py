@@ -25,7 +25,7 @@ DRAG_LAYOUTS = ("light", "stress")
 # Layouts that time a split's resized terminals (``split_resize``).
 SPLIT_LAYOUTS = ("split-resize", "split-resize-stress")
 # Layouts that press Ctrl-Shift-L and Ctrl-Shift-H (``measure_keys``): every round resizes terminals and draws them.
-KEY_LAYOUTS = ("keys", "keys-stress")
+KEY_LAYOUTS = ("keys", "keys-stress", "keys-held", "keys-stress-held")
 
 
 def rebuilds(counters):
