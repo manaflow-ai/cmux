@@ -456,6 +456,7 @@ public final class SidebarModel {
         // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
         guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
         var patched: [SidebarWorkspace] = []
+        var previousPatches: [SidebarNeedsYou.RowPatch] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
             let paths = index.paths(of: row.id)
@@ -477,9 +478,13 @@ public final class SidebarModel {
                 writes.append((path, copy))
             }
             patched.append(row)
+            if onRowsPatchedWithPrevious != nil { previousPatches.append((before: old, after: row)) }
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
-        if !patched.isEmpty { onRowsPatched?(patched) }
+        if !patched.isEmpty {
+            onRowsPatched?(patched)
+            if !previousPatches.isEmpty { onRowsPatchedWithPrevious?(previousPatches) }
+        }
         return true
     }
 
