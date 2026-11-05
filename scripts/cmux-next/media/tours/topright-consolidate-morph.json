@@ -96,7 +96,7 @@
    "wait": 1
   },
   {
-   "title": "Morph expanded: the set slides out of the control, over the header",
+   "title": "Morph expanded: the control grows leftward into the set",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {

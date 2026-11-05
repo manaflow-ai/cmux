@@ -1,7 +1,7 @@
 // The chat header's top-right icons in the consolidated layouts (Debug Settings
 // `agentChat.topRight.consolidate`, topRightLayout.ts), in place of today's row while one is chosen:
 //
-// - Morph: one control. A click expands it into the set (Arc's and Safari's collapsed toolbars,
+// - Morph: one control. A click expands it in place, leftward, into the set (Arc's and Safari's collapsed toolbars,
 //   Xcode's inspector toggles); a pick closes the set and the icon you clicked becomes the control,
 //   lit, for as long as its pane is open, as it becomes that pane's tab. Its glyph flies from the
 //   picked spot into the control and on toward the right pane.
@@ -208,7 +208,14 @@ function MorphControl({
         trigger.current?.focus({ preventScroll: true });
       }}
     >
-      <div className="acpmux-topright-morph-set" role="toolbar" aria-label={label} aria-hidden={!open} inert={!open}>
+      <div
+        className="acpmux-topright-morph-set"
+        role="toolbar"
+        aria-label={label}
+        aria-hidden={!open}
+        inert={!open}
+        style={{ "--acpmux-topright-n": tools.length } as CSSProperties}
+      >
         {tools.map((tool, index) => (
           <ToolButton
             key={tool.id}
