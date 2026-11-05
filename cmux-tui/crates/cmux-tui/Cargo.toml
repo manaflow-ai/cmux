@@ -21,6 +21,9 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
 windows-thin-exe = []
+# Debug only: patch the running daemon in place under `dx serve --hot-patch`
+# (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
+hotpatch = ["cmux-tui-core/hotpatch"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that

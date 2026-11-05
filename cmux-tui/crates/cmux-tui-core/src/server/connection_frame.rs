@@ -178,7 +178,16 @@ pub(super) fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+    // Under `dx serve --hot-patch` every request runs the newest patched code.
+    #[cfg(feature = "hotpatch")]
+    let result = crate::hotpatch::call(
+        handle_command_with_cancellation,
+        (mux, client, cmd, writer, cancellation),
+    )
+    .and_then(|result| result);
+    #[cfg(not(feature = "hotpatch"))]
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let response = match result {
         Ok(data) => Response {
             id,
             ok: true,

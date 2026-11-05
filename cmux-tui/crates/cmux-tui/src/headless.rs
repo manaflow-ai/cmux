@@ -20,6 +20,9 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
