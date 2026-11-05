@@ -5,10 +5,12 @@ name: classic frozen guard
 # this check unless it carries the label `classic-migration`, which is Leo's to add. Adding or
 # removing a label re-runs it. scripts/ci/classic_frozen_guard.py decides, run from the base commit
 # with the base's manifest, never the pull request's code; the head is read only as a list of
-# changed paths. Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like
+# changed paths. It runs on pull_request_target, so this workflow file is the base's too: a pull
+# request cannot edit the check that judges it (this file, the script and the list are frozen
+# themselves). Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like
 # "classic, don't touch until we decide to do the migration"".
 on:
-  pull_request:
+  pull_request_target:
     branches: [main, feat-cmux-next]
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
 
@@ -22,7 +24,9 @@ jobs:
   classic-frozen:
     name: classic-frozen-guard
     # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
+    # never a persistent or contributor-controlled machine.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read

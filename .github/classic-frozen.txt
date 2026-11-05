@@ -46,3 +46,5 @@ workers/presence/src/generated/managedRelayCatalog.ts  main  generated from the 
 
 # The freeze itself: what is frozen is Leo's call, so changing this list needs the label too.
 .github/classic-frozen.txt                   all   the classic-frozen list
+.github/workflows/classic-frozen-guard.yml   all   the check that enforces the list
+scripts/ci/classic_frozen_guard.py           all   the check that enforces the list

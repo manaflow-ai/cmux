@@ -60,9 +60,11 @@ class ClassicFrozenGuardTests(unittest.TestCase):
             code, _ = guard.check(RULES, "main", [], [path])
             self.assertEqual(code, 1, path)
 
-    def test_the_manifest_freezes_itself(self) -> None:
-        code, _ = guard.check(RULES, "feat-cmux-next", [], [".github/classic-frozen.txt"])
-        self.assertEqual(code, 1)
+    def test_the_manifest_and_its_check_freeze_themselves(self) -> None:
+        for path in (".github/classic-frozen.txt", ".github/workflows/classic-frozen-guard.yml",
+                     "scripts/ci/classic_frozen_guard.py"):
+            code, _ = guard.check(RULES, "feat-cmux-next", [], [path])
+            self.assertEqual(code, 1, path)
 
     def test_short_listing_fails_without_the_label(self) -> None:
         code, lines = guard.check(RULES, "feat-cmux-next", [], ["README.md"], expected_files=3001, listed_records=3000)
@@ -90,6 +92,8 @@ class ClassicFrozenGuardTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("labeled, unlabeled", text)
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  pull_request:", text)
         self.assertIn("branches: [main, feat-cmux-next]", text)
         self.assertIn("name: classic-frozen-guard", text)
 
