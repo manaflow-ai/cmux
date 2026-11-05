@@ -157,6 +157,119 @@ struct TerminalWindowFrameSyncTests {
                 "\(violations.count) committed turns were awake longer than \(Self.text(Self.awakeLimitMs)) ms or blocked longer than \(Self.text(Self.blockedLimitMs)) ms: \(violations.prefix(8))")
     }
 
+    /// Case 4, the Lead's hard rule for the sync's deadline: a terminal that joins the window's sync and never presents
+    /// its new-size frame (a stalled renderer) holds the window's fence for at most 1 refresh. Then the fence is
+    /// released, `debug.frames` counts `sync_deadline_missed` once for that terminal (and not for the one that
+    /// presented), the terminal that presented shows its pane's size from the sync's commit on, and no main turn waits
+    /// for the stalled one. Reduce Motion, one Ctrl-Shift-L press on p2 (both terminals change size in one commit, so
+    /// both join); p2 never presents.
+    ///
+    /// The deadline is 1 refresh of the window's display (`NSScreen.minimumRefreshInterval`: 8.33 ms at 120 Hz,
+    /// 16.7 ms at 60 Hz; 16.7 ms with no screen), measured by the sync itself from its commit to the fence's release
+    /// (``WindowFrameSyncDeadlineSeam/lastSync(in:)``), not by the test's turns.
+    ///
+    /// Disabled until the window frame sync exists: the base has no fence, so this case cannot run there. It is written
+    /// against ``WindowFrameSyncDeadlineSeam``, which the implementation provides (``deadlineSeam``).
+    @Test(.disabled("needs the window frame sync"))
+    func aJoinedSurfaceThatNeverPresentsReleasesTheFenceWithinOneRefreshAndCountsADeadlineMiss() async throws {
+        let seam = try #require(Self.deadlineSeam, "the window frame sync gives this suite no WindowFrameSyncDeadlineSeam (deadlineSeam is nil)")
+        let screen = try await Screen()
+        defer { screen.close() }
+        let recorder = TurnRecorder(screen)
+        defer { recorder.stop() }
+        try await Self.warmUp(screen)
+        let window = screen.window
+        let presenting = screen.sessions[0].surfaceView, stalled = screen.sessions[1].surfaceView
+        let missedBefore = (p1: seam.syncDeadlineMissed(of: presenting, in: window), p2: seam.syncDeadlineMissed(of: stalled, in: window))
+        let refresh = Self.refreshMs(of: window)
+        seam.stallPresents(of: stalled, in: window)
+        defer { seam.resumePresents(of: stalled, in: window) }
+
+        screen.root.context.reduceMotionOverride = true
+        let before = recorder.snapshot()
+        recorder.start()
+        let moved = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
+        // Commits until the fence is released (at most 1 s of wall-clock time; the fence never holds a main turn).
+        var heldTurns = 0, releasedAtTurn: Int?
+        let giveUp = ContinuousClock.now.advanced(by: .seconds(1))
+        while ContinuousClock.now < giveUp {
+            _ = screen.root.advanceFrame(1.0 / 120)
+            await TerminalKeyResizeFrameTests.commit()
+            if seam.isFenceHeld(in: window) {
+                heldTurns += 1
+            } else if heldTurns > 0 {
+                releasedAtTurn = recorder.turnCount
+                break
+            }
+        }
+        await Self.rest(screen)
+        recorder.pause()
+        screen.root.context.reduceMotionOverride = false
+        let turns = recorder.take()
+        let rest = recorder.snapshot()
+
+        try #require(moved, "Ctrl-Shift-L on p2 moved nothing")
+        try #require(before[1].area.width - rest[1].area.width >= 10, "p2 did not shrink: its area went from \(before[1].area) to \(rest[1].area)")
+        try #require(heldTurns > 0, "the window's fence was never held: p2 did not join the window's sync, so the case under test did not happen")
+        let sync = try #require(seam.lastSync(in: window), "the window frame sync recorded no sync for the press")
+        try #require(sync.joined >= 2, "only \(sync.joined) surfaces joined the press's sync: both terminals changed size in its commit")
+        let missedAfter = (p1: seam.syncDeadlineMissed(of: presenting, in: window), p2: seam.syncDeadlineMissed(of: stalled, in: window))
+        let heldMs = TurnRecorder.ms(sync.heldFor)
+        print("S4 m14 sync deadline: fence held \(Self.text(heldMs)) ms (deadline \(Self.text(refresh)) ms), seen held in \(heldTurns) turns, " +
+              "released by turn \(releasedAtTurn.map(String.init) ?? "never"); sync_deadline_missed p1 \(missedBefore.p1) -> \(missedAfter.p1), " +
+              "p2 \(missedBefore.p2) -> \(missedAfter.p2)")
+
+        #expect(releasedAtTurn != nil, "the window's fence was still held 1 s after the press, for a surface that never presented")
+        #expect(heldMs <= refresh,
+                "the window's fence was held \(Self.text(heldMs)) ms for a surface that never presented; the deadline is 1 refresh (\(Self.text(refresh)) ms)")
+        #expect(sync.deadlineMissed, "the sync reached its deadline with p2 unpresented but did not record the miss")
+        #expect(missedAfter.p2 == missedBefore.p2 + 1,
+                "debug.frames sync_deadline_missed for p2 (never presented) went from \(missedBefore.p2) to \(missedAfter.p2); expected exactly 1 more")
+        #expect(missedAfter.p1 == missedBefore.p1,
+                "debug.frames sync_deadline_missed for p1 (presented) went from \(missedBefore.p1) to \(missedAfter.p1); expected no change")
+        // The surface that presented shows its pane's size in every committed turn (the sync's commit carries it).
+        let found = Self.check(turns.map { turn in
+            var p1Only = turn
+            p1Only.terminals = Array(turn.terminals.prefix(1))
+            return p1Only
+        })
+        #expect(found.bounds.isEmpty && found.frame.isEmpty,
+                "p1 (presented) was not at its pane's size in every committed turn while p2 missed the deadline: \((found.bounds + found.frame).prefix(8))")
+        let blocked = turns.compactMap { turn in
+            turn.blockedMs.flatMap { $0 > Self.blockedLimitMs ? "turn \(turn.index): blocked \(Self.text($0)) ms" : nil }
+        }
+        #expect(blocked.isEmpty, "a main turn waited for the stalled surface (blocked longer than \(Self.text(Self.blockedLimitMs)) ms): \(blocked.prefix(8))")
+    }
+
+    /// 1 refresh of `window`'s display in ms: its shortest frame interval; 1/60 s with no screen.
+    static func refreshMs(of window: NSWindow) -> Double {
+        let interval = window.screen?.minimumRefreshInterval ?? 0
+        return (interval > 0 ? interval : 1.0 / 60) * 1000
+    }
+
+    // MARK: Deadline seam
+
+    /// What the window frame sync (m14) gives this suite for the deadline case. The base has no sync, so the suite
+    /// declares the seam and ``deadlineSeam`` is nil: the case is disabled. The implementation provides a conforming
+    /// adapter (test support over its own debug hooks), sets ``deadlineSeam`` to it and removes the `.disabled` trait,
+    /// with the assertion texts unchanged.
+    protocol WindowFrameSyncDeadlineSeam {
+        /// The window's last sync: how many surfaces joined it, how long its fence was held (from the sync's commit to the
+        /// fence's release, measured by the sync), and whether it reached its deadline. Nil before the first sync.
+        func lastSync(in window: NSWindow) -> (joined: Int, heldFor: Duration, deadlineMissed: Bool)?
+        /// Whether `window`'s fence holds a commit now.
+        func isFenceHeld(in window: NSWindow) -> Bool
+        /// `view`'s `sync_deadline_missed` count in `debug.frames`.
+        func syncDeadlineMissed(of view: TerminalSurfaceView, in window: NSWindow) -> Int
+        /// From now on `view` draws but never presents a frame at a new size (a stalled renderer); it still joins syncs.
+        func stallPresents(of view: TerminalSurfaceView, in window: NSWindow)
+        /// `view` presents again.
+        func resumePresents(of view: TerminalSurfaceView, in window: NSWindow)
+    }
+
+    /// The window frame sync's adapter: nil until the sync exists (the implementation replaces nil with its adapter).
+    static let deadlineSeam: (any WindowFrameSyncDeadlineSeam)? = nil
+
     /// The longest a committed turn of the motion may be awake: 2 refreshes at 60 Hz.
     static let awakeLimitMs = 2 * 1000.0 / 60
     /// The longest a committed turn of the motion may be off the CPU: 1 refresh at 60 Hz.
@@ -345,6 +458,9 @@ struct TerminalWindowFrameSyncTests {
         }
 
         func pause() { started = nil }
+
+        /// The turns recorded since ``start()``.
+        var turnCount: Int { turns.count }
 
         /// The turns recorded since ``start()``, and an empty record.
         @MainActor func take() -> [Turn] {
