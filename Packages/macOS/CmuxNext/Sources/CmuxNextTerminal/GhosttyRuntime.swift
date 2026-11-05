@@ -210,6 +210,7 @@ public final class GhosttyRuntime {
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
+        loadUnwrittenBackgroundMarkers(into: config)
         if let path = configFile ?? ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
@@ -228,6 +229,9 @@ public final class GhosttyRuntime {
         _ = configGet(config, &configured, key: "background-opacity")
         var configuredBlur: Int16 = 0
         _ = configGet(config, &configuredBlur, key: "background-blur")
+        for line in unwrittenBackgroundLines(opacity: &configured, blur: &configuredBlur) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        }
         for line in GhosttyConfigBackground.overrideLines(configuredOpacity: configured, configuredBlur: Int(configuredBlur), theme: theme) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }

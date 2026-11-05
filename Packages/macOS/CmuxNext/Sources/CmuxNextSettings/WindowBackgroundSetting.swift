@@ -3,8 +3,8 @@ public import CmuxNextDesign
 /// `appearance.backgroundOpacity` (0...1) and `appearance.backgroundBlur`
 /// (`frosted`, `glass`, `glass-clear` or `none` for no blur) in cmux.json: cmux's own
 /// window background over Ghostty's `background-opacity` and
-/// `background-blur`. Unset keys keep Ghostty's values; with Ghostty's own opaque,
-/// unblurred defaults the window is Glass (`WindowBackgroundOverride.resolved`).
+/// `background-blur`. Unset keys keep the Ghostty config's values; a config that
+/// writes neither key loads as the Glass window (`GhosttyRuntime+GlassDefault.swift`).
 public nonisolated enum WindowBackgroundSetting {
     /// `appearance.backgroundOpacity`: the window's opacity, 0...1.
     public static let opacityPath = ["appearance", "backgroundOpacity"]
