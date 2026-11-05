@@ -792,9 +792,6 @@ const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
     // `--timeout` counts from here, a new machine included.
     let started_at = runner.now();
-    if request.prompt.len() > RELAY_PROMPT_BYTES {
-        return Relayed::Fallback(None);
-    }
     let machine_id = match &request.machine {
         Machine::Target(id) => id.clone(),
         Machine::Named(name) => {
@@ -830,6 +827,10 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             Err(outcome) => return Relayed::Answered(outcome),
         },
     };
+    // Too big for the relay: the link path uploads it, on the machine found or made above (never a second create).
+    if request.prompt.len() > RELAY_PROMPT_BYTES {
+        return Relayed::Fallback(Some(machine_id));
+    }
     let mut args = words(&["cloud", "relay-chat", "--target"]);
     args.push(format!("machine:{machine_id}"));
     args.extend(["--agent".to_owned(), request.agent.clone()]);
@@ -956,6 +957,9 @@ fn name_is_free(listed: &Value) -> bool {
             .any(|row| at(row, "name").as_str().is_none())
 }
 
+/// The idempotency key prefix of a named `cloud new-machine` (machine names are at most 64 bytes; keys 128).
+const NEW_MACHINE_KEY: &str = "cloud-start-chat-new-machine-";
+
 /// `cloud new-machine` for the relay chat, under the command's name when it gave one: the machine's id, or the
 /// command's answer when the create failed or is still on its way.
 fn new_machine(
@@ -963,7 +967,13 @@ fn new_machine(
     request: &Request,
     name: Option<&str>,
 ) -> Result<String, Outcome> {
-    let mut args = words(&["cloud", "new-machine"]);
+    // A named create runs under a key of its name: a retry, or another start-chat of the same name at the same
+    // time, joins that create (or gets its answer) in the app instead of making a second machine.
+    let mut args = match name {
+        Some(name) => vec!["--idempotency-key".to_owned(), format!("{NEW_MACHINE_KEY}{name}")],
+        None => Vec::new(),
+    };
+    args.extend(words(&["cloud", "new-machine"]));
     if let Some(name) = name {
         args.extend(["--name".to_owned(), name.to_owned()]);
     }

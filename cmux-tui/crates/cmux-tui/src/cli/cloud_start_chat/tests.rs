@@ -283,7 +283,18 @@ fn a_pending_machine_names_the_command_that_waits_on() {
     // A name no machine has: the relay chat makes it under that name, and it is still being made.
     let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
-    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "--idempotency-key",
+            "cloud-start-chat-new-machine-chat-fresh",
+            "cloud",
+            "new-machine",
+            "--name",
+            "chat-fresh",
+            "--json"
+        ])
+    );
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
     assert_eq!(
         error["details"]["again"],
@@ -769,7 +780,18 @@ fn a_name_no_machine_has_is_made_and_its_first_chat_goes_the_relay_way() {
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["reply"], "ok");
     assert_eq!(answer["path"], "relay");
-    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "--idempotency-key",
+            "cloud-start-chat-new-machine-probe-1",
+            "cloud",
+            "new-machine",
+            "--name",
+            "probe-1",
+            "--json"
+        ])
+    );
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
     assert_eq!(fake.ran.len(), 3, "no start-session: no link to the machine");
 }
@@ -807,7 +829,11 @@ fn a_name_the_list_cannot_vouch_for_goes_the_link_way_as_before() {
         let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
         let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{listed}") };
         assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{listed}");
-        assert!(!fake.ran.iter().any(|step| step[1] == "new-machine"), "{listed}: {:?}", fake.ran);
+        assert!(
+            !fake.ran.iter().any(|step| step.contains(&"new-machine".to_owned())),
+            "{listed}: {:?}",
+            fake.ran
+        );
         assert_eq!(&fake.ran[1][..3], &strings(&["cloud", "start-session", "--name"]), "{listed}");
     }
 }
@@ -829,7 +855,18 @@ fn a_named_new_machine_the_relay_never_reached_goes_the_link_way_on_that_machine
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["reply"], "ok");
     // Made once, by its name; the link path starts on that machine's id, never a second create.
-    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "--idempotency-key",
+            "cloud-start-chat-new-machine-probe-1",
+            "cloud",
+            "new-machine",
+            "--name",
+            "probe-1",
+            "--json"
+        ])
+    );
     assert_eq!(
         fake.ran[3],
         strings(&[
@@ -917,6 +954,27 @@ fn no_relay_chat_without_wait_for_a_big_prompt_or_a_machine_still_being_made() {
     let _ =
         run(&mut fake, &request(&["--prompt", big.as_str(), "--target", "machine:vm-1", "--wait"]));
     assert_eq!(fake.ran[1][1], "start-session");
+    // A new name with a big prompt: made once, then the link path on that machine, never start-session --name.
+    let mut fake = Fake::new(vec![signed_in(), made(), no_relay()]);
+    let _ = run(&mut fake, &request(&["--prompt", big.as_str(), "--name", "probe-1", "--wait"]));
+    assert_eq!(fake.ran[1][3], "new-machine");
+    assert_eq!(
+        &fake.ran[2][..4],
+        &strings(&["cloud", "start-session", "--target", "machine:vm-1"])
+    );
+    // A big prompt for a name whose create is on its way: waited on, never a second machine.
+    let mut fake = Fake::new(vec![
+        ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+                  "creating": [{"name": "probe-1", "status": "creating"}]})),
+        ok(json!({"machines": [], "creating": [{"name": "probe-1", "status": "creating"}]})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", big.as_str(), "--name", "probe-1", "--wait"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "cloud.start_pending");
+    assert!(fake.ran.iter().all(|step| step[1] == "list-machines"), "{:?}", fake.ran);
 
     let mut fake = Fake::new(vec![signed_in(), ok(json!({"pending": true, "status": "creating"}))]);
     let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
