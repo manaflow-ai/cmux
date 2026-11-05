@@ -128,6 +128,11 @@ export type TurnActions = {
 
 export const TurnActionsContext = createContext<TurnActions>({});
 
+/// The transcript's one Retry target (turns.ts retryTargetIn), which VirtualTranscript provides
+/// (App.tsx). Unset where a footer or a prompt draws on its own (a test, a gallery entry): a footer
+/// that offers Retry draws it, and a prompt draws none outside the Messages view.
+export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
+
 /// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
 /// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI
 export const CONTINUE_PROMPT = "Continue";

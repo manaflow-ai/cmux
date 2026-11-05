@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
-import { MINIMAP_EDGE, MINIMAP_WIDTH } from "../chatMinimap/paint";
+import { MINIMAP_EDGE, minimapWidth } from "../chatMinimap/paint";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
@@ -11,8 +11,10 @@ import type { RailSide } from "./railSide";
 /// What the pane edge holds outside the rail: on the right, the VS Code minimap (ChatMinimap.tsx) when it
 /// is on and has its room, so the right rail sits on its inner side instead of under it. The same gutter
 /// test as ChatMinimap's.
-export const railEdgeReserve = (side: RailSide, chatMinimap: boolean, textInset: number): number =>
-  side === "right" && chatMinimap && textInset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE ? MINIMAP_WIDTH + MINIMAP_EDGE : 0;
+export function railEdgeReserve(side: RailSide, chatMinimap: boolean, textInset: number): number {
+  const width = side === "right" && chatMinimap ? minimapWidth(textInset) : 0;
+  return width ? width + MINIMAP_EDGE : 0;
+}
 
 /// The pane edge owns x; the actual remaining text gutter only controls compression and occlusion.
 /// Reuses VirtualTranscript's resize measurements and Session Info's layout event. No observer or

@@ -160,8 +160,8 @@ const scripts = (dir: string) =>
 const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/ChatUnavailableState.tsx": {
-    count: 2,
-    what: "a paused chat's card, and its resume spinner into a slot already there (afterDelay.ts)",
+    count: 3,
+    what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
   },
   "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
   "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },

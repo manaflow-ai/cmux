@@ -140,6 +140,11 @@ enum CmuxStrings {
         String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on my message in a Chief chat that deletes it (#36019).
+    static var deleteMessage: String {
+        String(localized: "home.menu.deleteMessage", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
+    }
+
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var viewVideoLarger: String {
         String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)

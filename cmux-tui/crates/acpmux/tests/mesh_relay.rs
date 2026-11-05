@@ -581,6 +581,7 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
         vec![MeshControlFrom {
             daemon_id: "inst_a".into(),
             ops: vec!["start".into(), "resume".into(), "stop".into()],
+            ..Default::default()
         }],
         Some(dir.path().join("mesh-controls.json")),
     );
@@ -594,7 +595,11 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
     let hub = hub();
     let dir = tempfile::tempdir().unwrap();
     let allowed = MeshControlHook::new(
-        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
+        vec![MeshControlFrom {
+            daemon_id: "inst_a".into(),
+            ops: vec!["resume".into()],
+            ..Default::default()
+        }],
         Some(dir.path().join("mesh-controls.json")),
     );
     let base = |op: &str, sender: Option<&str>| InMessage {
@@ -641,6 +646,70 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
 }
 
 #[tokio::test]
+async fn mesh_control_same_user_trusts_only_the_hub_stamped_person_recorded_here() {
+    let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
+    let hook = |entry: Value, own: Option<&'static str>| {
+        MeshControlHook::new(
+            vec![serde_json::from_value(entry).unwrap()],
+            Some(dir.path().join("mesh-controls.json")),
+        )
+        .with_own_user(Arc::new(move || own.map(str::to_owned)))
+    };
+    let control = |id: &str, user: Option<&str>| InMessage {
+        message_id: id.into(),
+        kind: Kind::Control,
+        op: Some("resume".into()),
+        mode: Mode::Now,
+        to: Target { session_id: Some("missing-session".into()), ..Target::default() },
+        from: Sender {
+            daemon_id: Some("inst_other_machine".into()),
+            user: user.map(str::to_owned),
+            // Claims a sender makes about itself are never authority.
+            name: Some("person-1".into()),
+            host: Some("person-1".into()),
+            ..Sender::default()
+        },
+        body: r#"{"version":1}"#.into(),
+        attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
+    };
+    let same = hook(json!({"sameUser": true}), Some("person-1"));
+    // The same person's other machine passes authorization (the session is then looked up).
+    let ack = same.control(&hub, &control("same-user", Some("person-1"))).await.unwrap();
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+    // Another person, or a sender the hub stamped with no person, is refused.
+    for (id, user) in [("other-user", Some("person-2")), ("no-user", None)] {
+        let ack = same.control(&hub, &control(id, user)).await.unwrap();
+        assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"), "{id}");
+    }
+    // A machine that recorded no person grants nothing through `sameUser`.
+    let unrecorded = hook(json!({"sameUser": true}), None);
+    let ack = unrecorded.control(&hub, &control("unrecorded", Some("person-1"))).await.unwrap();
+    assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+    // An explicit empty ops list grants nothing.
+    let none = hook(json!({"sameUser": true, "ops": []}), Some("person-1"));
+    let ack = none.control(&hub, &control("no-ops", Some("person-1"))).await.unwrap();
+    assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+    // An explicit daemonId entry still works alongside, and the person alone never stands in.
+    let both = MeshControlHook::new(
+        vec![
+            MeshControlFrom {
+                daemon_id: "inst_other_machine".into(),
+                ops: vec!["resume".into()],
+                ..Default::default()
+            },
+            MeshControlFrom { ops: vec!["stop".into()], ..MeshControlFrom::same_user() },
+        ],
+        Some(dir.path().join("both.json")),
+    );
+    let ack = both.control(&hub, &control("by-daemon", None)).await.unwrap();
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+}
+
+#[tokio::test]
 async fn mesh_control_rejects_peer_routing_and_replays_a_persisted_ack() {
     let hub = hub();
     let dir = tempfile::tempdir().unwrap();
@@ -649,6 +718,7 @@ async fn mesh_control_rejects_peer_routing_and_replays_a_persisted_ack() {
         vec![MeshControlFrom {
             daemon_id: "inst_a".into(),
             ops: vec!["start".into(), "resume".into(), "stop".into()],
+            ..Default::default()
         }],
         Some(path.clone()),
     );
@@ -668,6 +738,7 @@ async fn mesh_control_rejects_peer_routing_and_replays_a_persisted_ack() {
         vec![MeshControlFrom {
             daemon_id: "inst_a".into(),
             ops: vec!["start".into(), "resume".into(), "stop".into()],
+            ..Default::default()
         }],
         Some(path),
     );
@@ -685,6 +756,7 @@ fn control_allowlist() -> Vec<MeshControlFrom> {
     vec![MeshControlFrom {
         daemon_id: "inst_a".into(),
         ops: ["start", "resume", "stop"].map(str::to_owned).to_vec(),
+        ..Default::default()
     }]
 }
 

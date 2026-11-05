@@ -2075,6 +2075,7 @@
     "request.dismiss",
     "screen.close",
     "server.pair.approve",
+    "server.pair.invite",
     "server.pair.preview",
     "server.revoke",
     "session.creation.resolve",

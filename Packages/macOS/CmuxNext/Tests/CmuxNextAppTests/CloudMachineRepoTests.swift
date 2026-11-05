@@ -38,11 +38,40 @@ struct CloudMachineRepoTests {
         }
     }
 
-    @Test func anythingButAPlainGitHubRepositoryIsRefused() {
-        for spec in ["", "cmux", "o/r/x", "https://gitlab.com/o/r", "https://github.com/o", "https://github.com:8443/o/r",
-                     "https://github.com/o/r?x=1", "file:///tmp/r", "evilgithub.com:o/r", "o/-r", "o/.r", "o/r;rm -rf ~", "o/r b"] {
+    @Test func anythingButAPlainGitHubRepositoryOrHttpsGitURLIsRefused() {
+        for spec in ["", "cmux", "o/r/x", "https://github.com/o", "https://github.com:8443/o/r",
+                     "https://github.com/o/r?x=1", "file:///tmp/r", "evilgithub.com:o/r", "o/-r", "o/.r", "o/r;rm -rf ~", "o/r b",
+                     // Off GitHub: https only, a plain host, no port, query or odd path.
+                     "http://gitlab.com/o/r", "ssh://git@gitlab.com/o/r.git", "git@gitlab.com:o/r.git", "https://gitlab.com/r",
+                     "https://gitlab.com:8443/o/r", "https://localhost/o/r", "https://10.0.0.1/o/r", "https://-x.com/o/r",
+                     "https://gitlab.com/o/r?x=1", "https://gitlab.com/o/.r", "https://gitlab.com/-/r", "https://gitlab.com/o/r/-/blob/x"] {
             #expect(throws: CloudMachineRepo.Invalid.unrecognized, "\(spec)") { try CloudMachineRepo.parse(spec) }
         }
+    }
+
+    /// Leo, 2026-11-05: "there's presumably other services, like there's GitLab or whatever".
+    @Test func anotherHostsHttpsURLClonesWithItsGroupPathAndRef() throws {
+        let repo = try CloudMachineRepo.parse("https://gitlab.com/gitlab-org/gitlab-test.git")
+        #expect(repo == CloudMachineRepo(owner: "gitlab-org", name: "gitlab-test", host: "gitlab.com"))
+        #expect(!repo.isGitHub)
+        #expect(repo.url == "https://gitlab.com/gitlab-org/gitlab-test.git")
+        #expect(repo.directory == "work/gitlab-test")
+        #expect(repo.spec == "https://gitlab.com/gitlab-org/gitlab-test")
+        let nested = try CloudMachineRepo.parse("https://GitLab.com/group/sub/project/-/tree/release/1.x")
+        #expect(nested == CloudMachineRepo(owner: "group/sub", name: "project", ref: "release/1.x", host: "gitlab.com"))
+        #expect(try CloudMachineRepo.parse("https://codeberg.org/o/r@v2").ref == "v2")
+        #expect(throws: CloudMachineRepo.Invalid.credentialsInURL) { try CloudMachineRepo.parse("https://oauth2:glpat-x@gitlab.com/o/r") }
+        #expect(throws: CloudMachineRepo.Invalid.invalidRef) { try CloudMachineRepo.parse("https://gitlab.com/o/r/-/tree/a..b") }
+        let record = try #require(try JSONSerialization.jsonObject(with: repo.record) as? [String: String])
+        #expect(record["host"] == "gitlab.com")
+    }
+
+    @Test func anotherHostIsNeverOfferedTheMachinesGitHubCredentials() throws {
+        let step = try CloudMachineRepo.parse("https://gitlab.com/o/r").step
+        #expect(step.contains("github=0"))
+        #expect(step.contains(#"if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ]"#))
+        #expect(step.contains(#"if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ]"#))
+        #expect(try CloudMachineRepo.parse("o/r").step.contains("github=1"))
     }
 
     @Test func aRefThatNeedsQuotingIsRefused() {

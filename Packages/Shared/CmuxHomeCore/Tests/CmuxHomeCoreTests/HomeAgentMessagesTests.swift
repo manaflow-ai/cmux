@@ -402,6 +402,9 @@ struct HomeAgentMessagesTests {
         ("**Please** check the `nightly` build and report back today", "Please check the nightly build"),
         ("Fix the v1.2 release notes", "Fix the v1.2 release notes"),
         ("Supercalifragilisticexpialidociousnessly long word", "Supercalifragilisticexpialidociousnessly"),
+        // A quoted message's speaker header is no title (user 2026-11-04, msg 21664: "User (Nov 4)").
+        ("User (Nov 4): \"are we cancelling nightlies? we need to just make nightlies build\"", "are we cancelling nightlies"),
+        ("User: why is the computer overloaded", "why is the computer overloaded"),
     ])
     func aTitleIsTheTitleLineElseTheFirstClauseAtAWordEdge(text: String, expected: String) {
         #expect(HomeAgentMessageRow.title(of: text) == expected)
@@ -413,5 +416,30 @@ struct HomeAgentMessagesTests {
         #expect(HomeAgentMessageRow.title(of: "Title: Fix caret blink\n\nUser msg 1: the caret blinks.") == "Fix caret blink")
         #expect(HomeAgentMessageRow.title(of: "**Please** check the `nightly` build and report back today") == "Please check the nightly build")
         #expect(HomeAgentMessageRow.title(of: "\n\n") == nil)
+    }
+
+    /// User 2026-11-04 (msg 21664): an agent's pill and chat are named by its spawn task's `Title:` line, in every
+    /// row it shows in, never by a later tell's first clause ("User (Nov 4)").
+    @Test func anAgentKeepsItsSpawnTitleInLaterRows() throws {
+        var book = HomeAgentMessages()
+        let spawn = HomeAgentRun(conversation: conversation, id: "run-spawn", author: chief, turn: nil,
+                                 answers: [MessageID("question")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "spawn:a988", sequence: 1, revision: 1, peer: "a988", outgoing: true,
+                  text: "Title: Bubble tail last only\n\nOnly the last bubble of a run gets the tail.", date: date),
+        ])
+        let tell = HomeAgentRun(conversation: conversation, id: "run-tell", author: chief, turn: nil,
+                                answers: [MessageID("later")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "tell:1", sequence: 1, revision: 1, peer: "a988", outgoing: true,
+                  text: "User (Nov 4): \"are we cancelling nightlies?\"", date: date.addingTimeInterval(60)),
+        ])
+        _ = book.apply(spawn)
+        _ = book.apply(tell)
+        let rows = book.inserting(into: [question(), question("later")], summary: nil)
+        let folds = rows.compactMap(\.agentMessage).filter { if case .fold = $0.kind { true } else { false } }
+        #expect(folds.count == 2)
+        #expect(folds.map(\.peerTitles) == [["Bubble tail last only"], ["Bubble tail last only"]])
+        let thread = try #require(book.thread(peer: "a988", in: rows))
+        #expect(thread.title == "Bubble tail last only")
+        #expect(thread.task?.hasPrefix("Title: Bubble tail last only") == true)
     }
 }

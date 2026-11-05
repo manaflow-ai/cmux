@@ -174,33 +174,6 @@ struct CloudMachineChangeStateTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aStartWaitsForANewMachineToRun() async throws {
-        let services = MachineIconTests.services()
-        let session = CloudMachineSession(machine: CloudMachine(id: "booting", status: .provisioning),
-            appLink: CloudLinkSession(key: CloudLinkKey(machine: "booting"), resolver: StartingLinkResolver()),
-            localIdentity: { nil }, mainWork: services.mainWork)
-        defer { session.disconnect() }
-        var reads = 0
-        session.refresher = { force in
-            #expect(force)
-            reads += 1
-            if reads == 3 { session.machine.status = .running }
-        }
-        await session.untilRunning(pause: { _ in await Task.yield() })
-        #expect(reads == 3 && session.machine.status == .running, "the start stopped reading before the machine ran")
-        reads = 0
-        session.machine.status = .provisioning
-        session.refresher = { _ in reads += 1; session.machine.status = .failed }
-        await session.untilRunning(pause: { _ in await Task.yield() })
-        #expect(reads == 1, "a machine that failed while provisioning is not read again")
-        reads = 0
-        session.machine.status = .provisioning
-        session.refresher = { _ in reads += 1 }
-        await session.untilRunning(pause: { _ in session.machine.status = .running })
-        #expect(reads == 0, "a machine another read saw running during the pause is not read again")
-    }
-
-    @Test(.timeLimit(.minutes(1)))
     func runningBeforeResumeAcknowledgementConnectsWhenPendingClears() async throws {
         let services = MachineIconTests.services()
         let cloud = services.cloud

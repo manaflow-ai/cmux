@@ -126,7 +126,8 @@ struct AcpmuxRecords {
         }
         guard let toolCall = request["toolCall"], let call = try? Self.decode(ACPToolCall.self, toolCall) else { return nil }
         let options = (try? Self.decode([ACPPermissionOption].self, request["options"] ?? .array([]))) ?? []
-        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue))
+        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue,
+                                                       plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {

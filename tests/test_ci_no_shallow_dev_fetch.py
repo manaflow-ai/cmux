@@ -41,8 +41,6 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
-    "backend/packages/cloud-env/src/build-script.ts":
-        "the generated script fetches into $HOME/work/<repo> right after its own `git init` there",
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "scripts/pr-media.py": "fetches only into its own `git init --bare` cache clone of the media branch",

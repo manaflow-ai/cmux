@@ -88,7 +88,8 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
         job = text[text.index("\n  publish-nightly-next-github-names:\n"):]
         step = job[job.index("- name: Publish the rolling DMG name and the feed copy"):]
         step = step[:step.index("\n      - name:")]
-        self.assertIn('--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"', step)
+        self.assertIn('dmg="nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"', step)
+        self.assertIn('--immutable "$dmg" --alias "$rolling"', step)
         # The job reads that file from the same variant artifacts the upload job published.
         self.assertIn("- *download-nightly-variant-artif", job[:job.index(step)])
 

@@ -90,8 +90,13 @@ public struct WorkspaceAutoNameReader {
                 explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
                 explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
+            // A chat with none of those (an unnamed session whose title was never generated) reads
+            // as its tab does, never as the daemon's `workspace-N` (Leo, 2026-11-05: "this workspace
+            // didn't inherit the agent chat name"). A live label only: it is never held or persisted.
             return hold.settle(workspace: workspace.id, namer: Self.namer(face, work: nil),
-                               label: candidate.isEmpty ? nil : candidate) ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
+                               label: candidate.isEmpty ? nil : candidate)
+                ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
+                ?? turns.title(for: session).flatMap { AgentTurnStates.promptGist($0) }.flatMap(NewWorkspaceName.clean)
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },

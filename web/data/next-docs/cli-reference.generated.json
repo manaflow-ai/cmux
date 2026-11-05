@@ -1528,7 +1528,7 @@
         },
         {
           "command": "cmux cloud relay-chat",
-          "title": "Chat on Cloud Machine over the Relay…",
+          "title": "Chat on Cloud Machine via the Relay…",
           "id": "cloudRelayChat",
           "mcp": true,
           "mcpTool": "app_cloud_relay_chat"

@@ -64,6 +64,17 @@ pub(crate) struct AppControlMessages {
     pub version: VersionLabels,
     /// `cmux nightly list|install` (cli/app/nightly.rs).
     pub nightly: NightlyMessages,
+    /// `cmux live start|stop|status` (cli/app/live.rs).
+    pub live: LiveMessages,
+}
+
+/// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LiveMessages {
+    pub usage: &'static str,
+    pub no_checkout: &'static str,
+    pub started: &'static str,
+    pub cannot_run: &'static str,
 }
 
 /// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
@@ -170,11 +181,17 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         kept: "kept",
         pulled_tag: "pulled",
     },
+    live: LiveMessages {
+        usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good with\n  `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
+        no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/web-overlay.sh)",
+        started: "cmux now loads its web UI from this checkout. Save a file under webviews/ and watch it change; `cmux live stop` goes back.",
+        cannot_run: "could not run the checkout's web-overlay.sh: {error}",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
-    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  live          Edit cmux's web UI while it runs, from a checkout (start, stop, status)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
@@ -250,9 +267,15 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         kept: "保存済み",
         pulled_tag: "取り下げ",
     },
+    live: LiveMessages {
+        usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるかを表示\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
+        no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/web-overlay.sh が必要です)",
+        started: "cmux はこのチェックアウトから Web UI を読み込みます。webviews/ のファイルを保存すると変化が見えます。戻すには `cmux live stop`。",
+        cannot_run: "チェックアウトの web-overlay.sh を実行できませんでした: {error}",
+    },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
-    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  nightly       以前のナイトリービルドに戻す (list、install previous|<ビルド>)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  nightly       以前のナイトリービルドに戻す (list、install previous|<ビルド>)\n  live          動作中の cmux の Web UI をチェックアウトから編集 (start、stop、status)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };

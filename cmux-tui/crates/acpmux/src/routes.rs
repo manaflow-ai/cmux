@@ -60,13 +60,33 @@ pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
 pub const CMUX_ROUTE_ID: &str = "cmux";
 
+/// The built-in route to the Codex CLI's own signed-in login (`~/.codex/auth.json`, or the chat's
+/// `CODEX_HOME`): no endpoint and no account home, so a chat on it runs on the login Settings shows
+/// as "ChatGPT / Codex". A codex chat whose route fails, and names no fallback of its own, moves
+/// onto it by itself (`hub/route_switch.rs`). A route file named `codex-login` replaces it; `find`
+/// resolves it, `load` does not list it (the Account menu already shows the CLI login).
+pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
+
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`: an
+/// `auth.json` with tokens or an API key, never an empty or broken one.
+pub fn codex_signed_in(home: Option<&Path>) -> bool {
+    let dir = match home {
+        Some(home) => home.to_path_buf(),
+        None => match dirs::home_dir() {
+            Some(home) => home.join(".codex"),
+            None => return false,
+        },
+    };
+    crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, &dir)
+}
+
 fn builtin_routes() -> Vec<Route> {
-    vec![Route {
-        id: CMUX_ROUTE_ID.into(),
+    let codex_login = Route {
+        id: CODEX_LOGIN_ROUTE_ID.into(),
         file: RouteFile {
-            name: Some("cmux model router".into()),
-            kind: RouteKind::CmuxRouter,
-            families: vec![],
+            name: Some("ChatGPT (Codex CLI login)".into()),
+            kind: RouteKind::DirectSubscription,
+            families: vec!["codex".into()],
             anthropic_base_url: None,
             openai_base_url: None,
             auth: None,
@@ -75,11 +95,37 @@ fn builtin_routes() -> Vec<Route> {
             health_url: None,
             fallback: vec![],
             auto_fallback: false,
-            notes: Some("built in: open-source models through the cmux model router".into()),
+            notes: Some("built in: the Codex CLI's own signed-in login".into()),
             account_home: None,
+            shadow_of: None,
+            disabled: false,
         },
         path: PathBuf::new(),
-    }]
+    };
+    vec![
+        codex_login,
+        Route {
+            id: CMUX_ROUTE_ID.into(),
+            file: RouteFile {
+                name: Some("cmux model router".into()),
+                kind: RouteKind::CmuxRouter,
+                families: vec![],
+                anthropic_base_url: None,
+                openai_base_url: None,
+                auth: None,
+                secret: None,
+                headers: BTreeMap::new(),
+                health_url: None,
+                fallback: vec![],
+                auto_fallback: false,
+                notes: Some("built in: open-source models through the cmux model router".into()),
+                account_home: None,
+                shadow_of: None,
+                disabled: false,
+            },
+            path: PathBuf::new(),
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +265,14 @@ pub struct RouteFile {
     /// folder for one login (route_account.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_home: Option<String>,
+    /// A Codex account home that shares everything but its login with this
+    /// folder, the CLI's own home (route_shadow.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_of: Option<String>,
+    /// Turned off: no chat moves onto it by itself, and the account list says
+    /// so. A chat bound to it still runs on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,6 +338,8 @@ impl Route {
             "autoFallback": self.file.auto_fallback,
             "notes": self.file.notes,
             "accountHome": self.file.account_home,
+            "shadowOf": self.file.shadow_of,
+            "enabled": !self.file.disabled,
             "path": self.path,
         })
     }
@@ -568,6 +624,11 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
         account_home: crate::route_account::from_json(params)?,
+        shadow_of: crate::route_account::shadow_from_json(params)?,
+        disabled: match params.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => !enabled,
+            None => params.get("disabled").and_then(Value::as_bool).unwrap_or(false),
+        },
     };
     validate(&file)?;
     Ok(file)

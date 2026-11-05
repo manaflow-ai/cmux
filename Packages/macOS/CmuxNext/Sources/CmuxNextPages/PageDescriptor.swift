@@ -218,6 +218,12 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
         csp: PageCSP(media: ["data:", changelogReelSource]))
 
+    /// The GitHub page (webviews/src/pages/github, its owner CmuxNextGitHubViewer's GitHubPageProvider): a pull
+    /// request drawn from the app's pull request cache, with no github.com page load. One tab per workspace, which
+    /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
+    /// in a page already running, never a new tab or a new web page.
+    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
+
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
     static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
@@ -225,7 +231,7 @@ public extension PageDescriptor {
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [
         "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
-        "home.show", "appStore.show", "newBrowserWorkspace", "space.new", "renameWorkspace",
+        "home.show", "appStore.show", "newBrowserWorkspace", "space.new", "renameWorkspace", "liveWeb.start",
     ]
 
     /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and

@@ -219,12 +219,10 @@ struct CloudStartChat {
             anchor = found
         } else {
             anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-            if services.cloud.configuration.linkSource == .appServer {
-                guard let pane = anchor.pane.resourceID?.rawValue else {
-                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
-                }
-                _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
+            guard let pane = anchor.pane.resourceID?.rawValue else {
+                throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
             }
+            _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
         }
         if let copy { services.cloud.movedChats.copied(copy) }
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),

@@ -13,7 +13,10 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
+`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, and `github_right`, a github.com
+pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
+pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
+run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -83,7 +86,8 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 LINK_PAGE = os.path.join(SCRATCH, "link.html")
 open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
 LINK_URL = opts.link_url or "file://" + LINK_PAGE
-PAGE_COMMANDS = ("link_right", "link_home", "split_browser")  # the app reports page_ms (the new pane's page painted) for these
+GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right")  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -220,6 +224,8 @@ def timed(command, phase, index, arm=None):
     params = {"action": "bench_create", "command": sent}
     if sent == "link_right":
         params["url"] = LINK_URL
+    if sent == "github_right":
+        params.update({"url": GITHUB_URL, "seed": True})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
@@ -227,7 +233,7 @@ def timed(command, phase, index, arm=None):
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
           f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
-          f"err={result.get('error')}", flush=True)
+          f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else ""), flush=True)
     return result
 
 

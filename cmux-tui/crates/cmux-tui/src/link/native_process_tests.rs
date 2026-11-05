@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use super::renewal_delay;
+use std::time::Instant;
+
+use super::{ReadFailure, keeps_policy, renewal_delay};
 
 const S: Duration = Duration::from_secs(1);
 
@@ -28,4 +30,31 @@ fn a_slow_read_starts_early_enough_to_land_before_the_lease_ends() {
 fn a_read_slower_than_what_is_left_starts_at_once() {
     assert_eq!(renewal_delay(8 * S, 12 * S), Duration::from_millis(250));
     assert_eq!(renewal_delay(Duration::ZERO, S), Duration::ZERO);
+}
+
+#[test]
+fn local_admission_keeps_the_policy_through_a_read_with_no_answer() {
+    let now = Instant::now();
+    let end = now + 600 * S;
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(end), now), Some(600 * S));
+}
+
+#[test]
+fn a_refused_read_closes_even_under_local_admission() {
+    let now = Instant::now();
+    assert_eq!(keeps_policy(ReadFailure::Refused, Some(now + 600 * S), now), None);
+}
+
+#[test]
+fn without_admit_until_every_failed_read_closes_as_before() {
+    // The kill switch: a policy with no admit_until gives no admission end.
+    let now = Instant::now();
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, None, now), None);
+}
+
+#[test]
+fn an_admission_that_has_ended_keeps_nothing() {
+    let now = Instant::now() + 10 * S;
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(now - S), now), None);
+    assert_eq!(keeps_policy(ReadFailure::Unanswered, Some(now), now), None);
 }

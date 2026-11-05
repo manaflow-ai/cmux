@@ -63,6 +63,14 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// emoji, an SF Symbol name or an agent mark id), `{id, data, ext}` (base64 png or svg bytes,
     /// copied next to the profile) or `{id, clear: true}`. Answers `{id, path, icon}`.
     case icon = "_acpmux/harness/icon"
+    /// The provider accounts routing may use (Settings > Agents > Harnesses): `{family?}` answers
+    /// `{accounts: [{id, family, name, home, shadowOf, signedIn, plan, email, enabled, builtin}]}`.
+    /// The unix socket only; an older daemon answers method-not-found.
+    case accounts = "_acpmux/accounts"
+    /// `{id, enabled?, name?}`: turns an account on or off for routing, or renames it.
+    case accountSet = "_acpmux/account/set"
+    /// Adds a route (here a direct-subscription account in a shadow home of its own).
+    case routeAdd = "_acpmux/route/add"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -72,7 +80,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet, .icon: .seconds(10)
+        case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet: .seconds(10)
+        case .routeAdd: .seconds(20)
         }
     }
 }

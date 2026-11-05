@@ -31,7 +31,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.toggleWorkspacePin", "workspace.toggleArchive", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
         "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.removeAllColors", "workspaceGroup.clearColor", "reconnectWorkspace", "disconnectWorkspace", "disconnectRemoteTab",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.newSubgroup", "workspaceGroup.rename",
-        "workspaceGroup.togglePin", "workspaceGroup.toggleArchive", "workspace.archiveIdle", "workspace.restoreArchived", "workspaceGroup.setAutoArchive", "workspaceGroup.markRead", "workspaceGroup.markUnread",
+        "workspaceGroup.togglePin", "workspaceGroup.toggleArchive", "workspace.archiveIdle", "workspace.restoreArchived", "workspace.archiveOtherWorkspaces", "workspace.archiveOthersInGroup", "workspace.archiveWorkspacesBelow", "workspace.archiveWorkspacesAbove", "workspaceGroup.setAutoArchive", "workspaceGroup.markRead", "workspaceGroup.markUnread",
         "workspaceGroup.clearNotifications", "workspaceGroup.ungroup", "workspaceGroup.delete", "saveLayoutTemplate",
         "palette.layout.open", "workspace.newAbove", "workspace.newBelow", "workspace.newAtTop",
         "workspace.newAtBottom", "workspace.newLikeThis", "workspace.newInNewGroup", "workspace.newOnMachine",
@@ -194,6 +194,8 @@ nonisolated extension ActionSurfaceCatalog {
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
             "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
+            // `cmux live start|stop` is the CLI (cli/app/live.rs); these are its palette and Settings face.
+            "liveWeb.start", "liveWeb.stop",
         ],
         .liveInput: [
             "palette.toggleDictation",

@@ -38,8 +38,14 @@ final class CEFDevToolsDivider: NSView {
         line.fill()
     }
 
-    override func layout() {
-        super.layout()
+    /// A new size places the glow at once (geometry only). No `layout()` override: AppKit marks a view that overrides it
+    /// as needing layout on every size change, so a pane resize's motion frame would lay this view out (S5, STATUS 13849).
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        placeGlow()
+    }
+
+    private func placeGlow() {
         let side = devTools?.layout.dock.isSide ?? true
         let t = CEFDevToolsLayout.lineThickness
         let line = side
@@ -48,14 +54,10 @@ final class CEFDevToolsDivider: NSView {
         glow.place(along: line, vertical: side)
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        needsLayout = true
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         glow.applyTheme(self)
+        placeGlow()
     }
 
     override func viewDidChangeEffectiveAppearance() {

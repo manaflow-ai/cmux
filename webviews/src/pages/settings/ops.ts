@@ -678,6 +678,28 @@ export type HarnessRow = {
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
+  /** When acpmux last checked it (ms since the epoch); the card shows the newest as "Checked 5m ago". */
+  checkedAt?: number | null;
+};
+
+/** One provider account routing may use (acpmux `_acpmux/accounts`): the CLI's own login (`builtin`)
+ * or an account added in a shadow home. Folders arrive under `~`; actions name the id only. */
+export type ProviderAccount = {
+  id: string;
+  family: "codex" | "claude" | string;
+  name: string;
+  /** Its own login folder; null is the CLI's default (`defaultHome`). */
+  home: string | null;
+  defaultHome?: string | null;
+  /** The folder whose settings and chats a shadow home shares. */
+  shadowOf: string | null;
+  signedIn: boolean;
+  plan: string | null;
+  /** Shown on this local Settings page only. */
+  email: string | null;
+  /** Routing may move chats onto it. */
+  enabled: boolean;
+  builtin: boolean;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -686,6 +708,8 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** acpmux's provider accounts; null or absent from a daemon without `_acpmux/accounts`. */
+  accounts?: ProviderAccount[] | null;
   /** Receipts and terminal observations from the captured update owner. */
   jobs?: Array<{
     machine: string;
@@ -717,11 +741,18 @@ export type HarnessesRun = {
     | "updateAll"
     | "autoUpdate"
     | "resumeUpdate"
-    | "dismissUpdate";
+    | "dismissUpdate"
+    | "accountEnable"
+    | "accountAdd"
+    | "accountSignIn";
   id?: string;
+  /** With `accountEnable` and `accountSignIn`: a listed account id. */
+  account?: string;
+  /** With `accountAdd`: the provider family that gets a new shadow-home account. */
+  family?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
-  /** With `autoUpdate`: turn it on or off for `id`. */
+  /** With `autoUpdate` (for `id`) and `accountEnable` (for `account`): turn it on or off. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;

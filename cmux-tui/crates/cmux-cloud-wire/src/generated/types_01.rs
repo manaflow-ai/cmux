@@ -541,6 +541,8 @@ pub struct CloudVmNetworkPolicyView {
     pub authority_version: String,
     pub checked_at: i64,
     pub expires_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admit_until: Option<i64>,
     pub acl_version: i64,
     pub policy_digest: String,
     pub peers: Vec<CloudVmReceiverPeer>,
@@ -895,12 +897,4 @@ wire_enum! {
         System = "system",
         User = "user",
     }
-}
-
-/// Per-user push rules, synced by the feed owner.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPrefs {
-    pub push_enabled: bool,
-    pub push_delay: FeedPrefsPushDelay,
-    pub push_skip_when_mac_active: bool,
 }

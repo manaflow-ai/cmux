@@ -167,6 +167,7 @@ pub mod op_names {
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
+    pub const SERVER_PAIR_INVITE: &str = "server.pair.invite";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
@@ -391,6 +392,7 @@ pub mod op_names {
         RUN_LIST,
         SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
+        SERVER_PAIR_INVITE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
         SLACK_POST_AS_BOT,
@@ -618,6 +620,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "run.list" => visitor.visit::<RunListOp>(),
         "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
+        "server.pair.invite" => visitor.visit::<ServerPairInviteOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),

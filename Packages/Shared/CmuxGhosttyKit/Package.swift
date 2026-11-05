@@ -118,6 +118,12 @@ import PackageDescription
 // the layer cannot show in its bounds wakes no main-queue block (#75; cmux
 // FRAME OWNER S4's held-key cost: one main wake per moving terminal and frame).
 //
+// Since 6cc749a8a..12ec155e1 (fork PRs #77 and #79): an off-main present begins
+// a Core Animation transaction only for a frame it shows (#79; cmux FRAME
+// OWNER S4 profile 4b41c42c: each frame that went through main committed an
+// empty transaction on the GPU completion thread), and one shared drop rule
+// with its test (#77).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -141,8 +147,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-6cc749a8a53b1d62465e0faf848e430a82f690aa-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "018d2bdb8b7f26c9e97ff6732b4e80e52f24ca3086e456efe0fb6d8aa38f4a40"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "5defd8f8b83a4fc8a7f74d805be380d5c566702cf35a19c2b92c0adda1730aa7"
         ),
     ]
 )

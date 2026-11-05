@@ -72,14 +72,14 @@ async fn pending_hello(case: &str) {
             "expiry" => {}
             _ => unreachable!(),
         }
-        let mut byte = [0];
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), client.read(&mut byte))
-                .await
-                .expect("the receiver retained a revoked or expired pre-auth connection")
-                .unwrap(),
-            0
-        );
+        // The dialer reads why (one refusal line), then EOF.
+        let mut sent = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut sent))
+            .await
+            .expect("the receiver retained a revoked or expired pre-auth connection")
+            .unwrap();
+        let refusal = super::super::refusal_watch::parse_refusal(sent.trim_ascii_end());
+        assert!(refusal.is_some(), "not only a refusal line: {sent:?}");
     };
     let (result, ()) = tokio::join!(serve, check);
     assert!(result.is_err());

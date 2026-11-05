@@ -5,8 +5,9 @@
 // eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
 // under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
 // never pushes the transcript down; while the command runs the box follows its newest line unless
-// the reader scrolled up. Output wraps by default, each line hanging under its start; unwrapped,
-// its right edge fades while more lies past.
+// the reader scrolled up. Output keeps each printed line on its own row by default, so a table
+// reads with its columns aligned, and its right edge fades while more lies past; Wrap lines folds
+// the long rows back under their start (blockWrap.ts).
 import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";

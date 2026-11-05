@@ -20,7 +20,7 @@ if [ "$LEGACY_ACTION" = continue ]; then
 fi
 env ${continue_args[@]+"${continue_args[@]}"} \
   CMUX_CHANNEL=nightly \
-  CMUX_NOTARY_WAIT_TIMEOUT=20m \
+  CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT:-20m}" \
   CMUX_NOTARY_PENDING_ON_TIMEOUT=true \
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \

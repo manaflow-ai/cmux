@@ -41,15 +41,16 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
         neutralStyle.map { .neutralGlass($0) } ?? .theme
     }
 
-    /// The role's own corner radius; nil for one on the panel radius tunable
-    /// (`Metrics.panelCornerRadius`).
-    public var cornerRadius: CGFloat? {
+    /// How many levels inside the one corner radius the role's corner is: 0 is the outer radius
+    /// (a top-level surface); `cornerRadius` (SurfaceRole+CornerRadius.swift) resolves it.
+    public var cornerDepth: Int {
         switch self {
-        case .card: return 10
-        case .toast: return 9
-        case .sheet: return 14
-        case .tooltip: return 5
-        default: return nil
+        case .popover: return 0
+        case .menu: return 0
+        case .card: return 0
+        case .toast: return 0
+        case .sheet: return 0
+        case .tooltip: return 2
         }
     }
 
@@ -73,12 +74,12 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
 
 extension FloatingGlassStyle {
     /// The sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass.
-    nonisolated public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
+    nonisolated public static let card = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
                                                          darkRim: (0.22, 0.04), lightRim: (0.8, 0.08), castsShadow: false)
     /// Toasts: a rounded rect, never a capsule, even on one line.
-    nonisolated public static let toast = FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
+    nonisolated public static let toast = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
                                                          darkRim: (0.3, 0.06), lightRim: (0.85, 0.1), castsShadow: true)
     /// Dialogs, confirms, prompt bars and sheets: a little denser veil for longer text.
-    nonisolated public static let dialog = FloatingGlassStyle(cornerRadius: 14, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
+    nonisolated public static let dialog = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                          darkRim: (0.28, 0.05), lightRim: (0.85, 0.1), castsShadow: true)
 }

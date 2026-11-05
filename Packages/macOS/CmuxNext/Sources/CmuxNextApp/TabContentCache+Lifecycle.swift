@@ -118,7 +118,7 @@ extension TabContentCache {
     func contentDidMount(_ key: String) {
         // Created with no pane showing it (a tab opened in the background): live and hidden, so
         // hibernation may release it and its first show restores it.
-        guard let token = pendingMounts.removeValue(forKey: key) else { return applyLifecycle(lifecycle.send(.adopted(key))) }
+        guard let token = pendingMounts.removeValue(forKey: key) else { takeTabVisibility(key); return applyLifecycle(lifecycle.send(.adopted(key))) }
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 
@@ -148,13 +148,18 @@ extension TabContentCache {
         }
     }
 
-    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
-    /// lifecycle does not change, so no reveal follows: a tab on screen
-    /// shows the new page at once (a remote view tab's Connect starts its
-    /// stream here; before, the replacement never learned it was visible).
-    func installReplacement(_ page: any BrowserTab, for key: String) {
-        _ = install(page, for: key)
-        if shownPages.contains(key) { page.setContentVisible(true) }
+    /// A page put into a tab whose lifecycle already has a record: a replacement (`swapPage`,
+    /// `replacePage`, a `reroute` between pages), a deferred page started (`startDeferred`) or a
+    /// Chromium retry. The record's phase does not change, so no reveal or conceal follows and
+    /// `.adopted` is ignored: the page takes the tab's visibility here (`shownPages`, which reveal
+    /// and conceal keep whether or not the tab had a page then). A tab on screen shows it at once
+    /// (a remote view tab's Connect starts its stream here), and a hidden tab's is hidden: a new
+    /// Chromium page starts visible, and one put into a page area already hidden never gets the
+    /// hide that conceals it, so it drew under the tab on screen (Leo, 2026-11-05: a Cloud chat's
+    /// Claude sign-in page showing through the agent pane).
+    private func takeTabVisibility(_ key: String) {
+        guard lifecycle.phase(key) != .unmounted, let entry = browsers[key] else { return }
+        entry.tab.setContentVisible(shownPages.contains(key))
     }
 
     private func reveal(_ key: String) {
@@ -165,10 +170,10 @@ extension TabContentCache {
             // parsed its content while hidden draws it now: no hold).
             lastFrames.show(key, on: entry.session)
         }
-        if let entry = browsers[key] {
-            entry.tab.setContentVisible(true)
-            shownPages.insert(key)
-        }
+        // Whether or not a page is in yet: a page put in later (`takeTabVisibility`) takes the
+        // tab's visibility from here.
+        shownPages.insert(key)
+        if let entry = browsers[key] { entry.tab.setContentVisible(true) }
         hibernation?.tabDidShow(key)
     }
 
@@ -178,11 +183,12 @@ extension TabContentCache {
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
         }
+        let wasShown = shownPages.remove(key) != nil
         if let entry = browsers[key] {
             // Only a page that was on screen (one created or restored hidden has nothing worth a
             // thumbnail), and only when it navigated or loaded since its last picture: the engine
             // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
-            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+            if wasShown, !pagePictureIsCurrent(entry, key: key) {
                 capturePagePreview(entry, key: key, token: token)
             }
             entry.tab.setContentVisible(false)

@@ -172,9 +172,9 @@ test("a section drags into another block, lifted while held, and the order stays
   await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 560)));
   expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
   expect(container.querySelector('section[data-section="outputs"]')!.hasAttribute("data-dragging")).toBe(true);
-  // It looks for its place 24px below its top, 516 - 420 + 24 = 120: below Context's middle (114),
-  // above Usage's (142).
-  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 140)));
+  // Its place is set by its top, the edge it leads with (`heldPlace`): 516 - 396 = 120, past Usage's middle (142)
+  // but not Context's (114).
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 164)));
   expect(order(container)).toEqual([
     "environment",
     "context",
@@ -196,13 +196,16 @@ test("a section drags into another block, lifted while held, and the order stays
     { group: "about", sections: ["connectors"] },
   ]);
   expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
-  // The section is drawn under the pointer, whatever its place: 516 + (140 - 560) - its new top 128.
-  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-32px)");
-  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 140)));
+  // The section is drawn under the pointer, whatever its place: 516 + (164 - 560) - its new top 128.
+  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-8px)");
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 164)));
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual(order(container));
+  // The saved order is the drawn one, with Progress (no plan here, so not drawn) in its slot.
+  expect(
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "progress"),
+  ).toEqual(order(container));
   await act(async () => root.unmount());
 
   // A fresh page reads the saved order.
@@ -307,6 +310,7 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "outputs",
     "changes",
     "sources",
+    "progress",
     "tasks",
     "subagents",
   ]);
@@ -325,6 +329,7 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "changes",
     "sources",
     "outputs",
+    "progress",
     "tasks",
     "subagents",
   ]);
@@ -418,6 +423,7 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
     "environment",
     "context",
     "subagents",
+    "progress",
     "usage",
     "tasks",
     "sources",

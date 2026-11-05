@@ -214,3 +214,59 @@ async fn native_token_receiver_ssh_reaches_only_the_loopback_service() {
     .expect("inbound must finish")
     .expect("signed token must reach sshd");
 }
+
+/// RED before the refusal line: a token from another issuer than the
+/// receiver's policy (production saw `cmux:cloud:prod` against
+/// `cmux:cloud:production`) closed the stream with a bare EOF on the Mac and
+/// `token Invalid` in the journal. Now both name the check and both issuers.
+#[tokio::test]
+async fn an_issuer_mismatch_tells_the_dialer_and_the_journal_why() {
+    use cmux_link::native_token::*;
+    let f: Value =
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
+            .unwrap();
+    let now = ReceiverTime { unix_ms: 1_792_000_010_000, monotonic: std::time::Instant::now() };
+    let (keys, mut policy) = owned_policy(30_000, now.monotonic);
+    policy.issuer = "cmux:cloud:production".into();
+    let verifier = NativeTokenVerifier::new(keys, move || Some(now), 16).unwrap();
+    verifier.replace_authority(policy).unwrap();
+    let directory = cmux_unix_socket::short_test_dir("nativejwtiss");
+    let session = directory.path().join("s.sock");
+    let (mut client, inbound) = tokio::io::duplex(16 * 1024);
+    let hello = serde_json::json!({"service":"daemon", "epoch":4, "link_token":f["token"]});
+    client.write_all(format!("{hello}\n").as_bytes()).await.unwrap();
+    let me = HostIdentity {
+        host: f["claims"]["aud"].as_str().unwrap(),
+        epoch: 4,
+        session_socket: &session,
+        sshd: "127.0.0.1:1".parse().unwrap(),
+    };
+    let source =
+        SocketAddr::new(IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())), 40000);
+    let mut trace = StreamTrace::default();
+    let result =
+        serve_host_inbound_traced(inbound, [b'a'; 32], source, &verifier, &me, &mut trace).await;
+    assert_eq!(result, Err(HostRefused::Token));
+    let journal = super::super::native_receiver::stream_ended_line(
+        1,
+        &source,
+        std::time::Duration::ZERO,
+        &trace,
+        Some(&result),
+    );
+    assert!(
+        journal.contains("refused: token Invalid: issuer")
+            && journal.contains("\"cmux:cloud:production\"")
+            && journal.contains("\"cmux:cloud:test\""),
+        "{journal}"
+    );
+    let mut sent = Vec::new();
+    client.read_to_end(&mut sent).await.unwrap();
+    let text = String::from_utf8(sent.clone()).unwrap();
+    assert!(!text.contains(f["token"].as_str().unwrap()), "never the token: {text}");
+    let refusal = super::super::refusal_watch::parse_refusal(sent.trim_ascii_end())
+        .unwrap_or_else(|| panic!("not a refusal line: {text}"));
+    assert_eq!(refusal.reason, "Token");
+    assert_eq!(refusal.check.as_deref(), Some("issuer"));
+    assert!(refusal.to_string().contains("cmux:cloud:production"), "{refusal}");
+}

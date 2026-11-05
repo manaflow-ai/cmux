@@ -3,10 +3,12 @@ import { PairingInfo, PublicJwk, WgPublicKey } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { verifyInstallSignature } from "./auth.ts"
 import type { Env } from "./env.ts"
-import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, sha256Hex } from "./domains/pairing.ts"
+import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, normalizeInvite, sha256Hex } from "./domains/pairing.ts"
 import { jwkThumbprint } from "./domains/user.ts"
 import { collectSecret, collectSecretValid } from "./pair-collect.ts"
-import type { PairingRecord, PairingResult } from "./pairing-do.ts"
+import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
+import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
+import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
 import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type PairingApproval, type PairNetworkTransport } from "./server-pair-network.ts"
 
 /**
@@ -20,6 +22,9 @@ import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type Pa
  *   any PairingDO wakes.
  * - `server.pair.preview` / `server.pair.approve` run through `/v1/ops` with a
  *   signed-in session (see http.ts), never an install token or an agent.
+ * - The reverse flow (pair-invite-routes.ts): a signed-in person mints an invite
+ *   (`server.pair.invite`), the new machine begins with `invite`, and only that
+ *   person may approve the code it gets.
  */
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
@@ -29,10 +34,10 @@ const BeginBody = Schema.Struct({
   wg_public_key: WgPublicKey,
   info: PairingInfo,
   issued_at: Schema.Int,
-  signature: Schema.String.check(Schema.isMaxLength(200))
+  signature: Schema.String.check(Schema.isMaxLength(200)),
+  /** An invite code as typed (`ABCDE-12345`); normalized below. */
+  invite: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32)))
 })
-
-const pairingStub = (env: Env, code: string) => env.PAIRING_DO.get(env.PAIRING_DO.idFromName(code))
 
 export const handlePairBegin = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
@@ -50,24 +55,33 @@ export const handlePairBegin = async (request: Request, env: Env): Promise<Respo
   const exit = Schema.decodeUnknownExit(BeginBody)(raw)
   if (!Exit.isSuccess(exit)) return json({ error: "invalid pairing request" }, 400)
   const body = exit.value
+  // A malformed invite is refused before any Durable Object wakes.
+  const invite = body.invite === undefined ? undefined : normalizeInvite(body.invite)
+  if (invite === null) return json({ error: "invalid invite code" }, 400)
   const now = Date.now()
   if (Math.abs(now - body.issued_at) > BEGIN_SKEW_MS) return json({ error: "clock skew too large" }, 400)
   const thumbprint = jwkThumbprint(body.public_jwk)
   const proof = beginProofMessage(env.ENVIRONMENT, thumbprint, body.wg_public_key, body.issued_at)
   if (!(await verifyInstallSignature(body.public_jwk, proof, body.signature))) return json({ error: "proof of possession failed" }, 403)
   const country = ((request as unknown as { cf?: { country?: string } }).cf?.country ?? null) || null
-  // 40-bit codes: a collision with a live code is rare; try a few fresh codes.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = codeFromRandom(crypto.getRandomValues(new Uint8Array(5)))
-    const collect = await collectSecret(env, code)
-    const collectHash = await sha256Hex(collect)
-    const r = await pairingStub(env, code).begin({ code, public_jwk: body.public_jwk, thumbprint, wg_public_key: body.wg_public_key, info: body.info, country, collect_hash: collectHash, now })
-    if (r.ok) {
-      const origin = (env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")
-      return json({ code, display: displayCode(code), expires_at: r.expires_at, collect_secret: collect, thumbprint, verification_uri: `${origin}/pair?c=${code}` })
+  const create = async (pairingInvite?: PairingInvite): Promise<BegunPairing | null> => {
+    // 40-bit codes: a collision with a live code is rare; try a few fresh codes.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = codeFromRandom(crypto.getRandomValues(new Uint8Array(5)))
+      const collect = await collectSecret(env, code)
+      const collectHash = await sha256Hex(collect)
+      const r = await pairingStub(env, code).begin({ code, public_jwk: body.public_jwk, thumbprint, wg_public_key: body.wg_public_key, info: body.info, country, collect_hash: collectHash, now, ...(pairingInvite ? { invite: pairingInvite } : {}) })
+      if (r.ok) return { code, collect, expires_at: r.expires_at }
     }
+    return null
   }
-  return json({ error: "no free pairing code, try again" }, 503)
+  const reply = (begun: BegunPairing, extra: Record<string, unknown> = {}) => {
+    const origin = (env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")
+    return json({ code: begun.code, display: displayCode(begun.code), expires_at: begun.expires_at, collect_secret: begun.collect, thumbprint, verification_uri: `${origin}/pair?c=${begun.code}`, ...extra })
+  }
+  if (invite !== undefined) return beginWithInvite(env, { invite, thumbprint, info: body.info, country, now }, create, reply)
+  const begun = await create()
+  return begun ? reply(begun) : json({ error: "no free pairing code, try again" }, 503)
 }
 
 export const handlePairWait = async (request: Request, env: Env): Promise<Response> => {
@@ -81,44 +95,6 @@ export const handlePairWait = async (request: Request, env: Env): Promise<Respon
   const headers = new Headers(request.headers)
   headers.set("x-cmux-collect-hash", await sha256Hex(secret))
   return pairingStub(env, code).fetch(new Request(request.url, { headers, method: "GET" }))
-}
-
-type OpReply = {
-  ok: boolean
-  op: string
-  value?: unknown
-  error?: { code: string; message: string; retryable: boolean }
-  transaction: string
-  idempotency_key: string
-  replayed: boolean
-  stream: string
-  sequence: number
-}
-
-const fail = (op: string, key: string, code: string, message: string, retryable = false): OpReply => ({
-  ok: false,
-  op,
-  error: { code, message, retryable },
-  transaction: "",
-  idempotency_key: key,
-  replayed: false,
-  stream: "",
-  sequence: 0
-})
-
-/** A user-origin session only: never an install token, never an agent acting through one. */
-const isHumanSession = (p: Principal) => p.kind === "session" && !p.agent && Boolean(p.user)
-
-/**
- * Per-user limits on the pairing namespace (user keys). `user` bounds preview
- * and approve (code guessing); `user-retry` is spent only after `user` refused,
- * by an approve that may be a retry of the caller's own claim, so a retry is
- * never blocked by the guessing budget and PairingDO wakes stay bounded.
- */
-const pairLimited = async (env: Env, principal: Principal, bucket: "user" | "user-retry" = "user"): Promise<boolean> => {
-  if (!env.PAIR_BEGIN_LIMIT) return true
-  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `${bucket}:${principal.user}` })
-  return success
 }
 
 export const pairPreview = async (env: Env, principal: Principal, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }> => {
@@ -189,11 +165,16 @@ export const pairApprove = async (
   // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
   const claimed = await stub.claim(code, principal.user!, now, approval)
   if (!claimed.ok) {
+    if (claimed.reason === "not_inviter") return fail(op, frame.idempotency_key, "auth.forbidden", "only the person who made this invite may approve it")
     return claimed.reason === "unknown" ? fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown") : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
   }
-  const done = (result: PairingResult): OpReply => ({ ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 })
-  if (claimed.result) return done(claimed.result)
   const rec = claimed.record
+  const done = async (result: PairingResult): Promise<OpReply> => {
+    // A box that came in through an invite: the inviter's watcher hears it (idempotent, so a retry repeats it).
+    if (rec.invite) await invitePairedNotify(env, rec.invite, code, result.host)
+    return { ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 }
+  }
+  if (claimed.result) return done(claimed.result)
   // The owner routing identity and both public-key pins are verified before any install/host write.
   // The human's session is transient. Only the narrow invitation goes into the private pairing row.
   let network = claimed.network

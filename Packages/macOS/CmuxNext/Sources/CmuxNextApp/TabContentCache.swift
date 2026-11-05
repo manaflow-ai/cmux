@@ -474,7 +474,7 @@ final class TabContentCache {
     func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        installReplacement(page, for: key)
+        install(page, for: key)
         if let asleep { browsers[key]?.state.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)

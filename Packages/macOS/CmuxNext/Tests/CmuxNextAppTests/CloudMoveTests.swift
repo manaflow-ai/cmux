@@ -293,6 +293,24 @@ struct CloudMoveTests {
         }
     }
 
+    /// The person's own Move to Cloud on a machine too old for it updates the machine, then moves the
+    /// chat, with no stop asking them to press "Update Machine" (lens review of the UI ceremony audit,
+    /// 2026-11-05: the app does the step it would ask for).
+    @Test func thePersonsMoveUpdatesAnOutdatedMachineFirstThenMoves() async throws {
+        try await Self.withMove("updates") { move in
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                              arguments: ["path": .string(move.project.path), "machine": .string("vm-move")], origin: .user)
+            #expect(move.services.registry.perform(CloudMove.action, invocation: invocation))
+            let moved = try await move.read()
+            let calls = moved.calls.map { Array($0.prefix(3)) }
+            #expect(calls == [["link", "seed", "push"], ["link", "agent", "move"], ["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]],
+                    "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
+            #expect(!moved.macStillHasTab)
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
     /// A machine too old to update in place says so and offers no button: retrying can't help.
     @Test func aMachineTooOldToUpdateSaysSoAndKeepsTheChat() async throws {
         try await Self.withMove("updateUnsupported") { move in

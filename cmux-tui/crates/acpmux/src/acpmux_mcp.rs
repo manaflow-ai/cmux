@@ -507,7 +507,17 @@ async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
         _ => json!({"excludeStatus": ["closed"]}),
     };
     match daemon.whole_list(method::MUX_SESSIONS, params).await {
-        Ok(all) => ls_result(&all, args),
+        Ok(mut all) => {
+            // The other machines' sessions a host with no peer to them lists through its send
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
+            let far = crate::cli::send_relay::relay_rows(true).await;
+            if !far.is_empty()
+                && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
+            {
+                crate::cli::send_relay::merge_rows(rows, far);
+            }
+            ls_result(&all, args)
+        }
         Err(e) => refusal(e),
     }
 }

@@ -478,8 +478,11 @@
   display: none;
 }
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
-   carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
-   the rows it passes. At rest no section is a box (session-panel.md). */
+   carries no hairline, and only while held does it take a shadow and its head's hover tint, so it reads
+   as picked up. At rest no section is a box (session-panel.md). It stands on the panel's glass as the
+   sidebar's picked-up row stands on the window's (#32330): a tint over the glass, never the page color,
+   which drew a near-opaque slab (Leo, 2026-11-05: "it becomes opaque"). Its neighbours make way before it
+   covers half of one (heldPlace.ts). */
 .acpmux-session-info-sections[data-dragging] {
   cursor: grabbing;
   user-select: none;
@@ -494,10 +497,8 @@
   visibility: hidden;
 }
 .acpmux-session-info-slot[data-lifted] > .acpmux-session-info-section {
-  background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
-  box-shadow:
-    var(--elevation-2),
-    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+  background: var(--acpmux-session-info-row-hover);
+  box-shadow: var(--elevation-2);
 }
 /* Gallery alternative (rules): a hairline over every section but the first. */
 .acpmux-session-info__body:is([data-layout="rules"], [data-layout="groups"]) .acpmux-session-info-sections {
@@ -1483,4 +1484,70 @@ button.acpmux-session-info-scope__parent:focus-visible {
   padding: 4px 8px;
   color: var(--accent-color);
   font-size: var(--text-detail);
+}
+/* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
+   in the icon column, centred on the step's first line; the words start on the text column and wrap,
+   so a long step reads whole. The marks are the transcript todo list's (conversation.css .cv-plan):
+   a filled check is done, the shared spinner runs, a dashed ring waits, a plain ring was left in
+   progress when the turn ended. A done step mutes; nothing is struck through or bold. */
+.acpmux-session-info-progress__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  /* One 16px line centred in the 28px row; a wrapped step grows by whole lines. */
+  padding: calc((var(--grid-row) - var(--grid-icon-box)) / 2) var(--grid-gap);
+  box-sizing: border-box;
+  line-height: var(--grid-icon-box);
+}
+.acpmux-session-info-progress__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
+  box-sizing: border-box;
+  border: 1.5px solid var(--agent-muted);
+  border-radius: 50%;
+}
+.acpmux-session-info-progress__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-session-info-progress__step[data-status="pending"] .acpmux-session-info-progress__ring {
+  border-style: dashed;
+}
+.acpmux-session-info-progress__step[data-status="in_progress"] .acpmux-session-info-progress__mark {
+  color: var(--agent-text);
+}
+.acpmux-session-info-progress__step[data-status="completed"] {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
+  border-color: transparent;
+  background: var(--agent-muted);
+  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
+     reads on the muted disc in light and dark alike. */
+  color: var(--acpmux-base, Canvas);
+}
+/* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info-progress__step,
+  .acpmux-session-info-progress__ring {
+    transition:
+      color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
 }

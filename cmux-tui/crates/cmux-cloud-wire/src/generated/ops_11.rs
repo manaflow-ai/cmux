@@ -5,6 +5,56 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes team_vm.ssh_cert declares.
+    TeamVmSshCertError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshPresenceRequired = "team_vm.ssh_presence_required",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        TeamVmTainted = "team_vm.tainted",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.
+    TeamVmSshCertChallengeOp {
+        name: "team_vm.ssh_cert.challenge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "execute",
+        principals: [Session],
+        params: TeamVmSshCertChallengeParams,
+        result: TeamVmSshCertChallengeResult,
+        error: TeamVmSshCertChallengeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeParams {
+    pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_minutes: Option<i64>,
+    pub presence_install: InstallId,
+    pub request: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeResult {
+    pub sign: Value,
+    pub message: String,
+    pub expires_at: i64,
+}
+
+wire_errors! {
     /// The error codes team_vm.ssh_cert.challenge declares.
     TeamVmSshCertChallengeError {
         AuthForbidden = "auth.forbidden",

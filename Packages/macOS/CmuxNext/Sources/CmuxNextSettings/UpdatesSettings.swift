@@ -21,6 +21,9 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
+    /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
+    /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
+    public var liveWebReload = UpdatesSettings.liveWebReloadDefault
     /// The bottom-left "cmux Updated!" card after an update
     /// (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
     public var showWhatsNew = UpdatesSettings.showWhatsNewDefault
@@ -47,6 +50,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.choice("web", UpdatesWebSetting.self) { settings.web = value }
+        if let value = reader.bool("liveWebReload") { settings.liveWebReload = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }
         if let value = reader.number("idleInstallMaxWaitSeconds", range: idleInstallMaxWaitRange) { settings.idleInstallMaxWaitSeconds = value }

@@ -13493,6 +13493,268 @@
           }
         }
       }
+    },
+    "addDevice.joinLine.pairAnotherMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair Another Machine…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إقران جهاز آخر…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upari drugi računar…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par en anden maskine…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiteres Gerät koppeln…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vincular otra máquina…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associer une autre machine…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associa un'altra macchina…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のマシンをペアリング…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្គូផ្គងម៉ាស៊ីនផ្សេងទៀត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 컴퓨터 페어링…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til en annen maskin…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sparuj inną maszynę…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parear outra máquina…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключить другой компьютер…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับคู่เครื่องอื่น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir makineyi eşle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під'єднати інший комп'ютер…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghép nối máy khác…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "配对另一台机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "配對另一台機器…"
+          }
+        }
+      }
+    },
+    "addDevice.joinLine.inviteHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair any Mac or Linux machine with a code: run one line there, then confirm its four words here. No SSH needed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقرن أي جهاز Mac أو Linux برمز: شغّل سطرًا واحدًا هناك، ثم أكّد كلماته الأربع هنا. لا حاجة إلى SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uparite bilo koji Mac ili Linux računar kodom: pokrenite jednu liniju tamo, pa ovdje potvrdite njegove četiri riječi. SSH nije potreban."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par en hvilken som helst Mac- eller Linux-maskine med en kode: kør én linje der, og bekræft så dens fire ord her. Ingen SSH nødvendig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopple jeden Mac oder Linux-Rechner mit einem Code: Führe dort eine Zeile aus und bestätige dann hier seine vier Wörter. Kein SSH nötig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vincula cualquier Mac o máquina Linux con un código: ejecuta una línea allí y confirma aquí sus cuatro palabras. No hace falta SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associez n'importe quel Mac ou machine Linux avec un code : exécutez une ligne là-bas, puis confirmez ses quatre mots ici. Pas besoin de SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associa qualsiasi Mac o macchina Linux con un codice: esegui una riga lì, poi conferma qui le sue quattro parole. Non serve SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コードで任意の Mac や Linux マシンをペアリング: そこで 1 行を実行し、ここで 4 つの単語を確認します。SSH は不要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្គូផ្គងម៉ាស៊ីន Mac ឬ Linux ណាមួយដោយកូដ: ដំណើរការបន្ទាត់មួយនៅទីនោះ រួចបញ្ជាក់ពាក្យបួនរបស់វានៅទីនេះ។ មិនត្រូវការ SSH ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드로 어떤 Mac이나 Linux 컴퓨터든 페어링하세요: 그곳에서 한 줄을 실행한 다음 여기서 네 단어를 확인합니다. SSH는 필요 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til hvilken som helst Mac- eller Linux-maskin med en kode: kjør én linje der, og bekreft de fire ordene her. Ingen SSH nødvendig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sparuj dowolnego Maca lub maszynę z Linuksem za pomocą kodu: uruchom tam jedną linię, a potem potwierdź tutaj jej cztery słowa. SSH nie jest potrzebne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pareie qualquer Mac ou máquina Linux com um código: execute uma linha lá e confirme aqui as quatro palavras. Não precisa de SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключите любой Mac или компьютер с Linux по коду: выполните там одну строку, затем подтвердите здесь четыре слова. SSH не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับคู่เครื่อง Mac หรือ Linux เครื่องใดก็ได้ด้วยรหัส: รันหนึ่งบรรทัดที่นั่น แล้วยืนยันคำสี่คำที่นี่ ไม่ต้องใช้ SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi bir Mac veya Linux makineyi bir kodla eşleyin: orada bir satır çalıştırın, ardından dört kelimesini burada onaylayın. SSH gerekmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під'єднайте будь-який Mac або комп'ютер з Linux за кодом: виконайте там один рядок, а потім підтвердьте тут чотири слова. SSH не потрібен."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghép nối bất kỳ máy Mac hay Linux nào bằng mã: chạy một dòng trên máy đó, rồi xác nhận bốn từ của nó tại đây. Không cần SSH."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用代码配对任意 Mac 或 Linux 机器：在那里运行一行，然后在这里确认它的四个词。无需 SSH。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用代碼配對任何 Mac 或 Linux 機器：在那裡執行一行，然後在這裡確認它的四個字詞。不需要 SSH。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

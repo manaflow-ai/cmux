@@ -17,6 +17,14 @@ export const CloudVmNetworkPolicyView = Schema.Struct({
   user: UserId, install: InstallId, team: TeamId, origin: Schema.String, tenant: NativeTenantId, mesh: NativeMeshId, vm: NativeVmId,
   ipv4: Schema.NullOr(Schema.String), wg_public_key: WgPublicKey, install_public_key: Point,
   authority_version: Version, checked_at: Schema.Int, expires_at: Schema.Int,
+  /**
+   * Local admission horizon (cmuxterm-hq plans/task-cmux-vm-cloud/receiver-local-admission.md). The receiver
+   * renews at `expires_at`; when a renewal is slow or the control plane is unreachable it keeps this policy (its
+   * peers, services and keys) and keeps admitting signed tokens until `admit_until`, at most one hour after
+   * `checked_at`. A successful read that drops a peer, or a refused read, revokes at once. Absent: the policy
+   * ends at `expires_at`, the behaviour before local admission (the kill switch).
+   */
+  admit_until: Schema.optionalKey(Schema.Int),
   acl_version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)), policy_digest: Version,
   peers: Schema.Array(CloudVmReceiverPeer).check(Schema.isMaxLength(128))
 }).annotate({ identifier: "CloudVmNetworkPolicyView" })

@@ -50,6 +50,15 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
                    in: home)
     }
 
+    /// The unified diff of the pull request at `url` (`gh pr diff <url>`), for the GitHub page's
+    /// diff tab; nil when gh is missing, fails or times out, or the diff is over `limit` bytes. The
+    /// same queue, deadline and environment as every other read here.
+    public func diff(url: URL, limit: Int = 16 * 1024 * 1024) async -> String? {
+        guard let data = await run(["pr", "diff", url.absoluteString, "--color", "never"], in: home, anyExit: false),
+              data.count <= limit else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
     private var home: String { environment["HOME"] ?? NSHomeDirectory() }
 
@@ -395,6 +404,14 @@ public final class AgentReplyPullRequests {
         entries[url] = entry
         inflight[url] = nil
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Puts `pullRequest` in the cache for `url` as a read that just answered (the instant-create
+    /// bench's `github_right`: the link card already read it, as in a chat). Fresh for `freshness`.
+    public func seed(_ pullRequest: AgentPanePullRequest, for url: URL) {
+        record(pullRequest, for: url, began: Date())
+    }
+    #endif
 
     /// How many links the cache holds, for the test of its bound.
     var kept: Int { entries.count }

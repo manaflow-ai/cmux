@@ -75,9 +75,20 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefine
 /// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
 /// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
 /// tab-named the exact same as the parent").
-export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
+export async function openSubagentPane(
+  call: Call,
+  id: string,
+  focus: boolean,
+  title?: string,
+  tone?: number,
+): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
+    const reply = await call("chat.subagentPane", {
+      subagent: id,
+      focus,
+      ...(title ? { title } : {}),
+      ...(tone !== undefined ? { tone } : {}),
+    });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;
@@ -98,12 +109,13 @@ export async function showSubagent(
     here: (id: string) => void;
     beforeOpen?: () => void;
     title?: string;
+    tone?: number;
   },
 ): Promise<void> {
   if (options.inSubagentPane) return options.here(id);
   if (!focus && !options.panes) return;
   options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title);
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone);
   if (!opened && focus) options.here(id);
 }
 

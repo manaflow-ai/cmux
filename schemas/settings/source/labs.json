@@ -124,6 +124,31 @@
             "remote",
             "mesh"
           ]
+        },
+        {
+          "key": "labs.liveCode",
+          "note": "Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).",
+          "title": {
+            "key": "settings.labs.liveCode",
+            "text": "Live Code"
+          },
+          "help": {
+            "key": "settings.labs.liveCode.help",
+            "text": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "live",
+            "code",
+            "hot",
+            "reload",
+            "patch",
+            "inject",
+            "swift",
+            "develop"
+          ]
         }
       ]
     }

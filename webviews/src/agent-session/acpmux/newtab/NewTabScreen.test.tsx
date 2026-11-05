@@ -140,7 +140,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
+  expect(document.querySelector('[data-value="add.files"]')).toBeTruthy();
 });
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
@@ -164,20 +164,26 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   await render();
   const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   // A host that cannot run them gets no rows that would do nothing.
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  expect(document.querySelector('[data-value="history.search"]')).toBeNull();
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
   await render(async (id) => ran.push(id));
   for (const id of ["agentPane.searchChats", "history.search"]) {
     await act(async () => add().click());
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
-    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    if (add().getAttribute("aria-expanded") !== "true") {
+      await act(async () => add().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(document.querySelector('[data-value="searchFiles"]')).toBeNull();
+    expect(document.querySelector('[data-value="files.search"]')).toBeNull();
+    const row = document.querySelector<HTMLElement>(`[data-value="${id}"]`);
     expect(row).toBeTruthy();
-    await act(async () => {
-      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+    await act(async () => row!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
   expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
   expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
@@ -185,10 +191,9 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
   await render(() => Promise.reject(new Error("unavailable")));
   await act(async () => add().click());
-  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
-  await act(async () => {
-    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const pages = document.querySelector<HTMLElement>('[data-value="history.search"]')!;
+  await act(async () => pages.click());
   await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
     "Search pages isn't available for this chat",

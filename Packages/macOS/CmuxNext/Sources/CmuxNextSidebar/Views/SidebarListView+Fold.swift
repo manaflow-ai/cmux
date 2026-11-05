@@ -119,7 +119,9 @@ extension SidebarListViewComponents {
         }
         let (lines, start) = foldLines(old: old, new: layout, group: id)
         let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
-        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
+        // A collapse's rows fade out on the short fade, ahead of the slot closing over them (`RowMotion.folding`).
+        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion, folding: collapses ? leavingRows.map(\.0) : [])
+            .run(in: self, from: old, to: layout, animated: animate)
         if animate, let slot {
             // The members' slot closes (or opens) on the rows' spring, its bottom edge with the rows below it.
             let members = (collapses ? leavingRows : appearing).map(\.0).filter { slot.contains($0.frame.origin) }

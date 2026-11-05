@@ -773,21 +773,26 @@ impl Worker {
                 let valid = serde_json::from_str::<Request>(&line)
                     .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
                 let value = if valid {
-                    self.live.as_mut().and_then(|live| {
+                    self.live.as_mut().map(|live| {
                         super::receiver_files::reply(
                             &self.paths,
                             &self.instance_id,
                             &mut live.client,
                             wall_ms(),
                         )
-                        .ok()
                     })
                 } else {
                     None
                 };
-                let value = value.unwrap_or_else(
-                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
-                );
+                // `refused` revokes the receiver's retained policy at once;
+                // `unavailable` (no answer) lets local admission keep it.
+                let value = match value {
+                    Some(Ok(value)) => value,
+                    Some(Err(error)) if super::receiver::is_refusal(&error) => {
+                        json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
+                    }
+                    _ => json!({ "ok": false, "error": super::receiver::POLICY_UNAVAILABLE }),
+                };
                 let Some(client) = self.clients.get_mut(i) else { continue };
                 client.output = serde_json::to_vec(&value).unwrap_or_default();
                 if client.output.len() > 1024 * 1024 {

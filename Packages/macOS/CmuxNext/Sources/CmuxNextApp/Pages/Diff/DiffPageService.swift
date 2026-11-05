@@ -94,9 +94,7 @@ final class DiffPageService: InternalPageProvider {
     func gitLink(for tab: TabModel?) -> AgentPaneGitLink? {
         guard let tab, let record = tab.agentSession else { return services.agentGit.local }
         guard services.locateTab(model: tab) != nil else { return nil }
-        guard AgentPaneHostKind(record, localHost: services.agentTabs.localHost,
-                                chiefHost: services.agentTabs.chiefHost,
-                                listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else {
+        guard services.agentTabs.hostKind(record, listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else {
             return services.agentGit.local
         }
         guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }

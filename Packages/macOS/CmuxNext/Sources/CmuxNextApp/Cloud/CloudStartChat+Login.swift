@@ -21,9 +21,17 @@ import Foundation
 extension CloudStartChat {
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
+    /// Every scope a person's cached Claude login may sit under: each of their teams, then their
+    /// personal scope. One login per person, whichever team is selected.
+    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] {
+        cloud.auth.teams.map { Optional($0.id) } + [nil]
+    }
+
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
+        // The person's cached login under any of their teams, or their personal scope: one login per person.
+        let otherTeams = Self.loginScopes(cloud)
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services)
@@ -38,10 +46,20 @@ extension CloudStartChat {
                 verdict = decision.verdict
                 if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) } // again until a new guest binds
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
-                if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID)) }
+                if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
             }
             verdict = decision.verdict
             guard let provider = verdict.transferProvider, let userID else { return false }
+            // No visible login on a start: with no cached login for this person, no terminal, no
+            // `setup-token` and no modal. The chat's own "Sign in to Claude" card (acpmux
+            // `agent_login`, #33744) signs the machine in with one click and the provider's approve
+            // page, and only the person's click starts it (Leo, 2026-11-04: "we literally said we
+            // were gonna do is such that you literally dont need to log in").
+            if provider == .claude, [.install, .confirmThenInstall, .askConsent].contains(verdict.step),
+               await !CloudCredentialTransfer.hasCachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams) {
+                decision.outcome = Self.signInInChat
+                return false
+            }
             switch verdict.step {
             case .skip, .refuse: return false // a refusal is the start-session's error (CloudStartSession)
             case .install: break
@@ -55,13 +73,14 @@ extension CloudStartChat {
             if provider == .codex { // The Mac's broker: short-lived access, a device-code sign-in only when it holds none; it checks the account itself.
                 // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
                 if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
-                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true) { [weak services] prompt in
+                try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, in: nil) }) { [weak services] prompt in
                     guard codexPrompt, let window = services?.windows.active?.window else { return false }
                     return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                        confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) }, stillAllowed: gate.stillAllowed)
             }
@@ -73,4 +92,7 @@ extension CloudStartChat {
             return false
         }
     }
+
+    /// The start record's outcome when no cached login exists and the chat's own sign-in card takes over.
+    static let signInInChat = "no cached login: the chat's Sign in to Claude card"
 }

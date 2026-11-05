@@ -113,6 +113,9 @@ SCAN_RULES = (
         "crates/cmux-tui/src/cli",
         frozenset({".rs"}),
         cli_literals_only=True,
+        # `cmux live` reads web-overlay.sh's state folder, `~/Library/Caches/cmux-next/web-slot`:
+        # a file path on this Mac, not a resource identity.
+        private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
 
