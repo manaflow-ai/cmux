@@ -5662,6 +5662,45 @@
         }
       }
     },
+    "PairingInvite": {
+      "kind": "object",
+      "fields": {
+        "invite": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PairingInviteCode"
+          }
+        },
+        "display": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "watch_secret": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
+    "PairingInviteCode": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{10}$",
+      "description": "A normalized invite code: 10 Crockford base32 symbols, no hyphen."
+    },
     "PairingPreview": {
       "kind": "object",
       "fields": {
@@ -64186,6 +64225,132 @@
               "tenant",
               "mesh",
               "device"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "server.pair.invite": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "pairing",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PairingInvite"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:PairingDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers invite",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/PairingInvite",
+        "$defs": {
+          "PairingInviteCode": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{10}$",
+            "description": "A normalized invite code: 10 Crockford base32 symbols, no hyphen."
+          },
+          "PairingInvite": {
+            "type": "object",
+            "properties": {
+              "invite": {
+                "$ref": "#/$defs/PairingInviteCode"
+              },
+              "display": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "watch_secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "invite",
+              "display",
+              "expires_at",
+              "watch_secret"
             ],
             "additionalProperties": true
           }
