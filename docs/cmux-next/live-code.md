@@ -21,8 +21,8 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
 ## How it works
 
 - **The build** (`scripts/live-code/build.sh`), in two passes. The first, `CMUX_LIVE_CODE_BUILD=1`,
-  compiles `CmuxNextApp` unoptimized and testable and links the app with classic binds and its
-  symbols exported. The second links it again with the `CmuxNextApp` symbols in its export trie made
+  compiles `CmuxNextApp` unoptimized, testable and a file at a time, and links the app with classic
+  binds and its symbols exported. The second links it again with the `CmuxNextApp` symbols in its export trie made
   interposable (`CMUX_LIVE_CODE_INTERPOSABLE_LIST`), so the app's calls to its own functions go
   through pointers dyld can repoint. The first pass alone builds an app no patch can repoint, and a
   blanket `-interposable` stops the app at launch (a private type's symbol dyld cannot bind). The
