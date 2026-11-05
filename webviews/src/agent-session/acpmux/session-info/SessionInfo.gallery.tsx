@@ -1599,7 +1599,7 @@ export default componentEntry<Props>({
       },
     },
     "sources-screenshots": {
-      note: 'Five images pasted from the clipboard, each named "image.png" by WebKit, and one real capture file (Leo, 2026-11-05: "instead of, like screenshot number one, two, three, four, or whatever"): Sources reads them Screenshot 1, 2, ... in chat order, "Safari screenshot 4" for the one copied from Safari, and the file by its own name.',
+      note: 'Images pasted from the clipboard, each named "image.png" by WebKit, beside one real capture file (Leo, 2026-11-05: "instead of, like screenshot number one, two, three, four, or whatever"): Sources reads them Screenshot 1, 2, ... in chat order, "Safari screenshot 3" for the one copied from Safari, and the file by its own name. The numbers count the whole list, so View all 7 shows Screenshot 4 and 5 next.',
       props: {
         ...full,
         made: {
@@ -1608,18 +1608,15 @@ export default componentEntry<Props>({
             pasted("1"),
             pasted("2"),
             { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
-            pasted("3"),
-            pasted("4", "Safari"),
-            pasted("5"),
             { label: "Screenshot 2026-11-05 at 10.12.04.png", kind: "image", image: { id: "6".repeat(64) } },
+            pasted("3", "Safari"),
+            pasted("4"),
+            pasted("5"),
           ],
         },
       },
       play: async (ctx) => {
-        const rows = () => ctx.document.querySelectorAll('[data-section="sources"] li').length;
-        await ctx.waitFor(() => rows() === 5);
-        await ctx.click({ selector: "button.acpmux-session-info-sources-fold" });
-        await ctx.waitFor(() => rows() === 7);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[data-section="sources"] li').length === 5);
         ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
       },
     },
