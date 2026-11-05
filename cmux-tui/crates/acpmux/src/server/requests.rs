@@ -1528,7 +1528,7 @@ async fn dispatch_request_with_identity(
                 "_meta": {"acpmux": summary},
             }))
         }
-        method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
+        method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params).await,
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {

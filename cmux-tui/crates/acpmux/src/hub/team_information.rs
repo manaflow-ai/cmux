@@ -184,10 +184,45 @@ impl Hub {
         }
     }
 
+    /// The harness wrote the turn's prompt: [`Hub::mark_team_messages`] and, with team messaging
+    /// on, [`Hub::mark_team_work`]. Each syncs the chat's log, so a blocking thread marks them
+    /// (#35971); the turn waits for them ([`Hub::team_marked`]) once its prompt is answered,
+    /// before a next turn can take the notices. None: nothing to mark.
+    pub(super) fn mark_team_written(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        messages: &[(String, String)],
+        work: Option<&[String]>,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        if messages.is_empty() && work.is_none() {
+            return None;
+        }
+        let (hub, chat, messages) = (self.clone(), session.clone(), messages.to_vec());
+        let work = work.map(<[String]>::to_vec);
+        Some(tokio::task::spawn_blocking(move || {
+            hub.mark_team_messages(&chat, &messages);
+            if let Some(work) = work {
+                hub.mark_team_work(&chat, &work);
+            }
+        }))
+    }
+
+    /// Waits for the marks [`Hub::mark_team_written`] started.
+    pub(super) async fn team_marked(marks: Option<tokio::task::JoinHandle<()>>) {
+        if let Some(marks) = marks
+            && let Err(error) = marks.await
+        {
+            tracing::warn!("team information marks failed: {error}");
+        }
+    }
+
     /// The existing heartbeat wait retries read receipts, even after restart or when no next
     /// turn runs. Bounded concurrency and a caller deadline keep it from delaying heartbeats.
     /// Explicit acknowledgement remains the person's/agent's separate inbox action.
-    pub(crate) async fn flush_team_read_receipts(&self, mesh: &dyn crate::mesh::MeshHub) {
+    pub(crate) async fn flush_team_read_receipts(
+        self: &Arc<Self>,
+        mesh: &dyn crate::mesh::MeshHub,
+    ) {
         use futures::StreamExt;
         if !self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging) {
             return;
@@ -201,21 +236,34 @@ impl Hub {
         }
         futures::stream::iter(pending)
             .for_each_concurrent(8, |(session, id)| async move {
-                match mesh.read(&id).await {
+                let read = mesh.read(&id).await;
+                match read {
+                    // Its line is synced to disk, so a blocking thread records it (#35971).
                     Ok(_) => {
-                        let mut cache =
-                            session.team_information.lock().unwrap_or_else(|e| e.into_inner());
-                        let Some(state) = self.team_state(&session, &mut cache) else { return };
-                        if self.append_stored(&session, "mux", READ, json!({"messageId": id}))
-                            && self.flush_team_information(&session)
-                        {
-                            state.read_pending.remove(&id);
+                        let hub = self.clone();
+                        let recorded = tokio::task::spawn_blocking(move || {
+                            hub.record_team_read(&session, &id)
+                        });
+                        if let Err(error) = recorded.await {
+                            tracing::warn!("team read receipt not recorded: {error}");
                         }
                     }
                     Err(error) => tracing::debug!("team read receipt pending for {id}: {error}"),
                 }
             })
             .await;
+    }
+
+    /// A read receipt the hub took: its line logged and synced, then no longer pending. One that
+    /// is not stored stays pending for the next heartbeat.
+    fn record_team_read(&self, session: &Session, id: &str) {
+        let mut cache = session.team_information.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(state) = self.team_state(session, &mut cache) else { return };
+        if self.append_stored(session, "mux", READ, json!({"messageId": id}))
+            && self.flush_team_information(session)
+        {
+            state.read_pending.remove(id);
+        }
     }
 }
 

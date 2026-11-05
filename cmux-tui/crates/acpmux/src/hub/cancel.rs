@@ -339,7 +339,14 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
     ) -> Result<(), RpcError> {
-        let running = self.stop_prompt_retry(session, prompt_id)?;
+        // The stop's boundary is synced to disk before anything stops (`stop_prompt_retry`): a
+        // blocking thread does that (#35971).
+        let (hub, stopped, prompt) = (self.clone(), session.clone(), prompt_id.to_owned());
+        let running = tokio::task::spawn_blocking(move || hub.stop_prompt_retry(&stopped, &prompt))
+            .await
+            .map_err(|e| {
+                RpcError::internal(format!("cannot persist prompt stop boundary: {e}"))
+            })??;
         self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
     }
 

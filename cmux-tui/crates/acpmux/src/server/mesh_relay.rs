@@ -743,19 +743,27 @@ pub async fn deliver(
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
-    if team && !start_work_allowed(message) {
-        let stored =
-            hub.receive_team_information(&session, prompt_id, &sender_name(message), &message.body);
-        if !stored {
+    if team {
+        // Its record is synced to disk before the ack, so a blocking thread writes it (#35971).
+        // A thread that failed counts as not stored: the lease brings the message back.
+        let (owner, to, id) = (hub.clone(), session.clone(), prompt_id.to_owned());
+        if !start_work_allowed(message) {
+            let (from, body) = (sender_name(message), message.body.clone());
+            let stored = tokio::task::spawn_blocking(move || {
+                owner.receive_team_information(&to, &id, &from, &body)
+            });
+            if !stored.await.unwrap_or(false) {
+                return None;
+            }
+            return Some(Ack::delivered(
+                prompt_id,
+                Some("information queued for the next turn boundary".into()),
+            ));
+        }
+        let registered = tokio::task::spawn_blocking(move || owner.register_team_work(&to, &id));
+        if !registered.await.unwrap_or(false) {
             return None;
         }
-        return Some(Ack::delivered(
-            prompt_id,
-            Some("information queued for the next turn boundary".into()),
-        ));
-    }
-    if team && !hub.register_team_work(&session, prompt_id) {
-        return None;
     }
     let body = if team {
         format!(

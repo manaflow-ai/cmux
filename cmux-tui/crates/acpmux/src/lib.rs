@@ -162,6 +162,8 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+#[cfg(test)]
+mod test_store_seam;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

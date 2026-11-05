@@ -13,9 +13,9 @@ use super::*;
 pub const FEATURE: &str = "sessionResume";
 
 /// `session/load`: replay the history as ACP updates, then answer.
-pub(super) fn load(
-    hub: &Hub,
-    conn: &Conn,
+pub(super) async fn load(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
     resolved: Option<&Arc<crate::hub::Session>>,
     params: &Value,
 ) -> Result<Value, RpcError> {
@@ -24,6 +24,17 @@ pub(super) fn load(
     // replayed again, nor one replayed sent live (`MessageNotices`).
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
     attach(hub, conn, &s.id);
+    // The replay reads the log's files, so a blocking thread sends it (#35971). The answer
+    // waits for it: it comes after every replayed line.
+    let (owner, to, chat) = (hub.clone(), conn.clone(), s.clone());
+    tokio::task::spawn_blocking(move || replay(&owner, &to, &chat))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+    Ok(opened(hub, &s))
+}
+
+/// [`load`]'s replay of `s` on `conn`.
+fn replay(hub: &Hub, conn: &Conn, s: &crate::hub::Session) -> Result<(), RpcError> {
     // One record at a time, the first 100,000 as before: the log is never held whole.
     let mut left = 100_000usize;
     hub.scan_events(&s.id, 0, &mut |rec| {
@@ -67,8 +78,7 @@ pub(super) fn load(
         }
         left > 0
     })
-    .map_err(|e| RpcError::internal(e.to_string()))?;
-    Ok(opened(hub, &s))
+    .map_err(|e| RpcError::internal(e.to_string()))
 }
 
 /// `session/resume`: attach and answer, with no history ("the Agent MUST NOT
