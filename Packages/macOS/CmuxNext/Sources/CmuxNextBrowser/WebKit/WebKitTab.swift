@@ -77,6 +77,10 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// (`pageDidCommit`). Replaceable, so a test can give it a clock that
     /// does not wait.
     @ObservationIgnored var pageBaseHold = DemandTimer(owner: "browser.pageBase")
+    /// The document's background as 0xAARRGGBB for the web view's own background (`WebKitTab+ResizeBackdrop`), nil for
+    /// WebKit's default; and the document count that keeps a late read from an earlier document out.
+    @ObservationIgnored var pageBackdropARGB: UInt32?
+    @ObservationIgnored var pageBackdropDocument = 0
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
@@ -96,6 +100,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         container = WebKitPageContainer(page: webView)
         super.init()
         inspectorWatch.attach(webView: webView, container: container)
+        container.onPaneMotion = { [weak self] in self?.samplePageBackdrop() }
 
         webView.owner = self
         webView.navigationDelegate = self

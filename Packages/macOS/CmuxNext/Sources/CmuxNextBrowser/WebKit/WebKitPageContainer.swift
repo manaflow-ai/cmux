@@ -36,6 +36,9 @@ final class WebKitPageContainer: NSView {
     /// Inspector shows and hides this way).
     var onSubviewsChange: (() -> Void)?
 
+    /// Its pane started a key resize (`WebKitPageContainer+PaneMotion`): the tab reads the page's color for the gap.
+    var onPaneMotion: (() -> Void)?
+
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         onSubviewsChange?()
