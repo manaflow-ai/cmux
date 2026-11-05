@@ -124,6 +124,17 @@ import Testing
         }
     }
 
+    @Test func signInTypesTheLoginInTheAccountsFolderAndAKeyHasNone() async throws {
+        let h = await make()
+        _ = try await h.harnesses.run(["action": "accountSignIn", "account": "claude-2"], context: gesture())
+        let line = try #require(h.terminal.lines.last)
+        #expect(line.hasPrefix("CLAUDE_CONFIG_DIR='/Users/alex/.cmux/accounts/claude-2' "))
+        await #expect(throws: PageError.self) {
+            _ = try await h.harnesses.run(["action": "accountSignIn", "account": "claude-key"], context: gesture())
+        }
+        #expect(h.terminal.lines.count == 1)
+    }
+
     @Test func removeTakesAnAddedAccountOnly() async throws {
         let h = await make()
         _ = try await h.harnesses.run(["action": "accountRemove", "account": "claude-key"], context: gesture())

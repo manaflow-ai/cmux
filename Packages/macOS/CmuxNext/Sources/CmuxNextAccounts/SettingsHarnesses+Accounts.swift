@@ -182,6 +182,8 @@ extension SettingsHarnesses {
             }
         case "accountSignIn":
             let account = try listed(params, action)
+            // An API-key account has no login to open.
+            guard !account.key else { throw PageError.invalidParams("accountSignIn needs an account with a login") }
             try signIn(family: account.family, home: account.home, environment: environment)
         case "accountSignOut":
             let account = try listed(params, action)
