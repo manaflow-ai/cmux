@@ -334,9 +334,10 @@ class QueuedGateTests(unittest.TestCase):
 class FeedTests(unittest.TestCase):
     def test_watches_the_cmux_nightly_feed(self):
         # nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on
-        # the bare feed it polls (hq#7156); the `/next/` appcast is retired.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        # the bare feed it polls (hq#7156). `/next/` is read only to find builds the
+        # legacy jobs have not copied yet (legacy_lag), until nightly-next signs once.
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
 
 def feed(*items):
@@ -389,6 +390,10 @@ class LegacyFeedTests(unittest.TestCase):
         build, message = self.lag()
         self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", message)
+
+    def test_a_frozen_next_feed_behind_the_bare_one_reruns_nothing(self):
+        # Once nightly-next signs once, `/next/` freezes and the bare feed moves ahead of it.
+        self.assertIsNone(self.lag(next_xml=self.OLD, old_xml=self.NEXT)[0])
 
     def test_current_or_fresh_is_not_behind(self):
         self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
