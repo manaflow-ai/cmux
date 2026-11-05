@@ -226,17 +226,17 @@ import Testing
             await hold.wait()
             sent.append(input)
         }
-        // The first press goes at once (single-click latency); it is on its way, so the second press
-        // adds only its one click: two clicks in all, never three (a triple-click selects a line).
+        // The first press goes at once (single-click latency); the second sends count 2, a real
+        // double-click on the computer (each input is its own round trip, longer than the interval).
         queue.enqueue(.click(x: 5, y: 6, button: 1, count: 1))
         queue.enqueue(.click(x: 5, y: 6, button: 1, count: 2))
-        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 1)])
+        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 2)])
         // Behind a send, the queued first press is replaced by the double-click, not followed by it.
         queue.enqueue(.type("x"))
         queue.enqueue(.click(x: 9, y: 9, button: 1, count: 1))
         queue.enqueue(.click(x: 9, y: 9, button: 1, count: 2))
         queue.enqueue(.click(x: 9, y: 9, button: 1, count: 3))
-        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 1), .type("x"), .click(x: 9, y: 9, button: 1, count: 3)])
+        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 2), .type("x"), .click(x: 9, y: 9, button: 1, count: 3)])
         // Two single clicks in different places stay two.
         #expect(HomeChiefComputerInputQueue.coalesce(.click(x: 1, y: 1, button: 1, count: 1), .click(x: 2, y: 2, button: 1, count: 2)) == nil)
         #expect(HomeChiefComputerInputQueue.coalesce(.click(x: 1, y: 1, button: 1, count: 1), .click(x: 1, y: 1, button: 1, count: 1)) == nil)

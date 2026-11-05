@@ -52,11 +52,10 @@ final class HomeChiefComputerInputQueue {
         let input = Self.clamped(input)
         if let last = waiting.last, let merged = Self.coalesce(last, input) {
             waiting[waiting.count - 1] = merged
-        } else if case let .click(x, y, button, count) = input, count >= 2 {
-            // The earlier press of this double- or triple-click already left the queue: send only the
-            // click it adds (each press raises the count by one), never the whole count again.
-            waiting.append(.click(x: x, y: y, button: button, count: 1))
         } else {
+            // A double-click whose first press already left the queue still goes with its full count:
+            // each input is its own round trip to the computer, longer than a double-click interval, so
+            // only a count-2 click arrives as a double-click (the first press reads as a click before it).
             waiting.append(input)
         }
         pump()

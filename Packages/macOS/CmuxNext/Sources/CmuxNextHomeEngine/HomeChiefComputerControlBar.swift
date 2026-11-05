@@ -89,6 +89,8 @@ public final class HomeChiefComputerControlBar: NSStackView {
         token = nil
         busy?.cancel()
         busy = nil
+        // A cancelled Give Back may still wait on an input that never returns: the new source starts clear.
+        givingBack = false
         failed = false
         token = source?.observe { [weak self] in
             self?.failed = false
