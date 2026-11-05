@@ -152,6 +152,48 @@ test("a list cleared after a later prompt takes Progress away", async () => {
   expect(snapshot.progress).toBeUndefined();
 });
 
+test("an explicitly cleared Progress section stays gone when older history loads", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as Daemon;
+  const record = (step: unknown) => daemon.record(mockHost.sessionId!, step);
+  // Keep the historical plan outside the attach page. The current page starts at a turn boundary,
+  // so loadOlder() takes the incremental foldOlder path that used to resurrect that plan.
+  record(prompt("Older plan"));
+  record(started);
+  record(plan(["Old work", "completed"]));
+  record(ended);
+  for (let index = 0; index < 96; index++) record(say(`old filler ${index}`));
+  record(prompt("Current turn"));
+  record(started);
+  record(plan(["Current work", "in_progress"]));
+  record({ update: { sessionUpdate: "plan", entries: [] } });
+  record(say("Cleared."));
+  for (let index = 0; index < 1995; index++) record(say(`current filler ${index}`));
+
+  let last: AcpmuxSnapshot | undefined;
+  const wakes: Array<() => void> = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      last = snapshot;
+      for (const wake of wakes.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    while (!last || !said("Cleared.")(last)) await new Promise<void>((resolve) => wakes.push(resolve));
+    const current = last!;
+    expect(current.progress).toBeUndefined();
+    await client.loadOlder();
+    expect(last!.progress).toBeUndefined();
+  } finally {
+    client.close?.();
+  }
+});
+
 test("a turn the agent starts on its own leaves the ended plan ended", async () => {
   const snapshot = await snapshotAfter(
     [
