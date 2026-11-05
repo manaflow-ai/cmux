@@ -9,8 +9,8 @@
 //! checkout: the dev server comes from its tree, so the script that starts it is the tree's own.
 //! The app's Edit cmux Live action and the `cmux-live` agent skill run this command.
 
-use std::path::{Path, PathBuf};
 use cmux_process::Command as Process;
+use std::path::{Path, PathBuf};
 
 use super::UsageError;
 
@@ -34,7 +34,9 @@ pub(crate) enum Command {
 pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let verb = rest.first().map(String::as_str);
-    if matches!(verb, None | Some("help")) || rest.iter().any(|word| word == "--help" || word == "-h") {
+    if matches!(verb, None | Some("help"))
+        || rest.iter().any(|word| word == "--help" || word == "-h")
+    {
         return Ok(Command::Help);
     }
     let mut worktree = None;
@@ -60,7 +62,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                 )?);
             }
             other => {
-                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", other)));
+                return Err(UsageError::new(
+                    messages.unexpected_argument.replace("{value}", other),
+                ));
             }
         }
     }
@@ -142,8 +146,12 @@ fn checkout(worktree: Option<&Path>, started: bool) -> Option<PathBuf> {
 /// `PATH` with the folders `bun` and Homebrew install into appended when missing. The app's
 /// Edit cmux Live action runs this command with a GUI app's short `PATH`, which has neither, and the
 /// script runs `bun` (the webviews dev server). Nil when nothing needs adding.
-pub(super) fn tool_path(path: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
-    let mut dirs: Vec<PathBuf> = path.as_deref().map(|path| std::env::split_paths(path).collect()).unwrap_or_default();
+pub(super) fn tool_path(
+    path: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> =
+        path.as_deref().map(|path| std::env::split_paths(path).collect()).unwrap_or_default();
     let before = dirs.len();
     let mut wanted = Vec::new();
     if let Some(home) = home.filter(|home| !home.is_empty()) {

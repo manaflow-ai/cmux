@@ -220,7 +220,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             .map(|command| Some(AppCommand::Nightly(command)));
     }
     if scope == "live" {
-        return live::parse(args.get(1..).unwrap_or_default()).map(|command| Some(AppCommand::Live(command)));
+        return live::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Live(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);

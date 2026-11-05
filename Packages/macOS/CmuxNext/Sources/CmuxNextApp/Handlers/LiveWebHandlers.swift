@@ -65,7 +65,9 @@ enum LiveWebHandlers {
             let why = result.map { lastLine($0.stderr) ?? lastLine($0.stdout) ?? "exit \($0.status)" } ?? LiveWebStrings.didNotFinish
             let message = LiveWebStrings.failed(why)
             show(message, in: window, duration: .seconds(12))
-            return .failure(ActionWorkFailure(message))
+            var failure = ActionWorkFailure(message)
+            failure.shown = true // the toast above already says it
+            return .failure(failure)
         }
         show(done, in: window, duration: .seconds(8))
         return .success(["output": .string(String(decoding: result.stdout, as: UTF8.self))])

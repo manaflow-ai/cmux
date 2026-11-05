@@ -57,7 +57,12 @@ fn reads_the_tree_the_dev_server_was_started_from() {
 #[test]
 fn a_short_gui_path_gains_bun_and_homebrew() {
     let path = tool_path(Some("/usr/bin:/bin".into()), Some("/Users/me".into())).unwrap();
-    assert_eq!(path, std::ffi::OsString::from("/usr/bin:/bin:/Users/me/.bun/bin:/opt/homebrew/bin:/usr/local/bin"));
+    assert_eq!(
+        path,
+        std::ffi::OsString::from(
+            "/usr/bin:/bin:/Users/me/.bun/bin:/opt/homebrew/bin:/usr/local/bin"
+        )
+    );
     let full = "/Users/me/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
     assert_eq!(tool_path(Some(full.into()), Some("/Users/me".into())), None);
 }
