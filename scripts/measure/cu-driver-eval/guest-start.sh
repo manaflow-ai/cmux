@@ -32,7 +32,23 @@ EOF
 bash "$tree/scripts/measure/cu-driver-eval/tcc-grant.sh" /bin/bash
 # A non-root SSH session may not bootstrap into the gui domain ("125: Domain does not support
 # specified action"); root may, directly or from inside the user's bootstrap namespace.
+# The image logs lume in at boot, but SSH answers before that session is up, and bootstrapping into
+# it then fails the same way: wait for the session (its Dock), then try for up to two minutes.
 uid=$(id -u)
+session=no
+for _ in $(seq 1 24); do
+  pgrep -u "$uid" -x Dock >/dev/null && sudo -n launchctl print "gui/$uid" >/dev/null 2>&1 && { session=yes; break; }
+  sleep 5
+done
+echo "guest-start.sh: login session ready: $session" >&2
 sudo -n launchctl bootout "gui/$uid/com.cmux.cu-eval" 2>/dev/null || true
-sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" ||
-  sudo -n launchctl asuser "$uid" launchctl bootstrap "gui/$uid" "$tree/agent.plist"
+for attempt in $(seq 1 24); do
+  sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" 2>/dev/null && exit 0
+  sudo -n launchctl asuser "$uid" launchctl bootstrap "gui/$uid" "$tree/agent.plist" 2>/dev/null && exit 0
+  # An attempt that loaded the agent but still reported an error counts.
+  sudo -n launchctl print "gui/$uid/com.cmux.cu-eval" >/dev/null 2>&1 && exit 0
+  sleep 5
+done
+echo "guest-start.sh: launchctl bootstrap gui/$uid failed $attempt times; the session as it stands:" >&2
+{ stat -f 'console owner %Su' /dev/console; who; pgrep -lu "$uid" | head -30; sudo -n launchctl print "gui/$uid" 2>&1 | head -15; } >&2 || true
+sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" # once more, with its error shown

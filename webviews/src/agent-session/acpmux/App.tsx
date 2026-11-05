@@ -604,7 +604,6 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
-import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
   cloudPageRefusal,
@@ -876,7 +875,7 @@ declare global {
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
-      /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
+      /// Claude Code desktop's in-session status (the live plan card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
       /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
@@ -1724,7 +1723,13 @@ const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
     const { answer, nextStepKey } = useContext(TurnActionsContext);
     return row.nextStep ? (
-      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} registerKey={nextStepKey} />
+      <NextStepCard
+        ask={row.nextStep.ask}
+        answer={row.nextStep.answer}
+        superseded={row.nextStep.superseded}
+        onAnswer={answer}
+        registerKey={nextStepKey}
+      />
     ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
@@ -1732,7 +1737,9 @@ const NextStepRow = memo(
 /// The same card where this pane cannot send: the question and its answer, no buttons.
 const ReadOnlyNextStepRow = memo(
   function ReadOnlyNextStepRow({ row }: RowProps) {
-    return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} /> : null;
+    return row.nextStep ? (
+      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} superseded={row.nextStep.superseded} />
+    ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -8331,18 +8338,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     };
   }, [hunkDecisions]);
-  // Address on a review thread (cx-ncc.77.3) settles once acpmux took its prompt: chat.send
-  // itself settles when the turn ends, which could be long after, and a turn that fails later
-  // was still sent. Until acpmux connects nothing takes a prompt.
-  const addressThread = useCallback(
-    (prompt: string) =>
-      window.cmuxAcpmuxActions?.["chat.send"]
-        ? new Promise<void>((resolve, reject) => {
-            callNative("chat.send", { text: prompt, accepted: () => resolve() }).then(() => resolve(), reject);
-          })
-        : Promise.reject(new Error(translate("error.notOpen"))),
-    [],
-  );
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
   useEffect(() => setStatusCardOpen(false), [snapshot.sessionId]);
@@ -10092,8 +10087,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
-  /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
-  const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
@@ -10390,8 +10383,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
-    // A composer that goes takes its shell mode with it.
-    if (!handle) setComposerShell(false);
     if (handle && pendingWake.current) {
       handle.wake(pendingWake.current);
       pendingWake.current = undefined;
@@ -14224,17 +14215,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     secret ||
     toolCards.length > 0,
   );
-  // Behind the agent.sessionStatus Debug toggle (`sessionStatus`, read above for the transcript): a
-  // turn that ended on a question offers its yes above the composer (RecapCard.tsx).
-  const recapCard = useRecapCard({
-    rows: snapshot.rows,
-    sessionId: snapshot.sessionId,
-    on: sessionStatus && !snapshot.isWorking,
-    // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
-    asking: hasBottomAsk || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
-    send: (text) => addressThread(text),
-    focusComposer: () => composerHandle.current?.focus(),
-  });
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
@@ -14455,15 +14435,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ) : (
     !reviewing && (
       <>
-        {recapCard.recap && (
-          <RecapCard
-            recap={recapCard.recap}
-            onReply={recapCard.reply}
-            onDismiss={recapCard.dismiss}
-            keyHint={!quick && !composerShell}
-            failed={recapCard.failed}
-          />
-        )}
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
@@ -15038,10 +15009,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
-            // ⌘↩ on an empty prompt answers the recap card's question, else a waiting tagged ask's
-            // first answer (NextStepCard.tsx), never while a question or permission card waits.
-            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : hasBottomAsk ? undefined : nextStepFire?.fire}
-            onShellChange={setComposerShell}
+            // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
+            // never while a question or permission card waits.
+            onEmptyCommandReturn={hasBottomAsk ? undefined : nextStepFire?.fire}
             prompt={prompt}
             handle={composerRef}
             onUnplacedQuotes={composerUnplacedQuotes}

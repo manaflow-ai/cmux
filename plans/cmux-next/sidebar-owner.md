@@ -1,5 +1,19 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: the session tree's Earlier says "Loading chats…" until acpmux first sends its rows. Leo, verbatim:
+  "something kinda messed up in my latest restart install of latest cmux nightly... i cant see any chats". acpmux took
+  42 s under load to start its chat index after the relaunch and answered `ready: false` until then; the history drew
+  nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
+  Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
+  An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
+- 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
+  radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
+  padding, where padding is configurable too". Rows and rail tiles take the one corner radius
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
+  the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
+  corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.
+  Regression: `ConcentricSurfaceCornerTests`.
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
@@ -51,6 +65,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-05: the Downloading Update card's bytes line stops shifting as it counts. Leo, verbatim: "insane layout
+  shift with the downloading update. Like, why is it that as the left number grows, it just keeps shifting?". Both
+  counts read in the size's unit with one decimal ("115.0 MB of 265.3 MB"), the received count and the percent pad
+  with figure spaces to the total's and 100%'s widths (`UpdateTransfer.bytesText`), and a loading card's detail uses
+  `Typography.captionDigits` (tabular digits). A loading card keeps the cancel's column in every stage, so the bar and
+  text no longer widen when Starting turns into Downloading or narrow again at Preparing. Regression:
+  `UpdateDownloadLineTests`.
 - 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
   is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
   before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for

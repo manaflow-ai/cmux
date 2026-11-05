@@ -130,8 +130,8 @@ public struct AutomationsPageView: View {
                 }
                 Text(row.task).font(palette.body).foregroundStyle(palette.text)
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.separator))
+                    .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(palette.card))
+                    .overlay(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).stroke(palette.separator))
                 if actions.runNow != nil || actions.setEnabled != nil || actions.edit != nil {
                     HStack(spacing: 6) {
                         if let runNow = actions.runNow {

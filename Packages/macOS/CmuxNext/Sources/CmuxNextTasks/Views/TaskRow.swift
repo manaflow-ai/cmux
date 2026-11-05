@@ -31,7 +31,7 @@ struct TaskRow: View {
         .padding(.horizontal, 12)
         .frame(height: TasksTunables.rowHeight.value)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Metrics.insetCornerRadius)
                 .fill(selected ? colors.selection : (hovering ? colors.hover : .clear))
         )
         .opacity(model.isPending(task.id) ? 0.6 : 1)
