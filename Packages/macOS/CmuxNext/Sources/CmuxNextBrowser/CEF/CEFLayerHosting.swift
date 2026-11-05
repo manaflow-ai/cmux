@@ -301,10 +301,18 @@ final class CEFLayerHosting {
     func pageTakesFocus() -> Bool {
         guard inResizeMotion else { return false }
         motionKeepsAttached = true
-        return false
+        return isDetached && setDetached(false)
     }
 
-    private func motionChanged() {}
+    private func motionChanged() {
+        if inResizeMotion {
+            motionKeepsAttached = holdsFocus()
+            if !motionKeepsAttached { setDetached(true) }
+        } else {
+            motionKeepsAttached = false
+            setDetached(false)
+        }
+    }
 
     /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
     /// the one geometry update of the landing. False when no page is hosted, below fork API 30, or the fork refused;
