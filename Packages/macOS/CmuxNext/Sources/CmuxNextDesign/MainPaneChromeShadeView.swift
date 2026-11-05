@@ -14,6 +14,9 @@ public final class MainPaneChromeShadeView: NSView {
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
+    /// Debug `sidebar.cornerMorph`: what joins the card at its sidebar edge (`CornerMorph`); nil keeps the plain card.
+    private var morph: CornerMorph?
+    private var morphLeading = true
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
@@ -48,11 +51,17 @@ public final class MainPaneChromeShadeView: NSView {
 
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds || Metrics.floatingPanes else { return }
+    /// `morph` (Debug `sidebar.cornerMorph`) joins its rects to the card as one unshaded surface;
+    /// `leading` says the sidebar is on the card's leading side.
+    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, morph: CornerMorph? = nil, leading: Bool = true) {
+        let morph = morph?.isEmpty == false ? morph : nil
+        guard card != self.card || radius != self.radius || alpha != self.alpha || morph != self.morph || leading != morphLeading
+            || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
+        self.morph = morph
+        morphLeading = leading
         rebuild()
     }
 
@@ -79,6 +88,9 @@ public final class MainPaneChromeShadeView: NSView {
             let corner = min(radius, card.width / 2, card.height / 2)
             let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
+        } else if let morph {
+            // Leo 2026-11-05: "we need to have some sort of way to morph them together" (Debug `sidebar.cornerMorph`).
+            shade.path = CGPath(rect: bounds, transform: nil).subtracting(morph.surface(card: card, radius: radius, leading: morphLeading))
         } else {
             let path = CGMutablePath()
             path.addRect(bounds)

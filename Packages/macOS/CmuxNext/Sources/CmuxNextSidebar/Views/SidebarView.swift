@@ -320,6 +320,8 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
+        // Debug `sidebar.cornerMorph` bridge: a scroll moves the selected row against the card.
+        SidebarContainerView.cornerMorphMoved(from: self)
         // The list updates row hover as rows move. A window-wide refresh here
         // rescans every chrome target on every scroll tick and adds no state
         // change for the sidebar's fixed chrome.
@@ -418,6 +420,8 @@ public final class SidebarView: NSView {
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
+        // Debug `sidebar.cornerMorph`: the titlebar row and the list may have moved.
+        SidebarContainerView.cornerMorphMoved(from: self)
         layoutNeedsYou(over: listFrame)
         scrollView.tile()
         syncListSize()

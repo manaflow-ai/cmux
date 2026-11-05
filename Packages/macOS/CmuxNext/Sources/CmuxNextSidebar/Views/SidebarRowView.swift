@@ -19,6 +19,8 @@ class SidebarRowView: NSView {
             needsDisplay = true
             // A row lays its controls out again when its selection changes (cx-fo2t).
             needsLayout = true
+            // Debug `sidebar.cornerMorph` bridge: the card joins the selected row.
+            SidebarContainerView.cornerMorphMoved(from: self)
         }
     }
 
@@ -182,6 +184,14 @@ class SidebarRowView: NSView {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         if changed { needsLayout = true }
+        if changed, isSelected { SidebarContainerView.cornerMorphMoved(from: self) }
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let changed = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        // Debug `sidebar.cornerMorph` bridge: the selected row moved in the list.
+        if changed, isSelected { SidebarContainerView.cornerMorphMoved(from: self) }
     }
 
     override func viewDidChangeEffectiveAppearance() {
