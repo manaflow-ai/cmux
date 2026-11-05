@@ -139,9 +139,11 @@ enum AgentSessionWorkspace {
                                            windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
-            PendingWorkspaceRows.shared.groupJoins.hold(id) // listed loose by the daemon, joined a hop later: shown once joined
+            // The daemon lists it loose; the pass that first lists it sends the join (``GroupJoinRows``), or this
+            // placement does when it runs first: one join, and the row draws in its group from its first frame.
+            PendingWorkspaceRows.shared.groupJoins.hold(id, group: group)
             join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge else { return }
+                guard let sidebar = sidebar as? SidebarBridge, PendingWorkspaceRows.shared.groupJoins.claim(id) else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
