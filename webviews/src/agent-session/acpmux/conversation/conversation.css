@@ -272,6 +272,7 @@
 .cv-user__images {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: var(--ds-space-2);
   max-width: 70%;
@@ -279,21 +280,26 @@
 }
 .cv-user__images button,
 .cv-user__inline-image button {
+  max-width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
   border-radius: var(--cv-media-radius);
   background: none;
   cursor: zoom-in;
 }
-/* Each a rounded thumbnail of one fixed height, cropped to fill (UserBubble.tsx sets its width from
-   the image's shape, within bounds), as Claude and ChatGPT show a sent image. A neutral backing
-   under it, so a transparent image still shows its content. An image sent inline in the text
-   (InlinePromptContent.tsx) is the same thumbnail. */
+/* Each a rounded thumbnail of the whole image in its own shape, at most 120px tall and never larger
+   than the image (UserBubble.tsx sentImageSize sets its size), so a wide screenshot is a whole strip,
+   not a magnified crop of its middle. A neutral backing under it, so a transparent image still shows
+   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail.
+   Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
 .cv-user__images img,
 .cv-user__inline-image img {
   display: block;
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
   object-fit: cover;
   border-radius: var(--cv-media-radius);
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
@@ -357,7 +363,8 @@
   display: block;
   flex: 0 0 120px;
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  aspect-ratio: 1;
   border-radius: var(--cv-media-radius);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
@@ -370,7 +377,9 @@
   justify-content: center;
   gap: var(--ds-space-1);
   width: 120px;
-  height: 120px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
   padding: 0 var(--ds-space-3);
   border-radius: var(--cv-media-radius);
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
@@ -3061,18 +3070,26 @@ button.cv-worked:focus-visible {
   margin-top: var(--ds-space-2);
 }
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
-   transcript stays light; a click opens the image viewer. */
+   transcript stays light; a click opens the image viewer. Each keeps its own height: a phone shot
+   beside a wide one never stretches it into a tall letterboxed frame. */
 .cv-tool-images {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
   margin: 4px 0 8px;
 }
-/* A call's images: the reply's fixed-shape thumbnail (chips.css .cv-thumb), narrower, so its
- * height is held before the image loads and the image fits inside whole. */
+/* A call's images: the reply's thumbnail (chips.css .cv-thumb), narrower. Its frame keeps the fixed
+ * shape until the image loads, so its height is held; a loaded image takes its own shape
+ * (.cv-thumb--sized), at most 320px wide here and 360px tall. */
 .cv-tool-images .cv-thumb {
-  width: min(100%, 320px);
   margin: 0;
+}
+.cv-tool-images .cv-thumb:not(.cv-thumb--sized) {
+  width: min(100%, 320px);
+}
+.cv-tool-images .cv-thumb--sized {
+  max-width: min(100%, 320px);
 }
 .cv-tool-images .cv-img {
   max-width: min(100%, 360px);
@@ -6348,6 +6365,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-user__inline-image {
   display: inline-block;
+  max-width: calc(100% - 8px);
   margin: 2px 4px;
   vertical-align: middle;
 }

@@ -1,6 +1,14 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "offer.newSession": {"comment":"Agent pane: heading of the card for one new chat an agent suggests (offer_session), as Claude desktop's suggested-session card says it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جلسة جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nova sesija"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny session"}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Sitzung"}},"en":{"stringUnit":{"state":"translated","value":"New session"}},"es":{"stringUnit":{"state":"needs_review","value":"Nueva sesión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle session"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuova sessione"}},"ja":{"stringUnit":{"state":"translated","value":"新しいセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"វគ្គថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 세션"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny økt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowa sesja"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nova sessão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый сеанс"}},"th":{"stringUnit":{"state":"needs_review","value":"เซสชันใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni oturum"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий сеанс"}},"vi":{"stringUnit":{"state":"needs_review","value":"Phiên mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新会话"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新工作階段"}}}},
+    "offer.options.environment": {"comment":"Agent pane: a suggested task's Options row: the machine its new chat runs on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"البيئة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Okruženje"}},"da":{"stringUnit":{"state":"needs_review","value":"Miljø"}},"de":{"stringUnit":{"state":"needs_review","value":"Umgebung"}},"en":{"stringUnit":{"state":"translated","value":"Environment"}},"es":{"stringUnit":{"state":"needs_review","value":"Entorno"}},"fr":{"stringUnit":{"state":"needs_review","value":"Environnement"}},"it":{"stringUnit":{"state":"needs_review","value":"Ambiente"}},"ja":{"stringUnit":{"state":"translated","value":"環境"}},"km":{"stringUnit":{"state":"needs_review","value":"បរិស្ថាន"}},"ko":{"stringUnit":{"state":"needs_review","value":"환경"}},"nb":{"stringUnit":{"state":"needs_review","value":"Miljø"}},"pl":{"stringUnit":{"state":"needs_review","value":"Środowisko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ambiente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Среда"}},"th":{"stringUnit":{"state":"needs_review","value":"สภาพแวดล้อม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ortam"}},"uk":{"stringUnit":{"state":"needs_review","value":"Середовище"}},"vi":{"stringUnit":{"state":"needs_review","value":"Môi trường"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"环境"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"環境"}}}},
+    "offer.options.thisComputer": {"comment":"Agent pane: a suggested task's Options, Environment value: the new chat runs on this Mac","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"هذا الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj računar"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne computer"}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Computer"}},"en":{"stringUnit":{"state":"translated","value":"This computer"}},"es":{"stringUnit":{"state":"needs_review","value":"Este ordenador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cet ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Questo computer"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータ"}},"km":{"stringUnit":{"state":"needs_review","value":"កុំព្យូទ័រនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 컴퓨터"}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne datamaskinen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten komputer"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este computador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот компьютер"}},"th":{"stringUnit":{"state":"needs_review","value":"คอมพิวเตอร์เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu bilgisayar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей комп'ютер"}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy tính này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台电脑"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台電腦"}}}},
+    "offer.options.worktree": {"comment":"Agent pane: a suggested task's Options switch: start its new chat in a new git worktree","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"شجرة عمل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Radno stablo"}},"da":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"de":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"en":{"stringUnit":{"state":"translated","value":"Worktree"}},"es":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"fr":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"it":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"ja":{"stringUnit":{"state":"translated","value":"ワークツリー"}},"km":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"ko":{"stringUnit":{"state":"needs_review","value":"워크트리"}},"nb":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"pl":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"ru":{"stringUnit":{"state":"needs_review","value":"Рабочее дерево"}},"th":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çalışma ağacı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Робоче дерево"}},"vi":{"stringUnit":{"state":"needs_review","value":"Worktree"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"工作树"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"工作樹"}}}},
+    "offer.options.model": {"comment":"Agent pane: a suggested task's Options row: the model its new chat runs on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"النموذج"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model"}},"da":{"stringUnit":{"state":"needs_review","value":"Model"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell"}},"en":{"stringUnit":{"state":"translated","value":"Model"}},"es":{"stringUnit":{"state":"needs_review","value":"Modelo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modèle"}},"it":{"stringUnit":{"state":"needs_review","value":"Modello"}},"ja":{"stringUnit":{"state":"translated","value":"モデル"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែល"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modell"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modelo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดล"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型"}}}},
+    "offer.options.effort": {"comment":"Agent pane: a suggested task's Options row: the reasoning effort its new chat starts with","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الجهد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Napor"}},"da":{"stringUnit":{"state":"needs_review","value":"Indsats"}},"de":{"stringUnit":{"state":"needs_review","value":"Aufwand"}},"en":{"stringUnit":{"state":"translated","value":"Effort"}},"es":{"stringUnit":{"state":"needs_review","value":"Esfuerzo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Effort"}},"it":{"stringUnit":{"state":"needs_review","value":"Impegno"}},"ja":{"stringUnit":{"state":"translated","value":"推論レベル"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្រិតខិតខំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"추론 강도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Innsats"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysiłek"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Esforço"}},"ru":{"stringUnit":{"state":"needs_review","value":"Усилие"}},"th":{"stringUnit":{"state":"needs_review","value":"ระดับการคิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çaba"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зусилля"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mức suy luận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推理强度"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"推理強度"}}}},
+    "offer.options.permissions": {"comment":"Agent pane: a suggested task's Options row: the permission mode its new chat starts in","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأذونات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dozvole"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilladelser"}},"de":{"stringUnit":{"state":"needs_review","value":"Berechtigungen"}},"en":{"stringUnit":{"state":"translated","value":"Permissions"}},"es":{"stringUnit":{"state":"needs_review","value":"Permisos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Autorisations"}},"it":{"stringUnit":{"state":"needs_review","value":"Autorizzazioni"}},"ja":{"stringUnit":{"state":"translated","value":"権限"}},"km":{"stringUnit":{"state":"needs_review","value":"សិទ្ធិ"}},"ko":{"stringUnit":{"state":"needs_review","value":"권한"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tillatelser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uprawnienia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Permissões"}},"ru":{"stringUnit":{"state":"needs_review","value":"Разрешения"}},"th":{"stringUnit":{"state":"needs_review","value":"สิทธิ์"}},"tr":{"stringUnit":{"state":"needs_review","value":"İzinler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Дозволи"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quyền"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"权限"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"權限"}}}},
+    "offer.options.default": {"comment":"Agent pane: a suggested task's Options picker with no value yet: the new chat's own default","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الافتراضي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zadano"}},"da":{"stringUnit":{"state":"needs_review","value":"Standard"}},"de":{"stringUnit":{"state":"needs_review","value":"Standard"}},"en":{"stringUnit":{"state":"translated","value":"Default"}},"es":{"stringUnit":{"state":"needs_review","value":"Predeterminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Par défaut"}},"it":{"stringUnit":{"state":"needs_review","value":"Predefinito"}},"ja":{"stringUnit":{"state":"translated","value":"デフォルト"}},"km":{"stringUnit":{"state":"needs_review","value":"លំនាំដើម"}},"ko":{"stringUnit":{"state":"needs_review","value":"기본값"}},"nb":{"stringUnit":{"state":"needs_review","value":"Standard"}},"pl":{"stringUnit":{"state":"needs_review","value":"Domyślne"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Padrão"}},"ru":{"stringUnit":{"state":"needs_review","value":"По умолчанию"}},"th":{"stringUnit":{"state":"needs_review","value":"ค่าเริ่มต้น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Varsayılan"}},"uk":{"stringUnit":{"state":"needs_review","value":"За замовчуванням"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mặc định"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"默认"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"預設"}}}},
     "permission.plan.label": {"comment":"Agent pane: accessible name of the plan shown on a plan approval card (Claude Code's ExitPlanMode, Grok and Cursor plan modes)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الخطة المقترحة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Predloženi plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Foreslået plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorgeschlagener Plan"}},"en":{"stringUnit":{"state":"translated","value":"Proposed plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Plan propuesto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Plan proposé"}},"it":{"stringUnit":{"state":"needs_review","value":"Piano proposto"}},"ja":{"stringUnit":{"state":"needs_review","value":"提案された計画"}},"km":{"stringUnit":{"state":"needs_review","value":"ផែនការដែលបានស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제안된 계획"}},"nb":{"stringUnit":{"state":"needs_review","value":"Foreslått plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Proponowany plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Plano proposto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Предложенный план"}},"th":{"stringUnit":{"state":"needs_review","value":"แผนที่เสนอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen plan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запропонований план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kế hoạch đề xuất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"建议的计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"建議的計畫"}}}},
     "permission.plan.approve": {"comment":"Agent pane: the button on a plan approval card that approves the agent's plan, so it leaves plan mode and starts the work","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اعتماد الخطة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odobri plan"}},"da":{"stringUnit":{"state":"needs_review","value":"Godkend plan"}},"de":{"stringUnit":{"state":"needs_review","value":"Plan freigeben"}},"en":{"stringUnit":{"state":"translated","value":"Approve plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Aprobar plan"}},"fr":{"stringUnit":{"state":"needs_review","value":"Approuver le plan"}},"it":{"stringUnit":{"state":"needs_review","value":"Approva il piano"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を承認"}},"km":{"stringUnit":{"state":"needs_review","value":"អនុម័តផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계획 승인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godkjenn plan"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdź plan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aprovar plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Одобрить план"}},"th":{"stringUnit":{"state":"needs_review","value":"อนุมัติแผน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planı onayla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Схвалити план"}},"vi":{"stringUnit":{"state":"needs_review","value":"Duyệt kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"批准计划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"核准計畫"}}}},
     "permission.plan.keepPlanning": {"comment":"Agent pane: the button on a plan approval card that declines the plan and opens a field for what to change, so the agent keeps planning","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متابعة التخطيط"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi planiranje"}},"da":{"stringUnit":{"state":"needs_review","value":"Bliv ved med at planlægge"}},"de":{"stringUnit":{"state":"needs_review","value":"Weiter planen"}},"en":{"stringUnit":{"state":"translated","value":"Keep planning"}},"es":{"stringUnit":{"state":"needs_review","value":"Seguir planificando"}},"fr":{"stringUnit":{"state":"needs_review","value":"Continuer à planifier"}},"it":{"stringUnit":{"state":"needs_review","value":"Continua a pianificare"}},"ja":{"stringUnit":{"state":"needs_review","value":"計画を続ける"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តរៀបចំផែនការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"계속 계획하기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fortsett å planlegge"}},"pl":{"stringUnit":{"state":"needs_review","value":"Planuj dalej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Continuar planejando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Продолжить планирование"}},"th":{"stringUnit":{"state":"needs_review","value":"วางแผนต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Planlamaya devam et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Продовжити планування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục lập kế hoạch"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"继续规划"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"繼續規劃"}}}},
@@ -207207,6 +207215,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "{reference} 的動作"
+          }
+        }
+      }
+    },
+    "sessionInfo.changes.viewDiff": {
+      "comment": "Agent pane Inspector, Changes and Sources ⋯ menu: opens the pull request's diff in the diff viewer beside the chat",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الفروقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži razlike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis diff"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Diff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver diff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voir le diff"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizza diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលភាពខុសគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diff 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis diff"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż diff"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver diff"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать diff"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูส่วนต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farkı görüntüle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати diff"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem diff"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看差异"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視差異"
           }
         }
       }

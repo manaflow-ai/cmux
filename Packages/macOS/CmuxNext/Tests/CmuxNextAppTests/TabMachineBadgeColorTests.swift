@@ -13,7 +13,7 @@ import Testing
     static func badge(picks: MachineColorOverrides) throws -> (badge: NSColor, tertiary: NSColor, pickText: NSColor?) {
         ThemeScope.app.store.setMachineColors(picks)
         defer { ThemeScope.app.store.setMachineColors(.none) }
-        let item = TabItem(id: TabID("remote"), title: "Remote", machineBadge: "big-red")
+        let item = TabItem(id: TabID("remote"), title: "Remote", machineBadge: "my-vm")
         let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -24,7 +24,7 @@ import Testing
         let cell = try #require(strip.cells[item.id])
         let drawn = try #require(cell.machineLayer?.foregroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
         let tertiary = try #require(NSColor(cgColor: cell.themeScope.perform { Palette.textTertiary.cgColor })?.usingColorSpace(.sRGB))
-        let pickText = cell.themeScope.perform { MachineColor(name: "big-red").pickedRowTextColor }?.usingColorSpace(.sRGB)
+        let pickText = cell.themeScope.perform { MachineColor(name: "my-vm").pickedRowTextColor }?.usingColorSpace(.sRGB)
         return (drawn, tertiary, pickText)
     }
 
@@ -44,7 +44,7 @@ import Testing
     }
 
     @Test func withAPickTheBadgeDrawsIt() throws {
-        let (badge, tertiary, pickText) = try Self.badge(picks: MachineColorOverrides(["Big-Red": "#12ab34"]))
+        let (badge, tertiary, pickText) = try Self.badge(picks: MachineColorOverrides(["My-VM": "#12ab34"]))
         let picked = try #require(pickText)
         #expect(Self.same(badge, picked), "badge \(badge), pick as row text \(picked)")
         #expect(!Self.same(badge, tertiary), "the pick changed nothing: badge \(badge)")
