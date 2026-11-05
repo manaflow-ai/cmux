@@ -1817,7 +1817,9 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   [[ "$BUILD_CONFIGURATION" == "Debug" ]] && live_mode=singlefile
   live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
   if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
-    live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
+    # Quoted: Xcode splits OTHER_LDFLAGS on spaces, and a fleet step's checkout is under
+    # "/Library/Application Support".
+    live_ldflags+=" -Xlinker -interposable_list -Xlinker \"$CMUX_LIVE_CODE_INTERPOSABLE_LIST\""
   fi
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   XCODEBUILD_ARGS+=(
