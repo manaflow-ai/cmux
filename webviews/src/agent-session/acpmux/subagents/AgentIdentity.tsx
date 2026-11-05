@@ -1,7 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import { harnessFamily } from "./agentRuns";
+import { AgentMark } from "../../shared/AgentMark";
+import { Icon } from "../icons/Icon";
 import { SenderIcon } from "./SenderIcon";
-import { senderIconLook } from "./senderIconLook";
+import { senderIconLook, useSenderIconLook } from "./senderIconLook";
 
 /// The type label is already established by a list heading or a harness mark. Keep it out of
 /// every row so the mark carries the identity instead of repeating "Subagent".
@@ -32,9 +34,18 @@ export function foreignHarness(
 }
 
 /// One identity mark shared by agent and session lists: the sender icon (SenderIcon.tsx), the
-/// family's mark with the session's badge in its stable tone. A missing harness keeps the same icon
-/// slot, and the tone tells two unknown harnesses apart.
-export function AgentIdentity(props: {
+/// family's mark with the session's badge in its stable tone. With the badge off (Sender Badge:
+/// None) it is the mark as before: the harness's, else its family's, else the fallback glyph in its
+/// tone. A missing harness keeps the same icon slot, and the tone tells two unknown harnesses apart.
+export function AgentIdentity({
+  harness,
+  tone,
+  size = 14,
+  fallback = "agent.session",
+  fallbackNode,
+  className,
+  style,
+}: {
   harness?: string;
   tone?: number;
   size?: number;
@@ -43,5 +54,33 @@ export function AgentIdentity(props: {
   className?: string;
   style?: CSSProperties;
 }) {
-  return <SenderIcon {...props} />;
+  const look = useSenderIconLook();
+  if (look.badge !== "none" && tone !== undefined)
+    return (
+      <SenderIcon
+        harness={harness}
+        tone={tone}
+        size={size}
+        fallback={fallback}
+        fallbackNode={fallbackNode}
+        className={className}
+        style={style}
+      />
+    );
+  // Keep the full id subscribed: a profile icon may arrive after this row mounts.
+  const family = harness?.split(/[-_/]/)[0];
+  const glyph = (
+    <span data-agent-tone={tone} style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}>
+      {fallbackNode ?? <Icon name={fallback} size={size} row />}
+    </span>
+  );
+  return (
+    <span className={className} style={style} aria-hidden="true">
+      <AgentMark
+        agent={harness}
+        size={size}
+        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
+      />
+    </span>
+  );
 }

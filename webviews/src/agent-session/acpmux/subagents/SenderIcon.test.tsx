@@ -68,7 +68,7 @@ afterEach(async () => {
 test("a session of a known family draws the family's mark big and its diamond badge at the bottom right", async () => {
   const container = await render(<SenderIcon harness="claude" tone={3} size={12} />);
   const icon = container.querySelector(".cv-sender-icon")!;
-  expect(icon.getAttribute("data-badged")).toBe("");
+  expect(icon.getAttribute("data-badged")).toBe("true");
   expect(icon.querySelector(".cv-sender-icon__main [data-agent='claude']")).not.toBeNull();
   const badge = icon.querySelector<HTMLElement>(".cv-sender-icon__badge")!;
   expect(badge.dataset.badge).toBe("diamond");
@@ -107,7 +107,8 @@ test("the reversed look draws the session's glyph big and the family's mark as t
   const badge = container.querySelector<HTMLElement>(".cv-sender-icon__badge")!;
   expect(badge.dataset.badge).toBe("family");
   expect(badge.dataset.corner).toBe("top-left");
-  expect(badge.querySelector("[data-agent='codex']")).not.toBeNull();
+  // Codex draws OpenAI's mark (agentBrands.generated.ts).
+  expect(badge.querySelector("[data-agent='openai']")).not.toBeNull();
 });
 
 test("with the badge off, or no session to tell apart, the family's mark is drawn alone as before", async () => {

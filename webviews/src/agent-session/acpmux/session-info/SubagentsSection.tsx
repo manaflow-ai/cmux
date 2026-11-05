@@ -144,7 +144,13 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                <SenderIcon harness={item.mark} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
+                <SenderIcon
+                  harness={item.mark}
+                  tone={agentTone(item.identity)}
+                  size={14}
+                  fallback={item.icon}
+                  row={false}
+                />
               </span>
             )}
           </span>

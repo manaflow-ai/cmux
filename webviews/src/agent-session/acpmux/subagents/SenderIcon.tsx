@@ -12,6 +12,7 @@ import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import { AgentMark, hasAgentMark } from "../../shared/AgentMark";
 import { harnessIconsSnapshot, subscribeHarnessIcons } from "../../shared/harnessIcons";
 import { Icon } from "../icons/Icon";
+import { TonedIcon } from "./TonedIcon";
 import { useSenderIconLook, type SenderIconBadge, type SenderIconCorner, type SenderIconLook } from "./senderIconLook";
 import "./SenderIcon.css";
 
@@ -67,6 +68,7 @@ export function SenderIcon({
   fallback = "agent.session",
   fallbackNode,
   look: given,
+  row = true,
   className,
   style,
 }: {
@@ -81,6 +83,8 @@ export function SenderIcon({
   fallbackNode?: ReactNode;
   /// A gallery's own look; the setting's otherwise.
   look?: SenderIconLook;
+  /// The site's glyph sits on a label line (Icon's `row`); off for a free-standing avatar.
+  row?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -100,19 +104,19 @@ export function SenderIcon({
       {node}
     </span>
   );
+  // No badge (Sender Badge: None, or no session to tell apart): the icon as rows drew it before, the
+  // family's mark, else the site's glyph in the session's tone, with no wrapper of its own.
   if (tone === undefined || look.badge === "none") {
-    const glyph = <Toned tone={tone}>{fallbackNode ?? <Icon name={fallback} size={size} row />}</Toned>;
-    return wrap(
-      <AgentMark
-        agent={harness}
-        size={size}
-        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
-      />,
+    const glyph = fallbackNode ? (
+      <Toned tone={tone}>{fallbackNode}</Toned>
+    ) : (
+      <TonedIcon name={fallback} size={size} tone={tone} row={row} />
     );
+    return mark ? <AgentMark agent={mark} size={size} fallback={glyph} /> : glyph;
   }
   const big = (
     <Toned tone={tone}>
-      <Icon name={BIG_GLYPH[look.badge]} size={size} row />
+      <Icon name={BIG_GLYPH[look.badge]} size={size} row={row} />
     </Toned>
   );
   // No family to show: the session's glyph alone, big, in its tone.

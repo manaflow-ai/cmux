@@ -186,6 +186,10 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
 test("a mounted agent identity takes a late profile icon without a parent render", async () => {
   const { AgentIdentity } = await import("../src/agent-session/acpmux/subagents/AgentIdentity");
   const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  // Sender Badge: None, the mark alone as before the badge (SenderIcon.test.tsx covers the badge).
+  const { configureSenderIconLook, SENDER_ICON_BADGE_KEY } =
+    await import("../src/agent-session/acpmux/subagents/senderIconLook");
+  configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -213,6 +217,7 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(unknown.textContent).toBe("🦊");
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
+  configureSenderIconLook({});
 });
 
 // Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,

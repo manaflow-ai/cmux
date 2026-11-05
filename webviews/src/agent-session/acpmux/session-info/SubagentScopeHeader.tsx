@@ -82,7 +82,7 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
   return (
     <div className="acpmux-session-info-scope" data-variant="card">
       <span className="acpmux-session-info-scope__glyph">
-        <SenderIcon harness={scope.agent.harness} tone={agentTone(scope.agent.id)} size={14} />
+        <SenderIcon harness={scope.agent.harness} tone={agentTone(scope.agent.id)} size={14} row={false} />
       </span>
       <span className="acpmux-session-info-scope__text">
         <Name scope={scope} />
