@@ -31,6 +31,19 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
         x.snap(); y.snap(); width.snap(); height.snap(); alpha.snap()
     }
 
+    /// Moves the rect and its target by the same amount, edge by edge, to `rect`: the spring keeps what it had left
+    /// to travel and its velocity (an additive animation). For a change that is not this spring's own (the viewport
+    /// under a running split resized by the sidebar's slide): the frame follows that change in the same frame instead
+    /// of chasing a moved target (Leo 2026-11-05: "everything moves as one").
+    public mutating func rebase(onto rect: CGRect) {
+        let target = targetRect
+        x.value += rect.minX - target.minX
+        y.value += rect.minY - target.minY
+        width.value += rect.width - target.width
+        height.value += rect.height - target.height
+        setTarget(rect)
+    }
+
     /// Returns true while any component is still moving. `alphaParameters`
     /// defaults to the geometry spring.
     public mutating func advance(_ dt: Double, parameters: SpringParameters, alphaParameters: SpringParameters? = nil) -> Bool {

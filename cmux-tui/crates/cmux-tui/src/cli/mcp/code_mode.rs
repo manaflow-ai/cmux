@@ -116,6 +116,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     } else {
         ""
     };
+    let offers = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(OFFER)) {
+        OFFER_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -195,7 +200,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}"
         ),
         "inputSchema": {
             "type": "object",
@@ -250,6 +255,26 @@ pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call
     and actions (one or two answers, your pick first) only when a decision waits on the person, \
     in place of AskUserQuestion or a question in prose; their click comes back as their next \
     message. Then end the turn without repeating the recap.";
+
+/// acpmux's `offer_session` behind this server (acpmux `offer_mcp.rs`, its upstream `cmux-sessions`
+/// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with
+/// Options, Do it here and Start (webviews `offer/SuggestedTasks.tsx`). Its server's instructions
+/// reach a code-mode chat only through `cmux.docs`, so a default chat never offered one; the steer
+/// goes in `cmux_exec`'s description and the server's instructions, as the wrap-up's does. Leo,
+/// 2026-11-05, on Claude Desktop's suggested-session card: "I want to be able to, like, recommend
+/// Claude to be able to do that as well. in our cmux-next app. and have it be rendered."
+pub(super) const OFFER: &str = "sessions_offer_session";
+/// The upstream that serves [`OFFER`] (acpmux `offer_mcp::SERVER_NAME`).
+pub(super) const OFFER_SERVER: &str = "cmux-sessions";
+/// The server instructions' line, short for the 2048-character cut; [`OFFER_STEER`] has the rest.
+pub(super) const OFFER_INSTRUCTION: &str = " Side work you notice but should not do now: suggest it as a new chat with cmux.sessions_offer_session({title, prompt}).";
+pub(super) const OFFER_STEER: &str = " When you notice work outside the task at hand that the \
+    person would likely want (a bug, a follow-up, a cleanup), do not do it inline and do not only \
+    mention it: call `cmux.sessions_offer_session({title, prompt, worktree?})` from cmux_exec. It \
+    draws a card in this chat; the person starts it as a new chat (or has you do it here) with your \
+    prompt, which must carry the whole task and its context, since the new chat has none of this \
+    one's history. It returns at once: go on with your task. For a few follow-ups at the end of a \
+    turn, `cmux.sessions_suggest_tasks({tasks: [{title, prompt}]})`.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -1250,6 +1275,18 @@ mod wrap_up_steer_tests {
         assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
+    }
+
+    /// A chat with the cmux-sessions server folded in is told to suggest side work as a new chat
+    /// (`sessions_offer_session`) in `cmux_exec`'s description; one without it is not.
+    #[test]
+    fn the_exec_description_names_the_session_offer_only_where_it_is() {
+        let with =
+            descriptors(&[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.sessions_offer_session({title, prompt, worktree?})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("offer_session"));
     }
 }
 

@@ -24,7 +24,9 @@ use zeroize::Zeroizing;
 
 #[cfg(test)]
 use super::host_inbound::serve_host_inbound;
-use super::host_inbound::{HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced};
+use super::host_inbound::{
+    DESKTOP_SOCKET, HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced,
+};
 
 const MAX_STREAMS: usize = 4096;
 type ServiceTask = Pin<Box<dyn Future<Output = u64> + Send>>;
@@ -155,7 +157,13 @@ impl NativeReceiver {
         let sshd = self.sshd;
         self.inflight.push(Box::pin(async move {
             let source = stream.peer_addr();
-            let me = HostIdentity { host: &host, epoch, session_socket: &session, sshd };
+            let me = HostIdentity {
+                host: &host,
+                epoch,
+                session_socket: &session,
+                sshd,
+                desktop: std::path::Path::new(DESKTOP_SOCKET),
+            };
             let started = Instant::now();
             let mut trace = StreamTrace::default();
             let outcome = tokio::select! {

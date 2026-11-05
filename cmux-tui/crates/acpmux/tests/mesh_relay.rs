@@ -1180,3 +1180,58 @@ async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_tur
         && event.msg.to_string().contains("Team message from @user_sender/coordinator")));
     hub.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
+    // B is a hub-only machine: A has no peer link to it. Its heartbeat timer is far past the
+    // test, so only the start's own heartbeat can put the new session in the hub's book.
+    let fake = Arc::new(FakeHub::default());
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let b = Hub::new(config, Box::new(MemoryStore::default()));
+    let hook = Arc::new(MeshControlHook::new(control_allowlist(), Some(dir.path().join("c.json"))));
+    let options = RelayOptions { heartbeat_every: Duration::from_secs(30), ..quick() };
+    let relay = MeshRelay::start(&b, fake.clone(), hook, options);
+    fake.until("B's first heartbeat", |s| !s.heartbeats.is_empty()).await;
+    let beats = fake.with(|s| s.heartbeats.len());
+
+    let sender = MeshControlRelay::new(fake.clone(), Sender::default());
+    let params = json!({"cwd": cwd, "mcpServers": [],
+        "_meta":{"acpmux":{"harness":"fake", "name":"own-e2e", "policy":"ask"}}});
+    let start = ControlRequest::new(
+        Recipient::Daemon { daemon_id: "inst_b".into() },
+        ControlCommand::Start { params: params.as_object().unwrap().clone() },
+        "start-own-e2e".into(),
+    )
+    .unwrap();
+    let receipt = submit(&sender, &start).await.unwrap();
+    fake.until("start ack", |s| !s.acked(&receipt.message_id).is_empty()).await;
+    assert_eq!(fake.with(|s| s.acked(&receipt.message_id)[0].state), AckState::Delivered);
+    // By the ack the hub has heard of it, long before the 30 s timer.
+    fake.with(|s| {
+        assert!(s.heartbeats.len() > beats, "no heartbeat after the start");
+        assert!(
+            s.heartbeats.last().unwrap().sessions.iter().any(|r| r.name == "own-e2e"),
+            "the last heartbeat does not list the new session"
+        );
+    });
+
+    // A's waiting send by name goes through the hub and reaches it.
+    let a = hub();
+    let _ = a.mesh.set(fake.clone());
+    let queued = Client::local(&a)
+        .call("_acpmux/send_queue", send_queue("own-e2e-b/own-e2e", "prompt-own-e2e-1"))
+        .await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str);
+    assert!(delivery.is_some_and(|d| d.starts_with("mesh:msg_")), "{queued}");
+    let message = delivery.unwrap().trim_start_matches("mesh:").to_owned();
+    fake.until("delivered", |s| s.receipts[&message].state == "delivered").await;
+    relay.stop().await;
+    b.shutdown_all().await;
+}

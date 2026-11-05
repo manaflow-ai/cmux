@@ -205,12 +205,12 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With content the provider holds (an agent chat), a split taking a key spring over holds p2's content at the size
-    /// its key hold kept
-    /// (`endKeyResizeHold`: the held size, not the pane content view's size, which followed the pane). Ctrl-Shift-L on p2
-    /// shrinks it, so that start size is the largest of the hold's sizes: the content takes no new size at the takeover nor
-    /// during the split's spring, and its rest size once, when the pane reaches it (the hold ends at the rest geometry).
-    @Test func aSplitTakingOverWithHoldContentKeepsTheKeyHoldsSizeToTheLanding() throws {
+    /// With content the provider holds (an agent chat), each spring lays p2's content out once, at that spring's rest size
+    /// on its first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why
+    /// are you waiting?"). Ctrl-Shift-L on p2 lays it out at the key spring's rest; the split taking that spring over lays
+    /// it out once more, at the split's rest, as its spring starts; no later frame of that spring and not its landing
+    /// resizes it.
+    @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOncePerSpringAtItsStart() throws {
         let rig = Rig(Self.pair, holdsContent: true)
         defer { rig.window.closeAfterTest() }
         let content = try #require(rig.provider.contents["p2"]), view = try #require(rig.provider.views["p2"])
@@ -225,9 +225,10 @@ struct FrameOwnerS1HoldPathsTests {
         let frames = rig.frames()
         try #require(frames > 3, "the split did not spring (\(frames) frames)")
         rig.release()
-        #expect(atTakeover.isEmpty && content.frame.size != start, "the takeover resized p2's content \(atTakeover) (start \(start))")
-        #expect(content.frame == view.contentHost.bounds && content.sizes.count == 1,
-                "p2's content did not go from its held size to its rest size once: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
+        #expect(atTakeover.count == 1 && atTakeover.first != start,
+                "p2's content did not take the key spring's rest once, at its start: \(atTakeover) (start \(start))")
+        #expect(content.frame == view.contentHost.bounds && content.sizes.count == 2 && content.sizes.first == atTakeover.first,
+                "p2's content did not take the split's rest once more and then hold it to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }
 
     // MARK: Content shown during the hold

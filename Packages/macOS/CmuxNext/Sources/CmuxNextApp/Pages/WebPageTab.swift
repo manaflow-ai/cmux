@@ -82,7 +82,7 @@ extension WebPageTab {
         let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", title: GitHubPageProvider.title) { [weak services] _, route in
             guard let services else { return nil }
             let opener = services.linkOpener
-            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, openWeb: { url, view in
+            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, openWeb: { url, view in
                 // Open on GitHub: the web page, as the chat's own card opens it (the GitHub tab of that pull request, if any).
                 opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false, reusesTab: true)
             }, openDiff: { [weak services] text, link, file, view in
@@ -107,6 +107,17 @@ extension WebPageTab {
         guard GitHubViewerTunables.nativePullRequests.value, let link = GitHubLink(url),
               LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
               source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+        if link.files {
+            // A pull request's Files tab (Session Info's View diff): its diff beside the chat, else that web page.
+            GitHubPageProvider.openFiles(link, openDiff: { [weak source, weak services] text in
+                guard let source, let services else { return }
+                services.viewers.diffPages.open(chatPatch: DiffChatPatch(text: text, folder: "/" + link.reference), in: source, focus: true)
+            }, openWeb: { [weak source, weak services] url in
+                guard let source, let services else { return }
+                _ = services.linkOpener.openWeb(url, from: source, background: false, reusesTab: true)
+            })
+            return true
+        }
         let tab = registerGitHub(services)
         // The workspace's GitHub tab, wherever it is: selected and moved to this link, no new page.
         for pane in source.workspace?.panes.values.map({ $0 }) ?? [source] {

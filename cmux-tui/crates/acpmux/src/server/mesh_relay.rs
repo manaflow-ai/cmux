@@ -95,15 +95,17 @@ impl MeshRelay {
         // the inbox waits for it, so no message meets a daemon that does not know its own id yet.
         let (daemon, own) = watch::channel(None);
         let halt = Halt(stop.clone());
+        let beat = Arc::new(Beat::new());
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
             options.clone(),
             daemon,
+            beat.clone(),
             halt.clone(),
             stopped.clone(),
         );
-        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, halt, stopped);
+        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, beat, halt, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
         Self { stop, tasks }
     }
@@ -233,6 +235,55 @@ async fn read_book(
     }
 }
 
+/// How long a start's ack waits for the heartbeat that lists its new session.
+const START_LISTED_WAIT: Duration = Duration::from_secs(5);
+
+/// A heartbeat on demand. A start through the hub acks only once a heartbeat that lists the new
+/// session was taken, so the sender's next message to it finds it in the hub's address book
+/// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
+/// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
+struct Beat {
+    nudge: tokio::sync::Notify,
+    /// Requests made; a heartbeat covers every request made before it read the sessions.
+    asked: std::sync::atomic::AtomicU64,
+    /// The last request a heartbeat the hub took covered.
+    listed: watch::Sender<u64>,
+}
+
+impl Beat {
+    fn new() -> Self {
+        Self {
+            nudge: tokio::sync::Notify::new(),
+            asked: Default::default(),
+            listed: watch::channel(0).0,
+        }
+    }
+
+    /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
+    /// for at most `within`.
+    async fn now(&self, within: Duration) {
+        let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let mut listed = self.listed.subscribe();
+        self.nudge.notify_one();
+        let _ = tokio::time::timeout(within, listed.wait_for(|n| *n >= want)).await;
+    }
+
+    /// The requests a heartbeat reading the sessions now covers.
+    fn covers(&self) -> u64 {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn taken(&self, covered: u64) {
+        self.listed.send_if_modified(|n| {
+            let newer = covered > *n;
+            if newer {
+                *n = covered;
+            }
+            newer
+        });
+    }
+}
+
 /// Stops both loops: what one loop does when the mesh hub refuses it for good, so the other
 /// neither waits nor heartbeats on for a daemon that takes nothing.
 #[derive(Clone)]
@@ -249,6 +300,7 @@ async fn heartbeats(
     client: Arc<dyn MeshHub>,
     options: Arc<RelayOptions>,
     daemon: watch::Sender<Option<String>>,
+    beat: Arc<Beat>,
     halt: Halt,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -259,23 +311,26 @@ async fn heartbeats(
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
     loop {
-        let mut beat_taken = false;
         if hub_ended(&hub) {
             break;
         }
+        let began = tokio::time::Instant::now();
+        let covered = beat.covers();
         let sessions = match hub.upgrade() {
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let beat = Heartbeat { host: host.clone(), sessions };
+        let listing = Heartbeat { host: host.clone(), sessions };
+        let mut taken = false;
         let wait = tokio::select! {
-            r = client.heartbeat(&beat) => match r {
+            r = client.heartbeat(&listing) => match r {
                 Ok(reply) => {
+                    beat.taken(covered);
+                    taken = true;
                     if std::mem::take(&mut failing) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");
                     }
                     backoff.reset();
-                    beat_taken = true;
                     if !reply.daemon_id.is_empty() {
                         daemon.send_if_modified(|d| {
                             let new = d.as_deref() != Some(reply.daemon_id.as_str());
@@ -310,7 +365,16 @@ async fn heartbeats(
             },
             () = ended(&mut stop, &hub) => break,
         };
-        let wait = wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap));
+        let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
+        let wait = wait.max(floor);
+        // A start's request beats sooner, never under the floor nor during a backoff.
+        let nudged = async {
+            if !taken {
+                return std::future::pending().await;
+            }
+            beat.nudge.notified().await;
+            tokio::time::sleep_until(began + floor).await;
+        };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
                 let budget = wait.min(Duration::from_secs(5));
@@ -322,13 +386,21 @@ async fn heartbeats(
         // (`hub/mesh_book.rs`): at most one address book read per heartbeat.
         let own_daemon = daemon.borrow().clone();
         let book = async {
-            if beat_taken {
+            if taken {
                 let budget = wait.min(Duration::from_secs(5));
                 read_book(&hub, client.as_ref(), own_daemon.as_deref(), budget).await;
             }
+            std::future::pending::<()>().await
         };
         tokio::select! {
-            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts, book); } => {}
+            () = async {
+                tokio::join!(
+                    async { tokio::select! { () = tokio::time::sleep(wait) => {}, () = nudged => {} } },
+                    read_receipts
+                );
+            } => {}
+            // The book read never holds back a heartbeat: dropped once the pause ends.
+            () = book => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
@@ -345,6 +417,7 @@ async fn inbox(
     control: Arc<dyn ControlHook>,
     options: Arc<RelayOptions>,
     mut own: watch::Receiver<Option<String>>,
+    beat: Arc<Beat>,
     halt: Halt,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -398,12 +471,22 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
-                    let (client, control, in_flight) =
-                        (client.clone(), control.clone(), in_flight.clone());
+                    let (client, control, in_flight, beat) =
+                        (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
                     deliveries.spawn(async move {
                         let ack =
                             deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+                        // A started session is in the hub's address book before its sender
+                        // hears the start went through.
+                        if message.kind == Kind::Control
+                            && message.op.as_deref() == Some("start")
+                            && ack
+                                .as_ref()
+                                .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
+                        {
+                            beat.now(START_LISTED_WAIT).await;
+                        }
                         if let Some(ack) = ack
                             && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
                         {
@@ -791,7 +874,8 @@ pub async fn deliver(
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
     // Sender display metadata alone must never change legacy session delivery semantics.
-    let team = message.to.team_address.is_some() || message.start_work.is_some();
+    let own_user = crate::cli::cloud_join::machine_user_id();
+    let team = team_delivery(message, own_user.as_deref());
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {
@@ -878,6 +962,24 @@ pub async fn deliver(
     }
 }
 
+/// Whether `message` is delivered by the team rules (information unless the hub allows work).
+/// A team address always is. A prompt to a session by id or name is too when the hub marked it
+/// (`startWork`), unless the same person sent it: the hub marks every message `information` by
+/// default, and the person's own machine prompting their own session is a turn, as a send from
+/// this machine is (`acpmux send B/NAME`, own-machines e2e prompt-reply, 2026-11-05).
+fn team_delivery(message: &InMessage, own_user: Option<&str>) -> bool {
+    if message.to.team_address.is_some() {
+        return true;
+    }
+    if message.start_work.is_none() {
+        return false;
+    }
+    let own = own_user.filter(|own| !own.is_empty());
+    let same_person = message.from.team_address.is_none()
+        && own.is_some_and(|own| message.from.user.as_deref() == Some(own));
+    !same_person
+}
+
 fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
@@ -919,6 +1021,27 @@ mod tests {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
         assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
+    fn the_same_persons_direct_prompt_is_a_turn_and_any_other_marked_one_is_information() {
+        let mut message = from("machine-a", "own-e2e");
+        message.from.user = Some("person-1".into());
+        // The hub marks every message `information` by default.
+        assert!(!team_delivery(&message, Some("person-1")), "the same person's own prompt");
+        assert!(team_delivery(&message, Some("person-2")), "another person's");
+        assert!(team_delivery(&message, None), "no person recorded here");
+        message.from.user = None;
+        assert!(team_delivery(&message, Some("person-1")), "no hub-stamped sender");
+        message.from.user = Some("person-1".into());
+        message.from.team_address = Some("@person-1/lead".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team sender");
+        message.from.team_address = None;
+        message.to.team_address = Some("@person-1/coordinator".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team address always is");
+        message.to.team_address = None;
+        message.start_work = None;
+        assert!(!team_delivery(&message, None), "an unmarked direct prompt, as before");
     }
 
     #[test]
