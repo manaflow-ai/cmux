@@ -87,7 +87,7 @@ impl TranscriptTail {
 
     /// The `Range` header value for the next read: one closed chunk from the offset.
     pub fn range(&self) -> String {
-        format!("bytes={}-{}", self.offset, self.offset.saturating_add(self.chunk - 1))
+        format!("bytes={}-{}", self.offset, self.offset.saturating_add(self.chunk.saturating_sub(1)))
     }
 
     /// Takes one read's answer and returns the whole lines it completed, in order, without
@@ -101,19 +101,19 @@ impl TranscriptTail {
                 self.offset = 0;
                 self.partial.clear();
                 self.dropping = false;
-                self.restarts += 1;
+                self.restarts = self.restarts.saturating_add(1);
                 return Vec::new();
             }
             TailRead::Bytes(bytes) => bytes,
         };
-        self.offset += bytes.len() as u64;
+        self.offset = self.offset.saturating_add(len_u64(&bytes));
         let mut lines = Vec::new();
         let mut rest = bytes.as_slice();
         while let Some(end) = rest.iter().position(|b| *b == b'\n') {
             let (piece, after) = rest.split_at(end);
             rest = &after[1..];
             if std::mem::take(&mut self.dropping)
-                || self.partial.len() + piece.len() > MAX_LINE_BYTES
+                || self.partial.len().saturating_add(piece.len()) > MAX_LINE_BYTES
             {
                 // The overlong line ends here: drop it whole.
                 self.partial.clear();
@@ -128,7 +128,7 @@ impl TranscriptTail {
                 lines.push(String::from_utf8_lossy(&line).into_owned());
             }
         }
-        if self.dropping || self.partial.len() + rest.len() > MAX_LINE_BYTES {
+        if self.dropping || self.partial.len().saturating_add(rest.len()) > MAX_LINE_BYTES {
             self.partial.clear();
             self.dropping = true;
         } else {
@@ -184,7 +184,7 @@ pub fn classify(
             if body.len() < skip {
                 return Some(TailRead::Shrunk);
             }
-            Some(TailRead::Bytes(body[skip..].to_vec()))
+            Some(body.get(skip..).map_or(TailRead::Shrunk, |rest| TailRead::Bytes(rest.to_vec())))
         }
         416 => match range.and_then(|r| r.size) {
             Some(size) if size < offset => Some(TailRead::Shrunk),
@@ -238,13 +238,18 @@ async fn get(http: &reqwest::Client, url: &reqwest::Url, range: &str) -> Result<
     Ok(Answer { status, range, body })
 }
 
+/// A byte count as a file offset (a `usize` always fits in a `u64` on the targets cmux runs on).
+fn len_u64(bytes: &[u8]) -> u64 {
+    u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+}
+
 /// The file's size, from a read of its first byte, for a 416 that did not name it.
 async fn size_of(http: &reqwest::Client, url: &reqwest::Url) -> Result<Option<u64>, TailError> {
     let probe = get(http, url, "bytes=0-0").await?;
     Ok(match probe.status {
         206 => probe.range.and_then(|r| r.size),
         416 => Some(0),
-        200 => Some(probe.body.len() as u64),
+        200 => Some(len_u64(&probe.body)),
         404 => None,
         status => return Err(TailError::Status(status)),
     })
@@ -261,8 +266,8 @@ pub async fn read_next(
     tail: &mut TranscriptTail,
 ) -> Result<Vec<String>, TailError> {
     let mut lines = Vec::new();
-    let mut shrinks = 0;
-    let mut chunks = 0;
+    let mut shrinks: u8 = 0;
+    let mut chunks: usize = 0;
     tail.more = false;
     while chunks < CHUNKS_PER_READ {
         let offset = tail.offset();
@@ -275,9 +280,9 @@ pub async fn read_next(
         let read =
             classify(status, answer.body, offset, answer.range).ok_or(TailError::Status(status))?;
         let full =
-            matches!(&read, TailRead::Bytes(b) if status == 206 && b.len() as u64 >= tail.chunk);
+            matches!(&read, TailRead::Bytes(b) if status == 206 && len_u64(b) >= tail.chunk);
         if read == TailRead::Shrunk {
-            shrinks += 1;
+            shrinks = shrinks.saturating_add(1);
             tail.take(read);
             if shrinks > 1 {
                 break;
@@ -285,7 +290,7 @@ pub async fn read_next(
             continue;
         }
         lines.extend(tail.take(read));
-        chunks += 1;
+        chunks = chunks.saturating_add(1);
         if !full {
             return Ok(lines);
         }

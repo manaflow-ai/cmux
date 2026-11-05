@@ -164,7 +164,8 @@ pub fn client_key() -> String {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        bytes[..8].copy_from_slice(&(nanos as u64).to_le_bytes());
+        let low = u64::try_from(nanos & u128::from(u64::MAX)).unwrap_or(0);
+        bytes[..8].copy_from_slice(&low.to_le_bytes());
         bytes[8..12].copy_from_slice(&std::process::id().to_le_bytes());
     }
     let mut key = String::with_capacity(35);
