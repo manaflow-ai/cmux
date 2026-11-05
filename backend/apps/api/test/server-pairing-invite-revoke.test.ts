@@ -101,7 +101,7 @@ describe("server.revoke of a server paired through an invite", { timeout: 60_000
     expect(before.frames.at(-1)).toMatchObject({ t: "paired", host: p.result.host })
 
     // TeamDO keeps only opaque object ids for the revoke: no team state carries the code or invite.
-    const kept = JSON.stringify(await (testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any).debug(p.owner.team))
+    const kept = JSON.stringify((await (testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any).debug(p.owner.team)).state)
     expect(kept).not.toContain(p.code)
     expect(kept).not.toContain(p.minted.invite)
     expect(kept).toContain("server_pairings")
