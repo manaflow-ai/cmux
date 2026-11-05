@@ -14,10 +14,12 @@ import Testing
 /// resize, 141 calls per view in an ON film of 72 steps (`debug.layers` `top_instances`), mostly SwiftUI hosting views,
 /// which lay out on every step even when their frame does not change (ParkedPageWindowResizeLayoutTests).
 ///
-/// Three ways to park the page while the window resizes, each shown again after one resize step at the new size:
+/// Four ways to park the page while the window resizes, each shown again after one resize step at the new size:
 /// - `today`: hidden, it follows its holder (the pane today);
 /// - `frozen`: hidden at the frame it had (the frame part of S7b), sized once when it shows;
-/// - `detached`: out of the window (S7b's Messages part), put back and sized when it shows.
+/// - `idleSized`: frozen, then sized at the run loop's idle point after the resize ended (S7b A2, `ParkedViewSizing`:
+///   its frame, then one layout of it, while hidden), then shown; `idle sizing` is that work's time;
+/// - `detached`: out of the window (S7b's Messages part, dropped: 16.96 ms p50), put back and sized when it shows.
 /// Per show: the re-insert or unhide, the layout, the display and the commit, and the layout calls the next turns still
 /// make (work the show left for a later frame). Per parked resize step: its time and its layout calls.
 ///
@@ -27,7 +29,7 @@ import Testing
        .enabled(if: ProcessInfo.processInfo.environment["CMUX_HOME_REINSERT_BENCH"] == "1"))
 struct HomeMessagesReinsertBench {
     enum Park: String, CaseIterable {
-        case today, frozen, detached
+        case today, frozen, idleSized, detached
     }
 
     struct Show {
@@ -35,6 +37,8 @@ struct HomeMessagesReinsertBench {
         var total: Double { insert + layout + display + commit }
         var dirtyAfter = 0
         var laterLayouts = 0
+        /// The idle sizing before the show (`idleSized` only).
+        var idleSizing = 0.0
     }
 
     struct Step {
@@ -132,7 +136,6 @@ struct HomeMessagesReinsertBench {
         }()
 
         var shows: [Park: [Show]] = [:], steps: [Park: [Step]] = [:]
-        var resizeCount = 0
         let warmUp = 3, rounds = 20
         for round in 0..<(warmUp + rounds) {
             for park in Park.allCases {
@@ -141,7 +144,7 @@ struct HomeMessagesReinsertBench {
                 switch park {
                 case .today:
                     page.isHidden = true
-                case .frozen:
+                case .frozen, .idleSized:
                     page.isHidden = true
                     page.autoresizingMask = []
                 case .detached:
@@ -151,25 +154,36 @@ struct HomeMessagesReinsertBench {
                 window.displayIfNeeded()
                 CATransaction.flush()
 
-                // One step of the window's resize while it is parked.
+                // One step of the window's resize while it is parked: the same step for every way in a round (smaller in
+                // even rounds, larger in odd ones), from the same frame (each way's step is undone after its show).
                 var step = Step()
                 let calls = LayoutPassGuard.shared.viewLayoutCalls
                 let stepStart = CACurrentMediaTime()
-                Self.resize(window, step: resizeCount)
-                resizeCount += 1
+                Self.resize(window, step: round)
                 root.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
                 CATransaction.flush()
                 step.milliseconds = Self.ms(stepStart)
                 step.layouts = LayoutPassGuard.shared.viewLayoutCalls - calls
 
-                // Shown again at the holder's size now.
+                // A2: the resize ended; at the run loop's idle point the parked page takes its show frame and lays out, hidden.
                 var show = Show()
+                if park == .idleSized {
+                    for _ in 0..<5 { await Task.yield() }
+                    let idle = CACurrentMediaTime()
+                    page.frame = holder.bounds
+                    page.layoutSubtreeIfNeeded()
+                    show.idleSizing = Self.ms(idle)
+                    window.displayIfNeeded()
+                    CATransaction.flush()
+                }
+
+                // Shown again at the holder's size now.
                 var start = CACurrentMediaTime()
                 switch park {
                 case .today:
                     page.isHidden = false
-                case .frozen:
+                case .frozen, .idleSized:
                     page.frame = holder.bounds
                     page.autoresizingMask = [.width, .height]
                     page.isHidden = false
@@ -199,6 +213,11 @@ struct HomeMessagesReinsertBench {
 
                 #expect(page.window === window && page.frame.size == holder.bounds.size,
                         "\(park.rawValue): the page is not shown at its holder's size (\(page.frame.size) in \(holder.bounds.size))")
+                // Back to the round's starting frame, the page shown (it follows), not measured.
+                Self.resize(window, step: round + 1)
+                root.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                CATransaction.flush()
                 guard round >= warmUp else { continue }
                 shows[park, default: []].append(show)
                 steps[park, default: []].append(step)
@@ -216,10 +235,14 @@ struct HomeMessagesReinsertBench {
             report.append("  show " + Self.line("dirty views after", s.map { Double($0.dirtyAfter) })
                           + "; " + Self.line("layouts in later turns", s.map { Double($0.laterLayouts) }))
             report.append("  parked step " + Self.line("time", p.map(\.milliseconds)) + "; " + Self.line("layouts", p.map { Double($0.layouts) }))
+            if park == .idleSized { report.append("  " + Self.line("idle sizing (hidden, before the show)", s.map(\.idleSizing))) }
         }
-        let today = (shows[.today] ?? []).map(\.total), detached = (shows[.detached] ?? []).map(\.total)
-        report.append(String(format: "detached minus today: show total p50 %+.2f, p95 %+.2f",
-                             Self.quantile(detached, 0.5) - Self.quantile(today, 0.5), Self.quantile(detached, 0.95) - Self.quantile(today, 0.95)))
+        let today = (shows[.today] ?? []).map(\.total)
+        for park in [Park.frozen, .idleSized, .detached] {
+            let other = (shows[park] ?? []).map(\.total)
+            report.append(String(format: "%@ minus today: show total p50 %+.2f, p95 %+.2f", park.rawValue,
+                                 Self.quantile(other, 0.5) - Self.quantile(today, 0.5), Self.quantile(other, 0.95) - Self.quantile(today, 0.95)))
+        }
         print(report.joined(separator: "\n"))
     }
 }
