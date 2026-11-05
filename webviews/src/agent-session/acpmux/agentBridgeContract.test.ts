@@ -118,21 +118,6 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       if (ts.isImportSpecifier(node) && senders.has(node.name.text)) inScope.add(node.name.text);
     });
     for (const name of wrappers(source, senders).keys()) inScope.add(name);
-    // A sender handed in as a callback: `send = postNative`, or a parameter typed `(method: string, ...) => ...`
-    // (attachRunTerminal's `send`, toggleRemoteControl's `call`). The literal it is called with is a method too.
-    walk(source, (node) => {
-      if (!ts.isParameter(node) || !ts.isIdentifier(node.name)) return;
-      const initial = node.initializer;
-      const type = node.type;
-      const defaultsToSender = initial && ts.isIdentifier(initial) && senders.has(initial.text);
-      const first = type && ts.isFunctionTypeNode(type) ? type.parameters[0] : undefined;
-      const typedAsSender = first && ts.isIdentifier(first.name) && (first.name.text === "method" || first.name.text === "op");
-      if (defaultsToSender || typedAsSender) {
-        inScope.add(node.name.text);
-        if (!senders.has(node.name.text)) senders.set(node.name.text, false);
-      }
-    });
-    if (path.endsWith("acpmux/native.ts")) inScope.add("postNative");
     walk(source, (node) => {
       if (!ts.isCallExpression(node)) return;
       const callee = calleeName(node);
@@ -145,6 +130,57 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       } else if (arg && ts.isTemplateExpression(arg) && arg.head.text) {
         sent.push({ at, method: arg.head.text, prefix: true, keys: null, direct });
       }
+    });
+  }
+  // A sender handed to a function as a callback: a parameter that defaults to one (`send = postNative`,
+  // attachRunTerminal) or that a call passes one to (`toggleRemoteControl(..., callNative)`). The literals the
+  // function calls that parameter with are methods too; any other callback (a daemon's) is not.
+  const passed = new Map<string, Set<number>>();
+  for (const { source } of sources) {
+    walk(source, (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = calleeName(node);
+      if (!callee) return;
+      node.arguments.forEach((arg, index) => {
+        if (ts.isIdentifier(arg) && senders.has(arg.text)) {
+          const set = passed.get(callee) ?? new Set<number>();
+          set.add(index);
+          passed.set(callee, set);
+        }
+      });
+    });
+  }
+  for (const { path, source } of sources) {
+    walk(source, (node) => {
+      let name: string | undefined;
+      let fn: ts.SignatureDeclaration | undefined;
+      if (ts.isFunctionDeclaration(node) && node.name) {
+        name = node.name.text;
+        fn = node;
+      } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+        name = node.name.text;
+        fn = node.initializer;
+      }
+      if (!name || !fn) return;
+      const callbacks = new Map<string, boolean>();
+      fn.parameters.forEach((parameter, index) => {
+        if (!ts.isIdentifier(parameter.name)) return;
+        const initial = parameter.initializer;
+        if (initial && ts.isIdentifier(initial) && senders.has(initial.text)) callbacks.set(parameter.name.text, senders.get(initial.text)!);
+        else if (passed.get(name!)?.has(index)) callbacks.set(parameter.name.text, true);
+      });
+      if (callbacks.size === 0) return;
+      walk(fn, (inner) => {
+        if (!ts.isCallExpression(inner)) return;
+        const callee = calleeName(inner);
+        const arg = inner.arguments[0];
+        if (!callee || !callbacks.has(callee) || !arg) return;
+        if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+          const at = `${path}:${source.getLineAndCharacterOfPosition(inner.getStart()).line + 1}`;
+          sent.push({ at, method: arg.text, prefix: false, keys: literalKeys(inner.arguments[1]), direct: callbacks.get(callee)! });
+        }
+      });
     });
   }
   return sent;
@@ -273,7 +309,7 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
     expect(refused.filter(Boolean)).toEqual([
       "webviews/src/agent-session/acpmux/fake.ts:7: the app has no method 'account.ad'",
       expect.stringContaining("link.inspect takes"),
-      "webviews/src/agent-session/acpmux/fake.ts:13: the app has no method 'run.atach'",
+      "webviews/src/agent-session/acpmux/fake.ts:11: the app has no method 'run.atach'",
     ]);
     expect([...handlerNames([file]).keys()]).toEqual(["cmuxNope"]);
   });
