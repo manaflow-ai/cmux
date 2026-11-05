@@ -196,6 +196,11 @@ public final class AgentSubagentPanes {
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
     /// `SUBAGENT_REVEAL`).
     public static func reveal(_ agent: String) -> String { "subagent:\(agent)" }
+
+    /// Whether `revealTurn` opens a pane on a subagent's view (``reveal(_:)``'s shape, naming one).
+    public static func isReveal(_ revealTurn: String) -> Bool {
+        revealTurn.count > reveal("").count && revealTurn.hasPrefix(reveal(""))
+    }
 }
 
 // One tracker per source chat, and where its remembered tabs still count as beside it (#29676).

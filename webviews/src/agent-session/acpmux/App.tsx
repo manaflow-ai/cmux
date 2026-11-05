@@ -119,6 +119,8 @@ import {
   useEarlyNewTabContext,
   useNewTabAdoption,
   useNewTabPlaces,
+  adoptionPlan,
+  keepAdoptedTail,
   useSessionAdoption,
   useNewTabWeather,
   type SessionAdoption,
@@ -8032,12 +8034,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setOpenedGroups(new Set([...openedGroups, ...newGroups]));
     setExpanded((current) => new Set([...current, ...newGroups]));
   }
-  // After the reset above: a pane opened on a subagent shows it once its chat is shown.
-  useEffect(() => {
-    if (!requestedSubagent || !shownSessionId) return;
+  // After the reset above: a pane opened on a subagent shows it once its chat is shown, in the render
+  // that first shows the chat (not an effect after it), so no frame draws the chat's rows first.
+  if (requestedSubagent && shownSessionId && subagentChat === shownSessionId) {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
-  }, [requestedSubagent, shownSessionId]);
+  }
   // A subagent's pane shows the subagent with its own composer (SubagentComposer.tsx), never the
   // chat's composer, queue or pull request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
@@ -10537,8 +10539,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runAdoption = useCallback(async ({ sessionId, revealTurn }: SessionAdoption) => {
     const ticket = ++adoptionTicket.current;
     const before = directClient.current?.selectedSession;
+    // A subagent's pane shows the subagent from its first frame and has no reading place of the
+    // chat to wait for (newtab/adoption.ts `adoptionPlan`): with the tail its adopt event carried,
+    // the switch below draws it in this same turn.
+    const plan = adoptionPlan({ sessionId, ...(revealTurn ? { revealTurn } : {}) });
+    if (plan.revealsFirst && revealTurn) revealRef.current(revealTurn);
+    const revealAfter = plan.revealsFirst ? undefined : revealTurn;
     // Where the reader left this chat, before its rows draw, as a tab opened on it reads it.
-    const anchor = await fetchScrollAnchor(sessionId);
+    const anchor = plan.readsAnchor ? await fetchScrollAnchor(sessionId) : undefined;
     if (ticket !== adoptionTicket.current) return;
     const now = directClient.current?.selectedSession;
     if (now !== before) {
@@ -10546,7 +10554,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // adoption still carries is its place and its turn (a subagent's pane).
       if (now === sessionId) {
         setScrollAnchor(anchor);
-        if (revealTurn) revealRef.current(revealTurn);
+        if (revealAfter) revealRef.current(revealAfter);
       }
       // Another chat was picked while the anchor was read (a page action, automation): it stands.
       else setAdoptingSession((current) => (current === sessionId ? undefined : current));
@@ -10560,7 +10568,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setScrollAnchor(anchor);
     await adopt({ sessionId }).then(
       (selected) => {
-        if (selected && revealTurn) revealRef.current(revealTurn);
+        if (selected && revealAfter) revealRef.current(revealAfter);
         // A chat the daemon does not list draws why, which is this page's first paint too.
         if (!selected) setAdoptingSession((current) => (current === sessionId ? undefined : current));
       },
@@ -10586,6 +10594,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const adoptSession = useCallback(
     (adoption: SessionAdoption) => {
+      // The chat's tail the host handed with the event: the switch draws it with no round trip.
+      keepAdoptedTail(adoption);
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       setAdoptingSession(adoption.sessionId);

@@ -49,8 +49,15 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
     /// painted on a reopen, so every such tab opens cold, as before #31033.
     public static let adoptsExistingChats = false
 
-    /// Whether an open of an existing chat may take the spare at all (red stub).
-    public static func adopts(subagentPane: Bool, keptTail: Bool) -> Bool { adoptsExistingChats }
+    /// Whether an open of an existing chat may take the spare at all: every one once
+    /// ``adoptsExistingChats`` is back on; until then a subagent's pane (`subagentPane`, a
+    /// `subagent:` reveal) whose chat's tail the host holds (`keptTail`; the chat hands it over as it
+    /// asks for the pane). The adopted page draws that tail in its adopt event's own render
+    /// (``AgentPaneView/adoptSession(_:revealTurn:moved:)`` carries it), so it never shows the empty
+    /// transcript HQ#5914 found, and never waits on a host or acpmux round trip to paint.
+    public static func adopts(subagentPane: Bool, keptTail: Bool) -> Bool {
+        adoptsExistingChats || (subagentPane && keptTail)
+    }
 
     public var servesChat: Bool {
         handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
@@ -58,12 +65,16 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
 }
 
 extension AgentPaneModel {
-    /// Whether this page, parked as the spare, may serve a tab opening an existing chat now
-    /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
-    public var servesExistingChat: Bool {
-        AgentPaneSpareReadiness.adoptsExistingChats && AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
-                                thermal: ProcessInfo.processInfo.thermalState).servesChat
+    /// Whether this page, parked as the spare, may serve a tab opening chat `session` with the
+    /// pending `revealTurn` now (``AgentPaneSpareReadiness/adopts(subagentPane:keptTail:)``: a
+    /// subagent's pane whose chat handed ``AgentPaneTailCache`` its tail, which the adopt event
+    /// carries; then its readiness with this Mac's power and thermal state read now).
+    public func servesExistingChat(revealTurn: String?, session: String) -> Bool {
+        AgentPaneSpareReadiness.adopts(subagentPane: revealTurn.map(AgentSubagentPanes.isReveal) ?? false,
+                                       keptTail: AgentPaneTailCache.shared.tail(for: session) != nil)
+            && AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
+                                       lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                       thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 
     /// Why this page refused to become an existing chat (``adoptSpareSession(_:)``), for the open's trace.

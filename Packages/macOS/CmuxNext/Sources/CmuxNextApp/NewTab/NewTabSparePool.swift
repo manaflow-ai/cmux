@@ -140,14 +140,14 @@ final class NewTabSparePool {
         // A tab opening an existing chat of this Mac adopts it only once its client is connected
         // (AgentPaneSpareAdoption): it switches to the chat in place. One still connecting stays here,
         // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
-        services.agentTabs.takeConnectedSpare = { [weak self] in
+        services.agentTabs.takeConnectedSpare = { [weak self] revealTurn, session in
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
                 AgentPaneSpareOutcome.empty.trace()
                 return nil
             }
-            guard spare.model.servesExistingChat else {
+            guard spare.model.servesExistingChat(revealTurn: revealTurn, session: session) else {
                 AgentPaneSpareOutcome.unready.trace()
                 return nil
             }

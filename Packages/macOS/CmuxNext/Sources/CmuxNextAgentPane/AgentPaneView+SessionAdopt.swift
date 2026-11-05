@@ -30,18 +30,21 @@ extension AgentPaneView {
         showsLoadingState = true
         // The chat's surface (R55), not the New Tab page's; the loading state takes its color.
         applyTheme()
-        var detail: [String: Any] = ["sessionId": session]
-        if let revealTurn { detail["revealTurn"] = revealTurn }
-        guard let data = try? JSONSerialization.data(withJSONObject: detail, options: [.withoutEscapingSlashes]),
-              let json = String(data: data, encoding: .utf8) else { return true }
+        // The chat's kept tail rides on the event: the page draws it in the event's own render,
+        // where asking for it (`chat.tail.get`) cost a round trip a busy main thread lost to its
+        // 250 ms race, leaving the pane empty until acpmux's attach answered.
+        let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
     }
 
-    /// The adopt event's detail as JSON text (red stub).
+    /// The adopt event's detail as JSON text (newtab/adoption.ts `sessionAdoption` reads it): the chat,
+    /// the turn its open asks to show, and the chat's tail the host keeps (``AgentPaneTailCache``), in
+    /// the page's own shape, when it holds one. Linear in the tail's size, which the cache bounds.
     nonisolated static func adoptEventDetail(session: String, revealTurn: String?, tail: JSONValue?) -> String {
         var detail: [String: JSONValue] = ["sessionId": .string(session)]
         if let revealTurn { detail["revealTurn"] = .string(revealTurn) }
+        if let tail { detail["tail"] = tail }
         return JSONValue.object(detail).compactText
     }
 

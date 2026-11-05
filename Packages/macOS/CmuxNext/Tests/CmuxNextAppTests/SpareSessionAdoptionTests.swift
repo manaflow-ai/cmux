@@ -79,8 +79,10 @@ struct SpareSessionAdoptionTests {
         let tabs = Self.run(records: ["tab_chat": Self.chat("s-chat")])
         let spare = try await Self.connectedSpare(of: tabs)
         var taken = 0
-        tabs.takeConnectedSpare = {
+        var asked: [String?] = []
+        tabs.takeConnectedSpare = { revealTurn, _ in
             taken += 1
+            asked.append(revealTurn)
             return spare
         }
         var scripts: [String] = []
@@ -91,6 +93,7 @@ struct SpareSessionAdoptionTests {
         let view = try #require(tabs.view(for: "tab_chat"))
         #expect(view === spare, "the chat's tab built a page of its own")
         #expect(taken == 1)
+        #expect(asked == ["subagent:sa-1"], "the pool was not told the open is a subagent's pane")
         #expect(tabs.existingView("tab_chat") === spare)
         #expect(view.model.sessionId == "s-chat")
         #expect(view.model.newTab == nil, "the adopted page still counts as a New Tab page")
@@ -121,7 +124,7 @@ struct SpareSessionAdoptionTests {
         let tabs = Self.run(records: ["tab_wake": Self.chat("s-wake"), "tab_chief": Self.chat("s-chief")])
         let spare = try await Self.connectedSpare(of: tabs)
         var taken = 0
-        tabs.takeConnectedSpare = {
+        tabs.takeConnectedSpare = { _, _ in
             taken += 1
             return spare
         }
@@ -143,7 +146,7 @@ struct SpareSessionAdoptionTests {
     @Test func aSpareThatHasNotConnectedIsNotAdopted() async throws {
         let tabs = Self.run(records: ["tab_chat": Self.chat("s-chat")])
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
-        tabs.takeConnectedSpare = { spare }
+        tabs.takeConnectedSpare = { _, _ in spare }
         var recycled: [AgentPaneView] = []
         tabs.recycle = { recycled.append($0); return true }
         let view = try #require(tabs.view(for: "tab_chat"))

@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
+import { revealedSubagent } from "../subagents/subagentPanes";
+import { keepHandedTail } from "../tailCache";
 import { parseWeather } from "./ambient";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
@@ -19,25 +21,38 @@ export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 /// page leaves its New Tab screen and switches to that chat in place.
 export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
 
-/// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
+/// The chat a session adopt event names, the turn its open asks to show (a subagent's pane), and the
+/// chat's tail the app host kept, when it holds one (read as `chat.tail.get`'s answer is, tailCache.ts).
 export type SessionAdoption = { sessionId: string; revealTurn?: string; tail?: unknown };
 
 /// The adoption an event's detail names; undefined when it names no session.
 export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
   if (typeof detail !== "object" || detail === null) return undefined;
-  const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
+  const { sessionId, revealTurn, tail } = detail as { sessionId?: unknown; revealTurn?: unknown; tail?: unknown };
   if (typeof sessionId !== "string" || !sessionId) return undefined;
-  return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+  return {
+    sessionId,
+    ...(typeof revealTurn === "string" && revealTurn ? { revealTurn } : {}),
+    ...(typeof tail === "object" && tail !== null && !Array.isArray(tail) ? { tail } : {}),
+  };
 }
 
-/// Keeps the tail an adopt event carries (red stub).
-export function keepAdoptedTail(_adoption: SessionAdoption): boolean {
-  return false;
+/// Keeps the tail an adopt event carries for its chat, so the switch that follows draws the chat
+/// from it in the event's own turn, with no host round trip (`chat.tail.get` is raced against
+/// 250 ms, which a busy main thread loses, and the pane then stayed empty until acpmux's attach
+/// answered). True when it kept one; a page that read the chat itself keeps its own.
+export function keepAdoptedTail(adoption: SessionAdoption): boolean {
+  return adoption.tail !== undefined && keepHandedTail(adoption.sessionId, adoption.tail);
 }
 
-/// What an adoption waits on before its switch (red stub).
-export function adoptionPlan(_adoption: SessionAdoption): { readsAnchor: boolean; revealsFirst: boolean } {
-  return { readsAnchor: true, revealsFirst: false };
+/// What an adoption does before its switch. A subagent's pane shows the subagent from its first
+/// frame (`revealsFirst`: the reveal runs before the switch, not after acpmux's attach, so the page
+/// never draws the chat's rows first) and reads no reading place of the chat, which it does not show
+/// (`readsAnchor`: `chat.scrollAnchor.get` is a host round trip the switch would wait on). Any other
+/// adoption reads where the reader left the chat, then shows its turn once the chat opened.
+export function adoptionPlan(adoption: SessionAdoption): { readsAnchor: boolean; revealsFirst: boolean } {
+  const subagent = adoption.revealTurn !== undefined && revealedSubagent(adoption.revealTurn) !== undefined;
+  return { readsAnchor: !subagent, revealsFirst: subagent };
 }
 
 /// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
