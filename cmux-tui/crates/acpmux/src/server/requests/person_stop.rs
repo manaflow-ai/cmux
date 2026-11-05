@@ -14,8 +14,8 @@
 //! - What a client wrote there itself is dropped before the forward ([`mark`]): only this
 //!   daemon's word that its person pressed Stop goes on.
 //!
-//! The field only holds agent messages back (it narrows what runs); the cancel itself is what
-//! the link could already send.
+//! The field only holds queued prompts back, the agent messages and the person's own (it narrows
+//! what runs); the cancel itself is what the link could already send.
 
 use crate::hub::{Control, Hub, Session};
 use crate::rpc::RpcError;
@@ -55,8 +55,8 @@ pub(in crate::server) fn mark(
     }
 }
 
-/// A Stop of `session`, a chat on this daemon: the person's ([`of`]) holds the other agents'
-/// messages behind its turn; any other is a plain cancel.
+/// A Stop of `session`, a chat on this daemon: the person's ([`of`]) holds the prompts queued
+/// behind its turn; any other is a plain cancel.
 pub(in crate::server) async fn stop(
     hub: &Arc<Hub>,
     conn: &Conn,

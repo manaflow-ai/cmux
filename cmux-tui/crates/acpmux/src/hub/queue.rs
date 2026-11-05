@@ -85,6 +85,10 @@ pub struct QueuedPrompt {
     /// Times a hold let it go by itself (`digest.rs` `retry_held_agent_messages`): the next
     /// hold waits longer.
     pub(super) retries: usize,
+    /// The person's own prompt their Stop holds (`cancel.rs` `hold_agent_messages`): it waits for
+    /// them to send it (Resume, or Send now), never for the turn's end. Listed `heldByStop`
+    /// while `held`; a failed turn's hold (`pause_queue`) clears it.
+    pub(super) held_by_stop: bool,
 }
 
 impl QueuedPrompt {
@@ -755,6 +759,7 @@ impl Hub {
                 joined: joined.clone(),
                 requeued: false,
                 retries: 0,
+                held_by_stop: false,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -897,7 +902,7 @@ impl Hub {
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
-                    q.held = true;
+                    (q.held, q.held_by_stop) = (true, false);
                     q.prompt_id.clone()
                 })
                 .collect()
@@ -1534,6 +1539,7 @@ impl Hub {
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
                 retries: 0,
+                held_by_stop: false,
             });
             restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);

@@ -38,7 +38,11 @@
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
-//! own queued prompts run next as before.
+//! own queued prompts are held too (2026-11-05, the UI ceremony audit's lens review: the person
+//! stays in control of what is sent): Stop ends the turn and keeps the queue, and the next queued
+//! prompt waits until the person sends it (the queue's Resume, a row's Send now, or a new prompt,
+//! which runs ahead of them). Each is listed `heldByStop` (`QueuedPrompt::held_by_stop`). A
+//! prompt the person already sent now (`sent_now`, a steer) is not queued work and is not held.
 //!
 //! Another agent's message is never lost to a Stop (2026-11-02: a coordinator's message sent a
 //! second after Stop was steered into the cancelling turn, answered by its forced end, and the
@@ -121,7 +125,8 @@ impl Hub {
     }
 
     /// The person's Stop (`session/cancel` from the person's connection): the running turn's
-    /// cancel, and the other agents' messages queued behind it are held (`hold_agent_messages`).
+    /// cancel, and the prompts queued behind it are held (`hold_agent_messages`): the other agents'
+    /// messages and the person's own waiting ones.
     /// Also with no turn running while anything waits in the queue: the turn may have just ended
     /// and the next one be about to start. A Stop of an idle chat with nothing queued holds nothing.
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
@@ -146,15 +151,20 @@ impl Hub {
             session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
             // Named with those a failed turn held already: the Stop holds them too, and a pane
             // shows each as held by it (`views.rs` `held_by_stop`).
-            queue
-                .iter_mut()
-                .filter(|q| q.run.agent.is_some())
-                .map(|q| {
+            let mut held = Vec::new();
+            for q in queue.iter_mut() {
+                if q.run.agent.is_some() {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
-                    q.prompt_id.clone()
-                })
-                .collect()
+                    held.push(q.prompt_id.clone());
+                } else if !q.held && !q.sent_now && !q.steer && !q.awaiting_owner {
+                    // The person's own waiting prompt: it waits for them to send it. One a failed
+                    // turn or the owner holds already keeps that hold.
+                    (q.held, q.held_by_stop) = (true, true);
+                    held.push(q.prompt_id.clone());
+                }
+            }
+            held
         };
         if !held.is_empty() {
             self.append(

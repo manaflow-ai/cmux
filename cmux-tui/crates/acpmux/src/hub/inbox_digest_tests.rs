@@ -146,6 +146,7 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         joined: Arc::new(StdMutex::new(None)),
         requeued: false,
         retries: 0,
+        held_by_stop: false,
     }
 }
 

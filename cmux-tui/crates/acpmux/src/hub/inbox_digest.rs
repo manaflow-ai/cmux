@@ -455,6 +455,7 @@ impl Hub {
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
                 retries: 0,
+                held_by_stop: false,
             },
         );
         // Claimed by the task below (`queue_slot`), as a restored prompt is.
