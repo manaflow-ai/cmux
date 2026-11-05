@@ -8,7 +8,7 @@
 use super::{arg, error_result, ok, refusal};
 use crate::client::Client;
 use crate::rpc::method;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 pub(super) const NAME: &str = "who_else";
@@ -37,7 +37,8 @@ pub(super) fn tool() -> Value {
 
 /// The request params for a call from session `session`.
 pub(super) fn params(session: &str, args: &Value) -> Result<Value, String> {
-    let mut p = json!({"sessionId": session});
+    let mut p = Map::new();
+    p.insert("sessionId".into(), json!(session));
     if let Some(files) = args.get("files") {
         let files: Vec<&str> = files
             .as_array()
@@ -47,17 +48,17 @@ pub(super) fn params(session: &str, args: &Value) -> Result<Value, String> {
             .filter(|f| !f.trim().is_empty())
             .collect();
         if !files.is_empty() {
-            p["files"] = json!(files);
+            p.insert("files".into(), json!(files));
         }
     }
     if let Some(topic) = arg(args, "topic") {
-        p["topic"] = json!(topic);
+        p.insert("topic".into(), json!(topic));
     }
     if let Some(since) = arg(args, "since") {
         let ms = crate::cli::who_else::duration_ms(since).map_err(|e| e.to_string())?;
-        p["sinceMs"] = json!(ms);
+        p.insert("sinceMs".into(), json!(ms));
     }
-    Ok(p)
+    Ok(Value::Object(p))
 }
 
 pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
@@ -70,8 +71,9 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
     };
     match daemon.request(method::MUX_WHO_ELSE, p).await {
         Ok(answer) => {
-            let lines: Vec<&str> = answer["lines"]
-                .as_array()
+            let lines: Vec<&str> = answer
+                .get("lines")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)

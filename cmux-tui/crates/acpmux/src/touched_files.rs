@@ -116,10 +116,11 @@ fn origin_url(config: &str) -> Option<String> {
     for line in config.lines().map(str::trim) {
         if line.starts_with('[') {
             in_origin = line.replace(' ', "") == "[remote\"origin\"]";
-        } else if in_origin && let Some((key, value)) = line.split_once('=') {
-            if key.trim() == "url" {
-                return Some(value.trim().to_owned());
-            }
+        } else if in_origin
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "url"
+        {
+            return Some(value.trim().to_owned());
         }
     }
     None
@@ -371,10 +372,11 @@ pub fn rank(rows: &mut [Value]) {
 /// src/a.rs, read src/b.rs; 12m ago`.
 pub fn row_line(r: &Value) -> String {
     let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
-    let mut about = vec![s("harness").to_owned()];
-    if !s("host").is_empty() {
-        about[0] = format!("{} on {}", s("harness"), s("host"));
-    }
+    let mut about = vec![if s("host").is_empty() {
+        s("harness").to_owned()
+    } else {
+        format!("{} on {}", s("harness"), s("host"))
+    }];
     if !s("branch").is_empty() {
         about.push(s("branch").to_owned());
     }
