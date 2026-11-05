@@ -44,11 +44,17 @@ final class CEFLayerHosting {
         /// (false for a closed browser's id). Nil below API 27, where Chromium
         /// holds it up to 500 ms on every resize.
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// `cmux_shim_browser_set_detached_hosting` (fork API 30): the hosted page's window leaves the parent window
+        /// and turns headless (`enabled`), or comes back as a child window. True when the fork took it. Nil below
+        /// API 30.
+        let setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
+            self.setDetachedHosting = setDetachedHosting
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -58,6 +64,8 @@ final class CEFLayerHosting {
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            setDetachedHosting = apiVersion >= CEFLayerHosting.detachedForkAPI
+                ? shim.browserSetDetachedHosting.map { call in { browser, enabled in call(browser, enabled ? 1 : 0) == 1 } } : nil
         }
     }
 
@@ -74,6 +82,8 @@ final class CEFLayerHosting {
     static let forkAPI: Int32 = 26
     /// The first fork API with `cmux_browser_set_resize_sync`.
     static let resizeSyncForkAPI: Int32 = 27
+    /// The first fork API with `cmux_browser_set_detached_hosting`.
+    static let detachedForkAPI: Int32 = 30
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -248,6 +258,53 @@ final class CEFLayerHosting {
         request(retry: true)
     }
 
+    /// The hosted page's window is headless and off screen (fork API 30, ``setDetached(_:)``).
+    private(set) var isDetached = false
+
+    /// Detaches the hosted page's window (`on`: it leaves the parent window and turns headless, so a resize of the
+    /// view moves no window) or attaches it again. False when no page is hosted, below fork API 30, or the fork
+    /// refused; the state is unchanged then.
+    @discardableResult
+    func setDetached(_ on: Bool) -> Bool {
+        guard on != isDetached else { return true }
+        guard page != nil, let browser, let call = fork?.setDetachedHosting else { return false }
+        #if DEBUG
+        // NEVER MERGE probe: the page window's WindowServer bounds and the host's screen rect over the detached spell.
+        if !on, let spell = detachedSpell {
+            if spell.host != hostScreenRect() { CEFHostView.trackerStats.detachedHostMoves += 1 }
+            if spell.windowBounds != Self.windowServerBounds(spell.window) { CEFHostView.trackerStats.detachedWindowMoves += 1 }
+            detachedSpell = nil
+        }
+        if on, let window = pageWindowNumber() {
+            detachedSpell = (window, hostScreenRect(), Self.windowServerBounds(window))
+        }
+        #endif
+        forkCalls += 1
+        guard call(browser, on) else { return false }
+        isDetached = on
+        if on { CEFHostView.trackerStats.detaches += 1 } else { CEFHostView.trackerStats.attaches += 1 }
+        return true
+    }
+
+    #if DEBUG
+    private var detachedSpell: (window: Int, host: CGRect?, windowBounds: NSDictionary?)?
+
+    private func hostScreenRect() -> CGRect? {
+        guard let view, let window = view.window else { return nil }
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
+    }
+
+    private func pageWindowNumber() -> Int? {
+        guard let rect = hostScreenRect(), let owner = view?.window else { return nil }
+        return owner.childWindows?.first { !($0 is NSPanel) && CEFTab.frame($0.frame, isPlacedAt: rect) }?.windowNumber
+    }
+
+    private static func windowServerBounds(_ number: Int) -> NSDictionary? {
+        let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]]
+        return list?.first?[kCGWindowBounds as String] as? NSDictionary
+    }
+    #endif
+
     /// The view goes away (DevTools closed) or its page window closed: turns
     /// hosting off for the browser and drops the hosted view.
     func stop() {
@@ -327,6 +384,8 @@ final class CEFLayerHosting {
     }
 
     private func dropPage() {
+        // The fork ends detached hosting when hosting goes off or the page window goes.
+        isDetached = false
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil

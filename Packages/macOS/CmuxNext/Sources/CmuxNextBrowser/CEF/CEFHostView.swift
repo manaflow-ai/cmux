@@ -524,6 +524,13 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// the pane (the page's, a docked DevTools') holds every app frame of the drag and its landing for its frame at
     /// the new size, up to a bounded deadline (`CEFLayerHosting.paneResizeDrag`).
     func paneResizeGestureDidChange(active: Bool) {
+        #if DEBUG
+        // NEVER MERGE probe (STATUS 14261 slice 1): the drag detaches the shown page and attaches it at the landing.
+        if ProcessInfo.processInfo.environment["CMUX_PROBE_DETACH_IN_DRAG"] == "1", let tab, tab.host.hostView.superview === self {
+            tab.host.hostView.layerHosting.setDetached(active)
+            if !active { tab.host.hostView.postGeometryChange() }
+        }
+        #endif
         guard active else {
             endSyncedDrag()
             // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
