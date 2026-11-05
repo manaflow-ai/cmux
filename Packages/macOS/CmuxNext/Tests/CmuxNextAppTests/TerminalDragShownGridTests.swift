@@ -34,8 +34,14 @@ struct TerminalDragShownGridTests {
         // not the new ask, which no commit has shown yet).
         func record() {
             for (index, session) in screen.sessions.enumerated() {
-                let sample = Rig.GridSample(session)
-                if sample.showsItsOwnFrame, let fits = sample.fits { shown[index].insert(Rig.text(fits)) }
+                // A size shows when the committed layer and the frame it presents have one pixel size; the next size may
+                // already be asked (a drag asks one per frame), so a size in flight does not hide the one shown.
+                let sample = Rig.GridSample(session), view = session.surfaceView
+                if let layer = view.layer, let frame = view.presentedFrame, let fits = sample.fits,
+                   Int((layer.bounds.width * layer.contentsScale).rounded()) == frame.width,
+                   Int((layer.bounds.height * layer.contentsScale).rounded()) == frame.height {
+                    shown[index].insert(Rig.text(fits))
+                }
                 let resizes = screen.ios[index].resizes
                 for grid in resizes.dropFirst(seen[index]).map({ "\($0.columns)x\($0.rows)" }) where !shown[index].contains(grid) {
                     unseen.append("p\(index + 1): \(grid) before any commit showed it (shown: \(shown[index].sorted().prefix(6)))")
