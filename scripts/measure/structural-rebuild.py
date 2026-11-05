@@ -83,17 +83,19 @@ def end_group(proc):
 
 
 def end_group_now(proc):
+    # ESRCH: the group is empty. macOS answers EPERM once every member left is a zombie (scripts/ci/
+    # run-with-helper-prebuild.py, ci_process_tree.py), so EPERM on the group we created is "gone" too.
     def group_alive():
         proc.poll()                    # reaps reload.sh, whose zombie would keep the group alive
         try:
             os.killpg(proc.pid, 0)
             return True
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             return False
     for sig, grace in ((signal.SIGTERM, GROUP_GRACE_S), (signal.SIGKILL, 10)):
         try:
             os.killpg(proc.pid, sig)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             return
         deadline = time.monotonic() + grace
         # No exit event exists for a process group's last member: its members are checked every 0.2 s, at most grace s.

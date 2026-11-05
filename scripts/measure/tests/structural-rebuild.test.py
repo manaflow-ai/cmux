@@ -110,4 +110,15 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
         raise AssertionError(f"the reload's child {child}, which ignores SIGTERM, outlived the run")
     except ProcessLookupError:
         pass
+# macOS answers killpg with EPERM once the group holds only zombies: the cleanup takes that as gone, not an error
+# that would cut it short and replace the stop that started it.
+class Gone:
+    pid = 4242
+    def poll(self):
+        return 0
+real_killpg, sr.os.killpg = sr.os.killpg, lambda pgid, sig: (_ for _ in ()).throw(PermissionError(1, "EPERM"))
+try:
+    sr.end_group(Gone())
+finally:
+    sr.os.killpg = real_killpg
 print("structural-rebuild.test.py: ok")
