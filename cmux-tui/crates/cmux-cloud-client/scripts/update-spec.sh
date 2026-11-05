@@ -21,5 +21,6 @@ cargo run --locked --quiet \
   --selected-out "$crate/openapi.json" \
   --out "$crate/src/generated.rs" \
   --label "cmux-platform openapi.json at $sha" \
-  --script "cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh"
+  --script "cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh" \
+  --panicking-new omit
 "$crate/scripts/regenerate.sh"

@@ -4,7 +4,8 @@
 //!
 //!   cmux-vm-codegen --spec <openapi.json> --out <generated.rs> \
 //!     [--raw-out <generated_raw.rs>] --label <text> \
-//!     [--tags <file> [--selected-out <openapi.json>]] [--script <regenerate script>]
+//!     [--tags <file> [--selected-out <openapi.json>]] [--script <regenerate script>] \
+//!     [--panicking-new omit]
 //!
 //! `--out` gets the typed client. `--raw-out` gets the same client with every
 //! success body returned as raw bytes, for callers (the CLI's `--json`) that
@@ -14,7 +15,10 @@
 //! reach (`cmux-cloud-client` keeps the Cloud groups of cmux-platform's spec).
 //! `--selected-out` writes that selection, before normalization, as the
 //! document a client vendors. `--script` is the regenerate script the
-//! generated header points at.
+//! generated header points at. `--panicking-new omit` leaves out progenitor's
+//! `Client::new(baseurl)`, which unwraps `reqwest::ClientBuilder::build()`: a
+//! client crate whose callers build it with `Client::new_with_client` (as
+//! `cmux-cloud-client`'s `client_for` does) then carries no panic path.
 
 mod normalize;
 mod select;
@@ -30,6 +34,7 @@ struct Args {
     tags: Option<PathBuf>,
     selected_out: Option<PathBuf>,
     script: String,
+    omit_panicking_new: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -40,6 +45,7 @@ fn parse_args() -> Result<Args, String> {
     let mut tags = None;
     let mut script = None;
     let mut selected_out = None;
+    let mut omit_panicking_new = false;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
@@ -51,6 +57,8 @@ fn parse_args() -> Result<Args, String> {
             "--tags" => tags = Some(PathBuf::from(value)),
             "--script" => script = Some(value),
             "--selected-out" => selected_out = Some(PathBuf::from(value)),
+            "--panicking-new" if value == "omit" => omit_panicking_new = true,
+            "--panicking-new" => return Err(format!("--panicking-new {value}: only `omit`")),
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -62,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
         tags,
         selected_out,
         script: script.unwrap_or_else(|| "workers/cmux-vm/cli/scripts/regenerate.sh".to_owned()),
+        omit_panicking_new,
     })
 }
 
@@ -116,8 +125,13 @@ fn emit(doc: serde_json::Value, out: &std::path::Path, args: &Args) -> Result<()
     let tokens = generator
         .generate_tokens(&spec)
         .map_err(|e| format!("progenitor: {e}"))?;
-    let file: syn::File =
+    let mut file: syn::File =
         syn::parse2(tokens).map_err(|e| format!("generated code does not parse: {e}"))?;
+    if args.omit_panicking_new && !omit_client_new(&mut file) {
+        return Err(
+            "--panicking-new omit: the generated code has no `impl Client { fn new }`".into(),
+        );
+    }
     let body = prettyplease::unparse(&file);
 
     let header = format!(
@@ -138,6 +152,27 @@ fn emit(doc: serde_json::Value, out: &std::path::Path, args: &Args) -> Result<()
         return Err(format!("rustfmt failed on {}", out.display()));
     }
     Ok(())
+}
+
+/// Removes `fn new` from the generated `impl Client` (not a trait impl); false when there is none.
+fn omit_client_new(file: &mut syn::File) -> bool {
+    let mut removed = false;
+    for item in &mut file.items {
+        let syn::Item::Impl(block) = item else {
+            continue;
+        };
+        let is_client = block.trait_.is_none()
+            && matches!(&*block.self_ty, syn::Type::Path(p) if p.qself.is_none() && p.path.is_ident("Client"));
+        if !is_client {
+            continue;
+        }
+        block.items.retain(|member| {
+            let is_new = matches!(member, syn::ImplItem::Fn(f) if f.sig.ident == "new");
+            removed |= is_new;
+            !is_new
+        });
+    }
+    removed
 }
 
 fn main() -> ExitCode {

@@ -10020,21 +10020,6 @@ pub struct Client {
     pub(crate) client: reqwest::Client,
 }
 impl Client {
-    /// Create a new client.
-    ///
-    /// `baseurl` is the base URL provided to the internal
-    /// `reqwest::Client`, and should include a scheme and hostname,
-    /// as well as port and a path stem if applicable.
-    pub fn new(baseurl: &str) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let client = {
-            let dur = ::std::time::Duration::from_secs(15u64);
-            reqwest::ClientBuilder::new().connect_timeout(dur).timeout(dur)
-        };
-        #[cfg(target_arch = "wasm32")]
-        let client = reqwest::ClientBuilder::new();
-        Self::new_with_client(baseurl, client.build().unwrap())
-    }
     /// Construct a new client with an existing `reqwest::Client`,
     /// allowing more control over its configuration.
     ///

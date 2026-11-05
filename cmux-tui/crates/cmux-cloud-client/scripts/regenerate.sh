@@ -12,4 +12,5 @@ cargo run --locked --quiet \
   --tags "$crate/tags.txt" \
   --out "$crate/src/generated.rs" \
   --label "cmux-platform openapi.json at $(cat "$crate/PLATFORM_REF")" \
-  --script "cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh"
+  --script "cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh" \
+  --panicking-new omit
