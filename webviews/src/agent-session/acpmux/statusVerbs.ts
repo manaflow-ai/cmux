@@ -125,5 +125,9 @@ export function statusVerbLabels(
     (language !== "en" && !Object.values(VERB_KEYS).every((key) => table?.[key]?.trim()))
   )
     return [t("thinking")];
-  return DEFAULT_STATUS_VERBS.map((word) => t(VERB_KEYS[word]));
+  // The verb catalog entries are optional until the native catalog carries them. Keep the
+  // shipped English defaults readable in the meantime, while using a translated value whenever
+  // one is present in a loaded table. Reading the table directly also keeps this fallback
+  // independent of the generated StringKey union.
+  return DEFAULT_STATUS_VERBS.map((word) => table?.[VERB_KEYS[word]]?.trim() || word);
 }
