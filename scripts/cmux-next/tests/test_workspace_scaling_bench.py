@@ -51,6 +51,17 @@ class WorkspaceScalingTests(unittest.TestCase):
         self.assertEqual(switch["status"], "undefined")
         self.assertIsNone(switch["p95"])
 
+    def test_empty_report_replay_is_incomplete(self):
+        failures = bench.coverage_failures(bench.collect({1: {}, 100: {}, 1000: {}}))
+        self.assertEqual([failure["workspaces"] for failure in failures], [1, 100, 1000])
+        self.assertIn("new_workspace", failures[0]["missing"])
+
+    def test_one_workspace_sidebar_is_undefined_without_probe_rows(self):
+        rows = bench.collect({1: {"instant": {}, "typing": {}, "sidebar": {}}})
+        sidebar = {row["interaction"]: row for row in rows if row["workspaces"] == 1}
+        self.assertEqual(sidebar["sidebar_scroll"]["status"], "undefined")
+        self.assertEqual(sidebar["switch"]["status"], "undefined")
+
 
 if __name__ == "__main__":
     unittest.main()
