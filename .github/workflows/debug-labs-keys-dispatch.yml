@@ -3,7 +3,8 @@ name: Debug and Labs keys report dispatcher
 # Leo, 2026-11-05, on the ranked list whose move 10 is "Flip or delete Debug/Labs flags after 7 days":
 # "i meant can you do all of htem". feat-cmux-next's debug-labs-keys-report.yml lists every Debug
 # Settings and Labs key in cmux NEXT older than a week with its owner and case, as one issue. It lives
-# only on feat-cmux-next, and scheduled workflows run only from the default branch, so once a day this
+# on feat-cmux-next (main keeps an inert registration of it, which GitHub needs to dispatch it), and
+# scheduled workflows run only from the default branch, so once a day this
 # file on main starts it there, unless a run is already pending. Report only.
 on:
   schedule:
