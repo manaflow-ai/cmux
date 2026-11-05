@@ -346,6 +346,7 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
     ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
     ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,

@@ -13,8 +13,7 @@ base, a head the branch has moved past, a cut history, or a previous run that
 was cancelled, held or never ran.
 
 None of the skipped jobs can fail a pull request, so a skipped one hides no
-verdict; the body job (pr-capture-check, which can) never skips on a base-only
-update.
+verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
 
 The step runs here as the workflow runs it, against a local origin, with `gh`
 replaced by a stub that answers the previous head's run.
@@ -272,7 +271,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"portable-placement", "base-only", "body", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
+        self.assertEqual(set(JOBS), {"portable-placement", "base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
@@ -291,12 +290,6 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertNotIn("base_only", str(job["if"]))
             self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
             self.assertNotIn("continue-on-error", job)
-
-    def test_the_description_lints_never_skip_on_a_base_only_update(self):
-        # The body job holds pr-capture-check, which can fail a pull request: it never waits on base-only.
-        job = JOBS["body"]
-        self.assertNotIn("needs", job)
-        self.assertNotIn("base_only", str(job["if"]))
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
         title = WORKFLOW["run-name"]
@@ -328,8 +321,6 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(names["size"], "PR size")
         self.assertEqual(names["split"], "split-plan advisory")
         self.assertEqual(names["ui-review"], "UI review advisory")
-        # cmuxterm-hq's next_autoland and base_red_watch read a job named pr-capture-check as the PR's own red.
-        self.assertTrue(names["body"].startswith("pr-capture-check"), names["body"])
 
 
 if __name__ == "__main__":

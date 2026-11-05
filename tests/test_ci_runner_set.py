@@ -27,7 +27,8 @@ TARGETS = {
     # the capability map's fixed 4 vCPU label).
     "gallery-health.yml": {"health"},
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
-    "pr-checks.yml": {"base-only", "size", "ui-review", "split", "body"},
+    "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
+    "pr-body-checks.yml": {"body"},
 }
 
 

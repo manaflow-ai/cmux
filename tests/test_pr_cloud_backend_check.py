@@ -75,7 +75,7 @@ class Check(unittest.TestCase):
             self.assertTrue(any(check.under(b, s) for b in backend), f"stays path {s} is under no backend path")
 
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
-        wf = (ROOT / ".github" / "workflows" / "pr-checks.yml").read_text()
+        wf = (ROOT / ".github" / "workflows" / "pr-body-checks.yml").read_text()
         step = next(s for s in yaml.safe_load(wf)["jobs"]["body"]["steps"]
                     if s.get("name") == "Check where the cloud backend change belongs")
         self.assertIs(step.get("continue-on-error"), True)
