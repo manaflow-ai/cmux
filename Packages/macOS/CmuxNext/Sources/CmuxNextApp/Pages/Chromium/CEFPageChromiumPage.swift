@@ -47,8 +47,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             }
             tab.pageResources = { url, range in
                 let answer = await resources(url, range)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders,
-                                       csp: answer.csp)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders)
             }
         }
     }

@@ -313,25 +313,6 @@ fn server_pairing_real_socket_accepts_only_the_pushed_paired_result() {
 }
 
 #[test]
-fn server_pairing_real_socket_hears_an_invite_void_tombstone_as_a_refusal() {
-    // The backend keeps an aborted invite code as a tombstone: a box that opens its wait late
-    // gets the refusal with its reason (then 4403), never the 404 that reads as expiry.
-    let refused = serde_json::json!({"t":"refused","reason":"invite_voided"});
-    assert_eq!(
-        socket_wait(
-            vec![
-                Message::Text(refused.to_string().into()),
-                Message::Close(Some(CloseFrame { code: 4403.into(), reason: "refused".into() }))
-            ],
-            false,
-            Duration::from_secs(2)
-        )
-        .unwrap(),
-        Waited::Refused
-    );
-}
-
-#[test]
 fn server_pairing_real_socket_waits_for_its_deadline_and_refuses_oversized_frames() {
     let pending = serde_json::json!({"t":"pending","expires_at":crate::host::now_ms()+600_000});
     let start = std::time::Instant::now();

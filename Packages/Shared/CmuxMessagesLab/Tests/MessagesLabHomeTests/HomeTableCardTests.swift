@@ -212,25 +212,6 @@ import UniformTypeIdentifiers
         #expect(early?.version != card.version)
     }
 
-    /// The user, 2026-11-04, msg 21749 ("we need to improve before/after thing"): the Chief's before and after
-    /// table showed "[before] [after]" in the real app. HomeMedia hands out a picture as its `file:` URL string
-    /// (`HomeMedia.asset`, the form MessagesLab's bubbles read), not a bare path; the card must still find it.
-    @Test func anAttachmentPictureAsHomeMediaGivesItDrawsInItsCell() throws {
-        let before = try Self.picture("table-before-\(UUID().uuidString).png", width: 800, height: 500)
-        let after = try Self.picture("table-after-\(UUID().uuidString).png", width: 800, height: 500)
-        let text = """
-        | Before | After |
-        |---|---|
-        | ![before](cmux-attachment:h1) | ![after](cmux-attachment:h2) |
-        """
-        let assets = ["h1": URL(fileURLWithPath: before).absoluteString, "h2": URL(fileURLWithPath: after).absoluteString]
-        let parts = HomeMapping.parts(.text(text), media: { assets[$0] }, markdown: true)
-        let card = try #require(parts.compactMap { part -> CustomPart? in if case .custom(let c) = part { return c } else { return nil } }.first)
-        let grid = HomeTableGrid(try #require(HomeTableRowProvider.payload(card)).table, available: 700)
-        #expect(grid.pictures[1][0].count == 1 && grid.pictures[1][1].count == 1)
-        #expect(grid.cells[1][0].string.isEmpty && grid.cells[1][1].string.isEmpty)
-    }
-
     @Test func columnsKeepTheirNaturalWidthsWhenTheyFit() {
         #expect(HomeTableColumns.widths(natural: [60, 200, 90], available: 600) == [60, 200, 90])
     }

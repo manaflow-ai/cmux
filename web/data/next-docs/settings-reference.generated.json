@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 578,
+  "count": 574,
   "sections": [
     {
       "id": "general",
@@ -1053,22 +1053,6 @@
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
-        },
-        {
-          "key": "remote.enabled",
-          "title": "Use cmux Remote",
-          "help": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
-        },
-        {
-          "key": "remote.endSharingOnQuit",
-          "title": "End Sharing When cmux Quits",
-          "help": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
         },
         {
           "key": "screenshots.findTools",
@@ -6142,14 +6126,6 @@
           "group": "Cloud Workspaces"
         },
         {
-          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
-          "title": "Use My Codex Login on My Own Cloud Machines",
-          "help": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
-        },
-        {
           "key": "phone.allowConnections",
           "title": "Let Your Phone Use This Mac",
           "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -6212,14 +6188,6 @@
           "key": "labs.classicHome",
           "title": "Classic Home",
           "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
-        {
-          "key": "labs.liveCode",
-          "title": "Live Code",
-          "help": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

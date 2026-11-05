@@ -661,26 +661,6 @@ const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
   ),
 );
 
-/// One long paragraph, as dictation or a chat message gives it: about 1,100 words on a single line.
-const PARAGRAPH = Array.from(
-  { length: 40 },
-  (_, index) =>
-    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
-).join(" ");
-
-/// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
-async function pasteParagraph(ctx: PlayContext, card: string) {
-  const view = ctx.document.defaultView!;
-  const data = new view.DataTransfer();
-  data.setData("text/plain", PARAGRAPH);
-  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(paste, "clipboardData", { value: data });
-  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-  await ctx.waitFor(() => ctx.document.querySelector(card));
-  if (/\b1 line\b/.test(ctx.find({ selector: card }).querySelector(".acpmux-text-card__label")?.textContent ?? ""))
-    throw new Error("a one-paragraph paste must say its size, never 1 line");
-}
-
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -1038,7 +1018,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines and its characters) over the typed prompt, × on hover.",
+      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1082,24 +1062,6 @@ export default agentPaneEntry({
           throw new Error("the inline paste card must show the paste's first lines");
         if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
-      },
-    },
-    // Leo (2026-11-05): "it says pasted text one line, but there's a lot more than this ... you're
-    // previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One
-    // long dictated paragraph: the card wraps it in the composer's font and says its size.
-    "text-pasted-paragraph": {
-      note: "One 1,100-word paragraph pasted in the inline view: the card wraps its first lines in the composer's font, faded, over Pasted text · 5.4K characters (never 1 line).",
-      ready: { draft: "Can you tighten this up? " },
-      snapshot: chat(finished),
-      play: (ctx) => pasteParagraph(ctx, '.acpmux-md-inline-chip[data-preview="text"]'),
-    },
-    "text-pasted-paragraph-strip": {
-      note: "The same paragraph in the strip view: a wider card, three wrapped lines over its size.",
-      ready: { draft: "Can you tighten this up?" },
-      snapshot: chat(finished),
-      play: async (ctx) => {
-        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
-        await pasteParagraph(ctx, ".acpmux-attachment-pasted");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating

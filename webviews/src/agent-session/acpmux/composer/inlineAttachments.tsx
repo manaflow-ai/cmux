@@ -13,13 +13,13 @@ import {
 } from "../attachments";
 import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
-import { pasteName } from "../conversation/promptCollapse";
+import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -354,7 +354,8 @@ const InlineChip = memo(function InlineChip({
   // in the prompt at its place.
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
-    const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
+    const lines = pasteLines(text);
+    const label = `${t("composer.pastedText")} · ${t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
     return (
       <span
         className="acpmux-md-inline-chip acpmux-text-card"
@@ -370,7 +371,7 @@ const InlineChip = memo(function InlineChip({
           aria-label={`${attachment.name || pasteName(text)}, ${label}`}
           onClick={() => onExpand(id)}
         >
-          <TextAttachmentCard text={text} label={label} wrap />
+          <TextAttachmentCard text={text} label={label} />
         </button>
         {remove}
       </span>

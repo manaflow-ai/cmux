@@ -77,10 +77,7 @@ import Testing
         let size = SidebarStyle.controlSize
         #expect(close.frame.width == size && close.frame.height == size, "close \(close.frame.size)")
         #expect(abs(close.frame.midY - row.title.frame.midY) < 1, "close centered on the title's line: \(close.frame.midY) vs \(row.title.frame.midY)")
-        // The close centers on the trailing column, `trailingCenterInset` inside the fill since #34872 (Leo
-        // 2026-11-04: "too much of a gutter on the right"), so it ends 5 pt (comfortable) / 4 pt (compact) in.
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
-        #expect(abs(close.frame.midX - column) <= 0.5, "close centered at \(close.frame.midX), trailing column \(column)")
-        #expect(close.frame.maxX <= row.bounds.width, "close ends \(row.bounds.width - close.frame.maxX) pt in, inside the fill")
+        #expect(close.frame.maxX <= row.bounds.width - SidebarStyle.horizontalInset + 0.5,
+                "close ends \(row.bounds.width - close.frame.maxX) pt in, inside the row's inset")
     }
 }

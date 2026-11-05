@@ -1,0 +1,152 @@
+/* The Updated card's doodle (UpdateDoodle.tsx): a marker's ink over the card. Every piece has its
+   size from the first frame, so the card's height is the same before, while and after it draws.
+   The ink is a marker blue, lighter on a dark theme, as a felt pen reads on paper and on a slate. */
+.wn-doodle {
+  --wn-doodle-ink: #2a66d4;
+  display: contents;
+}
+/* The words a few points over the card's title size, at the sidebar's density (--wn-title). */
+.wn-card[data-decoration="doodle"] {
+  --wn-doodle-face: "cmux-doodle", "Bradley Hand", "Marker Felt", cursive;
+  --wn-doodle-size: calc(var(--wn-title) + 5px);
+  --wn-doodle-line: calc(var(--wn-doodle-size) * 1.05);
+}
+.wn-doodle[data-scheme="dark"] {
+  --wn-doodle-ink: #7fb2ff;
+}
+.wn-doodle-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.wn-doodle-words {
+  display: inline-block;
+  font-family: var(--wn-doodle-face);
+  font-size: var(--wn-doodle-size);
+  font-weight: 600;
+  line-height: var(--wn-doodle-line);
+  letter-spacing: 0;
+  color: var(--wn-doodle-ink);
+  white-space: nowrap;
+}
+.wn-doodle-stroke {
+  fill: none;
+  stroke: var(--wn-doodle-ink);
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.92;
+}
+
+/* "you're on nightly 3845050!" and its check: one line over the title, clear of the host's x. */
+.wn-doodle-headline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--wn-doodle-line);
+  padding-right: calc(var(--wn-close) + var(--wn-gap));
+  overflow: hidden;
+  transform: rotate(-1.2deg);
+  transform-origin: left center;
+}
+.wn-doodle-headline .wn-doodle-words {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wn-doodle-check {
+  flex: none;
+  /* The check's own box, a little under the words' x-height line. */
+  --wn-doodle-check-height: 12px;
+  width: 16px;
+  height: var(--wn-doodle-check-height);
+  overflow: visible;
+}
+
+/* The action row: What's New circled, the arrow, "have a look" over "got it". */
+.wn-doodle-actions {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+  padding-left: 8px;
+}
+.wn-doodle-circled {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.wn-doodle-loop {
+  position: absolute;
+  inset: -4px -8px;
+  overflow: visible;
+  pointer-events: none;
+}
+.wn-doodle-arrow {
+  flex: none;
+  width: 32px;
+  height: 24px;
+  margin-left: 4px;
+  overflow: visible;
+}
+.wn-doodle-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  transform: rotate(-2deg);
+}
+.wn-doodle-got-it {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  cursor: default;
+  opacity: 0.78;
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.wn-doodle-got-it:hover {
+  opacity: 1;
+}
+
+/* Drawing on: each stroke's dash runs from its whole length to none, each word wipes in from the start
+   of its line, in sequence (`--wn-doodle-at`). Before it draws (the page not shown yet, the face still
+   loading) the ink holds its room unseen. */
+.wn-doodle[data-phase="waiting"] :is(.wn-doodle-stroke, .wn-doodle-words) {
+  visibility: hidden;
+}
+.wn-doodle[data-phase="drawing"] .wn-doodle-stroke {
+  stroke-dasharray: 1;
+  animation: wn-doodle-draw var(--cmux-motion-large) var(--cmux-ease-out) var(--wn-doodle-at, 0ms) backwards;
+}
+.wn-doodle[data-phase="drawing"] .wn-doodle-words {
+  animation: wn-doodle-write var(--cmux-motion-large) var(--cmux-ease-out) var(--wn-doodle-at, 0ms) backwards;
+}
+@keyframes wn-doodle-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes wn-doodle-write {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+/* Reduce Motion: the doodle is simply there. (`data-cmux-motion="off"`: the theme's bootstrap already
+   ends every animation at once.) */
+html[data-cmux-motion="reduced"] .wn-doodle :is(.wn-doodle-stroke, .wn-doodle-words) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-doodle :is(.wn-doodle-stroke, .wn-doodle-words) {
+    animation: none;
+  }
+}

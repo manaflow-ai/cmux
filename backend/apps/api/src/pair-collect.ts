@@ -66,13 +66,8 @@ export const collectSecretValid = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRI
 const watchMac = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string, nonce: string) =>
   hmacHex(await collectKey(env as Env), `cmux-pair-invite-watch\n${invite}\n${nonce}`)
 
-/**
- * The watch secret for one person's one request key: its nonce is derived from (user, key) with the
- * same key, so a replay of that request answers the same secret without the secret being stored.
- */
-export const watchSecret = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string, user: string, keyHash: string): Promise<string> => {
-  const seed = await hmacHex(await collectKey(env as Env), `cmux-pair-invite-nonce\n${user}\n${keyHash}`)
-  const nonce = b64u(Uint8Array.from(seed.slice(0, 32).match(/../g)!, (h) => parseInt(h, 16)))
+export const watchSecret = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string): Promise<string> => {
+  const nonce = b64u(crypto.getRandomValues(new Uint8Array(16)))
   return `${nonce}.${await watchMac(env, invite, nonce)}`
 }
 

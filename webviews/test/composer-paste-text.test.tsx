@@ -235,37 +235,15 @@ test("a paste over 750 words is a Pasted text chip; the prompt keeps what was ty
   expect(chip.querySelector(".acpmux-text-card__lines")!.textContent!.split("\n")[0]).toContain(
     "line 1 of the build log",
   );
-  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines · 3.3K characters");
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines");
   // The strip view draws the same chip in the strip, its first words and its line count.
   await showAttachments("strip");
   const strip = host.querySelector(".acpmux-attachment-pasted")!;
   expect(strip).not.toBeNull();
   expect(strip.textContent).toContain("line 1 of the build log");
   expect(strip.textContent).toContain("130 lines");
-  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe(
-    "Pasted text · 130 lines · 3.3K characters",
-  );
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines");
   expect(words()).toBe("why does this fail?");
-});
-
-// Leo, 2026-11-05: "it says pasted text one line, but there's a lot more than this ... you're
-// previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One long
-// paragraph (a dictated message) has one line: its label says its size in characters, never
-// "1 line", and its card wraps the paragraph so the preview holds far more than five words.
-test("a one-paragraph paste says its size, not 1 line, and its card wraps the paragraph", async () => {
-  const composer = await openComposer();
-  const paragraph = Array.from({ length: 800 }, (_, index) => `word${index}`).join(" ");
-  await paste(paragraph);
-  expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
-  const chip = field().querySelector("[data-inline-attachment] .acpmux-md-inline-chip")!;
-  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 6.3K characters");
-  const lines = chip.querySelector<HTMLElement>(".acpmux-text-card__lines")!;
-  expect(lines.hasAttribute("data-wrap")).toBe(true);
-  expect(lines.textContent!.split(" ").length).toBeGreaterThan(40);
-  await showAttachments("strip");
-  const strip = host.querySelector(".acpmux-attachment-pasted")!;
-  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 6.3K characters");
-  expect(strip.querySelector(".acpmux-text-card__lines")!.hasAttribute("data-wrap")).toBe(true);
 });
 
 test("a paste over 10,000 characters with few words is a chip too", async () => {

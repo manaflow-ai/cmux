@@ -26,8 +26,7 @@ enum HomeMapping {
         return key.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
     }
 
-    /// A hash's bubble picture (`HomeMedia.asset`), or a table picture source's thumbnail
-    /// (`HomeTablePictures.asset`: a local path, `file:` or `https` URL), nil until it is ready.
+    /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
     typealias Media = (String) -> String?
 
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
@@ -245,9 +244,8 @@ enum HomeMapping {
     /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
     /// is installed: the text then maps as it always did, tables as written in the bubble.
     /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
-    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads,
-    /// `media(hash)`); a local path, `file:` or `https` URL is its thumbnail (`media(source)`,
-    /// ``HomeTablePictures``); any other source, or one without a file yet, shows its alt text.
+    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads), a
+    /// file in Home's media folder is itself; any other source has no file (its alt text shows).
     static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
         guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
@@ -286,18 +284,13 @@ enum HomeMapping {
         guard !sources.isEmpty else { return nil }
         var out: [String: String] = [:]
         for source in sources {
-            let key = source.hasPrefix(tableAttachmentScheme) ? String(source.dropFirst(tableAttachmentScheme.count)) : source
-            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key) else { continue }
-            out.updateValue(localPath(asset), forKey: source)
+            if source.hasPrefix(tableAttachmentScheme) {
+                if let path = media(String(source.dropFirst(tableAttachmentScheme.count))) { out.updateValue(path, forKey: source) }
+            } else if let url = source.hasPrefix("/") ? URL(fileURLWithPath: source) : URL(string: source), url.isFileURL {
+                out.updateValue(url.path, forKey: source)
+            }
         }
         return out
-    }
-
-    /// A picture asset as a path: ``HomeMedia`` hands out `file:` URL strings (MessagesLab's bubbles read
-    /// that form), the table card reads paths; a bare path stays as it is.
-    static func localPath(_ asset: String) -> String {
-        guard asset.hasPrefix("file:"), let url = URL(string: asset), url.isFileURL else { return asset }
-        return url.path
     }
 
     /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).

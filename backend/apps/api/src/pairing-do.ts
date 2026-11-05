@@ -1,7 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
-import { InviteOwner, ownerSchema, type OwnerBegin } from "./pair-invite-owner.ts"
 import { InviteStore, inviteSchema, type InviteArrival, type InvitePeek, type InviteRedeem, type InviteVoidReason } from "./pair-invite-store.ts"
 import { networkLocator, networkMatchesPairing, sameApproval, type PairingApproval, type ServerNetworkEnrollment } from "./server-pair-network.ts"
 
@@ -50,11 +49,7 @@ type Row = {
   invite: string | null
   invited_by: string | null
   invited_team: string | null
-  refused: string | null
 }
-
-/** What a box waiting on a code whose invite was voided hears. */
-const INVITE_VOIDED_REFUSAL = { t: "refused", reason: "invite_voided" } as const
 
 const equal = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false
@@ -80,20 +75,16 @@ export class PairingDO extends DurableObject<Env> {
     )
     // Additive, private state on old PairingDOs. No secret enters an owner ledger or projection.
     const columns = new Set(ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(pairing)").toArray().map((c) => c.name))
-    for (const column of ["approval", "network_enrollment", "invite", "invited_by", "invited_team", "refused"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
+    for (const column of ["approval", "network_enrollment", "invite", "invited_by", "invited_team"]) if (!columns.has(column)) ctx.storage.sql.exec(`ALTER TABLE pairing ADD COLUMN ${column} TEXT`)
     inviteSchema(ctx.storage.sql)
-    ownerSchema(ctx.storage.sql)
     this.invites = new InviteStore(ctx)
-    this.owner = new InviteOwner(ctx, env)
   }
 
   private readonly invites: InviteStore
-  private readonly owner: InviteOwner
 
-  /** The live pairing. A refused code (an invite void's tombstone) is left out unless asked for. */
-  private row(now: number, withRefused = false): Row | undefined {
+  private row(now: number): Row | undefined {
     const r = this.ctx.storage.sql.exec<Row>(`SELECT * FROM pairing WHERE id = 1`).toArray()[0]
-    return r && r.expires_at > now && (withRefused || r.refused === null) ? r : undefined
+    return r && r.expires_at > now ? r : undefined
   }
 
   private record(r: Row): PairingRecord {
@@ -105,7 +96,7 @@ export class PairingDO extends DurableObject<Env> {
 
   /** Creates the pending pairing. Refuses when this code is already in use (the Worker picks another code). */
   async begin(input: Omit<PairingRecord, "expires_at" | "invite" | "invited_by" | "invited_team"> & { collect_hash: string; now: number; invite?: PairingInvite }): Promise<{ ok: true; expires_at: number } | { ok: false; reason: "in_use" }> {
-    if (this.row(input.now, true)) return { ok: false, reason: "in_use" }
+    if (this.row(input.now)) return { ok: false, reason: "in_use" }
     const expires = input.now + PAIRING_TTL_MS
     this.ctx.storage.sql.exec(`DELETE FROM pairing`)
     this.ctx.storage.sql.exec(
@@ -138,20 +129,18 @@ export class PairingDO extends DurableObject<Env> {
   }
 
   /**
-   * The invite this record came from was voided (or this begin lost the redemption): spend the
-   * code and tell the waiting box. The row stays as a tombstone until the code's alarm, so a box
-   * that opens its wait later hears `refused` with the reason instead of a 404 that reads as
-   * expiry. A record the inviter already claimed is left to finish: the inviter has compared the
-   * words, and stopping between install and host would strand a write.
+   * The invite this record came from was voided (or this begin lost the redemption): forget the
+   * code and tell the waiting box. A record the inviter already claimed is left to finish: the
+   * inviter has compared the words, and stopping between install and host would strand a write.
    */
   async inviteAbort(code: string, invite: string, now: number): Promise<{ ok: boolean }> {
     const r = this.row(now)
     if (!r || r.code !== code || r.invite !== invite || r.approver !== null || r.result !== null) return { ok: false }
     for (const ws of this.ctx.getWebSockets()) {
-      ws.send(JSON.stringify(INVITE_VOIDED_REFUSAL))
+      ws.send(JSON.stringify({ t: "refused" }))
       ws.close(4403, "refused")
     }
-    this.ctx.storage.sql.exec(`UPDATE pairing SET refused = 'invite_voided' WHERE id = 1`)
+    this.ctx.storage.sql.exec(`DELETE FROM pairing`)
     return { ok: true }
   }
 
@@ -159,18 +148,8 @@ export class PairingDO extends DurableObject<Env> {
   async inviteMint(input: { invite: string; approver: string; team: string; inviter: string | null; watch_hash: string; now: number }) {
     return this.invites.mint(input)
   }
-  async inviteMinted(invite: string): Promise<{ expires_at: number } | null> {
-    return this.invites.minted(invite, Date.now())
-  }
-  // The owner instance (`invite-user:<user>`): pair-invite-owner.ts.
-  async inviteOwnerBegin(key: string, invite: string, team: string, now: number): Promise<OwnerBegin> {
-    return this.owner.begin(key, invite, team, now)
-  }
-  async inviteOwnerForget(key: string, invite: string): Promise<void> {
-    return this.owner.forget(key, invite)
-  }
-  async inviteOwnerCommit(key: string, invite: string, expiresAt: number, now: number, opts: { skipVoid?: boolean } = {}): Promise<{ ok: boolean }> {
-    return this.owner.commit(key, invite, expiresAt, now, opts)
+  async inviteReplaceOwned(invite: string, liveUntil: number, now: number): Promise<{ previous: string | null }> {
+    return this.invites.replaceOwned(invite, liveUntil, now)
   }
   async invitePeek(invite: string, now: number): Promise<InvitePeek> {
     return this.invites.peek(invite, now)
@@ -285,16 +264,9 @@ export class PairingDO extends DurableObject<Env> {
   /** `GET /v1/pair/wait` (WebSocket). The Worker passes the SHA-256 of the presented collect secret. */
   override async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/v1/pair/invite/wait") return this.invites.watch(request)
-    const r = this.row(Date.now(), true)
+    const r = this.row(Date.now())
     const presented = request.headers.get("x-cmux-collect-hash") ?? ""
     if (!r || !equal(r.collect_hash, presented)) return new Response("not found", { status: 404 })
-    if (r.refused !== null) {
-      const pair = new WebSocketPair()
-      this.ctx.acceptWebSocket(pair[1])
-      pair[1].send(JSON.stringify({ t: "refused", reason: r.refused }))
-      pair[1].close(4403, "refused")
-      return new Response(null, { status: 101, webSocket: pair[0], headers: { "Sec-WebSocket-Protocol": "cmux.pair.v1" } })
-    }
     const frame = r.result !== null ? this.pairedFrame(r, JSON.parse(r.result)) : null
     if (r.result !== null && frame === null) return new Response("not found", { status: 404 })
     const pair = new WebSocketPair()
@@ -314,8 +286,6 @@ export class PairingDO extends DurableObject<Env> {
 
   /** One-shot expiry: forget the code and tell a waiting server. */
   override async alarm(): Promise<void> {
-    // A person's invites (`invite-user:<user>`) keep their own schedule.
-    if (this.owner.holdsOwnerState()) return this.owner.alarm(Date.now())
     // Every writer moves the one alarm to the end of the object's life, so this run is that end
     // (for an invite, the watcher stays until the bound pairing code expires).
     for (const ws of this.ctx.getWebSockets()) ws.close(4408, "expired")

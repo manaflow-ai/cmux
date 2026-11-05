@@ -35,10 +35,6 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: Whether a focus model owns `page`'s keys; if not, the page takes the keyboard itself
     ///   when its WebKit view had it.
     func focusViewChanged(_ page: PageWebView) -> Bool
-    /// Sends every file of a Chromium page to its page host (``PageWebView/chromiumResource(_:range:)``)
-    /// while `live`, so the live web loop (``WebDevOverride``) serves Chromium pages as it serves
-    /// WebKit ones. Returns false when this Chromium cannot (its pages then open in WebKit).
-    func setLivePages(_ live: Bool) -> Bool
 }
 
 extension PageChromiumPage {
@@ -49,7 +45,6 @@ extension PageChromiumPage {
 extension PageChromiumHosting {
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
-    public func setLivePages(_ live: Bool) -> Bool { false }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol

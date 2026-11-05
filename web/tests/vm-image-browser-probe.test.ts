@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import { BROWSER_ROLE, chromeSandboxCommand, firstUseInstallPhases, hostSessionCommand, installProblems, userNamespaceCheckCommand } from "../scripts/cmux-vm-image/browser-probe";
 import { readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
 
@@ -9,28 +8,13 @@ const entry = manifest.roles[BROWSER_ROLE];
 describe("browser role probe (cloud-automation.md 31)", () => {
   test("the first-use install reads only the dated snapshot, pins the exact closure, then fetches each first-use program", () => {
     const phases = firstUseInstallPhases(manifest, BROWSER_ROLE);
-    expect(phases.map((p) => p.name)).toEqual(["apt-update", "apt-install", "program-chrome-for-testing", "program-cmux-browser-host"]);
+    expect(phases.map((p) => p.name)).toEqual(["apt-install", "program-chrome-for-testing", "program-cmux-browser-host"]);
     const cmd = phases.map((p) => p.command).join("\n");
     expect(cmd).toContain("-o Dir::Etc::sourcelist=/var/lib/cmux/apt-snapshot/snapshot.sources");
     expect(cmd).toContain("-o Dir::State::Lists=/var/lib/cmux/apt-snapshot/lists");
     expect(cmd).not.toContain("/etc/apt/sources.list.d");
     for (const [name, version] of Object.entries(manifest.firstUse[BROWSER_ROLE])) expect(cmd).toContain(`'${name}=${version}'`);
     expect(cmd).toContain(Buffer.from(manifest.aptSources).toString("base64"));
-  });
-
-  // Bake run 41990682146 (2026-11-05): snapshot.ubuntu.com answered 503, the base apt fell back to the
-  // archive, but this update exited 0 with no index and the install failed with "Unable to locate package".
-  test("the snapshot index update falls back to the public archive in its own source file only when the snapshot fails", () => {
-    const [update, install] = firstUseInstallPhases(manifest, BROWSER_ROLE);
-    const options = "-o Dir::Etc::sourcelist=/var/lib/cmux/apt-snapshot/snapshot.sources -o Dir::Etc::sourceparts=/var/lib/cmux/apt-snapshot/parts -o Dir::State::Lists=/var/lib/cmux/apt-snapshot/lists";
-    const shared = aptUpdateCommand({ aptArgs: options, log: "/var/lib/cmux/apt-snapshot/update.log", sources: "/var/lib/cmux/apt-snapshot/snapshot.sources", saved: "/var/lib/cmux/apt-snapshot/snapshot.sources.unavailable" });
-    expect(update.command).toContain(shared);
-    expect(update.command.indexOf(Buffer.from(manifest.aptSources).toString("base64"))).toBeLessThan(update.command.indexOf(shared));
-    expect(shared).toContain(`timeout "\${timeout_s}s" apt-get ${options} update -q --error-on=any`);
-    expect(shared).toContain("if [ \"$apt_update_ok\" -eq 0 ]; then");
-    expect(shared).toContain("base64 -d > /var/lib/cmux/apt-snapshot/snapshot.sources;");
-    expect(shared).not.toContain("/etc/apt/sources.list.d");
-    expect(install.command).not.toContain(" update ");
   });
 
   test("the install must add exactly the locked closure", () => {

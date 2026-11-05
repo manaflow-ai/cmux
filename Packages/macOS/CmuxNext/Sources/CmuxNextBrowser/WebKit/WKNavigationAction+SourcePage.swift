@@ -1,4 +1,3 @@
-import CmuxNextDesign
 import Foundation
 import WebKit
 
@@ -7,7 +6,7 @@ extension WKNavigationAction {
     /// opaque or unknown): the page whose link was clicked, even while the
     /// web view's `url` already shows the page it is loading.
     var sourcePage: URL? {
-        guard let origin = sourceFrameIfPresent?.securityOrigin, !origin.protocol.isEmpty, !origin.host.isEmpty else { return nil }
+        guard let origin = (sourceFrame as WKFrameInfo?)?.securityOrigin, !origin.protocol.isEmpty, !origin.host.isEmpty else { return nil }
         var page = URLComponents()
         page.scheme = origin.protocol
         page.host = origin.host

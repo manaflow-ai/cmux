@@ -27,23 +27,6 @@ pub const OUTCOME_MOVE_WINDOW: u8 = 8;
 pub const OUTCOME_MOVE_WORKSPACE_TO_NEW_WINDOW: u8 = 9;
 pub const OUTCOME_MOVE_WORKSPACE: u8 = 10;
 
-pub const EDGE_LEFT: u8 = 0;
-pub const EDGE_RIGHT: u8 = 1;
-pub const EDGE_TOP: u8 = 2;
-pub const EDGE_BOTTOM: u8 = 3;
-pub const EDGE_NONE: u8 = u8::MAX;
-
-pub const ZONE_LEFT: u8 = 0;
-pub const ZONE_RIGHT: u8 = 1;
-pub const ZONE_TOP: u8 = 2;
-pub const ZONE_BOTTOM: u8 = 3;
-pub const ZONE_CENTER: u8 = 4;
-pub const ZONE_NONE: u8 = u8::MAX;
-
-pub const AXIS_HORIZONTAL: u8 = 0;
-pub const AXIS_VERTICAL: u8 = 1;
-pub const AXIS_NONE: u8 = u8::MAX;
-
 fn clamp_index(index: i64, len: usize) -> usize {
     if index <= 0 {
         return 0;
@@ -189,60 +172,4 @@ pub extern "C" fn cmux_drop_reveal_decide(
         flags |= DROP_REVEAL_MAKES_KEY;
     }
     flags
-}
-
-/// Map the layout's pane drop zone to the drag edge, with center represented
-/// by `EDGE_NONE` because it is a join rather than a split edge.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_pane_drop_zone_edge(zone: u8) -> u8 {
-    match zone {
-        ZONE_LEFT => EDGE_LEFT,
-        ZONE_RIGHT => EDGE_RIGHT,
-        ZONE_TOP => EDGE_TOP,
-        ZONE_BOTTOM => EDGE_BOTTOM,
-        _ => EDGE_NONE,
-    }
-}
-
-/// Map the drag edge to the daemon's pane edge.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_tab_drop_edge_pane_edge(edge: u8) -> u8 {
-    match edge {
-        EDGE_LEFT | EDGE_RIGHT | EDGE_TOP | EDGE_BOTTOM => edge,
-        _ => EDGE_NONE,
-    }
-}
-
-/// Return the edge on the far side of a pane split.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_pane_edge_opposite(edge: u8) -> u8 {
-    match edge {
-        EDGE_LEFT => EDGE_RIGHT,
-        EDGE_RIGHT => EDGE_LEFT,
-        EDGE_TOP => EDGE_BOTTOM,
-        EDGE_BOTTOM => EDGE_TOP,
-        _ => EDGE_NONE,
-    }
-}
-
-/// Map a pane edge back to the layout's drop zone.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_pane_edge_drop_zone(edge: u8) -> u8 {
-    match edge {
-        EDGE_LEFT => ZONE_LEFT,
-        EDGE_RIGHT => ZONE_RIGHT,
-        EDGE_TOP => ZONE_TOP,
-        EDGE_BOTTOM => ZONE_BOTTOM,
-        _ => ZONE_NONE,
-    }
-}
-
-/// Return the axis divided by a split at this pane edge.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_pane_edge_split_axis(edge: u8) -> u8 {
-    match edge {
-        EDGE_LEFT | EDGE_RIGHT => AXIS_HORIZONTAL,
-        EDGE_TOP | EDGE_BOTTOM => AXIS_VERTICAL,
-        _ => AXIS_NONE,
-    }
 }

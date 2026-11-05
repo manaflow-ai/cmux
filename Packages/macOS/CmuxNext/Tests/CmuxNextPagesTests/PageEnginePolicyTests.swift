@@ -52,10 +52,8 @@ struct PageEnginePolicyTests {
             == .webKit(.chromiumUnavailable))
     }
 
-    /// A live override that Chromium cannot serve (its shim has no live mode, so
-    /// ``PageChromiumHosting/setLivePages(_:)`` said no) keeps every page on WebKit, after the
-    /// person's choice and the page's own reason, which still name why. A Chromium that serves it
-    /// is asked with `liveWebOverride: false` and keeps its pages.
+    /// `web-dev.json` reaches only WebKit's scheme handler, so a live override keeps every page there,
+    /// after the person's choice and the page's own reason, which still name why.
     @Test func aLiveWebOverrideKeepsPagesOnWebKit() {
         let live = PageEnginePolicy(preference: .chromium, chromiumAvailable: true, liveWebOverride: true)
         #expect(live.decide(for: Self.plain, options: .standard) == .webKit(.liveWebOverride))

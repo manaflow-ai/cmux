@@ -7,9 +7,8 @@
 //! - Sent: a send handed to the send relay (`cli/send_relay.rs`, the CLI and the MCP `send`
 //!   tool), and a message this daemon forwarded to a peer's session (`server/peer_forward.rs`).
 //! - Received: a message a peer daemon forwarded here, or one whose sender names another
-//!   machine (`HOST/NAME`, such as a broker's relay of a lane VM's message), when it arrives and
-//!   its checks pass, not when its turn ends (`server/requests.rs`); one this daemon then
-//!   refuses is a `refused` line with the error's code.
+//!   machine (`HOST/NAME`, such as a broker's relay of a lane VM's message), as this daemon
+//!   accepted it (`server/requests.rs`).
 //!
 //! Writing it never fails a send: an error is said on stderr once and the message goes on.
 

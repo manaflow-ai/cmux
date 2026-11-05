@@ -8,10 +8,9 @@ until a patch's signer is checked (cmux#13742).
 
 | You want | Do this |
 |---|---|
-| A live code build of your checkout (once) | `scripts/live-code/build.sh ~/live-code-build mine` (Debug; add `bench` after the tag for the bench configuration) |
+| A live code build of your checkout (once) | `CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh --tag mine --config bench` (or the Debug default) |
 | Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
-| Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
-| Undo the newest patch | `touch ~/Library/Caches/cmux-next/live-code/undo-1.rollback` (each rollback a new name) |
+| Apply your edits | `scripts/live-code/patch.py --log <the reload's log> --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
 | See what applied | `~/Library/Caches/cmux-next/live-code/live-code.log` |
 | Back to normal | Turn Live Code off and relaunch, or install a regular build |
 
@@ -20,21 +19,16 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
 
 ## How it works
 
-- **The build** (`scripts/live-code/build.sh`), in two passes. The first, `CMUX_LIVE_CODE_BUILD=1`,
-  compiles `CmuxNextApp` unoptimized, testable and a file at a time, and links the app with classic
-  binds and its symbols exported. The second links it again with the `CmuxNextApp` symbols in its export trie made
-  interposable (`CMUX_LIVE_CODE_INTERPOSABLE_LIST`), so the app's calls to its own functions go
-  through pointers dyld can repoint. The first pass alone builds an app no patch can repoint, and a
-  blanket `-interposable` stops the app at launch (a private type's symbol dyld cannot bind). The
-  first pass's log, `xcodebuild.log`, is the one `patch.py` reads. That costs some speed and size,
-  which is why only this build has it.
+- **The build.** `CMUX_LIVE_CODE_BUILD=1` compiles `CmuxNextApp` unoptimized and testable and links
+  the app `-interposable` with classic binds and its symbols exported, so the app's calls to its own
+  functions go through pointers dyld can repoint. That costs some speed and size, which is why only
+  this build has it.
 - **The patch.** `patch.py` compiles the edited files with the frontend command the build logged for
   their module, links their objects into a dylib, signs it ad hoc and moves it into the live folder.
 - **The app** (`CmuxNextLiveCode`). It loads each new patch once and refuses it when a type changed
   size (a stored property added or removed). It repoints every function the patch defines, then
-  invalidates and draws every window. A new `*.rollback` file in the folder undoes the newest patch:
-  every function it replaced runs the code before it again, and every window redraws. Each line it
-  applies, rolls back or refuses goes to `live-code.log` in the folder.
+  invalidates and draws every window. Each line it applies or refuses goes to `live-code.log` in the
+  folder.
 
 ## What applies, and what needs a rebuild
 

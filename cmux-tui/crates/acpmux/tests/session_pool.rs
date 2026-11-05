@@ -295,41 +295,6 @@ fn alive(pid: i64) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-/// The live lock file of pooled host record `record` (`agent_host` `live_path`, in the pool directory).
-fn pooled_live_lock(home: &Path, record: &Value) -> PathBuf {
-    let (session, nonce) =
-        (record["session_id"].as_str().unwrap(), record["start_nonce"].as_str().unwrap());
-    home.join("hosts").join("pool").join(format!("{session}.{nonce}.live"))
-}
-
-/// Whether the lock on `path` is free (its holder exited) within `within`: a non-blocking probe,
-/// released at once, as the daemon's claim takes it.
-fn lock_freed_within(path: &Path, within: Duration) -> bool {
-    use std::os::fd::AsRawFd;
-    let deadline = Instant::now() + within;
-    let mut seen = false;
-    loop {
-        match std::fs::OpenOptions::new().read(true).write(true).open(path) {
-            Ok(file) => {
-                seen = true;
-                // SAFETY: a non-blocking lock on a descriptor this function owns, released below.
-                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                    // SAFETY: same descriptor.
-                    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-                    return true;
-                }
-            }
-            // Removed after it was seen: the daemon ended the dead host and its artifacts.
-            Err(e) if seen && e.kind() == std::io::ErrorKind::NotFound => return true,
-            Err(_) => {}
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 fn gone_within(pid: i64, within: Duration) -> bool {
     let deadline = Instant::now() + within;
     while alive(pid) {
@@ -1369,16 +1334,6 @@ async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
     // SAFETY: the exact pooled host this test's daemon started (its record).
     // Exiting the host is the only terminal condition for a live start.
     unsafe { libc::kill(host as i32, libc::SIGKILL) };
-    // `kill` returns once SIGKILL is sent, not once the host has exited: until the kernel ends it
-    // (a busy machine runs the dying process milliseconds later) it still holds its live lock and
-    // is, to any claim, a live host. The host is dead once that lock is free, the same probe the
-    // claim reads (`agent_host::host_dead_now`); a session asked for before that may get it.
-    let live = pooled_live_lock(&home, &r);
-    assert!(
-        lock_freed_within(&live, Duration::from_secs(10)),
-        "the killed host still holds its live lock {}",
-        live.display()
-    );
     let (id, took) = new_session(&mut rpc, &home, "fakeb").await;
     eprintln!("session/new past a wedged pooled host: {took:?}");
     assert!(!taken(&daemon, &id), "the wedged entry was served");

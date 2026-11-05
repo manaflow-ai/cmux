@@ -915,16 +915,6 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_ranged(int token, int statu
                                                             const char* range_headers, const void* body,
                                                             size_t length);
 
-// The same with the page's CSP for this answer (NULL or empty = the page's own; a value with a CR or
-// LF is dropped). The live web loop sends a dev server's policy with each file it serves.
-CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status, const char* mime,
-                                                          const char* range_headers, const char* csp,
-                                                          const void* body, size_t length);
-// While live is 1, every request of a first-party cmux-page:// page reaches the page host as
-// CMUX_SHIM_PAGE_RESOURCE, as a dynamic path does, instead of being read from the page's folder
-// (the live web loop, web-dev.json). Any thread; applies to the next request.
-CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
-
 #ifdef __cplusplus
 }
 #endif

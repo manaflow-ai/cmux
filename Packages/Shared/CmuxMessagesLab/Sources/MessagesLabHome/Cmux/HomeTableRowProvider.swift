@@ -78,11 +78,8 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
         let cells = payload.table.rows.flatMap { $0 }.map { HomeTableCell(markdown: $0) }
         let links = cells.flatMap(\.links)
         // A picture opens full size (its file, in the app's viewer).
-        let pictures = cells.flatMap(\.images).compactMap { image -> (String, URL)? in
-            guard let thumbnail = payload.table.pictures?[image.source] else { return nil }
-            // A path or web picture opens its original; an attachment its picture file.
-            let original = HomeTablePictures.original(image.source) ?? URL(fileURLWithPath: thumbnail)
-            return (CmuxStrings.tableOpenPicture(image.alt), original)
+        let pictures = cells.flatMap(\.images).compactMap { image in
+            payload.table.pictures?[image.source].map { (CmuxStrings.tableOpenPicture(image.alt), URL(fileURLWithPath: $0)) }
         }
         let items = pictures + links.map { (HomeCardLinks.title($0), $0) }
         guard !items.isEmpty else { return false }

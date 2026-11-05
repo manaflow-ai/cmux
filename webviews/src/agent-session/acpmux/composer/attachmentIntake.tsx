@@ -41,7 +41,7 @@ import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -1282,10 +1282,12 @@ export function AttachmentChip({
   // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
   if (pasted) {
     const text = attachment.text ?? "";
+    const lines = pasteLines(text);
+    const count = new Intl.NumberFormat(language).format(lines);
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
-    const label = `${name} · ${pastedSize(t, language, text)}`;
+    const label = `${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`;
     const accessible = `${attachment.name || pasteName(text)}, ${label}`;
-    const body = <TextAttachmentCard text={text} label={label} wrap />;
+    const body = <TextAttachmentCard text={text} label={label} />;
     return menu(
       expand,
       <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">

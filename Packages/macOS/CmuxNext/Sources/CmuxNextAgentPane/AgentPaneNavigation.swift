@@ -1,4 +1,3 @@
-import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 import WebKit
@@ -22,8 +21,8 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             source: view.source,
             userClicked: action.navigationType == .linkActivated,
             mainFrame: action.targetFrame?.isMainFrame ?? true,
-            sourceFrameURL: action.sourceFrameURL,
-            targetFrameURL: action.targetFrameURL
+            sourceFrameURL: action.sourceFrame.request.url,
+            targetFrameURL: action.targetFrame?.request.url
         ) {
         case .allow:
             decisionHandler(.allow)

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1304,
+    "entries": 1293,
     "shortcuts": 189
   },
   "sections": [
@@ -6898,42 +6898,6 @@
           "command": "cmux machine doctor"
         },
         {
-          "id": "remote.allowAccessibility",
-          "title": "cmux Remote: Allow Accessibility",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "remote.allowScreenRecording",
-          "title": "cmux Remote: Allow Screen Recording",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "remote.refreshPermissions",
-          "title": "cmux Remote: Refresh Permissions",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "remote.restartComputerUse",
-          "title": "cmux Remote: Restart Computer Use",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "remote.restartScreenSharing",
-          "title": "cmux Remote: Restart Screen Sharing",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "remote.showStatus",
-          "title": "cmux Remote: Show Status",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "remote.connect",
           "title": "Connect to Machine…",
           "shortcut": null,
@@ -7018,28 +6982,10 @@
           "command": "cmux remote remove-group"
         },
         {
-          "id": "macScreen.deviceAccess",
-          "title": "Set Device Access to This Mac…",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "workspace.setRemoteLocalhost",
           "title": "Set Workspace Localhost…",
           "shortcut": null,
           "command": "cmux workspace set-remote-localhost"
-        },
-        {
-          "id": "macScreen.shareThisMac",
-          "title": "Share This Mac",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "macScreen.stopSharingThisMac",
-          "title": "Turn Off Sharing This Mac",
-          "shortcut": null,
-          "command": null
         }
       ]
     },
@@ -7378,12 +7324,6 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
-          "id": "debug.projection",
-          "title": "Open Projection Window",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentPane.display.railOnRight",
           "title": "Prompt Rail on Right Edge",
           "shortcut": null,
@@ -7454,12 +7394,6 @@
           "title": "Run App Command…",
           "shortcut": null,
           "command": "cmux app run-command"
-        },
-        {
-          "id": "debug.projection.runTest",
-          "title": "Run Projection Test",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.never",

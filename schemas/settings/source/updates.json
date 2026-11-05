@@ -235,30 +235,6 @@
           ]
         },
         {
-          "key": "updates.liveWebReload",
-          "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
-          "title": {
-            "key": "settings.updates.liveWebReload",
-            "text": "Live Web Reload"
-          },
-          "help": {
-            "key": "settings.updates.liveWebReload.help",
-            "text": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "web",
-            "live",
-            "hot reload",
-            "reload",
-            "dev server",
-            "overlay",
-            "edit",
-            "web-dev"
-          ]
-        },
-        {
           "key": "updates.installOnQuit",
           "title": {
             "key": "settings.updates.installOnQuit",

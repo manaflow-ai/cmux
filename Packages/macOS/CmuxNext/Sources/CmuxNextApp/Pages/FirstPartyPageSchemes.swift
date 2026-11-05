@@ -71,14 +71,6 @@ enum FirstPartyPageSchemes {
     @MainActor static func install(bundle: Bundle = .main) {
         guard let resources = bundle.resourceURL else { return }
         CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
-        // A browser tab at a first-party address, while the live web loop runs (no page host answers it).
-        CEFPageSchemes.liveFallback = { url, range in
-            guard let id = url.host?.lowercased(), let entry = CEFPageSchemes.firstParty[id],
-                  let page = descriptors.first(where: { $0.id == id }) else { return .notFound }
-            let answer = await PageWebView.liveChromiumResource(url, range: range, page: page, root: entry.root)
-            return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body,
-                                   rangeHeaders: answer.rangeHeaders, csp: answer.csp)
-        }
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).

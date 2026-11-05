@@ -406,9 +406,8 @@
    label; never the underlined name above. */
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
-  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
-  width: 256px;
-  max-width: min(256px, 100%);
+  width: 168px;
+  max-width: 168px;
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }

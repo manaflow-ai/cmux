@@ -14,7 +14,7 @@ public import WebKit
 /// `gallery.openStage` (palette, `cmux action run gallery.openStage --entry agent-pane.composer`;
 /// CmuxNextApp's `AppActions` binds it) opens one tab per run: the entry's stage (`variant` picks one),
 /// else the gallery's index. The server is web-dev.json's `gallery`, else
-/// ``WebDevOverride/defaultGallery``. Every build (``WebDevOverride/isEnabled``); off with Live Web Reload.
+/// ``WebDevOverride/defaultGallery``. NIGHTLY, cmux NEXT DEV and Debug only (``WebDevOverride/isEnabled``).
 ///
 /// This keeps which stage each tab shows: a run sets ``next`` around its open, and the tab it opens
 /// keeps it. A tab restored at launch has none and shows the gallery's index.

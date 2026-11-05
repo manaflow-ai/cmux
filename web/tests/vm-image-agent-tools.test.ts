@@ -120,7 +120,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     await bashSyntax(agentToolsProfileScript());
     for (const file of agentToolsFiles().filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
     const phases = browserRoleBakePhases(lock);
-    expect(phases.map((p) => p.name)).toEqual(["agent-tools-browser-apt-update", "agent-tools-browser-apt-install", "agent-tools-browser-program-chrome-for-testing", "agent-tools-browser-program-cmux-browser-host", "agent-tools-browser-lists"]);
+    expect(phases.map((p) => p.name)).toEqual(["agent-tools-browser-apt-install", "agent-tools-browser-program-chrome-for-testing", "agent-tools-browser-program-cmux-browser-host", "agent-tools-browser-lists"]);
     for (const phase of phases) await bashSyntax(phase.command);
     await bashSyntax(staticCheckCommand());
   });

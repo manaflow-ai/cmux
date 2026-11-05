@@ -57,9 +57,6 @@ def module_commands(log, module):
             start = next((i for i, a in enumerate(argv) if a.endswith("/swift-frontend")), None)
             if start is not None and "-frontend" in argv and "-c" in argv:
                 frontend = argv[start:]
-    if frontend and not filelist:
-        # No driver line: the frontend's own list of the module's files (a file-at-a-time build).
-        filelist = next((frontend[i + 1] for i, a in enumerate(frontend[:-1]) if a == "-filelist"), None)
     return frontend, filelist
 
 

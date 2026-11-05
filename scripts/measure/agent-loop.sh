@@ -27,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 # Only what this script writes goes before a run: OUT may be a folder the caller owns.
-mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,base-overlay.log,applied.png,fresh-home.png}
+mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,applied.png,fresh-home.png}
 rm -f "$out"/live-apply-*.log
 if [[ -z "$url" ]]; then
   url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
@@ -56,10 +56,7 @@ bounded() {
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m
-  # Their own groups no longer see a signal sent to this script's group (a step cancel): pass it on.
-  trap 'kill -TERM -- "-$pid" "-$watchdog" 2>/dev/null; exit 143' TERM INT
   wait "$pid"; status=$?
-  trap - TERM INT
   kill -TERM -- "-$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
   echo "AGENT-LOOP setup: $name exit $status in $((SECONDS - started))s"
   return "$status"

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The app half of scripts/measure/live-code-app.sh: launch, patch twice, take a bad patch and roll it
-back, time each and count pixels."""
+"""The app half of scripts/measure/live-code-app.sh: launch, patch twice, time and count pixels."""
 import argparse
 import json
 import os
@@ -100,21 +99,6 @@ def main():
                 entry.update(snap(generation))
         return entry
 
-    def roll_back(generation):
-        # A dropped `*.rollback` file undoes the newest patch (cmuxterm-hq#7149 L4).
-        dropped = time.time()
-        open(os.path.join(live, f"undo-{generation}.rollback"), "w").close()
-        entry = {"edit": "rollback"}
-        drawn = wait_line(rf"redrawn generation={generation} at=([\d.]+)", 30)
-        rolled = re.search(r"rolled back \S+ functions=(\d+) rollback_ms=(\d+)", open(live_log).read() if os.path.exists(live_log) else "")
-        if rolled:
-            entry.update(functions=int(rolled.group(1)), rollback_ms=int(rolled.group(2)))
-        if drawn:
-            entry["rollback_to_redraw_s"] = round(float(drawn.group(1)) - dropped, 2)
-            time.sleep(0.5)
-            entry.update(snap(generation))
-        return entry
-
     try:
         app.launch()
         result["pid"] = app.process.pid
@@ -123,9 +107,6 @@ def main():
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
         result["generations"].append(patch(1, ORIGINAL, red))
         result["generations"].append(patch(2, red, blue))
-        # A bad patch (red again, standing in for one a probe fails), then its rollback: blue again.
-        result["generations"].append(patch(3, blue, red))
-        result["generations"].append(roll_back(4))
         # Live means the same process all along (cmuxterm-hq#7149 L3: same pid).
         result["same_pid"] = app.process.poll() is None and app.process.pid in app.running_pids()
     finally:
@@ -141,20 +122,12 @@ def main():
         and gens.get(1, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
         and gens.get(2, {}).get("blue_px", 0) > base.get("blue_px", 0) + 1000
         and gens.get(2, {}).get("red_px", 0) < gens.get(1, {}).get("red_px", 0))
-    # L4: the rollback brings generation 2's blue back, red gone, in under 2 s, in the same process.
-    rollback = gens.get(4, {})
-    result["rolled_back"] = bool(
-        result.get("same_pid")
-        and gens.get(3, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
-        and rollback.get("blue_px", 0) > base.get("blue_px", 0) + 1000
-        and rollback.get("red_px", 0) < gens.get(3, {}).get("red_px", 0)
-        and rollback.get("rollback_to_redraw_s", 99) < 2)
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result))
     if os.path.exists(os.path.join(opts.out, "live-code.log")):
         print(open(os.path.join(opts.out, "live-code.log")).read())
-    sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
+    sys.exit(0 if result["shown"] else 1)
 
 
 if __name__ == "__main__":

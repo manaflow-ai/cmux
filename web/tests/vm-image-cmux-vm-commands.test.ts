@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
@@ -159,7 +158,6 @@ describe("cmux VM image apt index", () => {
     expect(fallbackSources).toContain("archive.ubuntu.com/ubuntu");
     expect(fallbackSources).toContain("security.ubuntu.com/ubuntu");
     await bashSyntax(bake.APT_UPDATE_COMMAND);
-    expect(bake.APT_UPDATE_COMMAND).toBe(aptUpdateCommand({ log: "/tmp/apt-update.log", sources: "/etc/apt/sources.list.d/ubuntu.sources", saved: "/tmp/ubuntu.sources.snapshot" }));
   });
 
   test("an empty index is reported as one apt index problem, not the first pin", () => {

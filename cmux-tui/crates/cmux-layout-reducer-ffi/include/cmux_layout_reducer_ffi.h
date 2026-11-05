@@ -63,32 +63,6 @@ uint8_t cmux_drop_reveal_decide(
     uint8_t app_active,
     uint8_t no_activate,
     uint8_t landing_on_active_space);
-
-/* Tab/pane edge mapping values mirror the public Swift enums.  The four
- * edges are stable codes 0...3; NONE (255) is returned for an optional
- * center edge or an invalid input.  PaneDropZone center is 4, and the split
- * axes are horizontal 0 and vertical 1. */
-enum {
-    CMUX_TAB_DROP_EDGE_LEFT = 0,
-    CMUX_TAB_DROP_EDGE_RIGHT = 1,
-    CMUX_TAB_DROP_EDGE_TOP = 2,
-    CMUX_TAB_DROP_EDGE_BOTTOM = 3,
-    CMUX_TAB_DROP_EDGE_NONE = 255,
-    CMUX_PANE_DROP_ZONE_LEFT = 0,
-    CMUX_PANE_DROP_ZONE_RIGHT = 1,
-    CMUX_PANE_DROP_ZONE_TOP = 2,
-    CMUX_PANE_DROP_ZONE_BOTTOM = 3,
-    CMUX_PANE_DROP_ZONE_CENTER = 4,
-    CMUX_PANE_DROP_ZONE_NONE = 255,
-    CMUX_SPLIT_AXIS_HORIZONTAL = 0,
-    CMUX_SPLIT_AXIS_VERTICAL = 1,
-    CMUX_SPLIT_AXIS_NONE = 255,
-};
-uint8_t cmux_pane_drop_zone_edge(uint8_t zone);
-uint8_t cmux_tab_drop_edge_pane_edge(uint8_t edge);
-uint8_t cmux_pane_edge_opposite(uint8_t edge);
-uint8_t cmux_pane_edge_drop_zone(uint8_t edge);
-uint8_t cmux_pane_edge_split_axis(uint8_t edge);
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}

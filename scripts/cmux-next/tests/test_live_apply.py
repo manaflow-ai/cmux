@@ -14,10 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import live_apply  # noqa: E402
 
-VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
-# A module the app's live code build does not patch (docs/cmux-next/live-code.md: CmuxNextApp only).
-PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
-SHELL = "Prototypes/ViewShell/Sources/ViewShell/Badge.swift"
+VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
 
 
 class ClassifyTests(unittest.TestCase):
@@ -63,7 +60,7 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
 
     def test_a_new_swift_file_is_live_unless_it_is_an_entry_point(self):
-        new = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chip.swift"
+        new = "Packages/macOS/CmuxNext/Sources/CmuxNextUI/Chip.swift"
         diffs = {new: [("+", "struct Chip: View {"), ("+", "    let title: String"), ("+", "    var body: some View { Text(title) }"), ("+", "}")],
                  VIEW: [("+", "        Chip(title: name)")]}
         self.assertEqual(self.verdict([("A", new), ("M", VIEW)], diffs), "swift-live")
@@ -72,19 +69,6 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@main")]}), "rebuild")
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@MainActor @main")]}), "rebuild")
         self.assertEqual(self.verdict([("A", new)], {new: [("+", "@available(macOS 14, *) @main struct App {}")]}), "rebuild")
-
-    def test_swift_outside_the_live_code_modules_needs_a_rebuild(self):
-        body = [("-", "        Text(\"old\")"), ("+", "        Text(\"new\")")]
-        result = live_apply.classify([("M", PANE)], {PANE: body})
-        self.assertEqual(result["verdict"], "rebuild")
-        self.assertEqual(result["reasons"], {"outside the live code modules (CmuxNextAgentPane)": [PANE]})
-        new = "Packages/macOS/CmuxNext/Sources/CmuxNextUI/Chip.swift"
-        self.assertEqual(self.verdict([("A", new)], {new: [("+", "struct Chip {}")]}), "rebuild")
-        self.assertEqual(self.verdict([("M", "Packages/Shared/CmuxKit/Sources/CmuxKit/A.swift")], {}), "rebuild")
-        # The view shell's inject.sh patches its own module.
-        self.assertEqual(self.verdict([("M", SHELL)], {SHELL: body}), "swift-live")
-        # A deleted file leaves its code in the binary unused, whatever its module.
-        self.assertEqual(self.verdict([("D", PANE)]), "swift-live")
 
     def test_a_deleted_swift_file_is_live_and_ios_alone_leaves_the_mac_app(self):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")

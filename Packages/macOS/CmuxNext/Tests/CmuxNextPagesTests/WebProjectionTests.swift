@@ -17,8 +17,7 @@ struct WebProjectionTests {
         let projected = webView(in: projectionWindow), untouched = webView(in: mainWindow)
         handler.liveOverride = { WebDevOverride() }
         handler.projection = projection
-        handler.fetchDevServer = { request in
-            guard let url = request.url else { return nil }
+        handler.fetchDevServer = { url in
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
             return response.map { (Data("served by \(url.port ?? 0)".utf8), $0) }
         }
@@ -50,8 +49,7 @@ struct WebProjectionTests {
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: PageDevServer(root: launch))
         handler.liveOverride = { WebDevOverride() }
         handler.projection = projection
-        handler.fetchDevServer = { request in
-            guard let url = request.url else { return nil }
+        handler.fetchDevServer = { url in
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
             return response.map { (Data("served by \(url.port ?? 0)".utf8), $0) }
         }

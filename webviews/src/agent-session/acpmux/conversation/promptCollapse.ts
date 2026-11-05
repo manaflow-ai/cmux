@@ -121,21 +121,12 @@ export function promptParts(text: string, ranges: readonly PasteRange[]): Prompt
   return parts;
 }
 
-/// A line break as pasted text can carry it: \n, \r\n, a lone \r (classic Mac text), or Unicode's
-/// line and paragraph separators (U+2028, U+2029), which rich-text editors put for a soft return.
-/// The prompt field's own paste turns \r into \n; a VS Code paste, a drop and a file keep theirs.
-export const PASTE_LINE_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
-
 /// A paste chip's name: the paste's first words, on one line.
 export function pasteName(text: string): string {
-  const line = text.split(PASTE_LINE_BREAK).find((candidate) => candidate.trim()) ?? "";
+  const line = text.split("\n").find((candidate) => candidate.trim()) ?? "";
   const words = line.trim().replace(/\s+/g, " ");
   return words.length > 40 ? `${sliceWhole(words, 39).trimEnd()}…` : words;
 }
 
-/// A paste's line count (a final line break ends its last line, not a new one). Counts every break
-/// PASTE_LINE_BREAK names, so text whose lines end in \r or U+2028 is not "1 line".
-export function pasteLines(text: string): number {
-  const body = text.replace(/(?:\r\n|[\n\r\u2028\u2029])$/, "");
-  return (body.match(PASTE_LINE_BREAK)?.length ?? 0) + 1;
-}
+/// A paste's line count (a final line break ends its last line, not a new one).
+export const pasteLines = (text: string) => text.replace(/\n$/, "").split("\n").length;
