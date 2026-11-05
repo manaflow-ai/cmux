@@ -18,13 +18,21 @@ async function started(provider = new MockCloudProvider()) {
 }
 
 const row = (store: CloudStore, id: string) => store.getSnapshot().rows.find((r) => r.id === id)!;
+/** The idle policy the detail shows: the waiting change's, else the mirror's. */
+const idleShown = (store: CloudStore, id: string) => {
+  const r = row(store, id);
+  return (r.idle !== undefined ? r.idle : r.machine!.idle_policy?.idle_seconds) ?? 0;
+};
+
+// The mock answers within the call (its watch event can settle an intent before the call returns),
+// so a change the mock refuses is what keeps an intent waiting long enough to look at.
 
 describe("Cloud page quick edits", () => {
   test("a rename shows the new name at once with no pending label", async () => {
     const { store, unsubscribe } = await started();
     const id = store.getSnapshot().rows[0]!.id;
     const done = store.rename(id, "  renamed box ");
-    // Before the owner answers.
+    // At once, with no label.
     expect(row(store, id).title).toBe("renamed box");
     expect(row(store, id).pending).toBeUndefined();
     await done;
@@ -51,28 +59,30 @@ describe("Cloud page quick edits", () => {
   test("an idle change shows at once, and a refusal restores the machine's policy", async () => {
     const { store, provider, unsubscribe } = await started();
     const first = store.getSnapshot().rows[0]!;
-    const was = first.machine!.idle_policy?.idle_seconds ?? 0;
-    const done = store.setIdlePolicy(first.id, null);
-    expect(row(store, first.id).idle).toBeNull();
-    expect(row(store, first.id).pending).toBeUndefined();
-    await done;
-    await flush();
-    expect(row(store, first.id).machine!.idle_policy?.idle_seconds ?? 0).toBe(0);
+    const was = idleShown(store, first.id);
+    expect(was).not.toBe(3600);
 
     provider.failNext = CloudOps.machineIdlePolicySet;
     const refused = store.setIdlePolicy(first.id, 3600);
-    expect(row(store, first.id).idle).toBe(3600);
+    // Before the refusal arrives: the new value, with no pending label.
+    expect(idleShown(store, first.id)).toBe(3600);
+    expect(row(store, first.id).pending).toBeUndefined();
     await refused;
     await flush();
     expect(row(store, first.id).idle).toBeUndefined();
-    expect(row(store, first.id).machine!.idle_policy?.idle_seconds ?? 0).toBe(0);
-    expect(was).not.toBe(3600);
+    expect(idleShown(store, first.id)).toBe(was);
+    expect(store.getSnapshot().error).toBeTruthy();
+
+    await store.setIdlePolicy(first.id, null);
+    await flush();
+    expect(idleShown(store, first.id)).toBe(0);
     unsubscribe();
   });
 
   test("a slow change (pause) still shows its pending label", async () => {
-    const { store, unsubscribe } = await started();
+    const { store, provider, unsubscribe } = await started();
     const running = store.getSnapshot().rows.find((r) => r.status === "running")!;
+    provider.failNext = CloudOps.machinePause;
     const done = store.pause(running.id);
     expect(row(store, running.id).pending).toBe("pause");
     await done;
