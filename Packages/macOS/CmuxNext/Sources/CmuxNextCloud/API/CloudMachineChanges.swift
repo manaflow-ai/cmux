@@ -211,7 +211,7 @@ public final class CloudMachineChanges {
     }
 
     /// Compare unsigned decimal revisions without truncation, overflow or lexical digit-count mistakes.
-    private static func newerRevision(_ current: String?, than previous: String?) -> Bool {
+    static func newerRevision(_ current: String?, than previous: String?) -> Bool {
         func normalized(_ value: String?) -> String? {
             guard let value, !value.isEmpty,
                   value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return nil }

@@ -25,6 +25,10 @@ public final class CloudMachineStatePush {
     /// A machine's live push closed: until a socket delivers again it is not pushed, and reads cover it.
     public var onLost: @MainActor (String) -> Void = { _ in }
     private var last: [String: CloudMachine] = [:]
+    /// Raised by ``stop()``: a frame received before it is never sent to the daemon after it.
+    private var generation = 0
+    /// The frames on their way to the daemon, one after another, in the order they came.
+    private var delivery: Task<Void, Never>?
 
     private struct Watch {
         var task: URLSessionWebSocketTask?
@@ -37,6 +41,9 @@ public final class CloudMachineStatePush {
     /// The first reconnect waits this long; each failure doubles it up to ``maxBackoff``.
     static let firstBackoff: Duration = .milliseconds(500)
     static let maxBackoff: Duration = .seconds(30)
+    /// An open socket sends the protocol's `ping` this often, so no proxy closes it for being quiet; the platform's
+    /// runtime answers `pong` without waking the object.
+    static let keepalive: Duration = .seconds(30)
 
     /// `session` must refuse redirects (``CloudOwnerAPIClient/transport`` does): one would carry the bearer elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
@@ -56,7 +63,9 @@ public final class CloudMachineStatePush {
         for id in Array(watches.keys) where !shown.contains(id) { end(id) }
         for machine in machines where Self.validID(machine.id) {
             let id = machine.id
-            if last[id] == nil { last[id] = machine }
+            if last[id].map({ !CloudMachineChanges.newerRevision($0.serverRevision, than: machine.serverRevision) }) ?? true {
+                last[id] = machine
+            }
             guard watches[id] == nil else { continue }
             watches[id] = Watch()
             watches[id]?.runner = Task { [weak self] in await self?.run(id) }
@@ -65,6 +74,9 @@ public final class CloudMachineStatePush {
 
     /// Closes every socket (sign-out, a team switch, Cloud turned off).
     public func stop() {
+        generation += 1
+        delivery?.cancel()
+        delivery = nil
         for id in Array(watches.keys) { end(id) }
     }
 
@@ -116,6 +128,13 @@ public final class CloudMachineStatePush {
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task
         task.resume()
+        let ping = Task {
+            // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
+            while (try? await ContinuousClock().sleep(for: Self.keepalive)) != nil {
+                guard (try? await task.send(.string(#"{"v":1,"t":"ping"}"#))) != nil else { return }
+            }
+        }
+        defer { ping.cancel() }
         var delivered = false
         // wakeup-allow: each pass awaits the next frame; a closed or failed socket throws and ends the loop
         while !Task.isCancelled, let message = try? await task.receive() {
@@ -137,20 +156,34 @@ public final class CloudMachineStatePush {
     func received(_ machine: String, _ frame: Data) {
         guard let value = try? JSONDecoder().decode(JSONValue.self, from: frame), value["machine"]?.stringValue == machine
         else { return }
-        let connection = connection()
-        // task-owner: one hop to the daemon; a failed send leaves the server its fallback read
-        Task { _ = try? await connection?.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value)) }
         switch value["t"]?.stringValue {
         case "state":
             guard let record = value["state"]?["record"], let shown = CloudMachine(next: record) else { return }
+            // A record older than one already shown (a read that answered first) is not shown again.
+            if let known = last[machine], CloudMachineChanges.newerRevision(known.serverRevision, than: shown.serverRevision) {
+                return
+            }
+            forward(value)
             last[machine] = shown
             onRecord(shown)
         case "removed":
+            forward(value)
             guard var gone = last.removeValue(forKey: machine) else { return }
             gone.status = .destroyed
             onRecord(gone)
         default:
             return
+        }
+    }
+
+    /// Sends one frame to the Cloud app server after the frames before it, unless ``stop()`` came first.
+    private func forward(_ value: JSONValue) {
+        let connection = connection(), previous = delivery, sent = generation
+        // task-owner: kept in `delivery` and cancelled by stop(); a failed send leaves the server its fallback read
+        delivery = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled, self?.generation == sent else { return }
+            _ = try? await connection?.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value))
         }
     }
 }
