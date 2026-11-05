@@ -49,7 +49,7 @@ newest_set() {
 set_dir() { [[ -d "$DIR/$1" ]] || die "no set $1 in $DIR"; echo "$DIR/$1"; }
 copies_of() {
   local f
-  for f in "$1"/*/; do f="$(basename "$f")"; [[ "$f" =~ ^[0-9]+$ ]] && echo "$f"; done | sort -n
+  for f in "$1"/*/; do f="$(basename "$f")"; if [[ "$f" =~ ^[0-9]+$ ]]; then echo "$f"; fi; done | sort -n
 }
 meta() { cat "$1/$2" 2>/dev/null || true; }
 
@@ -132,7 +132,7 @@ write_json() {
 write_compare() {
   local setd="$1" data
   write_json "$setd"
-  data="$(cat "$setd/copies.json")"
+  data="$(sed 's#</#<\\/#g' "$setd/copies.json")"   # no "</script>" inside the page's script
   cat >"$setd/compare.html" <<HTML
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Live copies: $(basename "$setd" | html_escape)</title>
@@ -259,16 +259,16 @@ case "$cmd" in
     url="$(write_compare "$setd")"
     echo "compare: $url"
     echo "set: $set_name   (live-copies.sh keep $set_name K when you pick one)"
-    [[ $open == 1 ]] && open_page "$url" "live copies: $set_name"
+    if [[ $open == 1 ]]; then open_page "$url" "live copies: $set_name"; fi
     ;;
   compare)
-    set_name="$(pick_set "$@")"; [[ $# -gt 0 && "${1:-}" == "$set_name" ]] && shift
+    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
     url="$(write_compare "$(set_dir "$set_name")")"
     echo "$url"
-    [[ "${1:-}" == --open ]] && open_page "$url" "live copies: $set_name"
+    if [[ "${1:-}" == --open ]]; then open_page "$url" "live copies: $set_name"; fi
     ;;
   keep)
-    set_name="$(pick_set "$@")"; [[ $# -gt 0 && "${1:-}" == "$set_name" ]] && shift
+    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
     k="${1:?keep needs the copy number}"; shift
     setd="$(set_dir "$set_name")"; copy="$setd/$k"; [[ -d "$copy/tree" ]] || die "no copy $k in $set_name"
     push=0 stop_others=0 open=0
@@ -279,11 +279,11 @@ case "$cmd" in
     fi
     url="https://github.com/$REPO_SLUG/compare/$BASE_BRANCH...$branch?expand=1"
     edited="$(git -C "$copy/tree" rev-list --count "$(meta "$copy" base)..HEAD")"
-    [[ -n "$pr" && "$edited" == 0 ]] && url="$pr"
+    if [[ -n "$pr" && "$edited" == 0 ]]; then url="$pr"; fi
     echo "kept copy $k of $set_name"
     echo "worktree: $copy/tree"
     echo "branch:   $branch ($edited commits on $(meta "$copy" source))"
-    [[ -n "$(git -C "$copy/tree" status --porcelain -- . ':!webviews/node_modules')" ]] && echo "note:     uncommitted changes in the worktree; commit them before you push"
+    if [[ -n "$(git -C "$copy/tree" status --porcelain -- . ':!webviews/node_modules')" ]]; then echo "note:     uncommitted changes in the worktree; commit them before you push"; fi
     if [[ "$url" == "$pr" ]]; then echo "pr:       $pr (unchanged copy of it)"
     elif git -C "$copy/tree" ls-remote --exit-code -q origin "refs/heads/$branch" >/dev/null 2>&1; then echo "open a PR: $url"
     else echo "open a PR: push first (live-copies.sh keep $set_name $k --push), then $url"; fi
@@ -292,10 +292,10 @@ case "$cmd" in
       echo "stopped the other copies' servers"
     fi
     echo "$k" >"$setd/kept"
-    [[ $open == 1 ]] && open_page "$url" "kept: $set_name copy $k"
+    if [[ $open == 1 ]]; then open_page "$url" "kept: $set_name copy $k"; fi
     ;;
   status)
-    set_name="$(pick_set "$@")"; [[ $# -gt 0 && "${1:-}" == "$set_name" ]] && shift
+    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
     setd="$(set_dir "$set_name")"
     if [[ "${1:-}" == --json ]]; then write_json "$setd"; cat "$setd/copies.json"; exit 0; fi
     echo "set $set_name (page $(meta "$setd" page))"
@@ -303,7 +303,7 @@ case "$cmd" in
       s="$(pstate "$setd/$k" status "$setd/$k/tree")"
       printf 'copy %s  %-40s %s\n         %s\n' "$k" "$(meta "$setd/$k" branch)" "${s#dev server: }" "$setd/$k/tree"
     done
-    [[ -f "$setd/kept" ]] && echo "kept: copy $(cat "$setd/kept")"
+    if [[ -f "$setd/kept" ]]; then echo "kept: copy $(cat "$setd/kept")"; fi
     echo "compare: file://$setd/compare.html"
     ;;
   stop)
@@ -311,7 +311,7 @@ case "$cmd" in
     for k in $(copies_of "$setd"); do pstate "$setd/$k" stop "$setd/$k/tree"; done
     ;;
   rm)
-    set_name="$(pick_set "$@")"; [[ $# -gt 0 && "${1:-}" == "$set_name" ]] && shift
+    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
     force=0; [[ "${1:-}" == --force ]] && force=1
     setd="$(set_dir "$set_name")"
     for k in $(copies_of "$setd"); do
