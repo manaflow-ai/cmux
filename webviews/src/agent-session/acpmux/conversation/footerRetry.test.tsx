@@ -153,7 +153,7 @@ const tool = (id: string, at: number): AcpmuxRow => ({
   version: 1,
   at,
   kind: "activity",
-  items: [{ kind: "tool", text: "", tool: { toolCallId: id, title: "ls", kind: "execute", status: "completed" } }],
+  items: [{ kind: "tool", text: "", tool: { id, title: "ls", kind: "execute", status: "completed" } }],
 });
 const notice = (id: string, at: number): AcpmuxRow => ({
   id,
@@ -201,12 +201,32 @@ function retries(source: AcpmuxRow[], value: TurnActions = actions(), readOnly =
 const reply = [P("p1", 10, "Fix the grid"), A("a1", 20, "Fixed."), S("s1", 30)];
 test.each([
   ["a normal reply: its footer", reply, ["footer:s1"]],
-  ["a tool-only last turn, whose footer is empty: the prompt", [P("p1", 10, "List it"), tool("t1", 20), S("s1", 30)], ["prompt:p1"]],
-  ["a notification's turn after it: the person's turn's footer", [...reply, notice("n", 40), A("a2", 50, "Built."), S("s2", 60)], ["footer:s1"]],
-  ["a self-started summary in its tail: its own footer once", [...reply, A("a2", 40, "Also checked CI."), S("s2", 50)], ["footer:s1"]],
+  [
+    "a tool-only last turn, whose footer is empty: the prompt",
+    [P("p1", 10, "List it"), tool("t1", 20), S("s1", 30)],
+    ["prompt:p1"],
+  ],
+  [
+    "a notification's turn after it: the person's turn's footer",
+    [...reply, notice("n", 40), A("a2", 50, "Built."), S("s2", 60)],
+    ["footer:s1"],
+  ],
+  [
+    "a self-started summary in its tail: its own footer once",
+    [...reply, A("a2", 40, "Also checked CI."), S("s2", 50)],
+    ["footer:s1"],
+  ],
   ["a history turn with no summary: the prompt", [P("p1", 10, "First"), A("a1", 20, "Done.")], ["prompt:p1"]],
-  ["a task result after it: the person's turn's footer, never the result", [...reply, received("r", 40), A("a2", 50, "Merged."), S("s2", 60)], ["footer:s1"]],
-  ["a later prompt: only the last prompt's footer", [...reply, P("p2", 40, "Now the header"), A("a2", 50, "Done."), S("s2", 60)], ["footer:s2"]],
+  [
+    "a task result after it: the person's turn's footer, never the result",
+    [...reply, received("r", 40), A("a2", 50, "Merged."), S("s2", 60)],
+    ["footer:s1"],
+  ],
+  [
+    "a later prompt: only the last prompt's footer",
+    [...reply, P("p2", 40, "Now the header"), A("a2", 50, "Done."), S("s2", 60)],
+    ["footer:s2"],
+  ],
 ] as const)("%s", (_name, source, expected) => {
   expect(retries([...source])).toEqual([...expected]);
 });

@@ -162,8 +162,8 @@ const resendable = (user: AcpmuxRow) =>
 
 /// The chat's one Retry in the transcript (cmux#34779): the person's last prompt it can send again
 /// (`promptId`), and its turn's footer when that footer draws Retry for it (`footerId`). Read by
-/// ``retryPlacement``. A prompt still sending or one that failed to send is skipped, as its bubble
-/// has its own controls; a steer is a prompt too, and its turn's footer resends the turn's opener,
+/// ``retryPlacement``. A prompt still sending, one that failed to send, and a steer with its queue
+/// controls are skipped, as their rows have their own; any other steer is a prompt too, and its turn's footer resends the turn's opener,
 /// not it, so the steer keeps Retry under its bubble.
 export type RetryTarget = { promptId?: string; footerId?: string };
 export const NO_RETRY_TARGET: RetryTarget = {};
@@ -172,6 +172,9 @@ export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
     if (row.kind !== "user" || isUnsent(row) || row.delivery?.state === "sending" || !resendable(row)) continue;
+    // A steer drawn with its queue controls (App.tsx steerControls) has no Retry: a resend while
+    // it waits would reach the agent twice (cmux#34613).
+    if (row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()))) continue;
     // Its turn's footer is the first summary after it. A turn with none (history that ended
     // without a turn result, or one still running) reaches the next turn's summary, which resends
     // another prompt: then the prompt keeps Retry.

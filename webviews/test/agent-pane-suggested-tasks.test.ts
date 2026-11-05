@@ -1007,9 +1007,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      // Only the person's one prompt has a Retry, on its own turn's footer (cmux#34779); the
-      // notification's turn offers none.
-      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 1 });
+      // Only the person's one prompt has a Retry; the notification's turn offers none. Its turn's
+      // footer draws nothing at rest here, so the prompt keeps it (turns.ts retryPlacement, cmux#34779).
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 
