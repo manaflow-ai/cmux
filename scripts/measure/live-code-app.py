@@ -118,6 +118,7 @@ def main():
     try:
         app.launch()
         result["pid"] = app.process.pid
+        result["ready_s"] = app.ready_seconds
         time.sleep(3)
         result["generations"].append(snap(0))
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
@@ -147,7 +148,8 @@ def main():
         result.get("same_pid")
         and gens.get(3, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
         and rollback.get("blue_px", 0) > base.get("blue_px", 0) + 1000
-        and rollback.get("red_px", 0) < gens.get(3, {}).get("red_px", 0)
+        # Red back to where it was before any patch (within 1000 px), not merely less of it.
+        and rollback.get("red_px", 0) <= base.get("red_px", 0) + 1000
         and rollback.get("rollback_to_redraw_s", 99) < 2)
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
