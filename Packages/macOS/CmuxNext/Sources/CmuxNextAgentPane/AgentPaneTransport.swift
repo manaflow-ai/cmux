@@ -268,7 +268,7 @@ import CmuxNextCompat
         remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
-        launchTimings.mark("agent_pane.transport_open_start")
+        launchTimings.mark(stage: "transport_open_start", newTab: isNewTabPage())
         if let daemon = trustDaemon {
             bindPreOpenTrust(to: daemon)
             guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
@@ -309,7 +309,7 @@ import CmuxNextCompat
             if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
-        launchTimings.mark("agent_pane.transport_listener_checked")
+        launchTimings.mark(stage: "transport_listener_checked", newTab: isNewTabPage())
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -329,13 +329,13 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
-        launchTimings.mark("agent_pane.transport_accepted_checked")
+        launchTimings.mark(stage: "transport_accepted_checked", newTab: isNewTabPage())
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
-        launchTimings.mark("agent_pane.transport_open")
+        launchTimings.mark(stage: "transport_open", newTab: isNewTabPage())
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }

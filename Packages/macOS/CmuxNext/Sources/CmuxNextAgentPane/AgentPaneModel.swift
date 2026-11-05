@@ -324,6 +324,7 @@ public final class AgentPaneModel {
         (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
         sandboxRuns.restore(seed?.sandboxResult)
+        transport.isNewTabPage = { [weak self] in self?.newTab != nil }
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
