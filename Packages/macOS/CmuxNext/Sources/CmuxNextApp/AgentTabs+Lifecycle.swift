@@ -333,12 +333,12 @@ extension AgentTabStore {
 
     /// "This chat runs on <machine>" for tab `key`, whose session another Mac's acpmux runs.
     func notice(for key: String) -> AgentTabElsewhereView? {
-        let key = resolve(key)
-        if let notice = notices[key] { return notice }
-        guard let localHost, let (record, store) = lookup(key), record.host != localHost else { return nil }
+        let scoped = tabKey(key)
+        if let notice = notices[scoped] { return notice }
+        guard let localHost, let (record, store) = record(for: scoped), record.host != localHost else { return nil }
         let notice = AgentTabElsewhereView(machine: record.hostName)
-        notices[key] = notice
-        track(key, in: store)
+        notices[scoped] = notice
+        track(scoped.key, in: store, machine: scoped.machine)
         return notice
     }
 

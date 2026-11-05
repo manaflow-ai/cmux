@@ -20,6 +20,12 @@ struct AgentPaneRelaunchWakeTests {
     static let thisMac = "install:agent-pane-relaunch-wake-test"
     static let work = BackgroundWork(label: "test.relaunch-wake")
 
+    static func scoped(_ states: [String: AgentPaneWakeState]) -> AgentTabMap<AgentPaneWakeState> {
+        var result = AgentTabMap<AgentPaneWakeState>()
+        for (key, state) in states { result[AgentTabKey(machine: thisMac, key: key)] = state }
+        return result
+    }
+
     /// A tab store of one run, as the App wires it: tab records in a tree, pages on a page that
     /// never loads (a loopback port nobody serves), the wake file of the tag's state directory.
     static func run(file: URL, records: [String: AgentSessionRef]) -> AgentTabStore {
@@ -66,7 +72,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // The next run: each tab's first page gets its chat's composer back with its handshake.
         let after = Self.run(file: file, records: records)
-        after.wakeStates = await after.relaunchWake.take(on: Self.work)
+        after.wakeStates = Self.scoped(await after.relaunchWake.take(on: Self.work))
         #expect(after.wakeStates["tab_gone"] == nil, "a closed tab's composer was kept")
         let shownPage = try #require(after.view(for: "tab_shown"))
         let shownHandshake = try await Self.ready(shownPage)
@@ -84,7 +90,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // Handed back once: a crash after this launch never brings back chips already sent.
         let third = Self.run(file: file, records: records)
-        third.wakeStates = await third.relaunchWake.take(on: Self.work)
+        third.wakeStates = Self.scoped(await third.relaunchWake.take(on: Self.work))
         #expect(third.wakeStates.isEmpty)
     }
 
@@ -115,7 +121,7 @@ struct AgentPaneRelaunchWakeTests {
         await before.relaunchWake.save(before.relaunchWakeStates())
 
         let after = Self.run(file: file, records: records)
-        after.wakeStates = await after.relaunchWake.take(on: Self.work)
+        after.wakeStates = Self.scoped(await after.relaunchWake.take(on: Self.work))
         let page = try #require(after.view(for: "tab_chat"))
         let handshake = try await Self.ready(page)
         let wake = try #require(handshake["wake"] as? [String: Any], "the chat came back without its subagent's draft")
@@ -219,7 +225,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // The next run: the chat's first page gets the four screenshots back with its handshake.
         let after = Self.run(file: file, records: records)
-        after.wakeStates = await after.relaunchWake.take(on: Self.work)
+        after.wakeStates = Self.scoped(await after.relaunchWake.take(on: Self.work))
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path),
                 "the launch left the saved composer behind, so a chip sent in this run could come back")
         let restoredPage = try #require(after.view(for: "tab_chat"))

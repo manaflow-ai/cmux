@@ -423,7 +423,8 @@ final class AgentTabStore {
         candidates.formUnion(listTabsScoped().filter { tab in
             tab.key == key || resolve(tab.key, machine: tab.machine) == key
         }.map { AgentTabKey(machine: $0.machine, key: $0.key) })
-        return candidates.count == 1 ? candidates.first! : AgentTabKey(machine: "", key: resolve(key))
+        if candidates.count == 1, let only = candidates.first { return only }
+        return AgentTabKey(machine: "", key: resolve(key))
     }
 
     func resolvedKey(_ key: AgentTabKey) -> AgentTabKey {
@@ -489,8 +490,8 @@ final class AgentTabStore {
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
     func revealTurn(_ turn: String, in key: String) {
-        let key = resolve(key)
-        if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
+        let scoped = tabKey(key)
+        if let view = views[scoped] { view.revealTurn(turn) } else { pendingTurns[scoped] = turn }
     }
 
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is

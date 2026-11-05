@@ -1,5 +1,4 @@
 import CmuxNextBrowser
-import CmuxNextTabs
 import CmuxNextControl
 import class CmuxNextDaemon.WorkspaceModel
 import CmuxNextSettings
