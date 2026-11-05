@@ -14,7 +14,7 @@ struct GitHubPageProviderTests {
     private static let page = PageCallContext(page: "cmux.github")
     private static let click = PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 1)
     private static let pull = URL(string: "https://github.com/manaflow-ai/cmux/pull/36002")!
-    private static let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"
+    nonisolated private static let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"
 
     /// Counts diff reads; answers `text`.
     private final class Reads: @unchecked Sendable { // crash-allow: test counter touched only on the main actor
