@@ -49,7 +49,7 @@ export function fileCard(tool: Tool, text: string | undefined, cwd?: string): Fi
     return read && { kind: "read", read };
   }
   if (call.tool === "search" || call.tool === "glob" || call.tool === "list") {
-    const result = searchResult(text, inputCwd(tool) ?? cwd);
+    const result = searchResult(text, inputCwd(tool) ?? cwd, call.tool !== "search");
     return result && { kind: "search", tool: call.tool, result };
   }
   return undefined;
@@ -87,11 +87,14 @@ const TRUNCATED = /^\(Results are truncated\b/;
 const LINE_MATCH = /^(.+?):(\d+):(.*)$/;
 const COUNT = /^(.+?):(\d+)$/;
 const HEADING_MATCH = /^(\d+)[:-](.*)$/;
+/// A file name without an extension or folder, as a Glob prints one at the root.
+const NAME = /^[\w.-]+$/;
 const TEXT_MATCH = /^([^:\s]+\.[A-Za-z0-9]{1,12}):(.*)$/;
 
 /// A search's files and matches, or undefined when any line is neither a match, a path nor a summary
-/// line it knows, or names no file.
-export function searchResult(text: string, cwd?: string): SearchResult | undefined {
+/// line it knows, or names no file. `filesOnly` (a Glob or a listing, which print only paths) also
+/// takes a bare name with no extension (`LICENSE`, `Makefile`).
+export function searchResult(text: string, cwd?: string, filesOnly = false): SearchResult | undefined {
   const files = new Map<string, SearchFile>();
   let truncated = false;
   let heading: SearchFile | undefined;
@@ -120,7 +123,7 @@ export function searchResult(text: string, cwd?: string): SearchResult | undefin
       if (line[match[1]!.length] === ":") heading.matches.push({ line: Number(match[1]), text: match[2]!.trim() });
     } else if ((match = line.match(TEXT_MATCH))) {
       file(match[1]!).matches.push({ text: match[2]!.trim() });
-    } else if (isPath(line)) {
+    } else if (isPath(line) || (filesOnly && NAME.test(line))) {
       heading = file(line);
     } else {
       return undefined;

@@ -10,6 +10,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
 import { FileKindIcon } from "../chips/FileKindIcon";
+import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
 import { PreviewMore, usePreview } from "./BlockParts";
@@ -32,7 +33,19 @@ export function FileResultCard({ id, card, reveal }: { id: string; card: FileCar
 
 /// Opens `path` in cmux on a click, where this page may: never for another machine's chat, a shared
 /// read-only one, or a path on the deny list (as PathChip). Otherwise it draws as plain text.
-function FileButton({
+function FileButton(props: { path: string; className: string; label: string; children: ReactNode }) {
+  const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
+  if (scope?.host !== undefined || readOnly || isDeniedPath(props.path))
+    return <span className={props.className}>{props.children}</span>;
+  return <HostFileButton {...props} />;
+}
+
+/// A file the host has placed (`link.inspect`, linkStore.ts): a button once it answers that the path
+/// is in the session's folders, or outside them where `agentPane.links.outsideRoots` lets it open.
+/// A chat on another machine gets no place for its paths, so its files stay text, as do missing and
+/// denied ones; until the host answers, the line is text too, so a click never goes nowhere.
+function HostFileButton({
   path,
   className,
   label,
@@ -43,9 +56,9 @@ function FileButton({
   label: string;
   children: ReactNode;
 }) {
-  const scope = useMessageScope();
-  const readOnly = useTranscriptReadOnly();
-  if (scope?.host !== undefined || readOnly || isDeniedPath(path)) return <span className={className}>{children}</span>;
+  const { info, answered, policy } = usePathInfo(path);
+  const opens = answered && (info?.place === "root" || (info?.place === "outside" && policy.outsideRoots !== "text"));
+  if (!opens) return <span className={className}>{children}</span>;
   return (
     <button
       type="button"
@@ -118,13 +131,15 @@ function SearchCard({
   const long = rows > SEARCH_PREVIEW_ROWS;
   const files = useMemo(() => {
     if (all || !long) return result.files;
-    // Whole files up to the cut, and always at least one.
+    // Files up to the cut, the last one's matches cut with it, so one file with thousands of matches
+    // mounts no more rows than the preview shows.
     const shown = [];
-    let used = 0;
+    let left = SEARCH_PREVIEW_ROWS;
     for (const file of result.files) {
-      used += 1 + file.matches.length;
-      if (shown.length && used > SEARCH_PREVIEW_ROWS) break;
-      shown.push(file);
+      if (left <= 0) break;
+      const matches = file.matches.slice(0, Math.max(0, left - 1));
+      shown.push(matches.length < file.matches.length ? { ...file, matches } : file);
+      left -= 1 + matches.length;
     }
     return shown;
   }, [all, long, result.files]);
@@ -132,6 +147,8 @@ function SearchCard({
     // A text search that numbered its matches counts them; a files-only one counts files alone.
     lines && result.matches > 0 ? t("fileCards.matches", { n: result.matches }) : undefined,
     t("fileCards.files", { n: result.files.length }),
+    // The harness cut its own list short: the card says so rather than look complete.
+    result.truncated ? t("fileCards.truncated") : undefined,
   ]
     .filter(Boolean)
     .join(" · ");

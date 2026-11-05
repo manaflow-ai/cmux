@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { HARNESS_CALLS } from "../toolNamesFixture";
 import { setChipHost } from "../chips/host";
+import { resetLinkStore } from "../chips/linkStore";
 import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
@@ -33,6 +34,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   setChipHost(undefined);
+  resetLinkStore();
   root = undefined;
   dom?.window.close();
   dom = undefined;
@@ -107,11 +109,17 @@ test("an opened Read is its file, line range and numbered lines, cut to eight; c
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
   const calls: [string, Record<string, unknown>][] = [];
+  // The host places both files in the session's folders.
   setChipHost(async (method, params) => {
+    if (method === "link.inspect")
+      return {
+        paths: Object.fromEntries((params.paths as string[]).map((path) => [path, { place: "root", folder: false }])),
+      };
     calls.push([method, params]);
   });
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.search, GREP)} />);
   await open(container);
+  await act(async () => {});
   expect(container.querySelector(".cv-tool-detail")).toBeNull();
   expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe("3 matches · 2 files");
   expect([...container.querySelectorAll(".cv-filematches__name")].map((node) => node.textContent)).toEqual([
@@ -124,6 +132,35 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   await act(async () => lines[2]!.click());
   await act(async () => {});
   expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts" }]]);
+});
+
+test("a chat on another machine, whose paths the host does not place, draws its files as text", async () => {
+  // A remote chat's paths get no place (AgentPaneRemoteChatPathTests): the answer names none.
+  setChipHost(async (method) => (method === "link.inspect" ? { paths: {} } : undefined));
+  const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.search, GREP)} />);
+  await open(container);
+  await act(async () => {});
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(3);
+  expect(container.querySelector("button.cv-filematches__line, button.cv-filematches__path")).toBeNull();
+});
+
+test("a long search mounts only its preview rows, cuts inside a big file, and says when the harness cut it", async () => {
+  const many = Array.from({ length: 500 }, (_, index) => `/w/src/big.ts:${index + 1}:match ${index + 1}`).join("\n");
+  const container = await render(
+    <ToolRow
+      item={item(
+        HARNESS_CALLS.claude.search,
+        `${many}\n/w/src/small.ts:1:x\n(Results are truncated. Consider a narrower path.)`,
+      )}
+    />,
+  );
+  await open(container);
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(15);
+  expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe(
+    "501 matches · 2 files · more were left out",
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-filematches .cv-output-more")!.click());
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
 });
 
 test("in a read-only chat a search's files draw as text, never opening the owner's files", async () => {

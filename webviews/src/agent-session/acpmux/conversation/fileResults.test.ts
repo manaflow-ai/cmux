@@ -104,6 +104,15 @@ test("Claude's files-with-matches, counts and Glob lists, rg's headings and plai
   });
 });
 
+test("a Glob's root files without an extension read as files; a text search's do not", () => {
+  expect(searchResult("LICENSE\nMakefile\nsrc/a.ts", "/w", true)?.files.map((file) => file.open)).toEqual([
+    "/w/LICENSE",
+    "/w/Makefile",
+    "/w/src/a.ts",
+  ]);
+  expect(searchResult("LICENSE\nsrc/a.ts", "/w")).toBeUndefined();
+});
+
 test("a search result with words a card does not know, or no file, keeps the generic body", () => {
   expect(searchResult("Directory listing for /w:\n[DIR] src")).toBeUndefined();
   expect(searchResult("No files found")).toBeUndefined();
