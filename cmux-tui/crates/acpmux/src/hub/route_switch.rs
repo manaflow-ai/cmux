@@ -413,8 +413,12 @@ impl Hub {
         });
         // A codex chat on a router, proxy or key with no fallback of its own may always go back to
         // the signed-in Codex login it would run on with no route at all, and does by itself.
-        let signed_in = named
-            .is_none()
+        // A route that names fallbacks of its own keeps to them, even when none can take the chat
+        // now: only one that names none moves by itself.
+        let signed_in = route
+            .file
+            .fallback
+            .is_empty()
             .then(|| account_fallback(&route, &family, home.as_deref(), dir.as_deref()))
             .flatten();
         if unbound && signed_in.is_none() {
