@@ -684,10 +684,21 @@ impl Store for JournalStore {
     }
     /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
     /// then checkpoints).
+    /// No write lands after this returns; then the shutdown's last checkpoint, while the journal is
+    /// still open; then the journal closes, every record fully synced. The last checkpoint runs
+    /// here and not after (delta review of #35866, D1): a log sync that fails in it, or in a sync
+    /// under way that it waits for, freezes the store, and its `frozen` record must reach the
+    /// journal. A checkpoint after this (`Hub::seal`'s flush) finds no work.
     fn seal(&self) {
-        // Under the appends' lock: an append lands in the log and the journal, or in neither.
+        {
+            // Under the appends' lock: an append lands in the log and the journal, or in neither.
+            let _order = self.inner.order.lock_or_recover();
+            Store::seal(&self.inner.local);
+        }
+        if let Err(error) = self.inner.checkpoint() {
+            tracing::warn!("the event journal's last checkpoint: {error:#}");
+        }
         let _order = self.inner.order.lock_or_recover();
-        Store::seal(&self.inner.local);
         if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
             tracing::error!("seal the event journal: {error}");
         }
