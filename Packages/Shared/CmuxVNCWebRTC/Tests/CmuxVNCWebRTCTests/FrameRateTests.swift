@@ -170,5 +170,13 @@ struct FrameRateTests {
         #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: last, previousPointer: CGPoint(x: 90, y: 200)),
                 "the frame after the pointer came to rest")
     }
+
+    /// A cursor the gate missed (the pointer settled while its frame was on
+    /// the way) shows with the next keep-alive: it sends the newest frame
+    /// held back, not the last one sent.
+    @Test func theKeepAliveSendsTheNewestHeldFrame() {
+        #expect(ScreenStreamHost.keepAliveFrame(held: "held", last: "sent") == "held")
+        #expect(ScreenStreamHost.keepAliveFrame(held: String?.none, last: "sent") == "sent")
+    }
     #endif
 }

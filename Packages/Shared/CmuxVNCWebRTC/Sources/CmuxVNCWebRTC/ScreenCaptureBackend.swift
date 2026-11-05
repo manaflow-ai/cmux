@@ -35,6 +35,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var lastDelivered: (size: CGSize, pointer: CGPoint?)?
     /// Complete frames with nothing changed that were not sent on.
     private var skippedUnchanged = 0
+    /// The newest of them (nil once a frame goes out): the host's keep-alive
+    /// sends it, so a cursor the gate missed shows within a second.
+    private var held: (buffer: CVPixelBuffer, crop: CGRect)?
     /// The pointer position read for the frame before (sent or not).
     private var lastPointer: CGPoint?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
@@ -217,7 +220,10 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         // A new capture's first frame always goes out, whatever its dirty rects say.
-        lock.withLock { lastDelivered = nil }
+        lock.withLock {
+            lastDelivered = nil
+            held = nil
+        }
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
         let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
@@ -233,7 +239,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             try? await stream.stopCapture()
             return
         }
-        if let previous { try? await previous.stopCapture() }
+        if let previous {
+            try? await previous.stopCapture()
+            // The old stream's last frames may have set it while this one started.
+            lock.withLock { lastDelivered = nil }
+        }
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
@@ -253,9 +263,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             guard Self.delivers(dirtyRectCount: dirtyRects, size: size, pointer: pointer, last: lastDelivered,
                                 previousPointer: lastPointer) else {
                 skippedUnchanged += 1
+                held = (buffer, CGRect(origin: .zero, size: size))
                 return nil
             }
             lastDelivered = (size, pointer)
+            held = nil
             return onFrame
         }
         sink?(buffer, CGRect(origin: .zero, size: size))
@@ -269,18 +281,28 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// drawn into the picture and may not count as dirty). The pointer is
     /// read as the frame arrives, not when it was captured, so the frame
     /// after the pointer stops goes out too: it shows where the cursor came
-    /// to rest. Petal's dirty-rect skip gate
+    /// to rest; a cursor still missed (it moved while a frame was on its way,
+    /// or changed shape in place) shows with the keep-alive, which sends the
+    /// newest frame held back (``takeHeldFrame()``). Petal's dirty-rect skip gate
     /// (https://github.com/kiruna-labs/petal, Apache-2.0,
     /// `apps/desktop/src-tauri/src/session/share.rs`). The host's keep-alive
-    /// still sends the last frame once a second.
+    /// still sends a frame once a second.
     static func delivers(dirtyRectCount: Int?, size: CGSize, pointer: CGPoint?,
                          last: (size: CGSize, pointer: CGPoint?)?, previousPointer: CGPoint?) -> Bool {
         guard let dirtyRectCount, dirtyRectCount == 0, let last else { return true }
         return last.size != size || last.pointer != pointer || previousPointer != pointer || pointer == nil
     }
 
-    /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:)`` held
+    /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:previousPointer:)`` held
     /// back since the last call (the host's 3 s video log line).
+    /// The newest frame held back since the last one sent, once.
+    public func takeHeldFrame() -> (CVPixelBuffer, CGRect)? {
+        lock.withLock {
+            defer { held = nil }
+            return held.map { ($0.buffer, $0.crop) }
+        }
+    }
+
     public func takeSkippedUnchangedFrames() -> Int {
         lock.withLock {
             defer { skippedUnchanged = 0 }

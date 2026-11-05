@@ -206,6 +206,9 @@ public protocol ScreenBackend: AnyObject, Sendable {
     /// Pictures the source held back since the last call because nothing in
     /// them changed (0 for a source that holds none back).
     func takeSkippedUnchangedFrames() -> Int
+    /// The newest of those pictures, once (nil when none was held back since
+    /// the last one sent): the keep-alive sends it in place of the last one.
+    func takeHeldFrame() -> (CVPixelBuffer, CGRect)?
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -215,6 +218,7 @@ public extension ScreenBackend {
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
     func takeSkippedUnchangedFrames() -> Int { 0 }
+    func takeHeldFrame() -> (CVPixelBuffer, CGRect)? { nil }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -473,7 +477,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
                           DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > ScreenStreamHost.keepAliveMilliseconds * 900_000 else { return nil }
                     return (last.buffer, last.crop)
                 }
-                if let stale { push(stale.0, crop: stale.1, session: session) }
+                guard let stale else { continue }
+                // The newest picture the source held back, else the last one sent.
+                let frame = ScreenStreamHost.keepAliveFrame(held: session.backend.takeHeldFrame(), last: stale)
+                push(frame.0, crop: frame.1, session: session)
             }
         })
     }
@@ -481,6 +488,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// How long a still screen goes without a frame before the host sends
     /// the last one again (it was 500 ms).
     static let keepAliveMilliseconds: UInt64 = 1000
+
+    /// What the keep-alive sends: the newest picture the source held back as
+    /// unchanged (it may show a cursor the skip gate missed), else the last
+    /// one sent.
+    static func keepAliveFrame<Frame>(held: Frame?, last: Frame) -> Frame { held ?? last }
 
     private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
         session.lock.withLock {
