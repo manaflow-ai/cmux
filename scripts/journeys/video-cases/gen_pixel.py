@@ -408,7 +408,7 @@ class Case:
     drives it, so no curve is declared), and its rebuild after the recording (a close)."""
 
     def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None,
-                 fixture_tunables=(), speeds=None):
+                 fixture_tunables=(), speeds=None, setup=None, frames=False):
         self.cid, self.title, self.layout, self.play, self.spring = cid, title, layout, play, spring
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
@@ -417,6 +417,10 @@ class Case:
         # [(key, value)]: Debug tunables the case films with (the tab outline). Required (a build that does not take one
         # is not run), set at the set-up and again in each film after its speed, back to the default in finally.
         self.fixture_tunables = list(fixture_tunables)
+        # Steps after the layout is built, once per journey (docked DevTools on a page, S5 m16 item 5).
+        self.setup = list(setup or [])
+        # debug.frames per film (main ms per frame, raw; <film>.frames.json): the main-thread time of every motion frame.
+        self.frames = frames
 
     def fixture_steps(self, when):
         return [{"do": "px_tunable", "key": key, "value": value, "required": True,
@@ -434,8 +438,14 @@ class Case:
                  "title": f"start the 120 Hz movie, the trace and scan lines across every pane border and tab strip ({name})"}
         if self.spring:
             start["spring_default"] = {"response": RESPONSE[self.spring], "damping": DAMPING[self.spring]}
-        steps = (list(self.before) + self.fixture_steps("the film's fixture") + [G.settle(0.8), start] + self.play(speed)
-                 + [G.kit_record_stop(name, 0.4)])
+        frames_on = [{"do": "rpc", "method": "debug.frames", "params": {"action": "start"},
+                      "title": "debug.frames start (main ms per frame)"}] if self.frames else []
+        frames_off = [{"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "keep": "frames",
+                       "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"}] if self.frames else []
+        # debug.frames stops after the play's own rest (the motion has landed) and before the movie stops: the film's last
+        # step stays video_stop.
+        steps = (list(self.before) + self.fixture_steps("the film's fixture") + [G.settle(0.8)] + frames_on + [start]
+                 + self.play(speed) + frames_off + [G.kit_record_stop(name, 0.4)])
         rebuild = [] if last else list(self.rebuild)  # the journey's last film needs no pane back
         film = {"do": "px_film", "name": name, "steps": steps, "after": rebuild,
                 "title": (f"film {name}: Reduce Motion" if speed is None else f"film {name}: every motion.spring.* response / {speed:g}")}
@@ -522,6 +532,15 @@ def held_play(speed):
              "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"}, rest(land(speed)),
             {"do": "rk_press", "key": "h", "modifiers": ["control", "shift"], "count": 30, "gap_ms": 33, "mark": "burst",
              "title": "Ctrl-Shift-H x30, 33 ms apart (real HID)"}, rest(land(speed))]
+
+
+def devtools_setup(page):
+    """DevTools docked below PAGE's page (the action devtools.openDocked on the focused web view), then the DevTools front end
+    drawn (it takes 0.1-0.3 s; 3 s of rest), and debug.cef read (its tracker counts and DevTools state, <journey>.cef-devtools)."""
+    return [focus(page), {"do": "action", "action": "devtools.openDocked", "mark": "devtools",
+                          "title": f"set-up: DevTools docked below {page}'s page (devtools.openDocked)"},
+            G.settle(3.0), {"do": "rpc", "method": "debug.cef", "params": {}, "keep": "cef-devtools",
+                            "title": "debug.cef after DevTools opened (tracker, DevTools state)"}]
 
 
 def held_start():
@@ -683,6 +702,15 @@ def cases():
                     play_seconds=lambda s: len(resize_keyboard_keys()) * (0.1 + land(s))))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
                     held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s)))
+    # S5 m16 item 5 (S5 owner, STATUS 13501): the same cases with DevTools docked below p1's page, and debug.frames per film:
+    # with S5 ON every shown page follows its pane, DevTools included, so the main-thread time per motion frame is the measure
+    # (p99 under 8 ms at 120 Hz).
+    out.append(Case(f"px-keys-held-{T2.key}-dt", f"the held keys with DevTools docked below p1's page ({T2.text})", T2,
+                    held_play, None, "held keys (docked DevTools)", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s),
+                    setup=devtools_setup("p1"), frames=True))
+    play, secs = col_drag_play(0)
+    out.append(Case(f"px-col-drag-{T2.key}-dt", f"divider 0 dragged 150 pt right slowly and back fast, DevTools docked below p1's page "
+                    f"({T2.text})", T2, play, None, "drag (docked DevTools)", play_seconds=secs, setup=devtools_setup("p1"), frames=True))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
     # read each tab cell against its strip. One tab back in p0 after each film, so the next starts with 3 tabs again.
     out.append(Case(f"px-keys-held-{T2T.key}-tabclose",
@@ -793,7 +821,7 @@ def journey(case, jid, speeds, part_note, switch_key=None, setup_value=None):
     if "agent" in case.layout.kinds():
         steps.append({"do": "px_agent_css", "fill": AGENT_FILL, "title": "set-up: agent-pane/theme.css: the agent ground and its rings"})
     steps += case.fixture_steps("set-up")
-    steps += case.layout.build() + [G.settle(1.5)]
+    steps += case.layout.build() + [G.settle(1.5)] + case.setup
     seconds = EST_BASE + case.layout.seconds()
     names = []
     for n, spec in enumerate(speeds):
