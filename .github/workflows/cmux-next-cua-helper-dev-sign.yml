@@ -249,24 +249,7 @@ jobs:
 
       # Content-addressed and write-once; the second call reads the object back
       # and checks its sha256 (an identical object is accepted, any other refused).
-      - name: Publish to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          KEY: ${{ steps.sign.outputs.key }}
-        run: |
-          set -euo pipefail
-          for attempt in upload read-back; do
-            echo "R2 $attempt"
-            python3 scripts/ci/upload-r2-object.py \
-              --file "$RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" \
-              --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
-              --content-type application/zip --cache-control 'private, max-age=31536000, immutable' \
-              --write-once
-          done
-
+      # Before publishing, so a failed upload still leaves the signed helper here.
       - name: Upload the pin and the signed helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -277,6 +260,31 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
+
+      # CMUX_CEF_R2_ACCESS_KEY_ID is the cmux-cef-read token (403 on a write,
+      # run 42028170328); the release environment's CMUX_CEF_R2_WRITE_* is the
+      # cmux-cef-write token (Object Read & Write, bucket cmux-cef only).
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          KEY: ${{ steps.sign.outputs.key }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo "::error::the release environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the signed helper and its pin are in this run's cua-helper-dev-signed artifact" >&2
+            exit 1
+          fi
+          for attempt in upload read-back; do
+            echo "R2 $attempt"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
+              --content-type application/zip --cache-control 'private, max-age=31536000, immutable' \
+              --write-once
+          done
 
   pin-pr:
     name: Open the pin bump
