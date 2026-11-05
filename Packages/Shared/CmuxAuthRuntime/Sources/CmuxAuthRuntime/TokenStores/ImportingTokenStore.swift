@@ -19,7 +19,7 @@ public struct ImportedTokenPair: Equatable, Sendable {
 /// copies the first pair found into `primary`; every later read and write is `primary`'s alone. Every
 /// method waits for that one import, so no caller sees the empty store it started from and no write
 /// lands under it. A source is only ever read: a refresh or a sign-out changes `primary` and never the
-/// app the session came from. The adopted refresh token is the other app's own Stack session, so a
+/// app the session came from (this app's own earlier stores are cleared on a sign-out, `forgetSources`). The adopted refresh token is the other app's own Stack session, so a
 /// sign-out must not revoke it on the server: ``isShared(refreshToken:)`` says so for
 /// `StackAuthClient`'s `keepsServerSession`, from the tokens this process adopted (and the refreshes of
 /// them), so it still answers after the sign-out cleared `primary` and after the other app quit. A write (a sign-in, a sign-out) before the first use ends the import
@@ -34,6 +34,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     private let primary: any StackAuthTokenStoreProtocol
     private let sources: [Source]
     private let sharesSessions: Bool
+    private let forgetSources: (@Sendable () async -> Void)?
     private var importTask: Task<String?, Never>?
     /// Refresh tokens of sessions this process adopted, and the ones their refreshes replaced them with.
     /// Kept for the process only, never written anywhere.
@@ -45,10 +46,14 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     ///   - sources: Where a session comes from when `primary` has none, in order.
     ///   - sharesSessions: Whether an adopted session is another app's (the default). False when the
     ///     sources are this app's own earlier stores: a sign-out then revokes it like any other.
-    public init(primary: any StackAuthTokenStoreProtocol, sources: [Source], sharesSessions: Bool = true) {
+    ///   - forgetSources: Clears this app's own earlier stores on a sign-out, so the next launch finds the
+    ///     person signed out rather than adopting the session they signed out of. Nil for another app's.
+    public init(primary: any StackAuthTokenStoreProtocol, sources: [Source], sharesSessions: Bool = true,
+                forgetSources: (@Sendable () async -> Void)? = nil) {
         self.primary = primary
         self.sources = sources
         self.sharesSessions = sharesSessions
+        self.forgetSources = forgetSources
     }
 
     /// Runs the import once per process (or not at all after an earlier write) and waits for it.
@@ -101,12 +106,15 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     public func clearTokens() async {
         await settle(skippingImport: true)
         await primary.clearTokens()
+        await forgetSources?()
     }
 
     @discardableResult
     public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         await settle(skippingImport: true)
-        return await primary.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+        let cleared = await primary.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+        if cleared { await forgetSources?() }
+        return cleared
     }
 
     public func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {

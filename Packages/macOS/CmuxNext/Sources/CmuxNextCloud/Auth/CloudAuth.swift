@@ -244,12 +244,13 @@ public final class CloudAuth {
             )
             let home = FileManager.default.homeDirectoryForCurrentUser
             guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
-            // Only read: a session signed in while the update read the namespaced store is this app's own.
+            // A session signed in while the update read the namespaced store is this app's own: adopted once,
+            // and cleared with a sign-out so the next launch does not sign the person back in.
             let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
                                              fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
             return ImportingTokenStore(primary: own, sources: [{
                 ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-            }], sharesSessions: false)
+            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
