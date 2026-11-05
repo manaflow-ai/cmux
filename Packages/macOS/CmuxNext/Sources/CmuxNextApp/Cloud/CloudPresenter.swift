@@ -99,8 +99,7 @@ enum CloudPresenter {
 
     /// Confirms provider setup for the tab’s resolved Cloud VM and reports failures in its window.
     @MainActor static func recoverCredentials(chat: String, request: AgentPaneCloudCredentialTransferRequest, services: AppServices) async -> Bool {
-        guard AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource,
-                                                                isSignedIn: services.cloud.isSignedIn),
+        guard AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.isSignedIn),
               let userID = services.cloud.auth.user?.id,
               let (tab, _) = services.locateTab(chat, onMachine: request.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab),

@@ -2,7 +2,7 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// A create the plan does not include comes back as the typed plan refusal (Pro
+/// A request the plan does not include comes back as the typed plan refusal (Pro
 /// for the app's Upgrade to cmux Pro dialog, Max for a Pro plan's limits); a paid
 /// plan's ordinary limit and a credits top-up stay plain HTTP refusals. Bodies are the server's own (web/services/vms/routeHelpers.ts).
 @Suite(.serialized)
@@ -34,7 +34,7 @@ struct CloudAPIClientPlanRequiredTests {
         let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
                                  session: URLSession(configuration: sessionConfiguration))
         do {
-            _ = try await api.createMachine(displayName: nil)
+            try await api.setIdlePause("vm-1", minutes: 0)
             return nil
         } catch {
             return error
