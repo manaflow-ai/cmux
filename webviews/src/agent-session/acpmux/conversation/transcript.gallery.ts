@@ -1948,13 +1948,13 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
+      note: "A long thought still streaming holds a seven-line viewport with its newest line in view and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line); with agentPane.debug.foldLongThoughts off (data-fold-long-thoughts="off" on <html>), it shows in full as before.',
+      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line).',
       snapshot: chat(
         [
           user(prompt, 2),

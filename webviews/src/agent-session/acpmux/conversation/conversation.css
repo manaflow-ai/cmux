@@ -2693,9 +2693,8 @@ button.cv-worked:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX, Debug toggle
-   agentPane.debug.liveThoughtViewport): a fixed viewport of seven lines, Codex's 8.75rem, that
-   keeps its newest line at the bottom while older lines fade out at its top over 16px. */
+/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX): a fixed viewport of seven
+   lines, Codex's 8.75rem, that keeps its newest line at the bottom while older lines fade out at its top over 16px. */
 .cv-thought.is-live .cv-thought__text {
   display: flex;
   flex-direction: column-reverse;
@@ -2704,8 +2703,7 @@ button.cv-worked:focus-visible {
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
   mask-image: linear-gradient(to bottom, transparent, black 16px);
 }
-/* A finished thought folded (ThoughtRow.tsx; Debug toggle agentPane.debug.foldLongThoughts): "Thought
-   for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
+/* A finished thought folded (ThoughtRow.tsx): "Thought for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
    trailing chevron. Opened, the text sits flush under the label (above); the reader's toggle
    animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {
