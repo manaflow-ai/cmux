@@ -202,6 +202,8 @@ PATH_OWNERS = {
     "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
+
 # Changes here can alter which required work runs. They always exercise every
 # group, including when the candidate implementation would route more narrowly.
 ROUTING_POLICY_PATHS = frozenset({
@@ -431,6 +433,9 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         return GROUPS
 
     owners = set(PATH_OWNERS.get(path, ()))
+    if REGISTRY_FRAGMENT.fullmatch(path):
+        # A test registry area fragment is read like tests/test-execution.toml was.
+        owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of

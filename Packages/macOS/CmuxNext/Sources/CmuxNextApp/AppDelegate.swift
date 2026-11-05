@@ -219,7 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        // Labs > Live Code starts the live code watcher with the other non-paint services.
+        firstFrame.whenOpen { [weak self, weak services] in services?.startNonPaintServices(); self?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -334,6 +335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        // Before any page asks: Live Web Reload off ignores web-dev.json from the first request.
+        WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

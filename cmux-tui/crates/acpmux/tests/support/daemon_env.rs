@@ -363,6 +363,12 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
         "ACPMUX_TEST_SESSION_TMP_BASE".into(),
         scratch.join("session-tmp").display().to_string(),
     ));
+    // Every daemon and agent host a process started from here starts ends once this test process
+    // exits, even mid-turn, on a panic or a SIGKILL that skips the test's own teardown
+    // (`daemon/owner_exit.rs`, debug builds): hosts outlive their daemon on purpose, and 34 test
+    // hosts and 8 test daemons ran for days on one lane VM.
+    #[cfg(unix)]
+    env.push(("ACPMUX_TEST_OWNER_PID".into(), std::process::id().to_string()));
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }

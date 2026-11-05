@@ -32,14 +32,18 @@ public enum CloudStrings {
         // The missing capability ids stay in the Cloud diagnostics JSON
         // (`missing_features`); the text never shows them.
         case .limited:
-            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs cmux-tui %@. Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
+            return String(format: String(localized: "cloud.compat.limitedUpdate", defaultValue: "This machine runs an older cmux (%@). Update it to turn on every feature of this app.", table: "Cloud", bundle: .module),
                           compat.versionLabel)
         case .incompatible:
-            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a cmux-tui this app cannot use. Update the machine to connect.", table: "Cloud", bundle: .module)
+            return String(localized: "cloud.compat.incompatibleUpdate", defaultValue: "This machine runs a version of cmux this app can't use. Update the machine to connect.", table: "Cloud", bundle: .module)
         }
     }
     /// A Cloud machine's link ended; v1 does not reconnect by itself.
     public static var linkDisconnected: String { String(localized: "cloud.link.disconnected", defaultValue: "Disconnected from the Cloud machine. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    /// The same, with why the link ended (the link's own words), so a dropped link is never a guess.
+    public static func linkDisconnected(because reason: String) -> String {
+        String(format: String(localized: "cloud.link.disconnectedBecause", defaultValue: "Disconnected from the Cloud machine (%@). Click Connect to connect again.", table: "Cloud", bundle: .module), reason)
+    }
     /// The app could not start or reach this Mac's connection helper.
     public static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     public static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }

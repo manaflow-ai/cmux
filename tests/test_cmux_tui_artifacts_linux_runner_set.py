@@ -90,6 +90,7 @@ SHORT_JOBS = (
     "sentry-dsyms",
     "publish-tree-tested",
     "point-feat-channel",
+    "point-machine-channel",
     "mark-tree-commits",
     "request-nightly-next",
     "notify-unpublished-tree",

@@ -412,3 +412,94 @@ fn native_token_receiver_admission_window_holds_a_stream_until_revoked() {
     v.replace_authority(revoked).unwrap();
     assert_eq!(lease.deadline(), None, "a read without the peer did not revoke its stream");
 }
+
+#[test]
+fn native_token_receiver_reports_a_newer_peer_binding_as_policy_behind_and_still_refuses() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let f = fixture();
+    let (verifier, _clock) = configured();
+    let behind = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = behind.clone();
+    verifier.on_policy_behind(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+    });
+    // Minted against newer peer authority (an ACL bump or a renewed grant):
+    // refused, and the owner is told its policy is behind.
+    for (field, value) in [
+        ("acl_version", serde_json::json!(2)),
+        ("authority_version", serde_json::json!("b".repeat(64))),
+    ] {
+        let mut c = f["claims"].clone();
+        c["network"][field] = value;
+        assert_eq!(
+            verifier.verify(&signed(&c), &expected(Service::Daemon)).err(),
+            Some(TokenRefused::Invalid),
+            "{field}"
+        );
+    }
+    assert_eq!(behind.load(Ordering::SeqCst), 2);
+    // Anything not signed for this receiver, host, epoch and team never says so.
+    let mut c = f["claims"].clone();
+    c["network"]["acl_version"] = serde_json::json!(2);
+    let mut forged = signed(&c);
+    forged.pop();
+    forged.push('A');
+    let mut other = f["claims"].clone();
+    other["aud"] = serde_json::json!("host_00000000000000000003");
+    other["network"]["acl_version"] = serde_json::json!(2);
+    for token in [forged, signed(&other)] {
+        assert!(verifier.verify(&token, &expected(Service::Daemon)).is_err());
+    }
+    // A newer token for this peer, sent over another WireGuard session: no hint.
+    let wrong = Expected { peer_key: &[7; 32], ..expected(Service::Daemon) };
+    assert!(verifier.verify(&signed(&c), &wrong).is_err());
+    assert_eq!(behind.load(Ordering::SeqCst), 2, "only a signed, current token hints");
+    // The current token still verifies: the hint admits nothing and spends nothing.
+    assert!(verifier.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok());
+}
+
+/// RED before reasons: every check below refused as the same bare `Invalid`,
+/// so a production issuer mismatch (`cmux:cloud:prod` minted against a
+/// receiver expecting `cmux:cloud:production`) read like any other refusal.
+#[test]
+fn native_token_receiver_names_the_check_that_refused() {
+    let f = fixture();
+    for (field, value, reason) in [
+        ("iss", serde_json::json!("cmux:cloud:prod"), "issuer"),
+        ("aud", serde_json::json!("host_00000000000000000003"), "audience"),
+        ("epoch", serde_json::json!(5), "epoch"),
+        ("team", serde_json::json!("team_00000000000000000003"), "team"),
+        ("sub", serde_json::json!("install_1"), "subject"),
+        ("sub", serde_json::json!("inst_00000000000000000003"), "peer_not_in_policy"),
+        ("iat", serde_json::json!(1_792_000_100), "iat_in_future"),
+        ("exp", serde_json::json!(1_792_000_400), "lifetime"),
+        ("jti", serde_json::json!("short"), "jti"),
+        ("svc", serde_json::json!([]), "services"),
+    ] {
+        let mut c = f["claims"].clone();
+        c[field] = value;
+        let token = signed(&c);
+        let (verifier, _) = configured();
+        let refusal = verifier.verify_explained(&token, &expected(Service::Daemon)).unwrap_err();
+        assert_eq!(refusal.reason, reason, "{field}");
+        let (verifier, _) = configured();
+        assert_eq!(
+            verifier.verify(&token, &expected(Service::Daemon)).err(),
+            Some(refusal.kind),
+            "the reason changed what {field} refuses"
+        );
+    }
+    let mut c = f["claims"].clone();
+    c["iss"] = serde_json::json!("cmux:cloud:prod");
+    let (verifier, _) = configured();
+    let refusal = verifier.verify_explained(&signed(&c), &expected(Service::Daemon)).unwrap_err();
+    let text = refusal.to_string();
+    assert!(text.contains("\"cmux:cloud:test\"") && text.contains("\"cmux:cloud:prod\""), "{text}");
+    let altered = format!("{}x", f["token"].as_str().unwrap());
+    let refusal = verifier.verify_explained(&altered, &expected(Service::Daemon)).unwrap_err();
+    assert!(!refusal.to_string().contains(f["token"].as_str().unwrap()), "never the token");
+    // A refused token is not spent, and the accepted one is unchanged.
+    assert!(
+        verifier.verify_explained(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok()
+    );
+}

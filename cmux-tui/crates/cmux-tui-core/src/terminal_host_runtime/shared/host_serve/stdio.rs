@@ -61,6 +61,18 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
+    // Under a test, the terminal ends when the test process exits, also when
+    // its daemon is already gone (cx-leo45): no orphan grace for a test's PTY.
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    {
+        let ending = shared.clone();
+        crate::test_owner::follow(move || {
+            eprintln!(
+                "terminal-host: the test process that started it exited; ending the terminal"
+            );
+            ending.request_termination();
+        });
+    }
     // In a build with an orphan grace (tagged DEV, staging, debug), a plain
     // SIGTERM ends an orphaned host (no client stream for a while: its
     // daemon is gone); a host its daemon still serves, or one in a short

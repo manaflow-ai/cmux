@@ -1,0 +1,45 @@
+[package]
+name = "cmux-cloud-client"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "NEXT Cloud's one Rust client: generated from cmux-platform's openapi.json, shared by the cmux CLI, acpmux and the Cloud app server"
+
+# The generated method docs indent plain text, which rustdoc would compile as
+# doctests. The crate has no hand-written examples to test.
+[lib]
+doctest = false
+
+[dependencies]
+bytes.workspace = true
+cmux-cloud-environment.workspace = true
+cmux-cloud-wire.workspace = true
+futures = "0.3"
+getrandom.workspace = true
+# Pinned exactly like the generator (workers/cmux-vm/cli/Cargo.toml): the
+# generated code and its runtime move together.
+progenitor-client = "=0.15.0"
+regress = "0.12"
+reqwest = { workspace = true, features = ["query", "stream"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+# The generator's own pins (workers/cmux-vm/cli/Cargo.toml), so the client
+# generated here is the one cmux-vm-codegen writes.
+[build-dependencies]
+openapiv3 = "=2.2.0"
+prettyplease = "=0.3.0"
+progenitor = { version = "=0.15.0", default-features = false }
+serde_json.workspace = true
+syn = { version = "=3.0.6", features = ["full"] }
+
+[dev-dependencies]
+cmux-cloud-config.workspace = true
+rustls.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
+
+[lints]
+workspace = true

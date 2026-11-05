@@ -128,7 +128,18 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            // Why it failed, for a program: the target's machine has no such session.
+            "reason": self.no_session().then_some("no_session"),
         })
+    }
+
+    /// It failed because the target's machine has no such session (`server/outbox.rs`).
+    pub fn no_session(&self) -> bool {
+        self.state == State::Failed
+            && self
+                .error
+                .as_deref()
+                .is_some_and(|e| e.starts_with(super::no_session::NO_SESSION_PREFIX))
     }
 }
 

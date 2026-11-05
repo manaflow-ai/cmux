@@ -1,6 +1,6 @@
 // A modal dialog over Base UI Dialog: focus moves in and is trapped, the page behind is inert,
 // Escape and a press outside dismiss it, and focus returns to where it was.
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -12,6 +12,8 @@ export interface DialogProps {
   label: string;
   className?: string;
   backdropClassName?: string;
+  /** The popup's own style (a custom property it reads). */
+  style?: CSSProperties;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Keys of the dialog's own content. The popup takes focus when a press inside lands on no
    * focusable element, so a handler on an inner element would miss them. */
@@ -25,6 +27,7 @@ export function Dialog({
   label,
   className,
   backdropClassName,
+  style,
   initialFocus,
   onKeyDown,
   children,
@@ -47,6 +50,7 @@ export function Dialog({
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
           aria-label={label}
+          style={style}
           initialFocus={initialFocus}
           onKeyDown={onKeyDown}
           onKeyDownCapture={(event) => {
