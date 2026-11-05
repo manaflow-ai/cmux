@@ -379,6 +379,7 @@ def xctrace_stop(handle, label):
     byid = {}
     proc_w, thread_w = collections.Counter(), collections.Counter()
     self_w = collections.defaultdict(collections.Counter)
+    incl_w = collections.defaultdict(collections.Counter)
 
     def resolve(e):
         r = e.get("ref")
@@ -399,17 +400,30 @@ def xctrace_stop(handle, label):
         weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
         proc_w[pfmt] += weight
         thread_w[tfmt] += weight
-        bt = e.find("backtrace")
-        bt = resolve(bt) if bt is not None else None
+        # The time-profile row holds the stack as tagged-backtrace > backtrace > frame; each level can be a ref.
+        bt = e.find("tagged-backtrace")
+        bt = resolve(bt) if bt is not None else e.find("backtrace")
+        if bt is not None and bt.tag == "tagged-backtrace":
+            inner = bt.find("backtrace")
+            bt = resolve(inner) if inner is not None else None
+        elif bt is not None:
+            bt = resolve(bt)
         if bt is not None:
-            frames = bt.findall("frame")
+            frames = [resolve(f).get("name", "?") for f in bt.findall("frame")]
             if frames:
-                self_w[pfmt][resolve(frames[0]).get("name", "?")] += weight
+                self_w[pfmt][frames[0]] += weight
+                for name in set(frames):
+                    incl_w[pfmt][name] += weight
     summary["processes_ms"] = {k: round(v / 1e6, 1) for k, v in proc_w.most_common(15)}
     summary["threads_ms"] = {k: round(v / 1e6, 1) for k, v in thread_w.most_common(25)}
-    summary["self_ms"] = {p: {k[:140]: round(v / 1e6, 1) for k, v in c.most_common(15)} for p, c in
-                          sorted(self_w.items(), key=lambda kv: -sum(kv[1].values()))[:6]}
-    print(f"XCTRACE {label} {json.dumps(summary)[:6000]}", flush=True)
+    # Every thread of the app and of WindowServer, even below the top 25 (the renderer and IO threads).
+    focus = lambda name: name.startswith("cmux (") or name.startswith("WindowServer")
+    summary["focus_threads_ms"] = {k: round(v / 1e6, 1) for k, v in thread_w.most_common()
+                                   if ("pid: " in k and (" (cmux, pid" in k or "(WindowServer, pid" in k)) and v >= 5e6}
+    procs = [p for p, _ in sorted(self_w.items(), key=lambda kv: -sum(kv[1].values())) if focus(p)][:3]
+    summary["self_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in self_w[p].most_common(25)} for p in procs}
+    summary["incl_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in incl_w[p].most_common(40)} for p in procs}
+    print(f"XCTRACE {label} {json.dumps(summary)[:24000]}", flush=True)
     return summary
 
 
