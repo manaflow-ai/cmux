@@ -1661,7 +1661,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
     steps:
@@ -1695,7 +1695,7 @@ jobs:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 6
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -1803,7 +1803,7 @@ jobs:
     # The pinned trusted mini while pick-classic-prepare-runner saw it idle (attempt 1 of main's push or
     # schedule only); a re-run takes the Blacksmith pick below.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
     strategy:
       fail-fast: false
       matrix:
