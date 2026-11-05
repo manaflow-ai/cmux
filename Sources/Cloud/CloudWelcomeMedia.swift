@@ -671,8 +671,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// moves ~10 px a second; SwiftUI rounds sizes and offsets to whole pixels,
     /// so it stepped. A layer placed at fractional points is drawn antialiased
     /// between pixels, so it glides. Horizontal grows left to right, vertical
-    /// top to bottom.
-    private struct RailFill: NSViewRepresentable {
+    /// top to bottom. Internal so tests can lay out the shipped fill view.
+    struct RailFill: NSViewRepresentable {
         let fraction: Double
         let vertical: Bool
         var minimumLength: CGFloat = 0
