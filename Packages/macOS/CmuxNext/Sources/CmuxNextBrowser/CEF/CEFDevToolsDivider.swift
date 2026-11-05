@@ -38,13 +38,8 @@ final class CEFDevToolsDivider: NSView {
         line.fill()
     }
 
-    override func layout() {
-        super.layout()
-        placeGlow()
-    }
-
-    /// A new size places the glow at once (geometry only): a pane resize's motion frame lays out nothing under the tab
-    /// container (S5, STATUS 13849).
+    /// A new size places the glow at once (geometry only). No `layout()` override: AppKit marks a view that overrides it
+    /// as needing layout on every size change, so a pane resize's motion frame would lay this view out (S5, STATUS 13849).
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         placeGlow()
@@ -62,6 +57,7 @@ final class CEFDevToolsDivider: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         glow.applyTheme(self)
+        placeGlow()
     }
 
     override func viewDidChangeEffectiveAppearance() {
