@@ -925,6 +925,33 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status,
 // (the live web loop, web-dev.json). Any thread; applies to the next request.
 CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
 
+// WebAuthn ceremonies in the embedder (fork API 33, Chromium 157 line:
+// cmux_set_webauthn_delegate, cmux_webauthn_complete; CEFShim/src/shim_webauthn.mm).
+// A page nobody sees, or a tab in CMUX_WEBAUTHN_MODE_DELEGATE, sends its
+// navigator.credentials.create / get here instead of NotAllowedError.
+// `request_json` (valid only during the call; main thread) is one object:
+// {"request_id","browser_id","type" (0 create, 1 get),"mediation" (0 modal,
+// 1 conditional, 2 immediate, 3 ambient),"origin","top_origin","cross_origin",
+// "rp_id","options_json" (the WebAuthn options as JSON text),"user_activation",
+// "tab_mode","detached","main_frame"}.
+typedef void (*cmux_shim_webauthn_request_fn)(void* ctx, const char* request_json);
+// Chromium ended request `request_id` without the host's answer: reason 0
+// the page aborted or timed out, 1 its document is gone. Main thread.
+typedef void (*cmux_shim_webauthn_cancel_fn)(void* ctx, int request_id, int reason);
+// Sets the delegate (on_request NULL removes it; conditional mediation stays
+// refused). Ends every pending request with NotAllowedError. Returns 1 when
+// set, 0 when the fork lacks the calls (found by symbol, not by API number)
+// or refused it. UI thread, after CefInitialize.
+CMUX_SHIM_EXPORT int cmux_shim_webauthn_set_delegate(cmux_shim_webauthn_request_fn on_request,
+                                                     cmux_shim_webauthn_cancel_fn on_cancel, void* ctx,
+                                                     int platform_authenticator);
+// Answers a request once: the credential as PublicKeyCredential.toJSON()
+// JSON, or `error_name` (a DOMException name) and `error_message`. Returns
+// the fork's result: 1 answered, -1 the credential failed the fork's checks
+// (the page got NotAllowedError), 0 unknown or ended request, or no fork call.
+CMUX_SHIM_EXPORT int cmux_shim_webauthn_complete(int request_id, const char* response_json, const char* error_name,
+                                                 const char* error_message);
+
 #ifdef __cplusplus
 }
 #endif

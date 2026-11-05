@@ -343,6 +343,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_webauthn_delegate, "cmux_set_webauthn_delegate");
+  CMUX_BIND(webauthn_complete, "cmux_webauthn_complete");
 #undef CMUX_BIND
 }
 
@@ -550,6 +552,7 @@ void cmux_shim_shutdown(void) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
   RemovePasswordPromptHandler();
+  RemoveWebAuthnDelegate();
   host() = Host();
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();

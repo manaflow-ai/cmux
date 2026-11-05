@@ -117,6 +117,11 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // API version 33 (157 line; found by symbol, never by number): WebAuthn
+  // ceremonies in the embedder (shim_webauthn.mm). The argument is a
+  // cmux_webauthn_delegate_t.
+  int (*set_webauthn_delegate)(const void*) = nullptr;
+  int (*webauthn_complete)(int, const char*, const char*, const char*) = nullptr;
 };
 
 struct Host {
@@ -272,6 +277,8 @@ void InstallExtensionUIHandlers();
 // so Chromium's bubble does not show (shim_password_core.mm).
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
+// Ends the WebAuthn delegate before shutdown (shim_webauthn.mm).
+void RemoveWebAuthnDelegate();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);
