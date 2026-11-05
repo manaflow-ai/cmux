@@ -66,3 +66,72 @@ fn a_setup_error_posts_the_notice() {
     .expect("a notice");
     assert!(text.contains("a setup error"), "{text}");
 }
+
+mod common;
+
+use cmux_conversation::Op;
+use common::{Harness, default_script};
+use optchat_chief::brain::Input;
+
+fn notice_harness() -> Harness {
+    let mut h = Harness::new(default_script());
+    h.brain = h.brain.with_compactor_messages(true);
+    h.connect();
+    h
+}
+
+fn retracts(h: &Harness) -> usize {
+    h.owner
+        .lock()
+        .unwrap()
+        .ops
+        .iter()
+        .filter(|(_, op)| matches!(op, Op::MessageRetract { .. }))
+        .count()
+}
+
+fn sends(h: &Harness) -> Vec<String> {
+    h.owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect()
+}
+
+#[test]
+fn a_stuck_lines_notice_is_retracted_when_no_lasting_line_is_left() {
+    // Line A failed with a repeating 400 and posted the notice; then it was
+    // built while line B still waits out session timeouts (silent, but it
+    // kept `recovered` false, so the notice stayed up: issue 36026).
+    let mut h = notice_harness();
+    let text = "The Chief's memory cannot summarize line 1634+1 (400 invalid_request_error).";
+    h.brain.step(Input::CompactorStuck(Some(text.to_owned())));
+    h.brain.step(Input::CompactorStuck(Some(text.to_owned())));
+    h.settle_posts();
+    assert_eq!(
+        sends(&h).iter().filter(|t| t.contains("1634+1")).count(),
+        1,
+        "one notice, posted once"
+    );
+    h.brain.step(Input::CompactorStuck(None));
+    h.settle_posts();
+    assert_eq!(retracts(&h), 1, "the notice is retracted");
+}
+
+#[test]
+fn a_stuck_clear_leaves_the_probes_notice() {
+    let mut h = notice_harness();
+    h.brain.step(Input::CompactorStatus(Err(
+        "The memory compactor cannot build summaries (setup error).".to_owned(),
+    )));
+    h.settle_posts();
+    assert_eq!(sends(&h).len(), 1, "{:?}", sends(&h));
+    h.brain.step(Input::CompactorStuck(None));
+    h.settle_posts();
+    assert_eq!(retracts(&h), 0, "only a working probe answers its notice");
+    h.brain.step(Input::CompactorStatus(Ok(())));
+    h.settle_posts();
+    assert_eq!(retracts(&h), 1);
+}

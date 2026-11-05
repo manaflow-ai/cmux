@@ -42,7 +42,8 @@ impl CompactModel for Fails {
     }
 }
 
-const TOO_LONG: &str = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\
+const TOO_LONG: &str =
+    "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\
                         \"message\":\"prompt is too long: 214093 tokens > 200000 maximum\"}}";
 
 #[test]
@@ -54,6 +55,13 @@ fn a_request_too_large_for_the_model_keeps_its_input_as_the_line() {
     let built = build_node(&main, None, &request()).expect("the stand-in, not an error");
     assert!(built.stand_in, "{built:?}");
     assert!(built.text.contains("PR 26546"), "{built:?}");
+    assert!(
+        built
+            .oversized
+            .as_deref()
+            .is_some_and(|e| e.contains("too long")),
+        "{built:?}"
+    );
 }
 
 #[test]
@@ -103,7 +111,11 @@ fn a_transient_failure_past_its_tries_recovers_when_the_route_answers_again() {
 
     // Every try fails until the node is stuck: turns no longer wait for it.
     while chat.status().stuck.is_empty() {
-        assert!(clock.wait_for_sleepers(1, Duration::from_secs(30)), "{:?}", chat.status());
+        assert!(
+            clock.wait_for_sleepers(1, Duration::from_secs(30)),
+            "{:?}",
+            chat.status()
+        );
         if chat.status().stuck.is_empty() {
             clock.advance(MAX_RETRY_WAIT);
         }
@@ -125,7 +137,10 @@ fn a_transient_failure_past_its_tries_recovers_when_the_route_answers_again() {
     clock.advance(STUCK_RETRY);
     assert!(chat.wait_idle(None, WAIT), "{:?}", chat.status());
     let status = chat.status();
-    assert!(status.stuck.is_empty() && status.failures.is_empty(), "{status:?}");
+    assert!(
+        status.stuck.is_empty() && status.failures.is_empty(),
+        "{status:?}"
+    );
     assert!(status.recovered, "{status:?}");
     assert_eq!(status.unbuilt, 0, "{status:?}");
 }
