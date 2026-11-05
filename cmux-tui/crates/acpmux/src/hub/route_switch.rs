@@ -460,13 +460,28 @@ fn account_fallback(
     let current = home.map(std::path::Path::to_path_buf).or_else(crate::route_shadow::codex_base);
     let on_login = failed.file.kind == routes::RouteKind::DirectSubscription;
     let builtin = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID).ok();
-    let accounts = routes::load(dir).0.into_iter().filter(|r| {
-        r.id != routes::CODEX_LOGIN_ROUTE_ID
-            && r.file.kind == routes::RouteKind::DirectSubscription
-            && r.file.account_home.is_some()
+    let accounts: Vec<_> = routes::load(dir)
+        .0
+        .into_iter()
+        .filter(|r| {
+            r.id != routes::CODEX_LOGIN_ROUTE_ID
+                && r.file.kind == routes::RouteKind::DirectSubscription
+                && r.file.account_home.is_some()
+        })
+        .collect();
+    // A chat in another account's own folder (not a shadow) has no way onto the CLI's login: it
+    // would keep running in that folder.
+    let in_account = home.is_some_and(|h| {
+        accounts.iter().any(|a| {
+            a.file.shadow_of.is_none()
+                && a.file.account_home.as_deref().map(std::path::Path::new) == Some(h)
+        })
     });
     builtin.into_iter().chain(accounts).find(|r| {
         if r.id == failed.id || r.file.disabled || !r.serves(family) {
+            return false;
+        }
+        if r.id == routes::CODEX_LOGIN_ROUTE_ID && in_account {
             return false;
         }
         let Some(target) = route_account::effective_home(r, home) else { return false };

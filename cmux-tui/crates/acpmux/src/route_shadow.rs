@@ -28,16 +28,17 @@ pub fn codex_base() -> Option<PathBuf> {
 }
 
 /// Links every entry of `base` but the login into `home`, creating both
-/// folders (and the shared conversation folder) when missing, owner-only like
-/// every account home: the shadow holds a login. Entries `home` already has
-/// stay as they are.
+/// folders (and the shared conversation folder) when missing. The shadow is
+/// owner-only like every account home, a folder that was there before too: it
+/// holds a login. Entries `home` already has stay as they are.
+#[cfg(unix)]
 pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let mut dirs = std::fs::DirBuilder::new();
-    dirs.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut dirs, 0o700);
+    dirs.recursive(true).mode(0o700);
     dirs.create(base.join(CONVERSATIONS))?;
     dirs.create(home)?;
+    std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
     for entry in std::fs::read_dir(base)? {
         let name = entry?.file_name();
         if OWN.iter().any(|own| name == *own) {
@@ -47,10 +48,18 @@ pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
         if at.symlink_metadata().is_ok() {
             continue;
         }
-        #[cfg(unix)]
         std::os::unix::fs::symlink(base.join(&name), &at)?;
     }
     Ok(())
+}
+
+/// Without symlinks a shadow would share nothing: it is refused, never made empty.
+#[cfg(not(unix))]
+pub fn link(_home: &Path, _base: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "a shadow account home needs symlinks (macOS or Linux)",
+    ))
 }
 
 /// Whether a conversation started in `a` resumes in `b`: both resolve their
@@ -72,6 +81,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let (base, shadow, other) = (root.join("base"), root.join("shadow"), root.join("other"));
         std::fs::create_dir_all(&base).unwrap();
+        // A folder already there, open to others, is closed when it becomes a shadow.
+        std::fs::create_dir_all(&shadow).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shadow, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         std::fs::write(base.join("auth.json"), "base login").unwrap();
         std::fs::write(base.join("config.toml"), "model = 'x'").unwrap();
         link(&shadow, &base).unwrap();
