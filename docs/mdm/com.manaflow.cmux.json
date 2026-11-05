@@ -2826,12 +2826,6 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
-      "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
-      "type" : "boolean"
-    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
@@ -3024,7 +3018,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+      "description" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -5271,6 +5265,12 @@
       "minimum" : 0,
       "title" : "Keep Previous Versions",
       "type" : "number"
+    },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",

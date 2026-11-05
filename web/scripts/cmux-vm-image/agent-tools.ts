@@ -24,10 +24,19 @@
  * - `cmux mcp serve` runs only when cmux.json sets `"mcp": {"enabled": true}`. The image
  *   writes that for the work user when the file does not exist (the machine has no app to
  *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
+ * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
+ *   Native link, service `desktop`. The boundary is the link's admission: the machine's link
+ *   receiver (the session daemon's `__receive-vm`, which runs as the work user) admits only the
+ *   owner's one-time link token for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
+ *   the `cmux-rd` host on the agent display as its own system user RD_USER (no shell, no home,
+ *   not in the work user's group, no sudo), which takes connections from the work user's uid only.
+ *   On the machine the socket is not a boundary against the agent: the agent already reaches
+ *   `:99` (its own display) and has sudo. It keeps everyone else out, and keeps the host's files
+ *   (cookie copy, state) out of the agent's reach. The host exits when idle.
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { firstUseInstallPhases } from "./browser-probe";
-import { CURRENT_BIN, type InputsLock, type RolesManifest, rolesManifest, sq } from "./lock";
+import { CURRENT_BIN, type InputsLock, type RolesManifest, rolesManifest, sq, storeEntry } from "./lock";
 
 export const AGENT_TOOLS_DIR = "/opt/cmux/agent-tools";
 export const AGENT_TOOLS_BIN = `${AGENT_TOOLS_DIR}/bin`;
@@ -354,6 +363,230 @@ export function cuaUnit(): string {
   ].join("\n");
 }
 
+/** The remote desktop host's system user: no shell, no home, not in the work user's group, no sudo. */
+export const RD_USER = "cmux-rd";
+export const RD_SOCKET_UNIT = "cmux-agent-rd.socket";
+export const RD_UNIT = "cmux-agent-rd.service";
+/** Cisco's OpenH264 into the host's state dir, once: its own unit, so only it may open network sockets. */
+export const RD_OPENH264_UNIT = "cmux-agent-rd-openh264.service";
+/** The largest display cookie the host accepts (one MIT-MAGIC-COOKIE-1 entry is about 50 bytes). */
+export const RD_XAUTHORITY_MAX_BYTES = 4096;
+/** The socket's dir: 0711 root:root, so the work user can reach the socket by name and list nothing. */
+export const RD_RUN_DIR = "/run/cmux-rd";
+/** The socket the link receiver (as the work user) connects for link service `desktop`: 0660 root:work user. */
+export const RD_SOCKET = `${RD_RUN_DIR}/desktop.sock`;
+/** The only uid the host accepts a connection from (SO_PEERCRED): the work user's, which the link receiver runs as. */
+export const RD_PEER_UID = DEVBOX_WORK_UID;
+/** The host's own runtime dir (RuntimeDirectory, RD_USER 0700, removed when the host stops): the cookie copy lives here. */
+export const RD_HOST_DIR = "/run/cmux-rd-host";
+/** The host's copy of the agent display's cookie (RD_USER 0600), made at each host start. */
+export const RD_XAUTHORITY = `${RD_HOST_DIR}/Xauthority-${AGENT_DISPLAY_NUMBER}`;
+/** StateDirectory: HOME and XDG_DATA_HOME of the host, where `cmux-rd openh264-install` puts Cisco's library. */
+export const RD_STATE_DIR = "/var/lib/cmux-rd";
+/** Written after the first successful `cmux-rd openh264-install`, so later starts skip the download. */
+export const RD_OPENH264_MARKER = `${RD_STATE_DIR}/openh264-installed`;
+export const RD_TMPFILES = "/etc/tmpfiles.d/cmux-rd.conf";
+const RD_PROGRAM = "cmux-rd";
+const DESKTOP_ROLE = "desktop";
+
+/**
+ * The cmux-rd binary in the store, from its lock entry. A lock without one (the release
+ * `cmux-rd-v<V>` is not pinned yet) fails the agent tools bake here, before any file is written.
+ */
+export function rdHostPath(lock: InputsLock): string {
+  const program = lock.programs.find((p) => p.name === RD_PROGRAM);
+  if (!program || !(program.roles ?? []).includes(DESKTOP_ROLE) || !program.bin[RD_PROGRAM]) {
+    throw new Error(
+      "agent tools need cmux-rd in the lock (role desktop): pin the manaflow-ai/cmux release cmux-rd-v<version> " +
+        "(cmux-rd-<version>-x86_64-unknown-linux-gnu.tar.gz and checksums.txt, lock.ts cmuxRdReleaseShape) in images/cmux-vm/inputs.lock.json",
+    );
+  }
+  return `${storeEntry(program.sha256)}/${program.bin[RD_PROGRAM]}`;
+}
+
+/** Creates RD_RUN_DIR at boot before sockets.target (the socket unit's DirectoryMode makes the same). */
+export function rdTmpfiles(): string {
+  return `# cmux VM agent tools (images/cmux-vm, managed, do not edit): the remote desktop socket dir.\nd ${RD_RUN_DIR} 0711 root root -\n`;
+}
+
+/**
+ * The socket of link service `desktop`: root-owned, group the work user (the link receiver runs as
+ * it), 0660. Enabled at boot; nothing runs until the receiver connects.
+ */
+export function rdSocketUnit(): string {
+  return [
+    "[Unit]",
+    `Description=cmux remote desktop of the agent display ${AGENT_DISPLAY} (cmux.rd/1): the link receiver's socket for service desktop`,
+    "",
+    "[Socket]",
+    `ListenStream=${RD_SOCKET}`,
+    "SocketUser=root",
+    `SocketGroup=${DEVBOX_WORK_USER}`,
+    "SocketMode=0660",
+    "DirectoryMode=0711",
+    "Accept=no",
+    `Service=${RD_UNIT}`,
+    "",
+    "[Install]",
+    "WantedBy=sockets.target",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Before the host starts, as root (`+`, outside the sandbox), in RD_HOST_DIR (RuntimeDirectory,
+ * made by systemd before this runs): a bounded wait for the display's X socket (the display unit writes its cookie before Xvfb
+ * starts), then the cookie copied for RD_USER. The source is in the work user's home, which the
+ * agent controls, so root never opens it: it is read as the work user with no groups and no
+ * capabilities (a symlink can only reach what that user can already read), only when it is a
+ * regular file, bounded in time and size, into a root-only temp file in RD_HOST_DIR that is then
+ * handed to RD_USER and renamed into place. The display makes a new cookie at each start, and
+ * BindsTo restarts the host with it, so each start copies it again.
+ */
+export function rdCookieCopy(): string {
+  const src = AGENT_XAUTHORITY;
+  const x11 = `/tmp/.X11-unix/X${AGENT_DISPLAY_NUMBER}`;
+  const tmp = `${RD_XAUTHORITY}.new`;
+  const asWorkUser = `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs`;
+  const fail = (why: string) => `{ echo "${why}" >&2; rm -f ${tmp}; exit 1; }`;
+  // RD_HOST_DIR belongs to RD_USER, so root's writes there never follow a link: the temp file is
+  // created exclusively (noclobber), chowned without following links, and 0600 from the umask.
+  return [
+    "umask 077",
+    "set -C",
+    // No `%` here: systemd expands specifiers in Exec lines.
+    `test -d ${RD_HOST_DIR} && test ! -L ${RD_HOST_DIR} && test -n "$(find ${RD_HOST_DIR} -maxdepth 0 -user ${RD_USER} -perm 0700)" || ${fail(`${RD_HOST_DIR} is not the runtime dir of ${RD_USER}`)}`,
+    `for i in $(seq 1 100); do [ -S ${x11} ] && break; sleep 0.1; done`,
+    `[ -S ${x11} ] || ${fail(`no socket ${x11} for display ${AGENT_DISPLAY}`)}`,
+    `rm -f ${tmp}`,
+    `timeout 5 ${asWorkUser} /bin/sh -c "test -f ${src} && test ! -L ${src} && head -c ${RD_XAUTHORITY_MAX_BYTES + 1} ${src}" > ${tmp} || ${fail(`the display cookie is not a regular file ${DEVBOX_WORK_USER} can read`)}`,
+    `test -s ${tmp} && test "$(wc -c < ${tmp})" -le ${RD_XAUTHORITY_MAX_BYTES} || ${fail(`the display cookie is empty or larger than ${RD_XAUTHORITY_MAX_BYTES} bytes`)}`,
+    `chown -h ${RD_USER}:${RD_USER} ${tmp} && mv -f ${tmp} ${RD_XAUTHORITY}`,
+  ].join("; ");
+}
+
+/** The sandbox both RD_USER units share. */
+const RD_SANDBOX = [
+  "NoNewPrivileges=yes",
+  "CapabilityBoundingSet=",
+  "AmbientCapabilities=",
+  "ProtectHome=yes",
+  "ProtectSystem=strict",
+  "PrivateTmp=yes",
+  "PrivateDevices=yes",
+  "ProtectKernelTunables=yes",
+  "ProtectKernelModules=yes",
+  "ProtectKernelLogs=yes",
+  "ProtectControlGroups=yes",
+  "ProtectClock=yes",
+  "ProtectHostname=yes",
+  "RestrictNamespaces=yes",
+  "RestrictRealtime=yes",
+  "RestrictSUIDSGID=yes",
+  "LockPersonality=yes",
+] as const;
+
+/**
+ * `cmux-rd openh264-install` as RD_USER into its state dir, once (the marker): Cisco's binary,
+ * downloaded over HTTPS from Cisco, never bundled. The only RD_USER unit that may open network
+ * sockets; the host itself is AF_UNIX only.
+ */
+export function rdOpenh264Unit(hostBin: string): string {
+  return [
+    "[Unit]",
+    "Description=cmux remote desktop host: Cisco's OpenH264 into its state dir (first start only)",
+    `ConditionPathExists=!${RD_OPENH264_MARKER}`,
+    "",
+    "[Service]",
+    "Type=oneshot",
+    `User=${RD_USER}`,
+    `Group=${RD_USER}`,
+    `Environment=HOME=${RD_STATE_DIR}`,
+    `Environment=XDG_DATA_HOME=${RD_STATE_DIR}`,
+    `StateDirectory=${RD_USER}`,
+    "StateDirectoryMode=0700",
+    `ExecStart=${hostBin} openh264-install`,
+    `ExecStartPost=/usr/bin/touch ${RD_OPENH264_MARKER}`,
+    "TimeoutStartSec=120",
+    ...RD_SANDBOX,
+    // HTTPS to Cisco (and the resolver).
+    "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+    "",
+  ].join("\n");
+}
+
+/**
+ * `cmux-rd host` on the agent display, socket-activated (an fd from systemd; each connection's
+ * SO_PEERCRED uid must be RD_PEER_UID, the work user the link receiver runs as), as RD_USER, with no capabilities and Unix
+ * sockets only. OpenH264 comes from RD_OPENH264_UNIT, ordered before. ProtectHome keeps
+ * /home out of reach (the cookie copy above runs outside the sandbox); /tmp is private but for the
+ * X11 socket dir.
+ */
+export function rdUnit(hostBin: string): string {
+  return [
+    "[Unit]",
+    `Description=cmux remote desktop host (cmux-rd, cmux.rd/1) on the agent display ${AGENT_DISPLAY}, started by a connection to its socket`,
+    // BindsTo, not only Requires: a restarted display has a new cookie, so the host restarts with it.
+    `BindsTo=${DISPLAY_UNIT}`,
+    `After=${DISPLAY_UNIT} ${RD_SOCKET_UNIT}`,
+    `Requires=${RD_SOCKET_UNIT}`,
+    // A skipped install (the marker exists) is not a failure; a failed first download is.
+    `Requires=${RD_OPENH264_UNIT}`,
+    `After=${RD_OPENH264_UNIT}`,
+    // No start rate limit: a host that hits one puts its socket in failed (service-start-limit-hit),
+    // and the desktop stays off until a reset-failed. Each start is one admitted owner connection;
+    // a failing host just fails that connection, and the next one tries again.
+    "StartLimitIntervalSec=0",
+    "",
+    "[Service]",
+    "Type=simple",
+    `User=${RD_USER}`,
+    `Group=${RD_USER}`,
+    `Environment=HOME=${RD_STATE_DIR}`,
+    `Environment=XDG_DATA_HOME=${RD_STATE_DIR}`,
+    `Environment=DISPLAY=${AGENT_DISPLAY}`,
+    `Environment=XAUTHORITY=${RD_XAUTHORITY}`,
+    `StateDirectory=${RD_USER}`,
+    "StateDirectoryMode=0700",
+    `RuntimeDirectory=${RD_HOST_DIR.slice("/run/".length)}`,
+    "RuntimeDirectoryMode=0700",
+    `ExecStartPre=+/bin/sh -c '${rdCookieCopy()}'`,
+    `ExecStart=${hostBin} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    ...RD_SANDBOX,
+    "BindReadOnlyPaths=/tmp/.X11-unix",
+    // The activated socket and the X display are Unix sockets; the host opens nothing else.
+    "RestrictAddressFamilies=AF_UNIX",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The host's user, its run dir and socket: RD_USER (system, no home, nologin, in no group but its
+ * own), then the socket enabled and listening (in the snapshot too) with the host not running.
+ */
+export function rdSetupCommand(): string {
+  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
+  return [
+    `{ id -u ${RD_USER} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${RD_USER}; }`,
+    `test "$(id -nG ${RD_USER})" = ${RD_USER}`,
+    `test "$(getent passwd ${RD_USER} | cut -d: -f7)" = /usr/sbin/nologin`,
+    `test ! -e /nonexistent`,
+    `sudo -l -U ${RD_USER} 2>&1 | grep -q 'not allowed'`,
+    `! id -nG ${DEVBOX_WORK_USER} | tr ' ' '\\n' | grep -qx ${RD_USER}`,
+    `systemd-tmpfiles --create ${RD_TMPFILES}`,
+    `test "$(stat -c '%a %U %G' ${RD_RUN_DIR})" = '711 root root'`,
+    `test "$(id -u ${DEVBOX_WORK_USER})" = ${RD_PEER_UID}`,
+    `systemd-analyze verify ${units}`,
+    "systemctl daemon-reload",
+    `command -v setpriv >/dev/null`,
+    `systemctl enable --now --quiet ${RD_SOCKET_UNIT}`,
+    `test -S ${RD_SOCKET} && test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '660 root ${DEVBOX_WORK_USER}'`,
+    `! systemctl is-active --quiet ${RD_UNIT}`,
+    `! systemctl is-active --quiet ${RD_OPENH264_UNIT}`,
+    `echo agent-desktop-ready`,
+  ].join(" && ");
+}
+
 /** Login shells (ssh) get the same lookup dir as daemon terminals. */
 export function agentToolsProfileScript(): string {
   return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n`;
@@ -379,8 +612,9 @@ export function agentToolsLinkCommand(): string {
   ].join(" && ");
 }
 
-/** Files the install writes (path, text, mode). */
-export function agentToolsFiles(): Array<{ path: string; text: string; mode: number }> {
+/** Files the install writes (path, text, mode). Throws when the lock has no cmux-rd (rdHostPath). */
+export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: string; mode: number }> {
+  const rd = rdHostPath(lock);
   return [
     { path: `${AGENT_TOOLS_BIN}/cmux-cua`, text: cuaWrapperScript(), mode: 0o755 },
     { path: `/etc/systemd/system/${CUA_UNIT}`, text: cuaUnit(), mode: 0o644 },
@@ -389,6 +623,10 @@ export function agentToolsFiles(): Array<{ path: string; text: string; mode: num
     { path: A11Y_SCRIPT, text: a11yScript(), mode: 0o755 },
     { path: ROOT_PROPERTY_SCRIPT, text: rootPropertyScript(), mode: 0o755 },
     { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
+    { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
+    { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
+    { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(rd), mode: 0o644 },
+    { path: `/etc/systemd/system/${RD_OPENH264_UNIT}`, text: rdOpenh264Unit(rd), mode: 0o644 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
 }

@@ -24,12 +24,10 @@ lane) build in their own jobs, not with a macOS `swift build`.
 Prints one line per package: its directory, then the test targets to build,
 or the directory alone for every test target of the package.
 
---skip-package DIR leaves a package out. The pull-request check passes
-Packages/macOS/CmuxNext: cmux-next.yml's swift test job already runs `swift
-build --build-tests` on every same-repository pull request whose change
-reaches a CmuxNext test target (the same route, a superset of these targets),
-so compiling them again on a fleet Mac was a second compile of the same tree.
-The tip compile and a hand-run `compile-tests` keep CmuxNext.
+--skip-package DIR leaves a package out. No workflow passes it now: the
+pull-request check skipped Packages/macOS/CmuxNext while cmux-next.yml's swift
+test job built its test targets on every same-repository pull request, and
+since 2026-11-05 that job runs on a pull request only with full-ci.
 
 Usage: compile_test_plan.py --changed-files FILE [--root DIR] [--skip-package DIR ...]
 """

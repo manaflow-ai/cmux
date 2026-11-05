@@ -352,7 +352,7 @@ import Testing
         #expect(model.perform(.pairAnotherMachine) == false)
     }
 
-    @Test func withTheLabsSwitchOffAddDeviceIsUnchanged() async {
+    @Test func withNoJoinOfferedAddDeviceIsUnchanged() async {
         let devices = AddDeviceFlowTests.Fake()
         var services = devices.services()
         services.pairAnotherMachine = { {} }

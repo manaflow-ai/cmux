@@ -282,3 +282,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_workflow_size.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_live_code_variant.py"
+lane = "linux-guard"

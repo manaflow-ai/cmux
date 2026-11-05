@@ -130,9 +130,6 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
-    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
-    public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the

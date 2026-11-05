@@ -208,6 +208,15 @@ public actor DaemonUpdatePolicy {
         if retried.contains(id) { await turnEnded(id) }
     }
 
+    /// Waits while a turn of target `id` runs now (reading the machine or updating it) and returns true once
+    /// it ended (or the task was cancelled); false at once when no turn of it runs. Nothing is queued: a Cloud
+    /// chat start waits out an update that restarts the daemon its agent is about to start on.
+    public func turnRunning(_ id: String) async -> Bool {
+        guard running == id else { return false }
+        await turnEnded(id)
+        return true
+    }
+
     /// Whether an ``updateNow`` waits on a turn of target `id` (tests order a join against it).
     func awaitsTurn(_ id: String) -> Bool { turnWaiters[id] != nil }
 
