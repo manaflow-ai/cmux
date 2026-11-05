@@ -311,6 +311,55 @@ fn a_harness_that_hangs_on_every_try_is_said_in_plain_words() {
     assert!(h.brain.awaiting_replies().is_empty());
 }
 
+/// A turn an upstream 502 cut after its prompt reached a harness, whose resume then hangs: the cut
+/// try may have done work, so it is not rerun as unstarted, but the person still never sees the
+/// start's diagnostics, and no failure note closes the message: the next turn still sees it.
+#[test]
+fn a_hung_resume_after_a_cut_that_ran_says_it_in_plain_words() {
+    // Turn 0 reaches its harness and is cut before its end (the 502 below).
+    let full = default_script();
+    let mut h = Harness::new(Box::new(move |turn, blocks| {
+        if turn == 0 {
+            vec![
+                serde_json::json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "agent_message_chunk",
+                    serde_json::json!({"content": {"type": "text", "text": "Checking."}}),
+                ),
+            ]
+        } else {
+            full(turn, blocks)
+        }
+    }));
+    h.brain
+        .set_upstream_resume_backoff(vec![Duration::from_millis(1)]);
+    h.brain.set_reply_retry_waits(vec![Duration::ZERO]);
+    h.agents.inner.lock().unwrap().answer_error =
+        Some("API Error: 502 upstream request failed. This is a server-side issue".into());
+    h.connect();
+    h.say("user_local", "check the build");
+    while prompts(&h) == 0 {
+        h.step();
+    }
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), HUNG.into());
+    settle_with_timers(&mut h, WAIT);
+    assert_eq!(prompts(&h), 1, "the resume's start hung before its prompt");
+    assert_no_raw_error(&h);
+    let sent = posted(&h);
+    for text in &sent {
+        assert!(!text.contains("did no work"), "{text}");
+    }
+    assert!(
+        sent.iter().any(|t| t.contains("could not start an agent")),
+        "{sent:?}"
+    );
+}
+
 /// What the Chief posted in side conversation `conversation`.
 fn side_posts(h: &Harness, conversation: &str) -> Vec<String> {
     let owner = h.owner.lock().unwrap();

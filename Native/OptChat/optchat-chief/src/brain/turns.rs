@@ -1291,7 +1291,8 @@ impl Brain {
             return;
         }
         self.cuts = 0;
-        if std::mem::take(&mut self.cut_ran) {
+        let ran_before = std::mem::take(&mut self.cut_ran);
+        if ran_before {
             outcome.unstarted = false;
         }
         self.steer_due.take_if(|(_, turn)| turn == key);
@@ -1360,6 +1361,16 @@ impl Brain {
             .is_some_and(|t| t.answers.iter().all(awaited))
             && !self.unanswered_in_turn().is_empty();
         let unstarted = stalled && held;
+        // A cut try of this turn reached a harness and its resume's start
+        // hung (`turn::is_hung_start`, never cut): it may have done work, so
+        // it is no unstarted rerun, but the person hears plain words, never
+        // the start's diagnostics, and no failure note closes its messages.
+        let hung_after_run = ran_before
+            && outcome.reply.is_none()
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::turn::is_hung_start);
         if stalled
             && !quiet
             && let Some(error) = &outcome.error
@@ -1386,6 +1397,7 @@ impl Brain {
             Some(error)
                 if !(quiet
                     || stalled
+                    || hung_after_run
                     || tool_stopped
                     || outcome.orphan.is_some()
                     || steered_waits) =>
@@ -1402,7 +1414,7 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
-        let text = if stalled && !held && !(quiet || tool_stopped) {
+        let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
             ended_turn_text(
