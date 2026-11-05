@@ -48,7 +48,7 @@ struct NewTabSpareHiddenFitTests {
                 if spare.frame.size != start, sizesInMotion.last != spare.frame.size { sizesInMotion.append(spare.frame.size) }
             }
             defer { watch.cancel() }
-            for action in ["resizePaneLeft", "resizePaneRight"] {
+            for action in ["resizePaneLeft", "resizePaneRight"] as [ActionID] {
                 #expect(services.registry.perform(action, invocation: ActionInvocation(origin: .user)), "\(action) was refused")
                 try await PasswordManagerRouteTests.until({ layout.isInLayoutMotion }, within: .seconds(2), report: { "\(action) did not spring" })
                 try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, within: .seconds(3), report: { "\(action) never landed" })
