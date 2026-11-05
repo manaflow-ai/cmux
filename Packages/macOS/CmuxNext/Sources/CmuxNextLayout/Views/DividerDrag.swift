@@ -193,7 +193,17 @@ struct DividerDrag {
         case .right?: extent = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
         case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
         case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
-        case .left?, nil: extent = max(uniformWidth(id, drag: drag, point: point) ?? point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
+        case .left?, nil:
+            // Command where no uniform width holds the edge: every width stays as it is (the edge at its limit).
+            let uniform = uniformTarget(id, drag: drag, point: point)
+            if uniform == .keep, drag.modifiers.all, !drag.landsOnSnap, let strip = drag.strip {
+                return strip.columns.compactMap { column in
+                    screen.geometry.columns[column.id].map { .width(column.id, strip.fraction($0.width)) }
+                }
+            }
+            if case let .width(width)? = uniform { extent = max(width, drag.minimumA) } else {
+                extent = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
+            }
         }
         let viewport = switch drag.dockEdge {
         case nil: screen.geometry.stripWidth
@@ -219,10 +229,10 @@ struct DividerDrag {
     }
 
     /// Command on a strip column's edge: the width every column takes so that the edge shows where the pointer puts it,
-    /// with the camera the anchored sync will show (`UniformEdge`). The pointer is measured on screen (strip space less
-    /// the camera now), not in the strip at the camera the last move left: the anchor moves the camera on each move. Nil
-    /// for every other drag, and where no width can show the edge there (the plain extent then).
-    private func uniformWidth(_ id: ColumnID, drag: DividerDragState, point: CGPoint) -> CGFloat? {
+    /// with the camera the anchored sync will show (`UniformEdge`), or `.keep` where no uniform width holds the edge. The
+    /// pointer is measured on screen (strip space less the camera now), not in the strip at the camera the last move left:
+    /// the anchor moves the camera on each move. Nil for every other drag.
+    private func uniformTarget(_ id: ColumnID, drag: DividerDragState, point: CGPoint) -> UniformEdge.Target? {
         guard drag.modifiers.all, drag.dockEdge == nil, let strip = drag.strip, let index = strip.columns.firstIndex(where: { $0.id == id }),
               let frame = screen.geometry.columns[id] else { return nil }
         let widths = strip.columns.compactMap { screen.geometry.columns[$0.id]?.width }
@@ -230,7 +240,7 @@ struct DividerDrag {
         let geometry = screen.geometry
         return UniformEdge(widths: widths, index: index, left: frame.minX, content: geometry.contentWidth, viewport: geometry.stripWidth,
                            camera: screen.scroll.target, shown: screen.scroll.value)
-            .width(restingEdgeAt: point.x - drag.grabOffset - screen.scroll.value)
+            .target(restingEdgeAt: point.x - drag.grabOffset - screen.scroll.value)
     }
 
     private func applyRowEdge(_ column: ColumnID, upper: RowID, drag: DividerDragState, windowPoint: NSPoint, phase: LayoutGesturePhase) {

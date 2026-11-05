@@ -64,6 +64,15 @@ struct UniformEdgeTests {
         #expect(solver.width(restingEdgeAt: 354) == 600)
     }
 
+    @Test func theFirstCommandFrameAtTheStripsEndKeepsTheWidthsWhenNoUniformWidthHolds() {
+        // Codex review of 054294ef137: widths 600, 300, 600, the camera at the strip's end (532 pt), c1's edge (384 pt)
+        // 30 pt left. 270 pt shows the edge there, but the strip then fits and the camera springs back 202 pt; the uniform
+        // hold (300 pt for every column) shrinks the strip too. No uniform width holds the edge: the solver says so
+        // (`.keep`), and the drag keeps every width as it is, rather than making them all the plain extent (270 pt).
+        let solver = Self.solver([600, 300, 600], index: 1, camera: 532)
+        #expect(solver.target(restingEdgeAt: 354) == .keep)
+    }
+
     @Test func aClampThatStopsACameraMidSpringIsNoSpringBack() throws {
         // Codex review of 25f458ccd4c: the camera shows 812 pt on its way to 832 pt (the end). c1 to 590 pt: value and target
         // shift -10 pt to 802 and 822 pt, and the target clamps to the new end, 802 pt: the camera stops there, no spring

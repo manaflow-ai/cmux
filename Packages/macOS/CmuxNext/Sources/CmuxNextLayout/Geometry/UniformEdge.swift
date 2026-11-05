@@ -59,6 +59,23 @@ nonisolated struct UniformEdge: Hashable, Sendable {
     /// or not at all for the last column), and a width that adds camera travel would slide the edge after the frame. There
     /// the edge holds at its limit: the width it has now, while that adds no travel (nil only if it would).
     func width(restingEdgeAt place: CGFloat) -> CGFloat? {
+        switch target(restingEdgeAt: place) {
+        case let .width(width): width
+        case .keep: nil
+        }
+    }
+
+    /// What the drag sets: every column at one width, or every width kept as it is (no uniform width can hold the edge
+    /// without adding camera travel, so the edge stays where it is, at its limit).
+    enum Target: Equatable { case width(CGFloat), keep }
+
+    /// ``width(restingEdgeAt:)``'s choice as a ``Target``: `.keep` where it would be nil, so the caller keeps the widths
+    /// instead of applying a width that slides the edge.
+    func target(restingEdgeAt place: CGFloat) -> Target {
+        solve(place).map(Target.width) ?? .keep
+    }
+
+    private func solve(_ place: CGFloat) -> CGFloat? {
         let k = CGFloat(index), n = CGFloat(widths.count)
         let before = widths.prefix(index).reduce(0, +), all = widths.reduce(0, +), base = place - left + before + shown
         var candidates = [place - left + shown, (base - camera) / (k + 1), base / (k + 1)]
