@@ -366,7 +366,7 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
     let mut drift = Vec::new();
     // The action the words since the last `fn` name, and whether its keys are checked too.
     let mut current: Option<(usize, bool)> = None;
-    let mut report = |line: usize, action: usize, sent: String, drift: &mut Vec<Drift>| {
+    let report = |line: usize, action: usize, sent: String, drift: &mut Vec<Drift>| {
         let action = &actions[action];
         if !action.args.contains(&sent) {
             drift.push(Drift {
@@ -394,19 +394,17 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
             Token::Ident(word) if word == "insert" => {
                 if let (Some((action, true)), Some((Token::Punct('('), _)), Some((Token::Str(key), line))) =
                     (current, tokens.get(index + 1), tokens.get(index + 2))
+                    && !RUN_PARAMS.contains(&key.as_str())
                 {
-                    if !RUN_PARAMS.contains(&key.as_str()) {
-                        report(*line, action, key.clone(), &mut drift);
-                    }
+                    report(*line, action, key.clone(), &mut drift);
                 }
             }
             Token::Str(key) if key == "action" => {
                 if let (Some((Token::Punct(':'), _)), Some((Token::Str(name), _))) =
                     (tokens.get(index + 1), tokens.get(index + 2))
+                    && let Some(action) = find(name)
                 {
-                    if let Some(action) = find(name) {
-                        current = Some((action, true));
-                    }
+                    current = Some((action, true));
                 }
             }
             Token::Str(key) if key == "args" => {
