@@ -191,6 +191,45 @@ import Testing
         #expect(host.hostView.frame == first.container.bounds, "the moved page is not at its new pane's size")
     }
 
+    /// Lead (cmux-ad m14, STATUS 13602): the S5 films had no hosted page in their ON arm (hosted_pages 0 in all 16 reads),
+    /// because the switch applied only at a page's next show and the kit flipped it after the page was up. A Debug switch a
+    /// person flips must reach the shown pages at once: flipping `motion.frameOwner.pages` hosts a shown page within one
+    /// main-actor turn, with one fork call, and flipping it back gives the page its window again. A hidden page is left
+    /// for its next show.
+    @Test func flippingTheSwitchHostsAShownPageAtOnce() async throws {
+        Self.set(pages: false)
+        defer { Self.set(pages: nil) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView?.addSubview(view)
+        let hidden = NSView(frame: view.frame)
+        hidden.isHidden = true
+        window.contentView?.addSubview(hidden)
+        let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
+        let (parked, parkedFork, parkedTurn) = Self.hosting(over: hidden, intervals: [1.0 / 120])
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
+        parked.pageWindowCreated(browser: 4, fork: parkedFork.fork)
+        turn.end()
+        parkedTurn.end()
+        try #require(hosting.page == nil && fork.calls.isEmpty, "SETUP: the page is hosted with the switch off")
+
+        Self.set(pages: true)
+        for _ in 0..<20 where hosting.page == nil { await Task.yield() }
+        #expect(hosting.page?.contextID == 7, "the shown page is not hosted after the switch went on")
+        #expect(fork.calls.map(\.enabled) == [true], "the flip did not make one hosting call: \(fork.calls)")
+        #expect(parked.page == nil && parkedFork.calls.isEmpty, "a hidden page was hosted before its next show")
+
+        Self.set(pages: false)
+        for _ in 0..<20 where hosting.page != nil { await Task.yield() }
+        #expect(hosting.page == nil, "the page kept its hosting after the switch went off")
+        #expect(fork.calls.map(\.enabled) == [true, false])
+        withExtendedLifetime(hidden) {}
+        hosting.stop()
+        parked.stop()
+    }
+
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
     @Test func theSwitchOffKeepsTodaysKeyResizeHold() throws {
         Self.set(pages: false)
