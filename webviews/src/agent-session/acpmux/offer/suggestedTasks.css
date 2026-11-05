@@ -181,7 +181,7 @@
    a label on the left and its value or control on the right, 32px rows, the folder as its name
    over its parent path, Dismiss at the foot. */
 .acpmux-task-options {
-  width: 280px;
+  width: 300px;
   max-width: calc(100vw - 24px);
 }
 .acpmux-task-options-body {
@@ -242,12 +242,15 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-option .ui-select {
-  flex: none;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 60%;
 }
+/* The value sits right against its chevron, as the reference has it, sized to its text. */
 .acpmux-task-option-select {
+  min-width: 0;
   max-width: 100%;
+  justify-content: flex-end;
+  gap: var(--ds-space-1);
 }
 .acpmux-task-options-foot {
   display: flex;

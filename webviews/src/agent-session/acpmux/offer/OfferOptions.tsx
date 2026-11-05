@@ -3,7 +3,7 @@
 // starting at this chat's own value. Environment and the folder say where the new chat runs; the
 // rest are picks that ride on Start. Model, Effort and Permissions show only when the task runs on
 // this chat's agent, whose lists they are. Dismiss stays at the foot, as the menu before it had it.
-import { useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import { Popover } from "../../../ui/Popover";
 import { Select } from "../../../ui/Select";
 import { Switch } from "../../../ui/Switch";
@@ -29,11 +29,12 @@ export function OfferOptions({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
+  // The button as state, not a ref: the popover's anchor is read during render.
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
   return (
     <>
       <button
-        ref={button}
+        ref={setButton}
         type="button"
         className="acpmux-task-action"
         aria-haspopup="dialog"
@@ -46,7 +47,7 @@ export function OfferOptions({
       <Popover
         open={open}
         onOpenChange={setOpen}
-        anchor={open ? button.current : null}
+        anchor={open ? button : null}
         label={t("offer.options")}
         className="acpmux-task-options"
         side="bottom"

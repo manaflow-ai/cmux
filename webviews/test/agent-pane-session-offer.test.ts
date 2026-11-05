@@ -193,7 +193,11 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(experiment: "on" | "off", turnEnded = false, offered = codexOffer): Promise<Page> {
+  async function openChat(
+    experiment: "on" | "off",
+    turnEnded = false,
+    offered: typeof codexOffer | typeof ownOffer = codexOffer,
+  ): Promise<Page> {
     offer = offered;
     calls = [];
     seq = 0;
