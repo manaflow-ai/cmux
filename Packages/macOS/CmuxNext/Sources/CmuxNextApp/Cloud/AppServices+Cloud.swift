@@ -119,6 +119,8 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
+        // The person's own sign-out forgets this Mac's paired phones; a session that ends by itself keeps them.
+        cloud.willSignOut.append { [weak self] in self?.iphone.signOutStarted() }
         // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
         cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
         let cloud = cloud, machines = machines

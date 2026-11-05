@@ -116,16 +116,18 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     }
 
     public func digest() -> Data? {
+        if case .digest(let data) = read() { return data }
+        return nil
+    }
+
+    public func read() -> MobileHostPairingSealRead {
         let (status, data) = perform { query in
             keychain.copy(query.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 })
         }
-        guard status == errSecSuccess, let data else {
-            if status != errSecItemNotFound {
-                Self.logger.error("iPhone pairing seal: Keychain read refused (\(status, privacy: .public)); no phone is trusted")
-            }
-            return nil
-        }
-        return data
+        if status == errSecSuccess, let data { return .digest(data) }
+        if status == errSecItemNotFound || status == errSecSuccess { return .none }
+        Self.logger.error("iPhone pairing seal: Keychain read refused (\(status, privacy: .public)); no phone is trusted until it answers")
+        return .refused
     }
 
     public func setDigest(_ digest: Data) -> Bool {

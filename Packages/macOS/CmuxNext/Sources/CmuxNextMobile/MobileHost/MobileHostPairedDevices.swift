@@ -392,8 +392,17 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// one a build before the seal wrote, or one saved while the Keychain refused) trusts no
     /// phone: each pairs again, which the person approves.
     public func load(userID: String) -> MobileHostPairedDevices {
+        read(userID: userID) ?? MobileHostPairedDevices(userID: userID)
+    }
+
+    /// ``load(userID:)``, or nil when a stored list exists and the Keychain refused to read its seal:
+    /// that says nothing about the list (a launch right after an update can be refused for a while),
+    /// so the caller reads again instead of asking the person to allow every phone again.
+    public func read(userID: String) -> MobileHostPairedDevices? {
         guard let data = try? Data(contentsOf: file) else { return MobileHostPairedDevices(userID: userID) }
-        guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data),
+        let sealRead = seal.read()
+        if sealRead == .refused { return nil }
+        guard case .digest(let sealed) = sealRead, sealed == MobileHostPairingSeal.digest(data),
               inForce.withLock({ $0.map { $0 == sealed } ?? true }) else {
             Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
             return MobileHostPairedDevices(userID: userID)
@@ -402,9 +411,6 @@ public final class MobileHostPairedDevicesFile: Sendable {
               stored.userID == userID else { return MobileHostPairedDevices(userID: userID) }
         return stored
     }
-
-    /// Red stub: the old behavior (a refused seal reads as an empty list).
-    public func read(userID: String) -> MobileHostPairedDevices? { load(userID: userID) }
 
     public func save(_ devices: MobileHostPairedDevices) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,

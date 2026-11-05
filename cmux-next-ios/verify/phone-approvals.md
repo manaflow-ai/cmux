@@ -156,8 +156,16 @@ the expiry is at most 300 s ahead, and the nonce was not spent; then strips
 - One dialog per phone at a time; a repeated request while it is open is
   dropped.
 - `MobileHostPairedDevices` keeps the list per signed-in user in a 0600 file in the
-  app's cmux-mobile-host state folder. Another user starts empty, and signing out of
-  the Mac clears it.
+  app's cmux-mobile-host state folder. Another user starts empty, and the person's
+  own sign-out of the Mac clears it. A session that ends by itself (a refused refresh
+  token, a Keychain that would not hand back the tokens) keeps it, as the phone keeps its
+  keys, so signing in again asks about no phone (2026-11-04).
+- The list counts only while its seal (a digest in the app's Keychain) matches. A seal
+  the Keychain refuses to read (a launch right after an update was refused for minutes on
+  2026-11-03, and every phone had to be allowed again) is not a mismatch: the app reads
+  again for about 30 s, trusting and asking about no phone; then it asks, and keeps that
+  run's answers in memory only, so the stored list and its seal count again at the next
+  launch whose Keychain answers. A removal is still written (fail closed).
 - The list goes to hostd as the `devices` control line (at start and on every
   change), and to acpmux as approvers (`_acpmux/approvers_set`), on the app's
   own person-proven unix connection (`MobileHostApproverSync`). That connection stays
