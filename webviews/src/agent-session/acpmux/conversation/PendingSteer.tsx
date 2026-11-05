@@ -15,9 +15,8 @@ import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnAct
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
 /// Queue controls replace normal hover actions until Send now is accepted or the agent reads it.
-/// The row is Claude desktop's: Copy and Fork (the sent row's own buttons, `queued`, where that row
-/// offers them; Retry too in the Messages view, the transcript's being the reply footer's) and the X
-/// show on hover, and Send now comes last, shown at rest too (Leo,
+/// The row is Claude desktop's: Copy, Retry and Fork (the sent row's own buttons, `queued`, where
+/// that row offers them) and the X show on hover, and Send now comes last, shown at rest too (Leo,
 /// 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). Copy keeps a
 /// waiting steer copyable as any message is (Leo, 2026-10-29: "i feel like im frequently missing
 /// the copy/whatever buttons on these steers").
@@ -71,8 +70,7 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {/* Copy, Fork (and Retry in the Messages view) and the X show on hover, in the sent row's
-            order; Send now stays
+        {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
             (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
         <span className="cv-user__queued-hover">
           {row.text?.trim() && <MessageCopy text={row.text} />}

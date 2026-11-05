@@ -347,7 +347,7 @@ export function PromptActions({
   return (
     <div className="cv-user__actions">
       {pending
-        ? pending(actions, { retry: messagesView ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
+        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
         : actions}
     </div>
   );

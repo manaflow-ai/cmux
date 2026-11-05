@@ -1,5 +1,5 @@
 {
-  "title": "Waiting steers: three steers the agent has not read under a running turn; at rest only the newest shows Send now, hovered it shows Copy, the X then Send now (debug seed_rows fixture \"waiting-steers\", webviews waitingSteersFixture.ts; the gallery's agent-pane.queued-user-footer stack). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/waiting-steers.json",
+  "title": "Waiting steers: three steers the agent has not read under a running turn; at rest only the newest shows Send now, hovered it shows Copy, Retry, the X then Send now (debug seed_rows fixture \"waiting-steers\", webviews waitingSteersFixture.ts; the gallery's agent-pane.queued-user-footer stack). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/waiting-steers.json",
   "launch_args": ["--showcase"],
   "steps": [
     {"title": "Open a main workspace", "cmux": ["action", "run", "newTab", "--name", "Waiting steers capture", "--focus", "--cwd", "/tmp"]},
@@ -9,6 +9,6 @@
     {"title": "Three waiting steers under a running turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "waiting-steers"}}, "record": true, "wait": 2},
     {"title": "At rest: only Send now under the newest steer", "shot": {"name": "rest"}, "wait": 0.5},
     {"title": "The pointer over the newest steer", "move": {"x": 493, "y": 360}, "wait": 1.5},
-    {"title": "Hovered: Copy, the X, then Send now", "shot": {"name": "hover"}}
+    {"title": "Hovered: Copy, Retry, the X, then Send now", "shot": {"name": "hover"}}
   ]
 }

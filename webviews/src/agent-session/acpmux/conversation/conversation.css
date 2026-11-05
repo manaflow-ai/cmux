@@ -6072,7 +6072,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   opacity: 1;
   transition: none;
 }
-/* A waiting steer's Copy, Fork (Retry too in the Messages view) and X (PendingSteer.tsx) show only on hover or focus, as a sent
+/* A waiting steer's Copy, Retry, Fork and X (PendingSteer.tsx) show only on hover or focus, as a sent
    prompt's row does, with its fade; hidden, they keep their room so Send now never moves (Leo,
    2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */
 .cv-user__queued-hover {

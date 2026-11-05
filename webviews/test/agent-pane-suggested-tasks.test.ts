@@ -966,7 +966,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("Retry on another agent's message sends it again as the agent got it, sender and all", async () => {
+    test("another agent's message offers no Retry: the person's own prompt keeps the chat's one", async () => {
       const text = [
         '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
         "Please review #123.",
@@ -984,11 +984,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       await page.getByText("Reviewing #123 now.").first().waitFor({ timeout: 10_000 });
       await hoverLine(incoming(page).last());
-      await page.getByRole("button", { name: "Retry", exact: true }).last().click();
-      await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
-      const sent = JSON.stringify(calls.find((c) => c.method === "session/prompt")?.params.prompt);
-      expect(sent).toContain("cross-session-message");
-      expect(sent).toContain("leoli-fb");
+      // Only a prompt of the person's own draws Retry (turns.ts isRetryablePrompt, cmux#34779): the
+      // message line and its turn's footer draw none, and the person's prompt keeps the one Retry.
+      expect(await incoming(page).last().getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 

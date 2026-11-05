@@ -150,31 +150,33 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
 export const offersRetry = (row: AcpmuxRow) =>
   row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
 
-/// A turn's prompt that Retry can send again: not a notification or acpmux's inbox notice
-/// (incomingMessage.ts), not a task's result acpmux sent in (`received`, direct.ts: never the
-/// person's prompt), and with text. A turn whose prompt is not one leaves Retry with the turn before
-/// it (`retryTargetAt`).
-const resendable = (user: AcpmuxRow) =>
-  user.incoming?.kind !== "notice" &&
-  user.incoming?.kind !== "inbox" &&
-  user.received === undefined &&
-  Boolean(user.resend ?? user.text);
+/// A prompt row that drew its own Retry on base, before Retry moved to the reply footer (cmux#34779),
+/// taken over unchanged: the row UserBubble draws (the person's own prompt: no `incoming`, not a
+/// `received` result; App.tsx's registry draws those as message cards), with its footer (not
+/// `failed`), not `pending` and not still sending, with text to send (`resend`, else `text`). Whether
+/// the chat can send and the reader may act are ``retryPlacement``'s (base: PromptRetry's `retry` and
+/// read-only checks). Only which row draws Retry moved; which prompts can be retried did not.
+export const isRetryablePrompt = (row: AcpmuxRow) =>
+  row.kind === "user" &&
+  !row.incoming &&
+  row.received === undefined &&
+  !row.failed &&
+  !row.pending &&
+  row.delivery?.state !== "sending" &&
+  Boolean(row.resend ?? row.text);
 
-/// The chat's one Retry in the transcript (cmux#34779): the person's last prompt it can send again
-/// (`promptId`), and its turn's footer when that footer draws Retry for it (`footerId`). Read by
-/// ``retryPlacement``. A prompt still sending, one that failed to send, and a steer with its queue
-/// controls are skipped, as their rows have their own; any other steer is a prompt too, and its turn's footer resends the turn's opener,
-/// not it, so the steer keeps Retry under its bubble.
+/// The chat's one Retry in the transcript (cmux#34779): the last prompt that would have drawn its
+/// own Retry on base (``isRetryablePrompt``, `promptId`), and its turn's footer when that footer
+/// draws Retry for it (`footerId`). Read by ``retryPlacement``. A steer's turn footer resends the
+/// turn's opener, not the steer, so a steer keeps Retry under its bubble (held while it waits, as
+/// on base).
 export type RetryTarget = { promptId?: string; footerId?: string };
 export const NO_RETRY_TARGET: RetryTarget = {};
 
 export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (row.kind !== "user" || isUnsent(row) || row.delivery?.state === "sending" || !resendable(row)) continue;
-    // A steer drawn with its queue controls (App.tsx steerControls) has no Retry: a resend while
-    // it waits would reach the agent twice (cmux#34613).
-    if (row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()))) continue;
+    if (!isRetryablePrompt(row)) continue;
     // Its turn's footer is the first summary after it. A turn with none (history that ended
     // without a turn result, or one still running) reaches the next turn's summary, which resends
     // another prompt: then the prompt keeps Retry.
@@ -207,11 +209,12 @@ export function retryPlacement(
   return "footer";
 }
 
-/// The turn whose footer offers Retry: the last one, or, when the last turns came from a notice or a
-/// reminder (nothing to send again), the last turn before them whose prompt can be sent again, as
-/// the prompt's Retry did before it moved to the footer (cmux#34779). -1: none.
+/// The turn whose footer may offer Retry: the last one a prompt opened that would have drawn its own
+/// Retry on base (``isRetryablePrompt``), whatever came after it (a notice's, a reminder's, another
+/// agent's or a task result's turn), as that prompt kept its Retry under it before Retry moved to
+/// the footer (cmux#34779). -1: none.
 function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): number {
-  for (let at = starts.length - 1; at >= 0; at -= 1) if (resendable(rows[starts[at]!]!)) return at;
+  for (let at = starts.length - 1; at >= 0; at -= 1) if (isRetryablePrompt(rows[starts[at]!]!)) return at;
   return -1;
 }
 
@@ -1055,6 +1058,8 @@ function shapeTurn(
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
+    // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
+    // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged).
     ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&

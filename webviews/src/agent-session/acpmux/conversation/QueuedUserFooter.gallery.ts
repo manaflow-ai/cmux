@@ -20,7 +20,7 @@ const snapshot = (steer: "waiting" | "landed" = "waiting") => {
   };
 };
 // Three waiting steers, oldest first: only the newest offers Send now (#31419), the earlier ones keep
-// Copy and × on hover; each row's last control ends on its own bubble's right edge.
+// Copy, Retry and × on hover; each row's last control ends on its own bubble's right edge.
 const stack = () => {
   const state = chat(
     [
@@ -126,7 +126,7 @@ export default agentPaneEntry({
       play: preview("2px"),
     },
     balanced: {
-      note: "Chosen: Claude desktop's queued row, hovered: Copy, × and Send now last in the sent prompt's shared control slots, with no receipt or time.",
+      note: "Chosen: Claude desktop's queued row, hovered: Copy, Retry, × and Send now last in the sent prompt's shared control slots, with no receipt or time.",
       snapshot: snapshot(),
       play: preview(),
     },
@@ -136,12 +136,12 @@ export default agentPaneEntry({
       play: preview("12px"),
     },
     rest: {
-      note: "At rest, as Claude desktop: a waiting steer shows only Send now under its bubble; Copy and × wait for hover.",
+      note: "At rest, as Claude desktop: a waiting steer shows only Send now under its bubble; Copy, Retry and × wait for hover.",
       snapshot: snapshot(),
       play: checkRest,
     },
     stack: {
-      note: "Three waiting steers, oldest first, hovering the newest: Copy, × then Send now; only the newest offers Send now, and every row ends on its bubble's right edge, the sent row's gap under it.",
+      note: "Three waiting steers, oldest first, hovering the newest: Copy, Retry, × then Send now; only the newest offers Send now, and every row ends on its bubble's right edge, the sent row's gap under it.",
       snapshot: stack(),
       play: async (ctx) => {
         await ctx.hover({ text: TEXT });

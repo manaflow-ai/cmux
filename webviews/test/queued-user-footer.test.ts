@@ -371,9 +371,9 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     }
   });
   // Claude desktop's queued row (Leo, 2026-11-03: "the copy is always showing for no reason... plus
-  // the order is wrong"): at rest only Send now; on hover Copy, Fork and × come first, in the
+  // the order is wrong"): at rest only Send now; on hover Copy, Retry, Fork and × come first, in the
   // sent row's order, and Send now stays last without moving.
-  test("a waiting steer shows only Send now at rest and Copy, × then Send now on hover", async () => {
+  test("a waiting steer shows only Send now at rest and Copy, Retry, × then Send now on hover", async () => {
     const page = await open();
     try {
       const row = footer(page);
@@ -412,10 +412,11 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(hovered.controls.at(-2)).toBe("×");
       expect(hovered.controls.indexOf("Copy")).toBeLessThan(hovered.controls.indexOf("×"));
       expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
-      // No Retry in a waiting steer's row: the transcript's Retry is the last reply footer's
-      // (cmux#34779), and a resend while the steer waits would reach the agent twice (cmux#34613).
+      // Retry is shown but held while the steer waits: a resend would reach the agent twice
+      // (cmux#34613), and it has no model menu in this row (cmux#34614).
       const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
-      expect(await retry.count()).toBe(0);
+      expect(await retry.count()).toBe(1);
+      expect(await retry.isDisabled()).toBe(true);
       expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
     } finally {
       await page.context().close();

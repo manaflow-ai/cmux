@@ -172,6 +172,15 @@ const received = (id: string, at: number): AcpmuxRow => ({
   received: { offerId: "o1", childSessionId: "child-1", title: "Header" },
 });
 
+const message = (id: string, at: number): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "user",
+  text: '<cross-session-message from-name="leoli-fb">Please review #123.</cross-session-message>',
+  incoming: { kind: "message", message: { text: "Please review #123." } as never },
+});
+
 /// Where each drawn row shows a Retry button, as the transcript renders it: "footer:<id>" or
 /// "prompt:<id>".
 function retries(source: AcpmuxRow[], value: TurnActions = actions(), readOnly = false): string[] {
@@ -222,6 +231,13 @@ test.each([
     [...reply, received("r", 40), A("a2", 50, "Merged."), S("s2", 60)],
     ["footer:s1"],
   ],
+  [
+    "another agent's message after it: the person's turn's footer, never the message",
+    [...reply, message("m", 40), A("a2", 50, "Reviewing."), S("s2", 60)],
+    ["footer:s1"],
+  ],
+  ["only another agent's message: none", [message("m", 10), A("a1", 20, "Reviewing."), S("s1", 30)], []],
+  ["only a task result: none", [received("r", 10), A("a1", 20, "Merged."), S("s1", 30)], []],
   [
     "a later prompt: only the last prompt's footer",
     [...reply, P("p2", 40, "Now the header"), A("a2", 50, "Done."), S("s2", 60)],

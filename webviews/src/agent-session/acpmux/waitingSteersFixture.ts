@@ -1,7 +1,7 @@
 // l10n-allow-file: debug fixture prompts and replies, not shipped UI.
 // Three steers the agent has not read yet, under a running turn, for `debug.agent_pane seed_rows` with
 // `fixture: "waiting-steers"`, so a capture shows their footers in the real app: at rest only the newest
-// offers Send now; hovered, Copy and the X come first and Send now last (PendingSteer.tsx). The
+// offers Send now; hovered, Copy, Retry and the X come first and Send now last (PendingSteer.tsx). The
 // same chat as the gallery's `agent-pane.queued-user-footer` `stack` variant: a Claude Code chat
 // (acpmux `backgroundsWork`), so the X shows, with the newest steer as the snapshot's `newestOwnSteer`.
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
