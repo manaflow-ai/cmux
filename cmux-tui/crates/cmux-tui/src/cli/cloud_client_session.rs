@@ -251,8 +251,7 @@ pub(super) fn run(
     // backend again (lens review 2026-11-05, finding 2).
     let scope = Scope::new(api, command.team.as_deref()).map_err(|e| e.to_string())?;
     let machine = scope.machine(&command.machine).map_err(|e| e.to_string())?;
-    let minted =
-        runtime.block_on(mint_session(&client, &scope, credential, &machine, command.ttl));
+    let minted = runtime.block_on(mint_session(&client, &scope, credential, &machine, command.ttl));
     let session = match (minted, &command.verb) {
         (Ok(session), _) => session,
         // A provider with no client sessions (a VM API machine): exec runs through the cmux
