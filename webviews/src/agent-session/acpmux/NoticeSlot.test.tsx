@@ -50,7 +50,7 @@ async function render(container: HTMLElement, lines: Line[], extra?: React.React
       <NoticeSlot>
         {lines.map(({ id, tier, when }) => (
           <Notice key={id} id={id} tier={tier} when={when}>
-            <p data-line={id}>{id}</p>
+            {() => <p data-line={id}>{id}</p>}
           </Notice>
         ))}
         {extra}
@@ -188,10 +188,59 @@ test("notices outside a slot (a gallery) always draw", async () => {
           <p data-line="a">a</p>
         </Notice>
         <Notice id="b" tier="error" when>
-          <p data-line="b">b</p>
+          {() => <p data-line="b">b</p>}
         </Notice>
       </>,
     );
   });
   expect(shown(container)).toEqual(["a", "b"]);
+});
+
+// cmux#36329: an error line above the composer had no way to put it away, and stayed until its
+// owner cleared it. Its × hides it (the next notice down shows), it stays hidden for that error, and
+// it shows again for another error, or for the same one once it resolved and came back.
+test("an error line's × puts it away until its error changes or comes back", async () => {
+  const container = installDom();
+  const { HostUnavailableLine } = await import("./HostError");
+  const draw = (error: string | undefined) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <NoticeSlot>
+          <Notice id="host-error" tier="error" when={error} dismissKey={error}>
+            {(dismiss) => (
+              <div data-line="host-error">
+                <HostUnavailableLine message={error ?? ""} onRetry={() => undefined} onDismiss={dismiss} />
+              </div>
+            )}
+          </Notice>
+          <Notice id="folder-hint" tier="hint" when>
+            <p data-line="folder-hint">folder-hint</p>
+          </Notice>
+        </NoticeSlot>,
+      );
+    });
+  const dismiss = () =>
+    act(async () => {
+      const button = container.querySelector<HTMLButtonElement>('[data-notice-action="dismiss"]');
+      expect(button).not.toBeNull();
+      button!.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
+    });
+  await draw("Can't reach the agent service");
+  expect(shown(container)).toEqual(["host-error"]);
+  await dismiss();
+  expect(shown(container)).toEqual(["folder-hint"]);
+  // The same failure, drawn again by a later render, stays put away.
+  await draw("Can't reach the agent service");
+  expect(shown(container)).toEqual(["folder-hint"]);
+  // Another failure shows.
+  await draw("The agent service refused the chat");
+  expect(shown(container)).toEqual(["host-error"]);
+  await dismiss();
+  expect(shown(container)).toEqual(["folder-hint"]);
+  // It resolved, then failed the same way again: it shows again.
+  await draw(undefined);
+  expect(shown(container)).toEqual(["folder-hint"]);
+  await draw("The agent service refused the chat");
+  expect(shown(container)).toEqual(["host-error"]);
 });

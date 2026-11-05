@@ -16,16 +16,18 @@ function GalleryNoticeSlot({ lines }: Props) {
       <NoticeSlot>
         {lines.map(({ id, tier, text }) => (
           <Notice key={id} id={id} tier={tier} when={!gone.includes(id)}>
-            <div className="acpmux-host-error" data-notice-line={id}>
-              <div className="acpmux-host-error-card">
-                <p className="acpmux-host-error-message">{text}</p>
-                <div className="acpmux-host-error-actions">
-                  <button type="button" data-notice-action="dismiss" onClick={() => setGone([...gone, id])}>
-                    Dismiss
-                  </button>
+            {() => (
+              <div className="acpmux-host-error" data-notice-line={id}>
+                <div className="acpmux-host-error-card">
+                  <p className="acpmux-host-error-message">{text}</p>
+                  <div className="acpmux-host-error-actions">
+                    <button type="button" data-notice-action="dismiss" onClick={() => setGone([...gone, id])}>
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </Notice>
         ))}
       </NoticeSlot>

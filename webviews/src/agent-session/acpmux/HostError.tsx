@@ -4,6 +4,7 @@ import { Notice } from "../../ui/Notice";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { useNow } from "./subagents/SubagentGroup";
 import { useT } from "./i18n";
+import { NoticeDismiss } from "./NoticeDismiss";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -15,12 +16,15 @@ export function HostError({
   onRetry,
   hint,
   action,
+  onDismiss,
 }: {
   message: string;
   retrying?: boolean;
   onRetry?(): void;
   hint?: string | null;
   action?: string;
+  /// The notice's × (cmux#36329): puts the line away until its cause changes.
+  onDismiss?(): void;
 }) {
   const t = useT();
   const label = action ?? t(retrying ? "host.retryQueued" : "host.retry");
@@ -34,6 +38,8 @@ export function HostError({
         actions={
           action && onRetry ? [{ id: "action", label, onSelect: onRetry, disabled: retrying, primary: true }] : []
         }
+        onDismiss={onDismiss}
+        dismissLabel={t("notice.dismiss")}
       />
     </div>
   );
@@ -56,6 +62,7 @@ export function HostUnavailableLine({
   onRetry,
   restarting,
   onRestart,
+  onDismiss,
 }: {
   message: string;
   detail?: string;
@@ -63,6 +70,9 @@ export function HostUnavailableLine({
   onRetry?(): void;
   restarting?: boolean;
   onRestart?(): void;
+  /// The line's × (cmux#36329): hides it until the failure changes; it clears by itself once the
+  /// host answers.
+  onDismiss?(): void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -100,6 +110,7 @@ export function HostUnavailableLine({
             {t("host.details")}
           </button>
         )}
+        {onDismiss && <NoticeDismiss onDismiss={onDismiss} />}
       </div>
       {detail && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">

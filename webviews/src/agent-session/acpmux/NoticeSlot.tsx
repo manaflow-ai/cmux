@@ -80,18 +80,43 @@ export function useNoticeTurn(id: string, tier: NoticeTier, wants: boolean): { s
   return { shown: wants && slot.shown === id };
 }
 
+/// What a notice draws: its content, or for an error a function of its dismiss (`NoticeChildren`).
+type DismissibleChildren = (dismiss: () => void) => ReactNode;
+/// An error notice must draw a way to dismiss it (cmux#36329: a failure line that stayed with no ×):
+/// a tier that can be `error` takes its children as a function of the dismiss, and wires it to its ×.
+export type NoticeChildren<Tier extends NoticeTier> = "error" extends Tier
+  ? DismissibleChildren
+  : ReactNode | DismissibleChildren;
+
 /// A notice the pane draws itself (`when`): its children show only on its turn in the slot.
-export function Notice({
+/// Dismissing it hides it until what it says changes (`dismissKey`, else `when`) or clears: the
+/// error stays known to the pane, and the next failure, or this one coming back after it resolved,
+/// shows again. `onDismiss` lets the owner clear the error it holds as well.
+export function Notice<Tier extends NoticeTier>({
   id,
   tier,
   when,
+  dismissKey = when,
+  onDismiss,
   children,
 }: {
   id: string;
-  tier: NoticeTier;
+  tier: Tier;
   when: unknown;
-  children: ReactNode;
+  dismissKey?: unknown;
+  onDismiss?: () => void;
+  children: NoticeChildren<Tier>;
 }) {
-  const { shown } = useNoticeTurn(id, tier, Boolean(when));
-  return shown ? <>{children}</> : null;
+  const [dismissed, setDismissed] = useState<{ key: unknown } | undefined>();
+  // A notice that cleared (its error resolved) forgets its dismissal, so a later failure shows.
+  if (dismissed && !when) setDismissed(undefined);
+  const hidden = dismissed !== undefined && Boolean(when) && Object.is(dismissed.key, dismissKey);
+  const { shown } = useNoticeTurn(id, tier, Boolean(when) && !hidden);
+  if (!shown) return null;
+  if (typeof children !== "function") return <>{children}</>;
+  const dismiss = () => {
+    setDismissed({ key: dismissKey });
+    onDismiss?.();
+  };
+  return <>{(children as DismissibleChildren)(dismiss)}</>;
 }

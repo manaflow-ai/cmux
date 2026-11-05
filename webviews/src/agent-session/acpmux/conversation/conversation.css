@@ -4631,6 +4631,24 @@ a.cv-sha:focus-visible {
   align-items: flex-start;
   gap: var(--ds-space-2);
 }
+/* Its × (NoticeDismiss.tsx, cmux#36329): last in the card's order, so the lead stays its first tab
+   stop, and drawn at the cause line's end, centred on that line. */
+.cv-turn-error--dismissible {
+  position: relative;
+}
+.cv-turn-error--dismissible .cv-turn-error__cause {
+  padding-inline-end: var(--ds-space-6);
+}
+.cv-turn-error__dismiss {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+/* On the card: the × on the cause's 18px line, inside the card's padding. */
+.cv-turn-error--card .cv-turn-error__dismiss {
+  inset-block-start: calc(var(--grid-cards-padding) - var(--ds-space-1) / 2);
+  inset-inline-end: calc(var(--grid-cards-padding) - var(--ds-space-1));
+}
 .cv-turn-error__icon {
   flex: none;
   margin-top: 2px;

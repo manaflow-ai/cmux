@@ -457,6 +457,7 @@ import {
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   RetryTargetContext,
+  ResolvedFailuresContext,
   TurnActionsContext,
   chatLoginCommand,
   compactThrough,
@@ -518,6 +519,7 @@ import {
   liveTurnPlan,
   samePlanEntries as sameEntries,
   retryTargetIn,
+  resolvedFailures,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -681,6 +683,7 @@ import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversa
 import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { NoticeDismiss } from "./NoticeDismiss";
 import { AutoResumeNotice } from "./AutoResumeNotice";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -5838,6 +5841,9 @@ export function VirtualTranscript({
     [scannedRetry.promptId, scannedRetry.footerId],
   );
   const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
+  // The failed turns the chat has since gone on from (a later turn ended well) clear their cards
+  // (TurnRows.tsx TurnFooter, cmux#36329); one set per such turn, so a streamed token redraws no footer.
+  const resolvedFailed = useMemo(() => resolvedFailures(rows), [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
@@ -5966,197 +5972,199 @@ export function VirtualTranscript({
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
       <RetryTargetContext.Provider value={retryTarget}>
-        <div
-          ref={ref}
-          className="acpmux-scroll"
-          role="feed"
-          // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
-          data-read-only-transcript={readOnly ? "" : undefined}
-          // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
-          {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
-          aria-label={t("transcript.label")}
-          onScroll={onScroll}
-          onWheel={onWheel}
-          // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
-          // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
-          {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
-          // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
-          // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
-          // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
-          // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
-          // 2026-10-23: "that little bit above composer can flicker").
-          data-seeking={seeking || undefined}
-          aria-busy={seeking || undefined}
-          data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-          data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
-          // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
-          // out of sight behind it instead of reading through its glass.
-          data-jump-shown={(jumpButton && behind) || undefined}
-          // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
-          // scroll a row into view above it.
-          data-docked={dockSpace > 0 || undefined}
-          style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
-        >
-          {showMinimap && (
-            <ThreadMinimap
+        <ResolvedFailuresContext.Provider value={resolvedFailed}>
+          <div
+            ref={ref}
+            className="acpmux-scroll"
+            role="feed"
+            // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
+            data-read-only-transcript={readOnly ? "" : undefined}
+            // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
+            {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
+            aria-label={t("transcript.label")}
+            onScroll={onScroll}
+            onWheel={onWheel}
+            // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
+            // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
+            {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
+            // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+            // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+            // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+            // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+            // 2026-10-23: "that little bit above composer can flicker").
+            data-seeking={seeking || undefined}
+            aria-busy={seeking || undefined}
+            data-fade-top={renderScroll.top - origin > 0.5 || undefined}
+            data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
+            // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+            // out of sight behind it instead of reading through its glass.
+            data-jump-shown={(jumpButton && behind) || undefined}
+            // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
+            // scroll a row into view above it.
+            data-docked={dockSpace > 0 || undefined}
+            style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+          >
+            {showMinimap && (
+              <ThreadMinimap
+                rows={rows}
+                earlier={earlier}
+                promptCount={promptCount}
+                loadThrough={loadThrough}
+                loadPromptIndex={loadPromptIndex}
+                sessionId={sessionId}
+                layout={layout}
+                scroller={ref}
+                scrollTop={renderScroll.top - origin}
+                // Above the room under the last row, so a composer that grows while the reader is scrolled
+                // up leaves the map as it was, as it does the scrollbar.
+                viewportHeight={height - room}
+                // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+                // rail's rows stay above its bottom band.
+                foot={height - dockSpace}
+                railBox={railBox}
+                scrolls={layout.totalHeight - height > 0.5}
+                width={paneWidth}
+                columnWidth={width}
+                placed={minimapPlaced}
+                change={rowsChange.current}
+                topInset={topInset}
+              />
+            )}
+            {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
+            <ChatMinimap
+              // Another chat is another minimap: no canvas, placeholder or scale carried over.
+              key={sessionId}
               rows={rows}
-              earlier={earlier}
-              promptCount={promptCount}
-              loadThrough={loadThrough}
-              loadPromptIndex={loadPromptIndex}
-              sessionId={sessionId}
               layout={layout}
               scroller={ref}
-              scrollTop={renderScroll.top - origin}
-              // Above the room under the last row, so a composer that grows while the reader is scrolled
-              // up leaves the map as it was, as it does the scrollbar.
               viewportHeight={height - room}
-              // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-              // rail's rows stay above its bottom band.
               foot={height - dockSpace}
-              railBox={railBox}
+              width={width}
               scrolls={layout.totalHeight - height > 0.5}
-              width={paneWidth}
-              columnWidth={width}
-              placed={minimapPlaced}
               change={rowsChange.current}
-              topInset={topInset}
             />
-          )}
-          {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-          <ChatMinimap
-            // Another chat is another minimap: no canvas, placeholder or scale carried over.
-            key={sessionId}
-            rows={rows}
-            layout={layout}
-            scroller={ref}
-            viewportHeight={height - room}
-            foot={height - dockSpace}
-            width={width}
-            scrolls={layout.totalHeight - height > 0.5}
-            change={rowsChange.current}
-          />
-          {find?.open && <ChatFindBar find={find} />}
-          <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
-            <div
-              className="acpmux-spacer"
-              // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-              data-older-room={layout.origin || undefined}
-              style={{
-                height: layout.totalHeight,
-                width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
-              }}
-            >
+            {find?.open && <ChatFindBar find={find} />}
+            <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
               <div
-                ref={thread}
-                className="acpmux-thread"
-                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
-                onPointerOver={(event) => pointAt(event.target)}
-                onPointerLeave={() => pointAt(null)}
+                className="acpmux-spacer"
+                // The room held above the loaded rows for older history (conversation/olderReserve.ts).
+                data-older-room={layout.origin || undefined}
+                style={{
+                  height: layout.totalHeight,
+                  width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
+                }}
               >
-                {mountedRanges.flatMap(({ first, last }) =>
-                  rows.slice(first, last).map((row, index) => {
-                    const absoluteIndex = first + index;
-                    const next = nextDrawnRow(rows, absoluteIndex);
-                    const actions = hasReplyActions(row, next);
-                    const kind = rowKind(row);
-                    const Component = registry[kind] ?? NoticeRow;
-                    const isExpanded = row.foldOpen ?? expanded.has(row.id);
-                    const controls =
-                      row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-                    return (
-                      <RowFrame
-                        key={`${sessionId ?? ""}:${row.id}`}
-                        row={row}
-                        kind={kind}
-                        joinsPrevious={
-                          (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
-                          isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
-                        }
-                        joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
-                        beforeFooter={isBeforeFooter(row, next)}
-                        beforeIndicator={
-                          next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
-                        }
-                        replyActions={keepsReplyRoom(row, next)}
-                        status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
-                        lastFooter={isLastFooter(row, next)}
-                        finalFooter={row.id === finalFooter}
-                        continuationFooter={isContinuationFooter(row, next)}
-                        lastTurn={row.lastTurn === true}
-                        index={absoluteIndex}
-                        setSize={canLoadOlder ? -1 : rows.length}
-                        top={layout.geometry.topAt(absoluteIndex)}
-                        gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
-                        rowWidth={scaledRowWidth}
-                        expanded={isExpanded}
-                        observer={observer}
-                        queueDrawn={queueDrawn}
-                        // A session switch is a load, not a live arrival. The reset effect runs after
-                        // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(row.id)}
-                        onEntered={onEntered}
-                        older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
-                        onOlderShown={onOlderShown}
-                        active={effectiveActiveRowId === row.id}
-                        selected={selectedRows.has(absoluteIndex)}
-                        tabStop={tabStopId === row.id}
-                        onFocus={rowFocus}
-                        onRowKeyDown={handleRowKeyDown}
-                        contentType={Component}
-                        controls={controls}
-                        onToggleActivity={toggleRow}
-                        onOpenDiff={onOpenDiff}
-                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
-                        referenceScope={scopeAt(absoluteIndex)}
-                      >
-                        <Component
+                <div
+                  ref={thread}
+                  className="acpmux-thread"
+                  style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                  onPointerOver={(event) => pointAt(event.target)}
+                  onPointerLeave={() => pointAt(null)}
+                >
+                  {mountedRanges.flatMap(({ first, last }) =>
+                    rows.slice(first, last).map((row, index) => {
+                      const absoluteIndex = first + index;
+                      const next = nextDrawnRow(rows, absoluteIndex);
+                      const actions = hasReplyActions(row, next);
+                      const kind = rowKind(row);
+                      const Component = registry[kind] ?? NoticeRow;
+                      const isExpanded = row.foldOpen ?? expanded.has(row.id);
+                      const controls =
+                        row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+                      return (
+                        <RowFrame
+                          key={`${sessionId ?? ""}:${row.id}`}
                           row={row}
-                          replyActions={actions}
-                          sessionId={sessionId}
+                          kind={kind}
+                          joinsPrevious={
+                            (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
+                            isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
+                          }
+                          joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
+                          beforeFooter={isBeforeFooter(row, next)}
+                          beforeIndicator={
+                            next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
+                          }
+                          replyActions={keepsReplyRoom(row, next)}
+                          status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
+                          lastFooter={isLastFooter(row, next)}
+                          finalFooter={row.id === finalFooter}
+                          continuationFooter={isContinuationFooter(row, next)}
+                          lastTurn={row.lastTurn === true}
+                          index={absoluteIndex}
+                          setSize={canLoadOlder ? -1 : rows.length}
+                          top={layout.geometry.topAt(absoluteIndex)}
+                          gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
+                          rowWidth={scaledRowWidth}
+                          expanded={isExpanded}
+                          observer={observer}
+                          queueDrawn={queueDrawn}
+                          // A session switch is a load, not a live arrival. The reset effect runs after
+                          // this render, so gate it here as well to avoid a reused row id animating once.
+                          enter={!sessionChanged && enteringRows.current.has(row.id)}
+                          onEntered={onEntered}
+                          older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
+                          onOlderShown={onOlderShown}
+                          active={effectiveActiveRowId === row.id}
+                          selected={selectedRows.has(absoluteIndex)}
+                          tabStop={tabStopId === row.id}
+                          onFocus={rowFocus}
+                          onRowKeyDown={handleRowKeyDown}
+                          contentType={Component}
+                          controls={controls}
                           onToggleActivity={toggleRow}
                           onOpenDiff={onOpenDiff}
-                          expanded={isExpanded}
-                          controls={controls}
                           githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
-                        />
-                      </RowFrame>
-                    );
-                  }),
-                )}
+                          referenceScope={scopeAt(absoluteIndex)}
+                        >
+                          <Component
+                            row={row}
+                            replyActions={actions}
+                            sessionId={sessionId}
+                            onToggleActivity={toggleRow}
+                            onOpenDiff={onOpenDiff}
+                            expanded={isExpanded}
+                            controls={controls}
+                            githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                          />
+                        </RowFrame>
+                      );
+                    }),
+                  )}
+                </div>
               </div>
-            </div>
-          </TranscriptContext>
-        </div>
-        {afterLatest && (
-          <div
-            className="acpmux-transcript-after-latest"
-            // The dock is absolute over the stage. Keep an after-latest tray in flow above its
-            // measured room so the composer never covers the expansion or its live tail.
-            style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
-          >
-            {afterLatest}
+            </TranscriptContext>
           </div>
-        )}
-        {jumpButton && (
-          <JumpToLatest
-            // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
-            shown={behind || (needsYou?.elsewhere ?? 0) > 0}
-            working={working}
-            onJump={(focused) => {
-              // One press, one move: to the latest message when this chat's ask waits there (or no
-              // ask is open), else straight to the next chat's ask.
-              // With no ask open it is Jump to latest, whatever the last render read for `behind`.
-              const asks = needsYou?.count ?? 0;
-              const here = asks - (needsYou?.elsewhere ?? 0);
-              const scroll = asks === 0 || (behind && here > 0);
-              if (scroll) jumpToLatest(focused);
-              if (needsYou && asks > 0) needsYou.next(scroll);
-            }}
-            lift={dockSpace}
-            needsYou={needsYou}
-          />
-        )}
+          {afterLatest && (
+            <div
+              className="acpmux-transcript-after-latest"
+              // The dock is absolute over the stage. Keep an after-latest tray in flow above its
+              // measured room so the composer never covers the expansion or its live tail.
+              style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
+            >
+              {afterLatest}
+            </div>
+          )}
+          {jumpButton && (
+            <JumpToLatest
+              // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
+              shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+              working={working}
+              onJump={(focused) => {
+                // One press, one move: to the latest message when this chat's ask waits there (or no
+                // ask is open), else straight to the next chat's ask.
+                // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+                const asks = needsYou?.count ?? 0;
+                const here = asks - (needsYou?.elsewhere ?? 0);
+                const scroll = asks === 0 || (behind && here > 0);
+                if (scroll) jumpToLatest(focused);
+                if (needsYou && asks > 0) needsYou.next(scroll);
+              }}
+              lift={dockSpace}
+              needsYou={needsYou}
+            />
+          )}
+        </ResolvedFailuresContext.Provider>
       </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
   );
@@ -14387,25 +14395,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ? blockedHarness
       : undefined;
   const blockedName = block ? (catalog.find((entry) => entry.id === block.harness)?.name ?? block.harness) : undefined;
-  const harnessCard = block && (
-    <HostError
-      message={t(block.reason === "needs-enable" ? "harness.needsEnable" : "harness.needsTrust", {
-        agent: blockedName ?? block.harness,
-        folder: block.folder,
-      })}
-      hint={null}
-      {...(block.reason === "needs-enable"
-        ? {
-            action: t("harness.enable"),
-            onRetry: () =>
-              void callNative("chat.harness.enable", {
-                folder: block.folder,
-                id: block.harness,
-              }).catch(() => undefined),
-          }
-        : {})}
-    />
-  );
+  const harnessCard =
+    block &&
+    ((dismiss: () => void) => (
+      <HostError
+        onDismiss={dismiss}
+        message={t(block.reason === "needs-enable" ? "harness.needsEnable" : "harness.needsTrust", {
+          agent: blockedName ?? block.harness,
+          folder: block.folder,
+        })}
+        hint={null}
+        {...(block.reason === "needs-enable"
+          ? {
+              action: t("harness.enable"),
+              onRetry: () =>
+                void callNative("chat.harness.enable", {
+                  folder: block.folder,
+                  id: block.harness,
+                }).catch(() => undefined),
+            }
+          : {})}
+      />
+    ));
   // A new chat in a workspace without a folder starts in its private folder (FolderChoice.tsx): the
   // folder chip's menu says so, and its Choose folder… is the workspace's folder sheet, which also
   // makes the pick the folder of the pane's next chats.
@@ -14465,53 +14476,74 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           />
         )}
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        {/* Every error line here can be put away (cmux#36329): an error-tier Notice draws its own
+            ×, wired to the dismiss it hands its children (NoticeSlot.tsx), and shows again only
+            when its error changes. One whose cause resolves clears on its own. */}
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
-          <DictationNotice dictation={dictation} />
+          {() => <DictationNotice dictation={dictation} />}
         </Notice>
-        <Notice id="import-error" tier="error" when={importError}>
-          <p className="acpmux-composer-remote-note" role="alert">
-            {importError}
-          </p>
+        <Notice id="import-error" tier="error" when={importError} onDismiss={() => setImportError(undefined)}>
+          {(dismiss) => (
+            <p className="acpmux-composer-remote-note acpmux-dismissible-note" role="alert">
+              <span>{importError}</span>
+              <NoticeDismiss onDismiss={dismiss} />
+            </p>
+          )}
         </Notice>
         <Notice id="instructions" tier="error" when={instructionsFailure}>
-          <InstructionsNotice
-            failure={instructionsFailure?.failure}
-            onRetry={() =>
-              instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-            }
-            onDismiss={() => setInstructionsFailure(undefined)}
-          />
+          {() => (
+            <InstructionsNotice
+              failure={instructionsFailure?.failure}
+              onRetry={() =>
+                instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+              }
+              onDismiss={() => setInstructionsFailure(undefined)}
+            />
+          )}
         </Notice>
         {harnessCard ? (
-          <Notice id="harness-block" tier="error" when>
-            {harnessCard}
+          <Notice
+            id="harness-block"
+            tier="error"
+            when
+            dismissKey={block && `${block.reason}:${block.harness}:${block.folder}`}
+          >
+            {(dismiss) => harnessCard(dismiss)}
           </Notice>
         ) : (
           <Notice
             id="switch"
             tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
             when={snapshot.switching && snapshot.switching.phase !== "starting"}
+            // The snapshot draws a new `switching` on each event: the failure it says is the key.
+            dismissKey={
+              snapshot.switching &&
+              `${snapshot.switching.phase}:${snapshot.switching.name}:${snapshot.switching.code ?? ""}:${snapshot.switching.error ?? ""}`
+            }
           >
-            <SwitchNotice
-              switching={snapshot.switching}
-              onRetry={() => void callNative("chat.harness.retry")}
-              // The refused prompt is back in the composer; a chat on another machine starts only
-              // with a send, so the share's retry sends it again (as Trust's answer does).
-              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
-              onAction={(action) => {
-                // A fresh chat on another machine has no summary yet: its connection's origin, or a
-                // folder list its host marked as that machine's, says where it runs.
-                const elsewhere =
-                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
-                const route = startRefusalRoute(action, elsewhere);
-                if (route === "newCloudMachine") connectMachine("cloud");
-                // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
-                else if (route === "machineFolderMenu") {
-                  if (!openPicker("Location")) void chooseWorkspaceFolder();
-                } else void chooseWorkspaceFolder();
-              }}
-              share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
-            />
+            {(dismiss) => (
+              <SwitchNotice
+                onDismiss={dismiss}
+                switching={snapshot.switching}
+                onRetry={() => void callNative("chat.harness.retry")}
+                // The refused prompt is back in the composer; a chat on another machine starts only
+                // with a send, so the share's retry sends it again (as Trust's answer does).
+                onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
+                onAction={(action) => {
+                  // A fresh chat on another machine has no summary yet: its connection's origin, or a
+                  // folder list its host marked as that machine's, says where it runs.
+                  const elsewhere =
+                    remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
+                  const route = startRefusalRoute(action, elsewhere);
+                  if (route === "newCloudMachine") connectMachine("cloud");
+                  // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
+                  else if (route === "machineFolderMenu") {
+                    if (!openPicker("Location")) void chooseWorkspaceFolder();
+                  } else void chooseWorkspaceFolder();
+                }}
+                share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
+              />
+            )}
           </Notice>
         )}
         {!harnessCard && (
@@ -14532,35 +14564,50 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           />
         )}
         {snapshot.sessionId && rulesLocal && <RulesNotice rules={rules} />}
-        <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
-          <MissingFolder
-            reason={folderNeeded?.reason ?? ""}
-            error={folderNeeded?.error}
-            onChoose={() => {
-              void chooseChatFolder(
-                () => callNative("chat.folder.choose"),
-                async (adopt) => {
-                  const client = directClient.current;
-                  if (!client) throw new Error(t("error.nativeUnavailable"));
-                  const sessionId = await client.resume(adopt);
-                  if (sessionId) await callNative("chat.persistSession", { sessionId });
-                },
-              ).then(
-                (result) => {
-                  if (result.done) setFolderNeeded(undefined);
-                  else if (result.reason) setFolderNeeded({ reason: result.reason });
-                },
-                (error: unknown) =>
-                  setFolderNeeded((current) => current && { ...current, error: errorMessage(error) || String(error) }),
-              );
-            }}
-          />
+        <Notice
+          id="missing-folder"
+          tier="error"
+          when={folderNeeded && !snapshot.sessionId}
+          dismissKey={folderNeeded && `${folderNeeded.reason}:${folderNeeded.error ?? ""}`}
+        >
+          {(dismiss) => (
+            <MissingFolder
+              onDismiss={dismiss}
+              reason={folderNeeded?.reason ?? ""}
+              error={folderNeeded?.error}
+              onChoose={() => {
+                void chooseChatFolder(
+                  () => callNative("chat.folder.choose"),
+                  async (adopt) => {
+                    const client = directClient.current;
+                    if (!client) throw new Error(t("error.nativeUnavailable"));
+                    const sessionId = await client.resume(adopt);
+                    if (sessionId) await callNative("chat.persistSession", { sessionId });
+                  },
+                ).then(
+                  (result) => {
+                    if (result.done) setFolderNeeded(undefined);
+                    else if (result.reason) setFolderNeeded({ reason: result.reason });
+                  },
+                  (error: unknown) =>
+                    setFolderNeeded(
+                      (current) => current && { ...current, error: errorMessage(error) || String(error) },
+                    ),
+                );
+              }}
+            />
+          )}
         </Notice>
         {!showNewTab && folderAskView}
         {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
             host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
-        <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
-          <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
+        <Notice
+          id="folder-choice"
+          tier="error"
+          when={folderChoiceOffered && folderError}
+          onDismiss={() => setFolderError(undefined)}
+        >
+          {(dismiss) => <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} onDismiss={dismiss} />}
         </Notice>
         <Notice id="background" tier="status" when={background.notice}>
           <output className="acpmux-switch-notice acpmux-background-notice">
@@ -14580,19 +14627,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           tier="error"
           when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
         >
-          <WorktreeFailure error={worktreeError?.message ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+          {() => <WorktreeFailure error={worktreeError?.message ?? ""} onDismiss={() => setWorktreeError(undefined)} />}
         </Notice>
         <Notice id="btw-failure" tier="error" when={btwFailure}>
-          <output className="acpmux-switch-notice acpmux-folder-choice">
-            <span role="alert">
-              {btwFailure?.reason
-                ? t("sideSession.failedBecause", { reason: btwFailure.reason })
-                : t("sideSession.failed")}
-            </span>{" "}
-            <button type="button" className="acpmux-folder-choice-button" onClick={() => setBtwFailure(undefined)}>
-              {t("sideQuestion.dismiss")}
-            </button>
-          </output>
+          {() => (
+            <output className="acpmux-switch-notice acpmux-folder-choice">
+              <span role="alert">
+                {btwFailure?.reason
+                  ? t("sideSession.failedBecause", { reason: btwFailure.reason })
+                  : t("sideSession.failed")}
+              </span>{" "}
+              <button type="button" className="acpmux-folder-choice-button" onClick={() => setBtwFailure(undefined)}>
+                {t("sideQuestion.dismiss")}
+              </button>
+            </output>
+          )}
         </Notice>
         {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
             offered here. */}
@@ -15093,29 +15142,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
-      <HostUnavailableLine
-        message={hostWords.line}
-        detail={hostWords.detail}
-        retrying={retryQueued}
-        onRetry={() => retryHost.current?.()}
-        restarting={restartingAcpmux}
-        onRestart={
-          acpmuxRestartOffered
-            ? () => {
-                // The person's click: the app stops the other binary's daemon (its chats are kept),
-                // and the next handshake starts this app's own acpmux.
-                // No handshake runs meanwhile: the old daemon is still there until it stops.
-                void restartGate.run(() => callNative("acpmux.restart"), {
-                  cancelRetries: () => cancelRetry.current?.(),
-                  changed: setRestartingAcpmux,
-                  connected: () => !!directClient.current,
-                  ask: () => retryHost.current?.(),
-                });
-              }
-            : undefined
-        }
-      />
+    <Notice
+      id="host-error"
+      tier="error"
+      when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}
+      dismissKey={hostError}
+    >
+      {(dismiss) => (
+        <HostUnavailableLine
+          onDismiss={dismiss}
+          message={hostWords.line}
+          detail={hostWords.detail}
+          retrying={retryQueued}
+          onRetry={() => retryHost.current?.()}
+          restarting={restartingAcpmux}
+          onRestart={
+            acpmuxRestartOffered
+              ? () => {
+                  // The person's click: the app stops the other binary's daemon (its chats are kept),
+                  // and the next handshake starts this app's own acpmux.
+                  // No handshake runs meanwhile: the old daemon is still there until it stops.
+                  void restartGate.run(() => callNative("acpmux.restart"), {
+                    cancelRetries: () => cancelRetry.current?.(),
+                    changed: setRestartingAcpmux,
+                    connected: () => !!directClient.current,
+                    ask: () => retryHost.current?.(),
+                  });
+                }
+              : undefined
+          }
+        />
+      )}
     </Notice>
   );
   // One host line at a time, the newest state winning: a long wait replaces the line of an

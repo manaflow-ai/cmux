@@ -1050,3 +1050,21 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
 .acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}
 .acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+/* The × on an error line or a failed turn's card (NoticeDismiss.tsx, cmux#36329): a 20px muted
+   square with no surface until hovered, as the dictation notice's ×. */
+.acpmux-notice-dismiss{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;vertical-align:middle;cursor:default}
+.acpmux-notice-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-notice-dismiss:active{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+.acpmux-notice-dismiss:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+@media (prefers-reduced-motion:no-preference){.acpmux-notice-dismiss{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+/* In the host line, after its buttons, at the line's end; the line's own button surface is not its. */
+.acpmux-host-line .acpmux-notice-dismiss{width:20px;height:20px;margin-left:auto;padding:0;background:none;color:var(--agent-muted)}
+.acpmux-host-line .acpmux-notice-dismiss:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+/* In a failure card (SwitchNotice.tsx), at its top right; the card's filled-button look is not its. */
+.acpmux-host-error-card:has(> .acpmux-host-error-dismiss){position:relative;padding-right:calc(var(--grid-cards-padding) + 24px)}
+.acpmux-host-error-card .acpmux-host-error-dismiss{position:absolute;top:8px;right:8px;margin:0;padding:0;background:none;color:var(--agent-muted)}
+.acpmux-host-error-card .acpmux-host-error-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+/* After a sentence in a quiet line (FolderChoice.tsx, missingFolder.tsx). */
+.acpmux-inline-dismiss{margin-left:var(--ds-space-1)}
+/* A one-line error with its × at the end (the import failure). */
+.acpmux-dismissible-note{display:flex;align-items:center;gap:var(--ds-space-2)}.acpmux-dismissible-note>span{flex:1;min-width:0}

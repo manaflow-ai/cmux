@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { NoticeDismiss } from "./NoticeDismiss";
 
 /// Whether the line shows: the host offered it (`chooseFolder`: a new chat that runs in the
 /// workspace's agent-home), the chat is still new (no turn yet), not in the Quick Composer, and the
@@ -21,7 +22,16 @@ export function showsFolderChoice(state: {
 /// the host's native folder sheet (`workspace.chooseFolder`), which the host opens only after a real
 /// click. This line above the composer says it again only with `error`, the host's localized refusal
 /// (an older background service, a folder it could not save), and offers the sheet again.
-export function FolderChoice({ onChoose, error }: { onChoose(): void; error?: string }) {
+export function FolderChoice({
+  onChoose,
+  error,
+  onDismiss,
+}: {
+  onChoose(): void;
+  error?: string;
+  /// The line's × (cmux#36329), drawn with its refusal.
+  onDismiss?(): void;
+}) {
   const t = useT();
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice">
@@ -33,6 +43,7 @@ export function FolderChoice({ onChoose, error }: { onChoose(): void; error?: st
         <>
           {" "}
           <span role="alert">{error}</span>
+          {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="acpmux-inline-dismiss" />}
         </>
       )}
     </output>

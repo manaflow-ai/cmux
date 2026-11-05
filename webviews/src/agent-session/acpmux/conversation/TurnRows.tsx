@@ -18,7 +18,8 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { RetryTargetContext, TurnActionsContext } from "./turnActions";
+import { ResolvedFailuresContext, RetryTargetContext, TurnActionsContext } from "./turnActions";
+import { NoticeDismiss } from "../NoticeDismiss";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
   footerLabel,
@@ -60,7 +61,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
-import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider, useDismissedCard } from "./transcriptDisclosure";
 import { PresentationContext } from "./PresentationContext";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -323,6 +324,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
+  // A failed turn's card clears once the chat went on and a later turn ended well (turns.ts
+  // `resolvedFailures`), and the reader can put it away with its × (cmux#36329), kept per chat since
+  // rows are virtualized. The turn's footer stays, with its Retry while it is the last turn.
+  const resolvedFailed = useContext(ResolvedFailuresContext);
+  const resolved = failed && resolvedFailed?.has(row.id) === true;
+  const [dismissed, dismiss] = useDismissedCard(row.id);
+  const failureCard = failed && !resolved && !dismissed;
   const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
   // its Sign in again is on the card (TurnFailure), and a Cloud chat's credential transfer stays here.
@@ -436,8 +444,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
-      {failed && (
+      {failureCard && (
         <TurnFailure
+          onDismiss={dismiss}
           message={row.error}
           code={row.errorCode}
           route={route}
@@ -457,7 +466,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )}
       <div
         className={
-          failed
+          failed && !resolved
             ? "cv-turn-actions cv-turn-actions--failed"
             : resumable
               ? "cv-turn-actions cv-turn-actions--resumable"
@@ -560,6 +569,7 @@ function TurnFailure({
   goOnLabel,
   retrying = false,
   retryNote,
+  onDismiss,
 }: {
   message: string | undefined;
   code?: string;
@@ -587,6 +597,8 @@ function TurnFailure({
   retrying?: boolean;
   /// Why acpmux refused the last Continue or Retry (turnRetry.ts), shown beside the actions.
   retryNote?: RetryNote;
+  /// The card's × (cmux#36329): puts the card away; the turn's footer keeps its Retry.
+  onDismiss?(): void;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -688,7 +700,7 @@ function TurnFailure({
   );
   return (
     <div
-      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}${onDismiss ? " cv-turn-error--dismissible" : ""}`}
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">
@@ -781,6 +793,8 @@ function TurnFailure({
           </details>
         )}
       </span>
+      {/* Last in the card, so its lead stays the first tab stop; drawn at the cause line's end. */}
+      {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="cv-turn-error__dismiss" />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { NoticeDismiss } from "./NoticeDismiss";
 import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
 import type { AcpmuxSnapshot } from "./model";
 import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
@@ -16,6 +17,7 @@ export function SwitchNotice({
   onShared,
   onAction,
   share,
+  onDismiss,
 }: {
   switching: AcpmuxSnapshot["switching"];
   onRetry(): void;
@@ -23,6 +25,8 @@ export function SwitchNotice({
   onShared?(): void;
   onAction?(action: StartRefusalAction): void;
   share?: MachineShareProps;
+  /// The failed card's × (cmux#36329): puts it away until another failure.
+  onDismiss?(): void;
 }) {
   const t = useT();
   const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
@@ -33,6 +37,7 @@ export function SwitchNotice({
   return (
     <div className="acpmux-host-error acpmux-switch-failed" role="alert">
       <div className="acpmux-host-error-card">
+        {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="acpmux-host-error-dismiss" />}
         <p className="acpmux-host-error-message">
           {t("switch.failed", { agent: switching.name, reason: switching.error ?? t("switch.unknownError") })}
         </p>
