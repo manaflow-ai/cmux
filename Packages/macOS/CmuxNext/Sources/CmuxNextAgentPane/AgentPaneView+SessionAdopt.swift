@@ -26,7 +26,9 @@ extension AgentPaneView {
         guard model.adoptSpareSession(session) else { return false }
         holdPageAway(moved: moved)
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
-        // Shown before it goes up, so its first frame is the cover, never the spare's hidden one.
+        // On before the loading state begins: that is where the chat-open trace binds and takes its
+        // first sample, which would otherwise read the New Tab page's hidden cover as the chat's saved
+        // frame and count the cover that follows in the same turn as a flash (cmux#32448).
         showsLoadingState = true
         beginLoadingState()
         // The chat's surface (R55), not the New Tab page's; the loading state takes its color.

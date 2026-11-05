@@ -33,6 +33,7 @@ import { awaitsPermission, groupId, isDraftCall, isFailed as callFailed, isRunni
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
@@ -40,6 +41,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
+import { turnWork, workEnds } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -1238,12 +1240,15 @@ function shapeTurn(
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
   const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
+  const work = live ? undefined : turnWork(body);
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
     // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
     turnCopy: turnCopyParts(body),
+    // Its timed calls, for the footer's Timeline (waterfallSpans.ts); a live turn's footer has none.
+    ...(work && { turnWork: work }),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(retryTarget && { retryTarget }),
@@ -1264,11 +1269,13 @@ function shapeTurn(
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
     version:
-      version * 16 +
+      version * 1024 +
       (retryable ? 1 : 0) +
       (resumable || continuable ? 2 : 0) +
       (retryTarget ? 4 : 0) +
-      (changedFiles ? 8 : 0),
+      (changedFiles ? 8 : 0) +
+      // A background shell that ended after the summary moves its Timeline bar, so the footer redraws.
+      16 * workEnds(work),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -1335,10 +1342,17 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
       text: answer.text,
       answerId: answer.id,
       turnCopy: turnCopyParts(body),
+      ...withWork(body),
       version: row.version * VERSION_SPAN + answer.version,
     };
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
+}
+
+/// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
+function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
+  const work = turnWork(rows);
+  return work ? { turnWork: work } : {};
 }
 
 /// The id prefix of the footer `backgroundFooters` adds under a turn the agent ran on its own.
@@ -1397,6 +1411,7 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(body.rows),
       ...(through !== undefined && { seq: through }),
     });
   });
@@ -1571,6 +1586,7 @@ function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], ended
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(stretch),
     });
   };
   for (let index = 0; index < turn.length; index += 1) {
@@ -1851,7 +1867,7 @@ function codexLiveTurn(
 /// The latest run's last finished call, lifted out of the run for the live line to name: a command
 /// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
 /// call keeps its mark in the run, a command sent to the background keeps its state there, and
-/// messages, sub-sessions, render cards and edits keep their own rows. Nil when the latest step is anything else.
+/// messages, sub-sessions, subagent calls, render cards and edits keep their own rows. Nil when the latest step is anything else.
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
@@ -1875,6 +1891,7 @@ function liftedStep(
     isEditTool(call) ||
     renderCall(call) ||
     subsessionCall(call) ||
+    agentCall(call) ||
     agentMessage(call) ||
     acpmuxSendCalls(call) ||
     acpmuxMcpSends(call)
@@ -2081,6 +2098,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
+    group.type === "agentCall" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )

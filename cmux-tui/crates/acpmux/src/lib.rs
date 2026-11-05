@@ -21,6 +21,7 @@ pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
+pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -165,6 +166,7 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

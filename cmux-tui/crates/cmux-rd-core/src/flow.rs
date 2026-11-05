@@ -3,7 +3,22 @@
 //! frame; while the gate is closed, new damage accumulates into one pending
 //! region and becomes the next frame when the gate opens. The prototype showed
 //! that without this gate frames queue in the send path and latency grows to
-//! hundreds of milliseconds.
+//! hundreds of milliseconds. An input lifts the frame-rate cap for a short while
+//! ([`FrameGate::input`]), so the frame that shows the input's effect goes out the
+//! moment its damage arrives instead of on the next interval; the in-flight bound
+//! still holds, and frames stay [`INPUT_FRAME_MIN_INTERVAL_US`] apart, or the cap's own
+//! interval when that is shorter: the window never sends faster than the cap allows outside it.
+
+/// How long after an input its frames skip the frame-rate cap: long enough for the app
+/// and the window server to draw the effect and the capture to deliver it.
+pub const INPUT_FRAME_WINDOW_US: u64 = 100_000;
+
+/// The least time between frames inside an input's window (250 fps), unless the cap's own
+/// interval is shorter (`--max-fps` above 250), which then holds inside the window as outside
+/// it. ScreenCaptureKit delivers at most once per display refresh on its own; X damage has no
+/// such bound, so without this floor a burst of damage after an input would encode a burst
+/// of frames faster than the cap.
+pub const INPUT_FRAME_MIN_INTERVAL_US: u64 = 4_000;
 
 /// A damaged rectangle in stream pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +58,9 @@ pub struct FrameGate {
     acked: u32,
     last_encode_us: Option<u64>,
     pending: Option<Rect>,
+    /// When the newest input's window began (frames skip the frame-rate cap for
+    /// [`INPUT_FRAME_WINDOW_US`] from then); cleared once the window has passed.
+    input_at_us: Option<u64>,
 }
 
 impl FrameGate {
@@ -56,6 +74,7 @@ impl FrameGate {
             acked: 0,
             last_encode_us: None,
             pending: None,
+            input_at_us: None,
         }
     }
 
@@ -67,6 +86,25 @@ impl FrameGate {
     /// Frames sent and not yet acknowledged.
     pub fn in_flight(&self) -> u32 {
         self.last_sent.saturating_sub(self.acked)
+    }
+
+    /// Records an input injected now: for [`INPUT_FRAME_WINDOW_US`] frames wait only for
+    /// the in-flight bound, not the frame-rate cap. The capture's own rate still bounds
+    /// them, so a burst of input never uncaps more than the display delivers.
+    pub fn input(&mut self, now_us: u64) {
+        self.input_at_us = Some(now_us);
+    }
+
+    /// The end of the newest input's window, if there is one.
+    fn input_until_us(&self) -> Option<u64> {
+        self.input_at_us.map(|at| at.saturating_add(INPUT_FRAME_WINDOW_US))
+    }
+
+    /// The least time between frames inside an input's window: the floor, or the cap's interval
+    /// when that is shorter (the window lifts a slow cap; it never spaces frames wider than the
+    /// cap, nor closer than it allows outside the window).
+    fn input_interval_us(&self) -> u64 {
+        INPUT_FRAME_MIN_INTERVAL_US.min(self.min_interval_us)
     }
 
     /// Records damage reported by the capture source.
@@ -89,7 +127,15 @@ impl FrameGate {
         if self.pending.is_none() || self.in_flight() >= self.max_in_flight {
             return None;
         }
-        Some(self.last_encode_us.map_or(0, |t| t + self.min_interval_us))
+        let Some(last) = self.last_encode_us else { return Some(0) };
+        let capped = last + self.min_interval_us;
+        // Inside an input's window the frame may go at the window's floor, however slow the
+        // cap (an earlier wakeup than the cap, never a later one).
+        let windowed = self.input_at_us.and_then(|at| {
+            let fast = at.max(last + self.input_interval_us());
+            (fast < self.input_until_us()?).then_some(fast)
+        });
+        Some(windowed.map_or(capped, |fast| fast.min(capped)))
     }
 
     /// Re-evaluates the gate (call from the one-shot timer of
@@ -99,8 +145,17 @@ impl FrameGate {
         if self.in_flight() >= self.max_in_flight {
             return FlowAction::Wait;
         }
+        // A window that has passed is gone: the deadline is the cap's again.
+        if self.input_until_us().is_some_and(|until| now_us >= until) {
+            self.input_at_us = None;
+        }
+        let interval = if self.input_at_us.is_some_and(|at| now_us >= at) {
+            self.input_interval_us()
+        } else {
+            self.min_interval_us
+        };
         if let Some(last) = self.last_encode_us
-            && now_us < last + self.min_interval_us
+            && now_us < last + interval
         {
             return FlowAction::Wait;
         }

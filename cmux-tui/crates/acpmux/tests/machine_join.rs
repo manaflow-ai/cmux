@@ -886,7 +886,10 @@ async fn leave_on_a_copied_home_never_revokes_the_original_and_removes_only_the_
     // Any request here would revoke the original box's enrollment from the copy.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    for marked in [true, false] {
+    // An unmarked copy is told apart only on a box that names itself: with no machine id
+    // nothing is compared, and a leave there asks the hub.
+    let cases: &[bool] = if box_has_identity() { &[true, false] } else { &[true] };
+    for &marked in cases {
         cloned_record(home.path(), &origin, marked);
         let config = home.path().join("config.json");
         std::fs::write(

@@ -24,6 +24,28 @@ const STARTED: &str = "startedAtMs";
 const CONTINUATIONS: &str = "continuations";
 const NOTE: &str = "note";
 const STOP_REASON: &str = "stopReason";
+/// Bumped on every change to a goal (`touch`, a new goal), from one counter that only goes up, so
+/// no two states of any goal share it ([`mark`]).
+const GENERATION: &str = "generation";
+
+/// The next goal generation: above every one this daemon gave, and seeded from the clock, so a
+/// generation saved before a restart is not given again after it.
+fn next_generation() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0);
+    let mut current = NEXT.load(Ordering::SeqCst);
+    loop {
+        let next = current.max(seed).saturating_add(1);
+        match NEXT.compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return next,
+            Err(seen) => current = seen,
+        }
+    }
+}
 
 /// What `goal_set` asks for.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +63,7 @@ pub fn new_goal(request: &GoalRequest, now_ms: u64) -> GoalState {
         (DONE_WHEN.to_owned(), json!(request.done_when)),
         (STARTED.to_owned(), json!(now_ms)),
         (CONTINUATIONS.to_owned(), json!(0)),
+        (GENERATION.to_owned(), json!(next_generation())),
     ]);
     if let Some(minutes) = request.time_budget_minutes {
         extra.insert(TIME_BUDGET.to_owned(), json!(minutes.saturating_mul(60)));
@@ -63,6 +86,13 @@ pub fn new_goal(request: &GoalRequest, now_ms: u64) -> GoalState {
 pub fn is_generic(goal: &GoalState) -> bool {
     goal.provider == GoalProvider::Generic
         && goal.extra.get("kind").and_then(Value::as_str) == Some(KIND)
+}
+
+/// Which state of `goal` a continuation was sent for: its generation, which any later change (a
+/// report, a new goal, the next turn's step) bumps, so a continuation that waited sees its goal
+/// moved on, also when that change came in the same millisecond.
+pub fn mark(goal: &GoalState) -> String {
+    goal.extra.get(GENERATION).and_then(Value::as_u64).unwrap_or(0).to_string()
 }
 
 /// The goal's done-when.
@@ -118,6 +148,7 @@ pub fn apply_report(goal: &mut GoalState, status: Reported, note: Option<&str>, 
 
 fn touch(goal: &mut GoalState, now_ms: u64) {
     goal.updated_at = Some(json!(now_ms));
+    goal.extra.insert(GENERATION.to_owned(), json!(next_generation()));
     if let Some(started) = goal.extra.get(STARTED).and_then(Value::as_u64) {
         goal.elapsed_seconds = Some(now_ms.saturating_sub(started) / 1000);
     }
@@ -269,6 +300,20 @@ mod tests {
         // Claude's loop and Codex's goal are never prompted here.
         let mut codex = GoalState { provider: GoalProvider::Codex, ..new_goal(&request(), 0) };
         assert_eq!(next_step(&mut codex, None, 1), Step::None);
+    }
+
+    /// Completed, running again and stepped once more in the same millisecond, the goal is not
+    /// the state a continuation sent before was marked with: its count and times came back to the
+    /// same values, its generation did not. Codex review of #36641, F1.
+    #[test]
+    fn a_goal_changed_in_the_same_millisecond_gets_another_mark() {
+        let mut goal = new_goal(&request(), 0);
+        assert!(matches!(next_step(&mut goal, None, 7), Step::Continue(_)));
+        let sent = mark(&goal);
+        apply_report(&mut goal, Reported::Complete, None, 7);
+        apply_report(&mut goal, Reported::Running, None, 7);
+        assert!(matches!(next_step(&mut goal, None, 7), Step::Continue(_)));
+        assert_ne!(mark(&goal), sent);
     }
 
     #[test]

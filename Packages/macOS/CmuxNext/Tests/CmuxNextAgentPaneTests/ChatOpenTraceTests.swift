@@ -90,16 +90,6 @@ struct ChatOpenTraceTests {
         #expect(abs((record.firstContentMilliseconds ?? 0) - 350) < 0.5)
     }
 
-    /// An existing chat opened on the warm spare page: that page painted its first frame while it
-    /// warmed, before the trace armed, so no ``ChatOpenTrace/Mark/pagePainted`` comes in this open.
-    /// The pane's painted answer for the chat (what ends its cover) is the page showing the chat;
-    /// without it every adopted open read `page_empty` to the end, 0 of 5 valid (#36226).
-    @Test func anAdoptedPageThatPaintedBeforeTheTraceShowsOnceThePaneHasPainted() {
-        #expect(ChatOpenTrace.Surface.shownPage(paintedInOpen: false, paneHasPainted: true) == .page)
-        #expect(ChatOpenTrace.Surface.shownPage(paintedInOpen: true, paneHasPainted: false) == .page)
-        #expect(ChatOpenTrace.Surface.shownPage(paintedInOpen: false, paneHasPainted: false) == .pageEmpty)
-    }
-
     @Test func aMarkKeepsItsFirstTimeAndOnlyTheTracedPageMarks() {
         let trace = ChatOpenTrace()
         #expect(trace.begin())

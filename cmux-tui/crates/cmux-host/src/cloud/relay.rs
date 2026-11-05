@@ -410,9 +410,17 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        rt.block_on(or_stop(&mut stop, tokio::time::sleep(backoff)));
+        pause(&rt, &mut stop, backoff);
     }
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+}
+
+/// Waits out `backoff` on the relay thread's own runtime, unless `stop` comes first. The timer is made inside the
+/// runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay for good.
+fn pause(rt: &tokio::runtime::Runtime, stop: &mut watch::Receiver<bool>, backoff: Duration) {
+    rt.block_on(async {
+        or_stop(stop, tokio::time::sleep(backoff)).await;
+    });
 }
 
 /// One connection, until it drops. `Ok` once it was up.

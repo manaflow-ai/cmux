@@ -149,7 +149,7 @@ final class AgentTabStore {
     var takeSpare: (() -> AgentPaneView?)?
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
-    var takeConnectedSpare: ((_ revealTurn: String?, _ session: String) -> AgentPaneView?)?
+    var takeConnectedSpare: (() -> AgentPaneView?)?
     /// Whether this Mac's Chief home keeps session `session` (an older subagent tab recorded with
     /// this Mac's host attaches there, ``AcpmuxChiefSessionRouter``): the spare is connected to
     /// this Mac's acpmux, so such a chat gets its own page.
@@ -454,7 +454,7 @@ final class AgentTabStore {
                                                 newTabPage: newTabPages[key] != nil, seeded: seed != nil,
                                                 wake: wakeStates[key] != nil || relaunchWake.mayHold(key))
             .adopted(chiefKeeps: chiefKeepsSession),
-           let spare = takeConnectedSpare?(pendingTurns[key], session), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
+           let spare = takeConnectedSpare?(), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
             track(key, in: store)
             onPageBuilt?(key)
             return spare
