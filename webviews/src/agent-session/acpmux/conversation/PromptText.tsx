@@ -32,7 +32,7 @@ import { githubRefLabel } from "../chips/linkChipsModel";
 import { textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
-import { withSkillWords } from "./skillWords";
+import { withSkillWords } from "./withSkillWords";
 import { ChevronDown } from "./icons";
 import { pastedSize } from "../composer/textAttachmentCardModel";
 
