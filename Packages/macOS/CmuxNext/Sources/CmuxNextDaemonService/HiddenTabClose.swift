@@ -20,6 +20,7 @@ public struct HiddenTabClose {
                             lifted: [@MainActor () -> Void] = []) -> HiddenTabClose? {
         // Held first: the watchers that wake for the hide's tab list change must still see them listed.
         let ids = Set(surfaces.compactMap { store.tab(surface: $0)?.id })
+        print("DIAGTRACE hide \(ids.sorted())")
         store.holdTabs(ids)
         guard let transaction = store.intendClose(surfaces) else { store.releaseHeldTabs(ids); return nil }
         for pane in panes { pane(false) }
@@ -28,12 +29,14 @@ public struct HiddenTabClose {
 
     /// The hide ends; the caller's close takes the tabs out again in this same turn.
     public func lift() {
+        print("DIAGTRACE lift \(ids.sorted())")
         end()
         for lift in lifted { lift() }
     }
 
     /// The tabs come back at their places, each pane's selection as it was.
     public func restore() {
+        print("DIAGTRACE restore \(ids.sorted())")
         end()
         for pane in panes { pane(true) }
     }

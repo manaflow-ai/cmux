@@ -37,7 +37,7 @@ struct NewTabCloseInterleaveDiagTests {
             if frames.last != shown {
                 frames.append(shown)
                 let store = pane.pane.tabs.map { names[$0.id] ?? (earlier.contains($0.id) ? "x" : ($0.id.hasPrefix("pending_tab_") ? "p" : "d")) }
-                print("DIAGFRAME t=\(ContinuousClock.now) strip=\(shown.joined()) store=\(store.joined())")
+                print("DIAGFRAME ids=\(names.map { "\($0.key.suffix(6))=\($0.value)" }.sorted()) strip=\(shown.joined()) store=\(store.joined())")
             }
         }
     }
@@ -51,7 +51,7 @@ struct NewTabCloseInterleaveDiagTests {
         }
     }
 
-    enum When: String, CaseIterable, Sendable { case sameTurn, ms30, ms150, daemonTab }
+    enum When: String, CaseIterable, Sendable { case sameTurn }
 
     @Test(arguments: Closed.allCases, When.allCases)
     func diag(closed: Closed, when: When) async throws {

@@ -45,6 +45,7 @@ extension DaemonStore {
     /// - Parameter surfaces: The daemon tabs to close; provisional surfaces are ignored.
     /// - Returns: The close's transaction, or nil when none of them is shown.
     public func intendClose(_ surfaces: [SurfaceID]) -> ClientTransactionID? {
+        print("DIAGTRACE intendClose \(surfaces.map(\.rawValue)) overlayLifted=\(overlayLifted)")
         let shown = surfaces.filter { !ProvisionalTab.isProvisional(surface: $0) && tab(surface: $0) != nil }
         guard !shown.isEmpty else { return nil }
         let transaction = ClientTransactionID.generate()
