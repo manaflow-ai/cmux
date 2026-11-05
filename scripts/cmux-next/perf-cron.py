@@ -158,7 +158,7 @@ PARTS = [
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
     # 1/100/1000 workspace topology: warning-only constant-scaling trend budget.
-    {"name": "workspace-scaling", "args": [*MEASURE, "--suite=workspace-scaling"],
+    {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
