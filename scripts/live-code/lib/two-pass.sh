@@ -46,6 +46,10 @@ live_code_check() { # BIN OUT
   elif [[ -s "$out/missing-2.txt" ]]; then
     echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNext symbols it does not export; their fixups:" >&2
     grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
+    # Why: whether the first link listed it, and how the relinked symbol table has it.
+    while read -r symbol; do
+      echo "live-code build: $symbol: in the first link's list: $(grep -cxF -- "$symbol" "$out/interposable.txt" || true); nm -m: $(nm -m "$bin" | grep -F -- " ${symbol}" | head -n 2 | tr -s ' ' | tr '\n' ';')" >&2
+    done < <(sed -n 1,5p "$out/missing-2.txt")
     failed=1
   fi
   python3 - "$bin" "$out" <<'PY'

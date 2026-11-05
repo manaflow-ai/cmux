@@ -75,7 +75,7 @@ public nonisolated struct BrowserResizeTunables {
         help: "On: through a keyboard resize a Chromium page keeps its size with its top-left corner on its pane, so it moves with the pane's left and top edges; the pane clips it. Off: the page stays at the pane edges that do not move.",
         default: true, code: "BrowserResizeTunables.keyResizeTopLeft")
 
-    /// Off (the default): FRAME OWNER S5 is off; the rows above decide. On (cmux-ad m14, Lawrence 2026-11-05: "in every
+    /// On (the default since cmux-ad m19: no new switch stays off). Off: FRAME OWNER S5 is off; the rows above decide. On (cmux-ad m14, Lawrence 2026-11-05: "in every
     /// frame every browser shows live pixels rendered at that frame's pane size"): every Chromium page is hosted in the
     /// window's own layer tree (fork API 26, as `layerHosting` on), and in a key resize and a divider drag it never keeps an
     /// old size: it lays out at its pane's size in every frame. The main thread never waits for the page (`pagesWait`, 0):
@@ -86,7 +86,7 @@ public nonisolated struct BrowserResizeTunables {
     public static let framesOwnedByCommit = Tunable<Bool>.toggle(
         "motion.frameOwner.pages", section, "Page frame and size in one commit",
         help: "A Chromium page draws in the window's own layers and, in a keyboard resize or a divider drag, lays out at its pane's size in every frame. The app never waits for the page: until its frame at the new size comes, the page shows its last frame inside its pane. Needs Chromium fork API 26. Off: the rows above decide. Applies from the next resize; hosting applies when a page is shown next.",
-        default: false, code: "BrowserResizeTunables.framesOwnedByCommit")
+        default: true, code: "BrowserResizeTunables.framesOwnedByCommit")
 
     /// With `framesOwnedByCommit` on, how long any resize may hold the commit for a page's frame at the new size (fork
     /// API 27). 0 (the default, the main-thread rule): never. Chromium runs that wait on its UI thread, which is the app's

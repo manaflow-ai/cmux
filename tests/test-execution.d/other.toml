@@ -292,6 +292,11 @@ path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_live_code_switch.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/switch.sh (no new CI tests): python3 tests/test_live_code_switch.py; needs only bash and python3."
+
+[[test]]
 path = "tests/test_local_build_cache_policy.py"
 lane = "linux-guard"
 
@@ -668,9 +673,19 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_live_code_cost.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/measure/live-code-cost.* (no new CI tests): python3 tests/test_live_code_cost.py; needs only python3."
+
+[[test]]
 path = "tests/test_try_pr_live_code.py"
 lane = "manual"
 reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (no new CI tests): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
+
+[[test]]
+path = "tests/test_live_code_hot_optimize.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/patch.py (no new CI tests): python3 tests/test_live_code_hot_optimize.py; needs only python3."
 
 [[test]]
 path = "tests/test_ui_review_advisory.py"

@@ -8,6 +8,7 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
+cmux-rd host    --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
 cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
@@ -31,6 +32,16 @@ Build on a fleet Mac: `cargo build --release --no-default-features --features be
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
+
+## Release
+
+`.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
+feat-cmux-next, matching this crate's version) with
+`cmux-rd-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz` and `checksums.txt` (sha256). It builds with
+`--no-default-features --features openh264,link` (no bench, no x264) through cargo-zigbuild at
+the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-later) and
+`THIRD_PARTY_LICENSES.md`, which `scripts/release.py notices` writes from the build's exact
+`cargo tree`; no H.264 codec is in it.
 
 ## Licensing and codecs
 
@@ -86,7 +97,46 @@ acknowledged and the FNV-1a hash of the sent bytes. `scripts/upstream-loopback.s
 both carriers against a recording host and a default host, and passes only when every
 sent frame was recorded whole and in order and the default host refused with `caps`.
 
-## Security (phase 1)
+## Security: Cloud machines (production)
+
+```
+cmux-rd host --listen-systemd --peer-uid 0 --display :99 --xauthority /run/cmux-rd/Xauthority-99 --codec openh264 [--idle-exit-s 120]
+```
+
+This is the production mode on NEXT Cloud machines. The viewer is the machine owner's Mac app;
+its rd pane dials the owner's Native link with service `desktop`, and the machine's root link
+receiver admits it exactly as it admits `ssh` and `daemon`: a platform-minted, one-time,
+owner-only link token naming service `desktop`, verified locally (`NativeTokenVerifier`, replay
+history, the receiving policy's peer services). Only then does the receiver connect to the host.
+
+- No network listener. The host takes its one listening socket from systemd
+  (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`, `SocketUser=root`, `SocketMode=0600`,
+  `/run/cmux-rd` mode 0710 `root:cmux-rd`), as fd 3 with `LISTEN_FDS=1` and `LISTEN_PID` set to the
+  host's pid. Without them it refuses to start, and it refuses any passed fd that is not a
+  listening Unix stream socket. There is no TCP or UDP port; `--token-fd`, `--bind`, `--port`,
+  `--single-tenant-overlay`, `--upstream-record` and `--browser` are refused in this mode.
+- Only the receiver connects. `--peer-uid N` is required; every accepted connection's
+  `SO_PEERCRED` uid must equal it (0, the root receiver), or the connection is closed before any
+  byte is read. A non-root process, the agent's user `cmux` included, can neither open the socket
+  (root only, 0600) nor pass the uid check.
+- What this does not hold against: on Cloud machines the agent user `cmux` has passwordless sudo
+  (`web/services/vms/images/workUser.ts`), so an agent that uses sudo is root and can reach the
+  socket. The uid-0 check keeps out non-root processes only. The boundary that holds against
+  other people is the link admission (the owner's one-time token). Taking sudo away from agent
+  sessions is a separate decision.
+- The principal is the machine owner. The link already admitted the owner, so the hello's token
+  and its user, class and interactive claims are not used: the session's principal is the owner,
+  a person at the app (`--owner`, default `owner`). The hello's `start` mode chooses `view` or
+  `control`; `control` sends XTest input to `:99`'s core pointer and keyboard.
+- The stream carrier only. A hello that asks for UDP is refused (`StreamCarrierOnly`).
+- The service runs as its own system user (`cmux-agent-rd.service`, `User=cmux-rd`, not in group
+  `cmux`), reads the X cookie from `--xauthority` (set as `XAUTHORITY`), and exits after
+  `--idle-exit-s` seconds (default 120) with no connection; the socket unit starts it again on the
+  next one.
+- OpenH264 is installed by `cmux-rd openh264-install` as `cmux-rd` into its own state directory;
+  it is never in the release archive (`.github/workflows/cmux-rd-release.yml`).
+
+## Security (phase 1, development)
 
 - Per-launch session token: the host needs `--token-fd N`, an inherited pipe from its parent
   (the cmux daemon) that carries a 256-bit token; no file, environment variable or argv value

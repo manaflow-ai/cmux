@@ -5,6 +5,7 @@
 //   cu-eval-inject find-window PID              {"wid","frame":[x,y,w,h]} of PID's largest window
 //   cu-eval-inject tap-click X Y                a real click through the session tap (setup only)
 //   cu-eval-inject warp X Y                     park the pointer
+//   cu-eval-inject display-mode W H             switch the main display to W x H points, 1x if offered
 //   cu-eval-inject post ROUTE GESTURE PID WID WX WY WW WH LX LY
 //
 // post sends one GESTURE (click: down and up; key: "a" down and up; scroll: 5 wheel lines) to
@@ -113,6 +114,35 @@ case "tap-click", "warp":
       pause(40)
     }
   }
+
+case "display-mode":
+  // A VM image keeps the mode it was saved with, whatever framebuffer the host gives it.
+  guard args.count == 3, let width = Int(args[1]), let height = Int(args[2]) else { fail("display-mode W H") }
+  let display = CGMainDisplayID()
+  let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+  let modes = CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode] ?? []
+  func describe(_ mode: CGDisplayMode?) -> String {
+    guard let mode else { return "" }
+    return "\(mode.width)x\(mode.height) (\(mode.pixelWidth)x\(mode.pixelHeight) px)"
+  }
+  let before = CGDisplayCopyDisplayMode(display)
+  let matches = modes.filter { $0.width == width && $0.height == height }
+  guard let mode = matches.first(where: { $0.pixelWidth == width }) ?? matches.first else {
+    emit(["set": false, "from": describe(before), "modes": modes.map { describe($0) }])
+    exit(1)
+  }
+  var config: CGDisplayConfigRef?
+  var error = CGBeginDisplayConfiguration(&config)
+  if error == .success { error = CGConfigureDisplayWithDisplayMode(config, display, mode, nil) }
+  if error == .success {
+    error = CGCompleteDisplayConfiguration(config, .permanently)
+  } else {
+    _ = CGCancelDisplayConfiguration(config)
+  }
+  pause(1000)
+  emit(["set": error == .success, "error": Int(error.rawValue), "from": describe(before),
+        "to": describe(CGDisplayCopyDisplayMode(display))])
+  if error != .success { exit(1) }
 
 case "post":
   guard args.count == 11, let pidValue = Int32(args[3]), let wid = Int(args[4]) else {

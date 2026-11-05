@@ -73,6 +73,17 @@ pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambd
 echo "CU-DRIVER-EVAL-STAGE tools"
 swiftc -O -o "$work/bin/cu-eval-app" "$here/apps.swift" || { finish "could not build apps.swift"; exit 4; }
 swiftc -O -o "$work/bin/cu-eval-inject" "$here/inject.swift" || { finish "could not build inject.swift"; exit 4; }
+# CU_DRIVER_EVAL_DISPLAY=WxH (the bench VM's) switches the main display first; a console Mac keeps its own.
+if [[ -n "${CU_DRIVER_EVAL_DISPLAY:-}" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE display"
+  mode=$("$work/bin/cu-eval-inject" display-mode ${CU_DRIVER_EVAL_DISPLAY/x/ }) ||
+    echo "CU-DRIVER-EVAL-ERROR could not switch the display to $CU_DRIVER_EVAL_DISPLAY"
+  echo "CU-DRIVER-EVAL-DISPLAY $mode"
+fi
+# The screen in points, which every trial's geometry is in (a headless VM's system_profiler lists none).
+screen=$("$work/bin/cu-eval-inject" observe | python3 -I -c 'import json, sys; print("%gx%g" % tuple(json.load(sys.stdin)["screen"]))') || screen=""
+run=$(python3 -I -c 'import json, sys; run = json.loads(sys.argv[1]); run["screen"] = sys.argv[2]; print(json.dumps(run))' "$run" "$screen")
+echo "CU-DRIVER-EVAL-SCREEN $screen"
 echo "CU-DRIVER-EVAL-STAGE downloads"
 driver_args=()
 driver_bins=()
@@ -168,8 +179,7 @@ if [[ "$electron" == 1 ]]; then
   fi
 fi
 
-if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]]; then
-  echo "CU-DRIVER-EVAL-STAGE grant"
+grant() {
   $CU_DRIVER_EVAL_GRANT "$work/bin/cu-eval-inject" "$work/bin/cu-eval-app" \
     $(python3 -I -c 'import os, sys
 # A framework build re-execs into Python.app, so that binary is the one running; grant both.
@@ -177,12 +187,24 @@ exe = os.path.realpath(sys.executable)
 app = os.path.join(sys.base_prefix, "Resources/Python.app/Contents/MacOS/Python")
 print(exe, *([app] if os.path.exists(app) else []))') ${driver_bins[@]+"${driver_bins[@]}"} ||
     echo "CU-DRIVER-EVAL-ERROR the grant command exited $?"
+}
+granted() { grep -q '"accessibility":true' <<<"$grants" && grep -q '"post_event":true' <<<"$grants"; }
+if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE grant"
+  grant
 fi
 grants=$("$work/bin/cu-eval-inject" grants)
 echo "CU-DRIVER-EVAL-GRANTS $grants"
+# A tccd that answered from its old state once (run at 211335b8) gets one more grant and restart.
+if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && ! granted; then
+  echo "CU-DRIVER-EVAL-STAGE grant again"
+  grant
+  grants=$("$work/bin/cu-eval-inject" grants)
+  echo "CU-DRIVER-EVAL-GRANTS $grants"
+fi
 # Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
 # measured zero instead of a blocked run.
-if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
+if ! granted; then
   [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3

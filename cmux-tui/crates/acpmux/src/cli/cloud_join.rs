@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+mod leave;
 mod recovery;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
@@ -350,6 +351,11 @@ pub async fn join_with_token(
     token: Option<String>,
 ) -> Result<()> {
     recovery::join(hub, name, replace, json_out, token).await
+}
+
+/// `acpmux machine leave` (`cloud_join/leave.rs`).
+pub async fn leave(local_only: bool, json_out: bool) -> Result<()> {
+    leave::run(local_only, json_out).await
 }
 
 pub(crate) fn join_incomplete() -> Result<bool> {
