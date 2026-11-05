@@ -56,7 +56,8 @@ func recognize(_ image: CGImage, bandsOnly: Bool = false) throws -> [String] {
     }
     let (banded, silent) = try bandedLines(image, bands: 4)
     let blank = silent.filter { !hasInk(image, band: $0, of: 4) }, unread = silent.filter { !blank.contains($0) }
-    var note = "pr-media-ocr: no text in the whole image; \(banded.count) lines in 4 bands"
+    var note = "pr-media-ocr: \(bandsOnly ? "no whole read (--bands-only)" : "no text in the whole image"); "
+        + "\(banded.count) lines in 4 bands"
     if !blank.isEmpty {
         note += "; blank band\(blank.count == 1 ? "" : "s") " + blank.map(String.init).joined(separator: ", ")
     }
@@ -68,10 +69,11 @@ func recognize(_ image: CGImage, bandsOnly: Bool = false) throws -> [String] {
 }
 
 /// Whether band `band` (1 is the top) of `bands` equal parts of `image`'s height shows ink: a row in which at least 3
-/// pairs of horizontally adjacent pixels differ by more than 48 in a channel, not counting the columns where such a
-/// difference is in at least 90 percent of the part's rows (the vertical edges of panes and the sidebar). Measured on
-/// the 53 stored window frames of review 2 of #35282: every band that read text has 14 or more such rows, every silent
-/// band of empty terminal rows has none.
+/// pairs of horizontally adjacent pixels differ by more than 16 in a channel, not counting the columns where such a
+/// difference is in at least 90 percent of the part's rows (the vertical edges of panes and the sidebar; only in a band
+/// of 16 rows or more). Measured on the 53 stored window frames of review 2 of #35282: every band that read text has 16
+/// or more such rows, and in the silent bands of empty terminal rows no two adjacent pixels differ by more than 9. Text
+/// of contrast 16 or less (a nearly invisible ink) is not seen: a band of only such text is named blank.
 func hasInk(_ image: CGImage, band: Int, of bands: Int) -> Bool {
     let width = image.width, height = image.height
     let part = (height + bands - 1) / bands
@@ -89,11 +91,11 @@ func hasInk(_ image: CGImage, band: Int, of bands: Int) -> Bool {
     for y in 0..<rows {
         for x in 0..<(width - 1) {
             let a = (y * width + x) * 4, b = a + 4
-            let differs = (0..<3).contains { abs(Int(px[a + $0]) - Int(px[b + $0])) > 48 }
+            let differs = (0..<3).contains { abs(Int(px[a + $0]) - Int(px[b + $0])) > 16 }
             if differs { edges[y * (width - 1) + x] = true; perColumn[x] += 1 }
         }
     }
-    let structural = perColumn.map { $0 * 10 >= rows * 9 }
+    let structural = perColumn.map { rows >= 16 && $0 * 10 >= rows * 9 }  // too few rows to tell an edge from ink
     for y in 0..<rows {
         var count = 0
         for x in 0..<(width - 1) where edges[y * (width - 1) + x] && !structural[x] { count += 1 }
