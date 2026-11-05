@@ -276,7 +276,7 @@ export default componentEntry({
     "restyle-capsule": {
       ...variant(
         pendingOther,
-        "Shipped: the Needs you dot and a capsule tinted with the mark, regular-weight question and options, the typed custom answer in a quiet hairline field, Skip and Submit with outlined keycaps (esc, ⌘ ↩) as the permission card's.",
+        "Shipped: one capsule tinted with the mark holding the Needs you dot (as the floating pill), regular-weight question and options, the typed custom answer in a quiet hairline field, Skip and Submit with outlined keycaps (esc, ⌘ ↩) as the permission card's.",
         "do whatever's reasonable",
       ),
       props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "capsule" },

@@ -232,14 +232,15 @@ test("the button's label is drawn in a color the theme always sets", () => {
   expect(rule).not.toContain("--agent-page-bg");
 });
 
-// Leo 2026-11-05, of the pill, the option rows and the custom answer: "kind of ugly". The pill is the
-// one Needs you dot before a capsule with the words and the fold chevron, and Submit draws ⌘ and ↩ as
+// Leo 2026-11-05, of the pill, the option rows and the custom answer: "kind of ugly". The pill is one
+// capsule holding the Needs you dot, the words and the fold chevron (as JumpPill), and Submit draws ⌘ and ↩ as
 // one keycap each, as the permission card does.
-test("the pill is the Needs you dot and a capsule, and Submit shows ⌘ and ↩ as two keycaps", async () => {
+test("the pill is one capsule with the Needs you dot, and Submit shows ⌘ and ↩ as two keycaps", async () => {
   const { container } = await renderCard();
   const pill = container.querySelector(".acpmux-question-status")!;
-  expect(pill.firstElementChild?.className).toBe("acpmux-needs-you-dot");
-  expect(pill.querySelector(".acpmux-question-status-pill")?.textContent).toBe("Needs your input");
+  const capsule = pill.querySelector(".acpmux-question-status-pill")!;
+  expect(capsule.firstElementChild?.className).toBe("acpmux-needs-you-dot");
+  expect(capsule.textContent).toBe("Needs your input");
   expect(pill.querySelector(".acpmux-question-status-pill .acpmux-question-status-chevron")).not.toBeNull();
   await click(submitButton(container));
   const keys = [...submitButton(container).querySelectorAll(".acpmux-keycap")].map((key) => key.textContent);
