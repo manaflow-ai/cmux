@@ -50,7 +50,10 @@ function spanLabel(t: Translate, item: AcpmuxActivity): string {
 
 /// The footer's Timeline toggle and, while it is open, the waterfall under the footer row. Null for
 /// a footer whose turn timed no call.
-export function useTurnWaterfall(row: AcpmuxRow, look: WaterfallLook = "bars"): { toggle: ReactNode; panel: ReactNode } {
+export function useTurnWaterfall(
+  row: AcpmuxRow,
+  look: WaterfallLook = "bars",
+): { toggle: ReactNode; panel: ReactNode } {
   const t = useT();
   const [open, setOpen] = useState(false);
   const id = useId();

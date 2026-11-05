@@ -65,9 +65,7 @@ test("a finished turn's footer offers a closed Timeline and draws no waterfall u
   expect(markup).toContain('aria-expanded="false"');
   expect(markup).not.toContain("cv-waterfall__rows");
   // A footer without timed work draws no Timeline at all.
-  expect(renderToStaticMarkup(<TurnFooter row={{ ...footer, turnWork: undefined }} />)).not.toContain(
-    "Show timeline",
-  );
+  expect(renderToStaticMarkup(<TurnFooter row={{ ...footer, turnWork: undefined }} />)).not.toContain("Show timeline");
 });
 
 test("an opened waterfall's bars open their calls, and a long one draws its first rows only", () => {
@@ -83,7 +81,9 @@ test("an opened waterfall's bars open their calls, and a long one draws its firs
   expect(linked).not.toContain(`data-tool-id="c${WATERFALL_FIRST}"`);
   expect(linked).toContain("Show 5 more");
   // Without a way to open a call (a gallery, a replay), a bar is not a button.
-  expect(renderToStaticMarkup(<TurnWaterfall row={row} work={work} />)).not.toContain("<button type=\"button\" class=\"cv-waterfall__span");
+  expect(renderToStaticMarkup(<TurnWaterfall row={row} work={work} />)).not.toContain(
+    '<button type="button" class="cv-waterfall__span',
+  );
 });
 
 test("a background shell's bar runs until it ended there, and one that failed there is marked failed", () => {
