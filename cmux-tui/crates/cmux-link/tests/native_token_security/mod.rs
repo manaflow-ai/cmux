@@ -495,10 +495,7 @@ fn native_token_receiver_admits_desktop_only_for_an_owner_token_and_a_desktop_pe
     // Owner token, desktop peer: admitted once.
     let v = desktop_verifier();
     assert!(v.verify(&signed(&owner), &expected(Service::Desktop)).is_ok());
-    assert_eq!(
-        v.verify(&signed(&owner), &expected(Service::Desktop)),
-        Err(TokenRefused::Replayed)
-    );
+    assert_eq!(v.verify(&signed(&owner), &expected(Service::Desktop)), Err(TokenRefused::Replayed));
 
     // Team-kind and kindless tokens: refused even on a desktop peer, jti unspent.
     for vmk in [Some("team"), None] {

@@ -68,7 +68,7 @@ async fn serve(
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     // A refused stream ends at once; one still open after 5 s was served.
     let result = tokio::time::timeout(
@@ -135,7 +135,7 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let task =
         async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
@@ -202,12 +202,18 @@ async fn a_desktop_hello_on_a_machine_without_the_socket_is_refused_as_desktop_u
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let mut trace = StreamTrace::default();
-    let result =
-        serve_host_inbound_traced(link_side, [5; 32], from("inst_mac"), &GoodToken, &me, &mut trace)
-            .await;
+    let result = serve_host_inbound_traced(
+        link_side,
+        [5; 32],
+        from("inst_mac"),
+        &GoodToken,
+        &me,
+        &mut trace,
+    )
+    .await;
     assert_eq!(result, Err(HostRefused::DesktopUnavailable));
     assert_eq!(trace.service, Some(Service::Desktop));
     let mut line = String::new();
@@ -231,7 +237,7 @@ async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_inst
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let task =
         async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
@@ -264,7 +270,7 @@ async fn serve_traced(
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let mut trace = StreamTrace::default();
     let source = from("inst_mac");
@@ -340,7 +346,7 @@ async fn a_spliced_stream_reports_its_bytes_each_way() {
         epoch: 4,
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
-        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let mut trace = StreamTrace::default();
     let sshd = async {
