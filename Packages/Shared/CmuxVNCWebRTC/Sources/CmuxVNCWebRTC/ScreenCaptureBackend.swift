@@ -35,6 +35,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var lastDelivered: (size: CGSize, pointer: CGPoint?)?
     /// Complete frames with nothing changed that were not sent on.
     private var skippedUnchanged = 0
+    /// The pointer position read for the frame before (sent or not).
+    private var lastPointer: CGPoint?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
     /// Stopped by the viewer: no recovery after that.
@@ -214,6 +216,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        // A new capture's first frame always goes out, whatever its dirty rects say.
+        lock.withLock { lastDelivered = nil }
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
         let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
@@ -222,7 +226,6 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                 self.stream = stream
                 streamDisplay = display
                 streamGeneration += 1
-                lastDelivered = nil
             }
             return (self.stream, false, frameRate, streamGeneration + 1)
         }
@@ -246,7 +249,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let dirtyRects = (attachments.first?[.dirtyRects] as? [Any]).map { $0.count }
         let pointer = CGEvent(source: nil)?.location
         let sink = lock.withLock { () -> (@Sendable (CVPixelBuffer, CGRect) -> Void)? in
-            guard Self.delivers(dirtyRectCount: dirtyRects, size: size, pointer: pointer, last: lastDelivered) else {
+            defer { lastPointer = pointer }
+            guard Self.delivers(dirtyRectCount: dirtyRects, size: size, pointer: pointer, last: lastDelivered,
+                                previousPointer: lastPointer) else {
                 skippedUnchanged += 1
                 return nil
             }
@@ -258,17 +263,20 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     /// Whether a complete frame goes to the encoder: not when ScreenCaptureKit
     /// says nothing in it changed (no dirty rects), at the size and pointer
-    /// position of the frame before it. A frame whose dirty rects are unknown
-    /// (no attachment) counts as changed, as does the first one, another size
-    /// or a moved pointer (the cursor is drawn into the picture and may not
-    /// count as dirty). Petal's dirty-rect skip gate
+    /// position of the last frame sent and of the frame just before. A frame
+    /// whose dirty rects are unknown (no attachment) counts as changed, as
+    /// does the first one, another size or a moved pointer (the cursor is
+    /// drawn into the picture and may not count as dirty). The pointer is
+    /// read as the frame arrives, not when it was captured, so the frame
+    /// after the pointer stops goes out too: it shows where the cursor came
+    /// to rest. Petal's dirty-rect skip gate
     /// (https://github.com/kiruna-labs/petal, Apache-2.0,
     /// `apps/desktop/src-tauri/src/session/share.rs`). The host's keep-alive
     /// still sends the last frame once a second.
     static func delivers(dirtyRectCount: Int?, size: CGSize, pointer: CGPoint?,
-                         last: (size: CGSize, pointer: CGPoint?)?) -> Bool {
+                         last: (size: CGSize, pointer: CGPoint?)?, previousPointer: CGPoint?) -> Bool {
         guard let dirtyRectCount, dirtyRectCount == 0, let last else { return true }
-        return last.size != size || last.pointer != pointer || pointer == nil
+        return last.size != size || last.pointer != pointer || previousPointer != pointer || pointer == nil
     }
 
     /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:)`` held

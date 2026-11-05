@@ -158,15 +158,17 @@ struct FrameRateTests {
         let size = CGSize(width: 3456, height: 2234)
         let pointer = CGPoint(x: 100, y: 200)
         let last = (size: size, pointer: Optional(pointer))
-        #expect(!ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: last), "nothing changed")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 1, size: size, pointer: pointer, last: last), "something changed")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: nil, size: size, pointer: pointer, last: last), "unknown counts as changed")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: nil), "the first frame")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: CGSize(width: 1920, height: 1080), pointer: pointer, last: last),
+        #expect(!ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: last, previousPointer: pointer), "nothing changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 1, size: size, pointer: pointer, last: last, previousPointer: pointer), "something changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: nil, size: size, pointer: pointer, last: last, previousPointer: pointer), "unknown counts as changed")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: nil, previousPointer: pointer), "the first frame")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: CGSize(width: 1920, height: 1080), pointer: pointer, last: last, previousPointer: pointer),
                 "another size")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: CGPoint(x: 101, y: 200), last: last),
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: CGPoint(x: 101, y: 200), last: last, previousPointer: pointer),
                 "the pointer moved")
-        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: nil, last: last), "pointer unknown")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: nil, last: last, previousPointer: pointer), "pointer unknown")
+        #expect(ScreenCaptureBackend.delivers(dirtyRectCount: 0, size: size, pointer: pointer, last: last, previousPointer: CGPoint(x: 90, y: 200)),
+                "the frame after the pointer came to rest")
     }
     #endif
 }
