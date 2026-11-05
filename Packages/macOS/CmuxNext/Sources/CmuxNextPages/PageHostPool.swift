@@ -50,7 +50,7 @@ public final class PageHostPool {
     public var onSpareReady: ((PageWebView) -> Void)?
     /// Whether a projection window is open (``WebProjection``): its pages are made fresh, since a spare
     /// already holds the shipped document and a claim of the same page loads nothing the projection could
-    /// send to its server. Claims name the active window, not the page's, so any projection counts.
+    /// send to its server; the spare is dropped and rebuilt by a later ordinary claim. Claims name the active window, not the page's, so any projection counts.
     var projectionIsOpen: () -> Bool = { WebProjection.shared.isActive }
 
     final class WeakHost {
@@ -92,7 +92,10 @@ public final class PageHostPool {
                       surface: SurfaceKind? = nil,
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
-        guard PageServedHosts.pooledDescriptors.contains(descriptor), !projectionIsOpen() else { return nil }
+        guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
+        // Dropped too: parked in the projection window it would reload from the worktree, then serve an
+        // ordinary claim with that document once the projection closes.
+        guard !projectionIsOpen() else { dropSpare(); return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         latestClaimOptions = options
         let decision = engineDecision(descriptor, options)

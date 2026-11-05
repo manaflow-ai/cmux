@@ -67,14 +67,11 @@ import Testing
                 pool.onSpareReady = { _ in done(true) }
             }
         }
-        let spare = try #require(pool.spare)
-        var projecting = true
-        pool.projectionIsOpen = { projecting }
+        #expect(pool.spare != nil)
+        pool.projectionIsOpen = { true }
         #expect(pool.claim(.settings, routes: [], window: window, focus: false) == nil,
                 "the spare's shipped document would never load from the projection's server")
-        #expect(pool.spare === spare, "the spare waits for the next ordinary claim")
-        projecting = false
-        #expect(pool.claim(.settings, routes: [], window: window, focus: false) === spare)
+        #expect(pool.spare == nil, "a spare parked in the projection window would later serve its document elsewhere")
     }
 
     @Test func parkedPageSleepsAfterPaintAndWakesOnClaim() async throws {
