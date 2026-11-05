@@ -339,7 +339,7 @@ Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
 |---|---|
 | A stylesheet (`bottomStack.css`) | Shown in 0.7 s, same page; the draft, transcript and turn are kept |
 | A component (`ComposerFoot.tsx`) | The page reloads (2.2 s); the draft and transcript are lost and the turn stops streaming |
-| Every loaded pane component (`--audit`) | 205 of 319 hot-swap in place; 114 reload the page |
+| Every loaded pane component (`--audit`) | 246 of 369 hot-swap in place; 123 reload the page |
 
 A component reloads the page when React Fast Refresh can't swap its module: the file also exports
 something that is not a component (a context, a constant, a helper), so Vite passes the update up
