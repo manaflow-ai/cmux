@@ -40,15 +40,16 @@ describe("chief channels", { timeout: 60_000 }, () => {
     // The outbox creates the conversation (a group the creator owns, the Chief a member) and binds the scoped MuxDO.
     const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
     const mux = testEnv.MUX_DO.get(testEnv.MUX_DO.idFromName(chief.id)) as unknown as MuxStub
-    let snap: any = { ok: false }
+    let snap: any = {}
     let head: { ok: boolean; value: any } = { ok: false, value: undefined }
-    for (let i = 0; i < 20 && (!snap.ok || !head.ok); i++) {
+    for (let i = 0; i < 20 && (!snap.value?.state || !head.ok); i++) {
       await fireAlarm(userDO)
       snap = (await call("/v1/read", t, { op: "conversation.snapshot", params: { conversation: chief.channel.conversation } })).json
       head = await mux.readOp(chief.id, { identity: `session:${user}`, kind: "session", user }, "mux.queue", {})
     }
-    expect(snap.ok, JSON.stringify(snap)).toBe(true)
-    const conv = snap.value.conversation
+    // A snapshot reply is {op, value: {t: "snapshot", state}}.
+    const conv = snap.value?.state
+    expect(conv, JSON.stringify(snap)).toBeDefined()
     expect(conv).toMatchObject({ id: chief.channel.conversation, kind: "group", title: "Launch", channel_chief: chief.id, created_by: user })
     expect(conv.participants.map((p: { id: string; role: string }) => [p.id, p.role]).sort()).toEqual([[chief.id, "member"], [user, "owner"]].sort())
     expect(head.value).toMatchObject({ agent: chief.id, owner_user: user, brain: "cloud", channel: chief.channel.conversation })
