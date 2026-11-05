@@ -92,7 +92,7 @@ public final class PageHostPool {
                       surface: SurfaceKind? = nil,
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
-        guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
+        guard PageServedHosts.pooledDescriptors.contains(descriptor), !projectionIsOpen() else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         latestClaimOptions = options
         let decision = engineDecision(descriptor, options)
