@@ -46,7 +46,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
+import { HOST_CLI, NATIVE_RECEIVER_SMOKE, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -231,7 +231,10 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
   const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
   const clone = { vm, vmId, name };
   const firstExecMs = await firstExec(vm, t0);
-  const listen = await run(vm, LISTEN_POLL, 60_000);
+  // A smoke clone measures the snapshot as baked: the marker goes down with the first command,
+  // well before its updater's first check (30 s after cmux host run starts), which reads it
+  // again right before it changes anything.
+  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000);
   const listeningMs = Date.now() - t0;
   const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000);
   const readyMs = Date.now() - t0;
