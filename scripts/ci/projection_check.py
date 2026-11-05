@@ -41,7 +41,7 @@ ROOT = HERE.parent.parent
 PAGE = "settings"
 EDIT = ROOT / "webviews" / "src" / "pages" / PAGE / "main.tsx"
 SHORTCUT_ACTION = "debug.projection.runTest"
-SHORTCUT = "cmd+opt+shift+9"
+SHORTCUT = "cmd+shift+opt+9"  # the app reports modifiers as cmd, shift, opt, ctrl
 THEMES = ("Catppuccin Mocha", "Catppuccin Latte")
 
 
@@ -137,6 +137,25 @@ def answers(port: int) -> bool:
             return conn.recv(12).startswith(b"HTTP/1.1 200")
     except OSError:
         return False
+
+
+def has_binding(answer, binding: str) -> bool:
+    """Whether a `keybinding list` answer (any wrapping) has a row whose `key` is `binding`, modifiers in any order."""
+    want = binding.lower().split("+")
+    want = (frozenset(want[:-1]), want[-1])
+    stack = [answer]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+        elif isinstance(node, dict):
+            key = node.get("key")
+            if isinstance(key, str) and key:
+                parts = key.lower().split("+")
+                if (frozenset(parts[:-1]), parts[-1]) == want:
+                    return True
+            stack.extend(v for v in node.values() if isinstance(v, (list, dict)))
+    return False
 
 
 def config_file(env: dict) -> Path:
@@ -241,7 +260,7 @@ def check(args) -> int:
             write_config(config_file(env), lambda d: (d.setdefault("appearance", {}).__setitem__("theme", theme),
                                                       d.setdefault("shortcuts", {}).setdefault("bindings", {}).__setitem__(SHORTCUT_ACTION, SHORTCUT)))
             themed = wait(lambda: theme in json.dumps(inst.cmux("settings", "get", "appearance.theme")), 10, 0.2)
-            keyed = wait(lambda: SHORTCUT in json.dumps(inst.cmux("keybinding", "list", "--command", SHORTCUT_ACTION, "--source", "user")).lower(), 10, 0.2)
+            keyed = wait(lambda: has_binding(inst.cmux("keybinding", "list", "--command", SHORTCUT_ACTION, "--source", "user"), SHORTCUT), 10, 0.2)
             if not step("config-live", bool(themed and keyed) and process.poll() is None and process.pid == pid,
                         theme=bool(themed), shortcut=bool(keyed), config_ms=int((time.monotonic() - t_cfg) * 1000)):
                 failures.append(f"config: theme live {bool(themed)}, shortcut live {bool(keyed)}")
