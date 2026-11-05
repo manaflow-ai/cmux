@@ -169,3 +169,26 @@ test("a live activity disclosure exposes a labelled button and preserves its tog
   expect(button.getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector("button button")).toBeNull();
 });
+
+test("gateway retries keep the live activity disclosure available", () => {
+  let toggles = 0;
+  act(() =>
+    root!.render(
+      <Thinking
+        doing="Run tests"
+        retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }}
+        disclosure={{
+          expanded: false,
+          onToggle: () => {
+            toggles += 1;
+          },
+        }}
+      />,
+    ),
+  );
+  const toggle = container.querySelector<HTMLButtonElement>(".cv-live-disclosure__toggle");
+  expect(toggle).not.toBeNull();
+  act(() => toggle!.click());
+  expect(toggles).toBe(1);
+  expect(container.querySelector("[data-retrying]")).not.toBeNull();
+});

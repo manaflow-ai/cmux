@@ -257,17 +257,31 @@ export function Thinking({
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
+  const disclosureToggle = disclosure && (
+    <>
+      <button
+        type="button"
+        className="cv-live-disclosure__toggle"
+        aria-label={label}
+        aria-expanded={disclosure.expanded}
+        aria-controls={disclosure.expanded ? disclosure.controls : undefined}
+        onClick={disclosure.onToggle}
+      />
+      <ChevronRight size={14} className={`cv-rotor${disclosure.expanded ? " is-open" : ""}`} />
+    </>
+  );
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
     const parts = retryParts(t, retry);
     return (
       <div
-        className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+        className={`cv-worked cv-worked--live${below ? " is-below" : ""}${disclosure ? " cv-live-disclosure" : ""}`}
         data-find-skip
         data-lead-slot
         data-retrying=""
       >
+        {disclosureToggle}
         <output className="cv-thinking cv-retrying">{parts.label}</output>
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
@@ -302,17 +316,7 @@ export function Thinking({
       className={`cv-worked cv-worked--live${below ? " is-below" : ""}${disclosure ? " cv-live-disclosure" : ""}`}
       data-find-skip
     >
-      {disclosure && (
-        <button
-          type="button"
-          className="cv-live-disclosure__toggle"
-          aria-label={label}
-          aria-expanded={disclosure.expanded}
-          aria-controls={disclosure.expanded ? disclosure.controls : undefined}
-          onClick={disclosure.onToggle}
-        />
-      )}
-      {disclosure && <ChevronRight size={14} className={`cv-rotor${disclosure.expanded ? " is-open" : ""}`} />}
+      {disclosureToggle}
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
