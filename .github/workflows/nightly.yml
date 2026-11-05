@@ -5938,7 +5938,10 @@ jobs:
   # After publish-nightly (#25957).
   sign-nightly-identity-legacy:
     needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # Only a build publish-nightly-identity-legacy can publish: this run's build that cmux NEXT published, a
+    # continued submission, or a target with no source run. A run whose sign yielded to a newer build (publish-nightly
+    # skipped) signed nothing for the old feed, yet held the only signing runner for it (run 41931011216).
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue') || needs.legacy-identity-target.outputs.source_run == '') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
     # One signing slot per run: a newer run signs alongside an older one and
