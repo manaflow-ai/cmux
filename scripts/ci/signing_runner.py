@@ -354,11 +354,44 @@ def owned_pool_label(owned: str) -> str:
     return labels[0] if isinstance(labels, list) and labels and isinstance(labels[0], str) else ""
 
 
+def sign_label_free(env: Mapping[str, str],
+                    read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None) -> tuple[str, str]:
+    """SIGN_LABEL_FALLBACK: ("false", why) when no runner carrying SIGN_LABEL (vars.CI_NIGHTLY_SIGN_RUNNER) is online
+    and idle now, else ("true", why).
+
+    Leo, 2026-11-05, on every nightly waiting to be signed on cmux15 alone: "F*** yes, just do it" (let the
+    signing jobs also run on a second runner). nightly.yml's build-sign-notarize-nightly and
+    sign-nightly-identity-legacy then leave the signing label for this run's drained owned Mac (sign_owned), when the
+    picker offered one. Anything unread, or no label, says "true": the job keeps the signing label, today's route, and
+    never falls to a pool label glaeda does not enroll for signing (cmux#35918)."""
+    label = (env.get("SIGN_LABEL") or "").strip()
+    if not label:
+        return "true", "no signing label set"
+    token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
+    if not (token and repo) and read_runners is None:
+        return "true", "runners could not be read live (no routing token); the job keeps the signing label"
+    try:
+        runners = (read_runners or (lambda t, r: pool.GitHub(t, r).runners()))(token, repo)
+    except Exception as error:  # noqa: BLE001 - never fail the job; it keeps the signing label
+        return "true", f"runners could not be read ({str(error)[:200]}); the job keeps the signing label"
+    carrying = [runner for runner in runners if label in pool.runner_labels(runner)]
+    online = [runner for runner in carrying if runner.get("status") == "online"]
+    idle = [runner for runner in online if not runner.get("busy")]
+    if idle:
+        return "true", f"{len(idle)} of {len(online)} online `{label}` runner(s) idle"
+    return "false", (f"no idle `{label}` runner ({len(online)} online, all busy; {len(carrying)} registered): "
+                     "the signing jobs take this run's drained owned Mac when one was picked")
+
+
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_jobs: Callable[[str], Any] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep) -> int:
+    if list(argv[:1]) == ["label"]:
+        free, why = sign_label_free(env, read_runners)
+        write_output(env, {"free": free}, [f"signing label free: {free} ({why})"])
+        return 0
     now = now or dt.datetime.now(dt.timezone.utc)
     reader = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now))
     kept: list[tuple[Any, str]] = []
