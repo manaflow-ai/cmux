@@ -17,13 +17,18 @@ extension NextStepAsk {
     private static let maxAnswerChars = 1_000_000
 
     nonisolated(unsafe) private static let claudeName = try? NSRegularExpression(pattern: #"^mcp__(.+?)__(.+)$"#)
+    /// Codex's titles with the arguments direct: `<server>: <tool>` for a replayed call (acpmux's
+    /// `adopt_tools.rs`) and `Tool: <server>/<tool>` for a live one.
+    nonisolated(unsafe) private static let codexName = try? NSRegularExpression(
+        pattern: #"^(?:([\w.-]+):\s+([\w.-]+)|Tool:\s*([\w.-]+)/([\w.-]+))$"#)
     nonisolated(unsafe) private static let bareWrapUp = try? NSRegularExpression(
         pattern: #"^(?:(?:acpmux\.)?wrap_up|(?:cmux\.)?acpmux_wrap_up)$"#)
     nonisolated(unsafe) private static let cmuxServer = try? NSRegularExpression(
         pattern: #"^cmux(?:[-_](?:next|app|dev))?$"#, options: [.caseInsensitive])
 
     /// The MCP server and tool a call ran: Claude Code names it `mcp__<server>__<tool>` with the
-    /// arguments as its input; Codex nests them under `{server, tool, arguments}`.
+    /// arguments as its input; Codex nests them under `{server, tool, arguments}`, or names the call
+    /// in its title (`codexName`) with the arguments as its input.
     private static func mcpCall(_ call: ACPToolCall) -> (server: String, tool: String, args: JSONValue?)? {
         let title = call.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if let claudeName, let match = claudeName.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
@@ -33,6 +38,10 @@ extension NextStepAsk {
         if call.command == nil, let input = call.rawInput, let server = input["server"]?.stringValue,
            let tool = input["tool"]?.stringValue, let args = input["arguments"] {
             return (server, tool, args)
+        }
+        if let codexName, let match = codexName.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
+            let groups = (1..<match.numberOfRanges).compactMap { Range(match.range(at: $0), in: title).map { String(title[$0]) } }
+            if groups.count == 2 { return (groups[0], groups[1], call.rawInput) }
         }
         return nil
     }
