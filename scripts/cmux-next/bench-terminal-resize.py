@@ -624,15 +624,27 @@ def pages_mix(session):
         raise RuntimeError(f"pages-mix: {len(picked)} pages asked, shown browsers by engine {engines}")
     result = {"page_panes": len(picked), "panes": picked, "shown_browsers": engines}
     if devtools_tab:
-        session.action("devtools.openDocked", target=f"tab:{devtools_tab}", focus=False)
-        entry = wait(lambda: next((d for d in (rpc("debug.cef") or {}).get("devtools") or []
-                                   if d.get("open") and d.get("devtools_frame")), None), 20)
+        pane = next(p["pane"] for p in picked if p["tab"] == devtools_tab)
+        # As cef-layer-verify: the page's pane focused, then the action on it (a tab target can name the daemon id while
+        # the page is still keyed by its provisional id). A DevTools that does not open is recorded, not fatal: the rows
+        # with pages still measure, and the table says DevTools was missing.
+        session.focus_pane(pane)
+        session.action("tab.focus", target=f"tab:{devtools_tab}", focus=True)
+        time.sleep(0.5)  # bench script: the page is the pane's content before the action
+        reply = session.action("devtools.openDocked", target=f"pane:{pane}", focus=True)
+        def opened():
+            return next((d for d in (rpc("debug.cef") or {}).get("devtools") or []
+                         if d.get("open") and d.get("devtools_frame")), None)
+        entry = wait(opened, 30)
         if not entry:
-            raise RuntimeError(f"pages-mix: docked DevTools did not open on {devtools_tab}: "
-                               f"{json.dumps((rpc('debug.cef') or {}).get('devtools'))[:300]}")
-        time.sleep(2.5)  # bench script: the DevTools front end loads and draws
-        result["devtools"] = {"tab": devtools_tab, "dock": entry.get("dock"), "page_frame": entry.get("page_frame"),
-                              "devtools_frame": entry.get("devtools_frame")}
+            reply2 = session.action("devtools.openDocked", focus=True)  # the focused web view, no target
+            entry = wait(opened, 30)
+            reply = {"pane_target": reply, "no_target": reply2}
+        if entry:
+            time.sleep(2.5)  # bench script: the DevTools front end loads and draws
+        result["devtools"] = {"tab": devtools_tab, "pane": pane, "open": bool(entry), "reply": json.dumps(reply)[:300],
+                              "entry": entry if entry else (rpc("debug.cef") or {}).get("devtools")}
+        print(f"SMOOTH-PAGES-DEVTOOLS {json.dumps(result['devtools'])[:1500]}", flush=True)
     first = Stress.panes(session.workspace(workspace))
     if first:
         session.focus_pane(first[0]["id"])
