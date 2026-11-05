@@ -610,7 +610,8 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
     `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
     candidates = []
-    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+    # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page.get("check_runs") or []:
             if (check.get("name") in COMPILE_PASS_CHECKS and check.get("head_sha") == sha
                     and check.get("app", {}).get("slug") == "github-actions" and check.get("status") == "completed"
@@ -805,9 +806,7 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None) 
         listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")
         runs = [run for run in listed.get("workflow_runs") or [] if tested_sha(run) == sha]
     for run in runs:
-        found = next((job for page in github.json(
-            f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
-            for job in page.get("jobs") or [] if job.get("name") == job_name), None)
+        found = next((job for job in last_real_jobs(repo, run["id"], github) if job.get("name") == job_name), None)
         if found is None:
             continue
         if found.get("status") != "completed":
@@ -848,6 +847,21 @@ def base_status(repo: str, base: str, name: str, state: str, description: str, g
                   f"newest {base} commits has a status '{name}' to compare with")
 
 
+# A run's jobs as its last real attempt left them (cmux#35906, 2026-11-05). GitHub's latest-attempt views
+# (jobs?filter=latest, and check-runs with no filter) show only the newest attempt, and an attempt that ended in
+# startup_failure runs no jobs: after two such reruns of run 41931705470 they showed no job at all, its 'publish
+# tree-addressed cmux-tui' red included, and the head read as having no red. Such an attempt is no result, never a
+# green, so every attempt is read (filter=all) and each job name keeps the jobs of the newest attempt that ran it. A
+# real rerun (red, then green) still decides; a run whose only attempt ran nothing has no jobs, which is no result.
+def last_real_jobs(repo: str, run: int, github) -> list[dict]:
+    jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
+            for job in page.get("jobs") or []]
+    newest: dict[str, int] = {}
+    for job in jobs:
+        newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
+    return [job for job in jobs if (job.get("run_attempt") or 1) == newest[job.get("name", "")]]
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED."""
@@ -856,17 +870,16 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         guards = []
         run_rollups = []
         children = []
-        for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", paginate=True):
-            for job in page.get("jobs") or []:
-                if is_aggregate(job.get("name", ""), repo):
-                    if job.get("conclusion") not in ("success", "skipped", "neutral", None):
-                        (run_rollups if job.get("name") in rollups(repo)["run"] else guards).append(job)
-                    continue
-                if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
-                    if job.get("head_sha") not in (None, sha):
-                        raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
-                    jobs[job["id"]] = job
-                    children.append(job)
+        for job in last_real_jobs(repo, run, github):
+            if is_aggregate(job.get("name", ""), repo):
+                if job.get("conclusion") not in ("success", "skipped", "neutral", None):
+                    (run_rollups if job.get("name") in rollups(repo)["run"] else guards).append(job)
+                continue
+            if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
+                if job.get("head_sha") not in (None, sha):
+                    raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
+                jobs[job["id"]] = job
+                children.append(job)
         for guard in guards:
             if not children:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")

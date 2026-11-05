@@ -71,7 +71,9 @@ class FakeGitHub:
         if f"/compare/{BASE_SHA}..." in route:
             # Any other base commit a test names is newer than that merge-base.
             return {"status": "ahead"}
-        if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
+        if "/actions/runs/" in route and route.endswith(("/jobs?filter=latest&per_page=100",
+                                                         "/jobs?filter=all&per_page=100")):
+            # One attempt per run here: every attempt (filter=all) is the latest one.
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
@@ -167,6 +169,99 @@ class JobListPages(unittest.TestCase):
         job_reads = [route for route in github.calls if "/jobs?" in route]
         self.assertTrue(job_reads)
         self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
+
+
+class LastRealAttemptGitHub(FakeGitHub):
+    """Head run 10 of cmux#35906 at e1d1894a (run 41931705470): attempt 1 ran and failed, then each later attempt
+    in ATTEMPTS ran the jobs it lists, [] for one that ended in startup_failure with no jobs. GitHub's latest-attempt
+    views (jobs?filter=latest, check-runs with no filter) show only the newest attempt, so after two startup_failure
+    reruns they show no job and no check run at all; every attempt (filter=all) still shows attempt 1's red."""
+
+    def __init__(self, *later: list[dict]):
+        super().__init__()
+        red = dict(self.jobs.pop(1), run_attempt=1)
+        self.attempts = [[red], *([dict(job, run_attempt=number) for job in jobs]
+                                  for number, jobs in enumerate(later, 2))]
+        for jobs in self.attempts:
+            self.jobs.update((job["id"], job) for job in jobs)
+
+    def check(self, job: dict) -> dict:
+        return {"id": job["id"], "name": job["name"], "status": job["status"], "conclusion": job["conclusion"],
+                "app": {"slug": "github-actions"},
+                "details_url": f"https://github.com/{REPO}/actions/runs/10/job/{job['id']}"}
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10/jobs?filter=latest&per_page=100"):
+            self.routes.append(route)
+            return [{"jobs": copy.deepcopy(self.attempts[-1])}]
+        if route.endswith("/actions/runs/10/jobs?filter=all&per_page=100"):
+            self.routes.append(route)
+            return [{"jobs": copy.deepcopy([job for jobs in self.attempts for job in jobs])}]
+        if f"/commits/{HEAD}/check-runs" in route:
+            self.routes.append(route)
+            shown = [job for jobs in self.attempts for job in jobs] if "filter=all" in route else self.attempts[-1]
+            return [{"check_runs": [self.check(job) for job in shown]}]
+        if f"/commits/{HEAD}/status" in route:
+            self.routes.append(route)
+            return {"statuses": []}
+        if f"actions/runs?head_sha={HEAD}" in route:
+            self.routes.append(route)
+            return {"workflow_runs": []}
+        if "/actions/jobs/" in route:
+            self.routes.append(route)
+            return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        return super().json(route, paginate=paginate)
+
+
+class LastRealAttempt(unittest.TestCase):
+    """A check reads as its last real attempt left it. An attempt that ended in startup_failure, or ran no jobs, is
+    no result: it never hides the red before it. cmux#35906 merged as 633d5e38 pinned at e1d1894a with its
+    'publish tree-addressed cmux-tui' red in run 41931705470 (attempt 1) unexcused: two reruns ended in
+    startup_failure with no jobs, and the red check run dropped out of the head's latest-attempt view."""
+
+    def green(self, job_id=5):
+        job = failed_job(job_id, 10, HEAD)
+        job["conclusion"] = "success"
+        job["steps"][-1]["conclusion"] = "success"
+        return job
+
+    def test_red_then_two_startup_failures_is_still_judged_as_red_by_check(self):
+        github = LastRealAttemptGitHub([], [])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertTrue(any("check-runs?filter=all" in route for route in github.routes), github.routes)
+
+    def test_red_then_two_startup_failures_is_still_judged_as_red_by_run(self):
+        github = LastRealAttemptGitHub([], [])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_red_hidden_by_startup_failures_stays_not_excused_when_the_base_lacks_it(self):
+        for checks, runs in (([SWIFT], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                github = LastRealAttemptGitHub([], [])
+                github.jobs[2]["conclusion"] = "success"
+                github.jobs[2]["steps"][-1]["conclusion"] = "success"
+                with self.assertRaises(excuse.Refused) as refused:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, github, checks=checks)
+                # Judged against the base and refused as the head's own red, not lost as "no job".
+                self.assertIn("is not red on feat-cmux-next", str(refused.exception))
+
+    def test_red_then_a_real_green_rerun_reads_green(self):
+        # Green on its own, and green with a startup_failure rerun after it: the green is the last real attempt.
+        for later in (([self.green()],), ([self.green()], [])):
+            with self.subTest(attempts=len(later) + 1):
+                with self.assertRaisesRegex(excuse.Refused, "is success"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [], LastRealAttemptGitHub(*later), checks=[SWIFT])
+                with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], LastRealAttemptGitHub(*later))
+
+    def test_startup_failure_alone_is_no_result_not_green(self):
+        github = LastRealAttemptGitHub()
+        github.attempts = [[]]
+        with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
+        self.assertEqual(excuse.last_real_jobs(REPO, 10, github), [])
 
 
 class JobLogEndpoint(unittest.TestCase):
@@ -924,7 +1019,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if route.endswith("/actions/jobs/1"):
                 return copy.deepcopy(self.gh.jobs[1])
@@ -939,7 +1034,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.gh.jobs[int(route.rsplit("/", 1)[1])])
@@ -1198,7 +1293,7 @@ class StatusOnlyChecks(unittest.TestCase):
         original = self.gh.json
 
         def json(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
@@ -1281,7 +1376,7 @@ class JoblessStatusChecks(unittest.TestCase):
 
         def json(route, *, paginate=False):
             self.gh.routes.append(route)
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
                 return {"statuses": [copy.deepcopy(self.head)]}
@@ -1878,6 +1973,24 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
 
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_compile_pass_under_startup_failure_reruns_still_counts(self):
+        # Review finding on #35949: GitHub's default check-runs list shows only each suite's newest attempt, so a
+        # compile pass whose suite was rerun into startup_failure (no jobs) was not seen. Its last real attempt counts.
+        self.release_run(5)
+        hidden = self.gh.check_runs
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/commits/{HEAD}/check-runs" in route:
+                return [{"check_runs": copy.deepcopy(hidden if "filter=all" in route else [])}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        self.assertEqual(excuse.compile_pass_at(REPO, HEAD, self.gh), f"'{self.RELEASE}' (job 1005)")
+        # And a red last real attempt still decides over an older green one.
+        self.release_run(6, "failure")
+        self.assertIsNone(excuse.compile_pass_at(REPO, HEAD, self.gh))
 
     def test_no_verdict_with_nothing_else_compiling_the_head_is_refused_even_when_the_base_has_it(self):
         with self.assertRaisesRegex(excuse.Refused, r"no compile verdict.*never a base red"):
