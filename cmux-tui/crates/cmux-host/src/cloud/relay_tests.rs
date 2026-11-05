@@ -377,6 +377,16 @@ fn an_acpmux_error_keeps_its_type_up_the_relay() {
         &envelope("runtime", 1, "agent_error", false, json!({"errorKind": "auth.signed_out"})),
     );
     assert_eq!(e["error_kind"], "auth.signed_out");
+    // acpmux's recovery sentence goes up, bounded; a permission refusal keeps its detail beside it.
+    let long = format!("Answer Trust for this folder. {}", "y".repeat(1_000));
+    let e = final_event(
+        Some(5),
+        "",
+        &envelope("permission_denied", 5, "trust_required", false, json!({"recovery": long})),
+    );
+    assert_eq!(e["detail"], "trust_required");
+    let recovery = e["recovery"].as_str().unwrap();
+    assert!(recovery.starts_with("Answer Trust") && recovery.chars().count() == 300, "{recovery}");
     // No exit status (a signal): the envelope's own exit decides the code.
     let e = final_event(None, "", &envelope("no_session", 4, "no_session", false, json!({})));
     assert_eq!(e["code"], "chat.no_session");

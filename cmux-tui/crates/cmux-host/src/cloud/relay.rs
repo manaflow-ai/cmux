@@ -230,7 +230,7 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
 ///
 /// A failure keeps acpmux's type: its `--json` error envelope (`cli/errors.rs`, the last stderr line) gives the
 /// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable`, the `errorKind` and a closed
-/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`), so a
+/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`) and its `recovery`, so a
 /// closed daemon, a refused permission and an auth failure stay told apart past the relay (hq#7086). Only short
 /// code-shaped words go up beside acpmux's sentence; stderr with no envelope stays a plain failure.
 pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
@@ -287,6 +287,12 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         }
         if let Some(retryable) = e.get("retryable").and_then(Value::as_bool) {
             o.insert("retryable".to_owned(), json!(retryable));
+        }
+        // What to do about it (acpmux `recovery.rs`): acpmux's own sentence, bounded as the message is.
+        if let Some(recovery) =
+            e.get("recovery").and_then(Value::as_str).filter(|r| !r.trim().is_empty())
+        {
+            o.insert("recovery".to_owned(), json!(recovery.chars().take(300).collect::<String>()));
         }
     }
     event
