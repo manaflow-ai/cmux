@@ -154,8 +154,12 @@ concurrency:
   # nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every
   # main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled
   # and manual cache seeds use different groups, so a tick never cancels a manual refresh.
-  # NEXT runs are run-scoped; the release/feed writers keep their own groups below.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest
+  # pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only
+  # the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the
+  # one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next
+  # runs (dispatches) stay run-scoped; the release/feed writers keep their own groups below.
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -3348,6 +3352,8 @@ jobs:
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
       # The shared pool label from sign_owned. Publication controls use this pool route so they never pin one runner.
       sign_owned_pool: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned_pool || '' }}
+      # 'false' when no runner carrying vars.CI_NIGHTLY_SIGN_RUNNER was online and idle (SIGN_LABEL_FALLBACK); else 'true' or empty.
+      sign_label_free: ${{ steps.sign-label.outputs.free }}
       attempt: ${{ github.run_attempt }}
       # A newer run's build is already on the feed: build-sign-notarize-nightly skips.
       overtaken: ${{ steps.overtaken.outputs.overtaken }}
@@ -3430,6 +3436,22 @@ jobs:
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
         run: python3 .publish-tooling/scripts/ci/signing_runner.py owned
 
+      # SIGN_LABEL_FALLBACK (Leo, 2026-11-05: "F*** yes, just do it", on letting the signing jobs also run
+      # on a second runner): whether a runner carrying vars.CI_NIGHTLY_SIGN_RUNNER (cmux15's signing pool) is online
+      # and idle now. When none is, build-sign-notarize-nightly and sign-nightly-identity-legacy take the drained
+      # owned Mac picked above (sign_owned) instead of queueing behind the one signer; with no such pick, or any read
+      # that fails, they keep the signing label (signing_runner.py sign_label_free).
+      - name: Check the signing label has a free runner
+        id: sign-label
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_NIGHTLY_SIGN_RUNNER != '' && github.event_name == 'push' && github.ref_name == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          SIGN_LABEL: ${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+        run: python3 .publish-tooling/scripts/ci/signing_runner.py label
+
       - name: Write the owned-pool watch marker
         id: marker
         if: (steps.owned.outputs.owned != '' || steps.sign-owned.outputs.owned != '') && (github.event_name != 'push' || github.run_attempt != 1)
@@ -3475,7 +3497,7 @@ jobs:
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-sign-runner.outputs.sign_label_free != 'false' || needs.pick-nightly-sign-runner.outputs.attempt != github.run_attempt || !needs.pick-nightly-sign-runner.outputs.sign_owned) && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -5974,7 +5996,7 @@ jobs:
     # Owned Macs only (Lawrence, 2026-10-30): a drained mini the picker chose on this attempt (sign_owned), held
     # whole for this job (the claim step below), else the owned nightly slot, the owned side lane, then the owned
     # std pool, so an unset or retired lane variable never leaves the job on one dead queue.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-sign-runner.outputs.sign_label_free != 'false' || needs.pick-nightly-sign-runner.outputs.attempt != github.run_attempt || !needs.pick-nightly-sign-runner.outputs.sign_owned) && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
