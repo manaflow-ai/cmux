@@ -359,3 +359,251 @@ fn rds_cost_knote_scaling_bench() {
     drop(b);
     panic!("{report}");
 }
+
+/// Never merge: the knote bench at the shape read from the live app daemon under the L6 typing load (cmux21, build
+/// e8291edc, lskq and proc_pidinfo; s17hb-1-off at 02:44Z, s17hp-head-1 at 03:20Z): 264-266 knotes, 13-14 of them on
+/// fds (highest fd 67-79) and 250-253 hashed (234-237 EVFILT_PROC, one per host child); 1052 open fds (768 sockets),
+/// highest fd 1095. Not thousands: the host connections are blocking threads, not runtime sockets. Every poll() runs
+/// kqueue_dealloc, which walks the process's fd knote lists and all its hashed knotes; between two keys the daemon
+/// does other work, so that walk may run on cold cache lines. Measures poll(POLLOUT, 0) (the room check before
+/// #35988) and kevent64(IMMEDIATE) on a queue registered once (after it), warm (back to back) and cold (the caches
+/// swept by a 96 MB read before each call), with no other knotes, at the daemon's shape, with the fd knote list
+/// grown to the highest fd, and with 1000 hashed knotes. Fails on purpose so the step log shows the report.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn rds_cost_knote_daemon_shape_bench() {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::net::UnixStream;
+    use std::process::{Child, Command, Stdio};
+    const N: usize = 1_000;
+    const SWEEP: usize = 96 << 20;
+    struct Children(Vec<Child>);
+    impl Drop for Children {
+        fn drop(&mut self) {
+            for child in &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    fn stats(ns: &mut [u128]) -> (String, u128) {
+        ns.sort_unstable();
+        let at = |p: usize| ns.get((ns.len() * p / 100).min(ns.len() - 1)).copied().unwrap_or(0);
+        let line = format!(
+            "p50 {} p95 {} p99 {} max {} ns",
+            at(50),
+            at(95),
+            at(99),
+            ns.last().copied().unwrap_or(0)
+        );
+        (line, at(50))
+    }
+    fn register(kq: i32, ident: u64, filter: i16, flags: u16, fflags: u32) {
+        let change =
+            libc::kevent64_s { ident, filter, flags, fflags, data: 0, udata: 0, ext: [0; 2] };
+        let added =
+            unsafe { libc::kevent64(kq, &change, 1, std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+        assert_eq!(
+            added,
+            0,
+            "kevent64 EV_ADD filter {filter} ident {ident}: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    /// The process's knotes as lskq lists them: (all, on fds, hashed).
+    fn knotes() -> (usize, usize, usize) {
+        let Ok(out) =
+            Command::new("/usr/bin/lskq").arg("-p").arg(std::process::id().to_string()).output()
+        else {
+            return (0, 0, 0);
+        };
+        let on_fds = ["READ", "WRITE", "VNODE", "EXCEPT", "SOCK", "AIO", "NW_CHANNEL"];
+        let hashed =
+            ["PROC", "SIGNAL", "TIMER", "MACHPORT", "USER", "VM", "MEMSTATUS", "FS", "WORKLOOP"];
+        let (mut fd_count, mut hash_count) = (0, 0);
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            if words.iter().any(|word| on_fds.contains(word)) {
+                fd_count += 1;
+            } else if words.iter().any(|word| hashed.contains(word)) {
+                hash_count += 1;
+            }
+        }
+        (fd_count + hash_count, fd_count, hash_count)
+    }
+    /// The open fds and the highest one.
+    fn fds() -> (usize, i32) {
+        let (mut open, mut highest) = (0, -1);
+        for fd in 0..8192 {
+            if unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1 {
+                open += 1;
+                highest = fd;
+            }
+        }
+        (open, highest)
+    }
+    fn sweep(buffer: &[u8]) {
+        let mut sum = 0u64;
+        let mut i = 0;
+        while i < buffer.len() {
+            sum = sum.wrapping_add(u64::from(buffer[i]));
+            i += 64;
+        }
+        let _ = std::hint::black_box(sum);
+    }
+    fn poll_once(fd: i32) -> u128 {
+        let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let started = Instant::now();
+        let _ = unsafe { libc::poll(&mut ready, 1, 0) };
+        started.elapsed().as_nanos()
+    }
+    fn kevent_once(kq: i32) -> u128 {
+        let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+        let started = Instant::now();
+        let _ = unsafe {
+            libc::kevent64(
+                kq,
+                std::ptr::null(),
+                0,
+                event.as_mut_ptr(),
+                1,
+                libc::KEVENT_FLAG_IMMEDIATE,
+                std::ptr::null(),
+            )
+        };
+        started.elapsed().as_nanos()
+    }
+    fn measure(label: &str, fd: i32, kq: i32, buffer: &[u8], report: &mut String) {
+        let (open, highest) = fds();
+        let (all, on_fds, hashed) = knotes();
+        let mut warm_poll = Vec::with_capacity(N);
+        let mut warm_kevent = Vec::with_capacity(N);
+        for _ in 0..N {
+            warm_poll.push(poll_once(fd));
+            warm_kevent.push(kevent_once(kq));
+        }
+        let mut cold_poll = Vec::with_capacity(N);
+        let mut cold_kevent = Vec::with_capacity(N);
+        for _ in 0..N {
+            sweep(buffer);
+            cold_poll.push(poll_once(fd));
+            sweep(buffer);
+            cold_kevent.push(kevent_once(kq));
+        }
+        let (warm_poll_line, _) = stats(&mut warm_poll);
+        let (warm_kevent_line, _) = stats(&mut warm_kevent);
+        let (cold_poll_line, cold_poll_p50) = stats(&mut cold_poll);
+        let (cold_kevent_line, cold_kevent_p50) = stats(&mut cold_kevent);
+        report.push_str(&format!(
+            "  {label}: {open} open fds (highest {highest}); lskq: {all} knotes, {on_fds} on fds, {hashed} hashed\n    poll(POLLOUT, 0):    warm {warm_poll_line}; cold {cold_poll_line}\n    kevent64(IMMEDIATE): warm {warm_kevent_line}; cold {cold_kevent_line}\n    cold p50, poll - kevent64: {} ns\n",
+            cold_poll_p50 as i128 - cold_kevent_p50 as i128
+        ));
+    }
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
+    limit.rlim_cur = 4096.min(limit.rlim_max);
+    unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+    let buffer = vec![1u8; SWEEP];
+    let mut report = String::from(
+        "\nrds-cost KNOTE bench at the live daemon's shape (macOS; warm = back to back, cold = the caches swept by a 96 MB read before each call; ns per call):\n",
+    );
+    // The typed host's socket and its room-check queue come first (fd 10 in the daemon).
+    let (host, peer) = UnixStream::pair().unwrap();
+    let fd = host.as_raw_fd();
+    let room = unsafe { libc::kqueue() };
+    register(room, fd as u64, libc::EVFILT_WRITE, libc::EV_ADD | libc::EV_ENABLE, 0);
+    measure("no other knotes", fd, room, &buffer, &mut report);
+    // The daemon's fd knotes, on its first fds: 9 EVFILT_VNODE (watched files) and 4 EVFILT_READ (sockets).
+    let dir = std::env::temp_dir().join(format!("rds-knote-bench-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let watched = unsafe { libc::kqueue() };
+    let mut files = Vec::new();
+    for i in 0..9 {
+        let path = dir.join(format!("watched-{i}"));
+        std::fs::write(&path, b"x").unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        register(
+            watched,
+            file.as_raw_fd() as u64,
+            libc::EVFILT_VNODE,
+            libc::EV_ADD | libc::EV_CLEAR,
+            libc::NOTE_WRITE | libc::NOTE_DELETE,
+        );
+        files.push(file);
+    }
+    let mut sockets = Vec::new();
+    for _ in 0..2 {
+        let (x, y) = UnixStream::pair().unwrap();
+        register(
+            watched,
+            x.as_raw_fd() as u64,
+            libc::EVFILT_READ,
+            libc::EV_ADD | libc::EV_CLEAR,
+            0,
+        );
+        register(
+            watched,
+            y.as_raw_fd() as u64,
+            libc::EVFILT_READ,
+            libc::EV_ADD | libc::EV_CLEAR,
+            0,
+        );
+        sockets.push((x, y));
+    }
+    // One EVFILT_PROC knote per host child (234 in s17hp-head-1), and 16 more hashed knotes (EVFILT_USER here, for
+    // the daemon's USER, MACHPORT and MEMSTATUS ones).
+    let mut children = Children(Vec::new());
+    for _ in 0..234 {
+        let child = Command::new("/bin/sleep")
+            .arg("120")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        register(
+            watched,
+            u64::from(child.id()),
+            libc::EVFILT_PROC,
+            libc::EV_ADD | libc::EV_CLEAR,
+            libc::NOTE_EXIT,
+        );
+        children.0.push(child);
+    }
+    for ident in 1..=16u64 {
+        register(watched, ident, libc::EVFILT_USER, libc::EV_ADD | libc::EV_CLEAR, 0);
+    }
+    // The rest of the daemon's fd table: 270 vnodes and 768 sockets, the sockets highest (fd 1089 in the daemon).
+    let mut nulls = Vec::new();
+    for _ in 0..260 {
+        nulls.push(std::fs::File::open("/dev/null").unwrap());
+    }
+    let mut filler = Vec::new();
+    for _ in 0..380 {
+        filler.push(UnixStream::pair().unwrap());
+    }
+    measure("the daemon's shape", fd, room, &buffer, &mut report);
+    // A knote once on the highest fd grows the process's fd knote list to cover it, and it never shrinks: as when
+    // the load's keys to other terminals were checked on their (high) host sockets.
+    let highest = filler.last().map(|(x, y)| x.as_raw_fd().max(y.as_raw_fd())).unwrap();
+    let once = unsafe { libc::kqueue() };
+    register(once, highest as u64, libc::EVFILT_READ, libc::EV_ADD, 0);
+    unsafe { libc::close(once) };
+    measure(
+        "the daemon's shape, fd knote list grown to its highest fd",
+        fd,
+        room,
+        &buffer,
+        &mut report,
+    );
+    for ident in 1_000..1_750u64 {
+        register(watched, ident, libc::EVFILT_USER, libc::EV_ADD | libc::EV_CLEAR, 0);
+    }
+    measure("the same with 1000 hashed knotes", fd, room, &buffer, &mut report);
+    drop(children);
+    unsafe { libc::close(watched) };
+    unsafe { libc::close(room) };
+    let _ = std::fs::remove_dir_all(&dir);
+    drop((files, sockets, filler, nulls, peer));
+    panic!("{report}");
+}
