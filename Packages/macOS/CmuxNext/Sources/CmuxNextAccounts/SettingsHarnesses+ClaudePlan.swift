@@ -15,9 +15,11 @@ nonisolated enum ClaudeAuthStatus {
     /// How long one `claude auth status` may take.
     static let timeout: Duration = .seconds(10)
 
-    /// The plan of a `claude auth status --json` answer; nil when it is not a signed-in claude.ai login.
+    /// The plan of a `claude auth status --json` answer; nil when it is not a signed-in claude.ai login
+    /// (an API key or a gateway names no subscription).
     static func plan(_ data: Data) -> String? {
         guard let root = try? JSONValue.parse(data), root["loggedIn"]?.boolValue == true,
+              root["authMethod"]?.stringValue == "claude.ai",
               let plan = root["subscriptionType"]?.stringValue?.trimmingCharacters(in: .whitespaces),
               !plan.isEmpty else { return nil }
         return plan
@@ -42,11 +44,14 @@ extension SettingsHarnesses {
     }
 
     /// Asks each signed-in Claude login for its plan (``ClaudeAuthStatus``), all at once. Only the
-    /// newest refresh writes; a login whose answer names no plan keeps none.
+    /// newest refresh writes; a login whose answer names no plan keeps none, and with no `claude`
+    /// found or no signed-in Claude login no plan is kept (a signed-out login shows none).
     func readClaudePlans(generation mine: Int) async {
-        guard let claude = claudeProgram, let accounts else { return }
-        let logins = accounts.filter { $0.family == "claude" && $0.signedIn }.map { ($0.id, $0.home) }
-        guard !logins.isEmpty else { return }
+        let logins = (accounts ?? []).filter { $0.family == "claude" && $0.signedIn }.map { ($0.id, $0.home) }
+        guard let claude = claudeProgram, !logins.isEmpty else {
+            claudePlans = [:]
+            return
+        }
         let status = claudeStatus ?? { await ClaudeAuthStatus.run(claude: $0, home: $1) }
         let plans = await withTaskGroup(of: (String, String?).self) { group in
             for (id, home) in logins {

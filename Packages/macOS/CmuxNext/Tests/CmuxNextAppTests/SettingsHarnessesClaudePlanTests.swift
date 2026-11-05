@@ -58,6 +58,13 @@ import Testing
                           Asked(program: "/opt/homebrew/bin/claude", home: "/Users/alex/.cmux/accounts/claude-2")])
     }
 
+    @Test func aPlanShownBeforeGoesWhenNothingCanBeAsked() async throws {
+        let h = await make()
+        h.harnesses.accounts = h.harnesses.accounts?.filter { $0.family != "claude" }
+        await h.harnesses.readClaudePlans(generation: h.harnesses.generation)
+        #expect(h.harnesses.claudePlans.isEmpty)
+    }
+
     @Test func noClaudeFoundAsksNothing() async throws {
         let h = await make(path: nil)
         #expect(h.asked.withLock { $0 }.isEmpty)
@@ -66,8 +73,9 @@ import Testing
     }
 
     @Test func onlyASignedInClaudeAiLoginNamesAPlan() {
-        #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":true,"subscriptionType":"team"}"#.utf8)) == "team")
-        #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":false,"subscriptionType":"pro"}"#.utf8)) == nil)
+        #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"team"}"#.utf8)) == "team")
+        #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":true,"authMethod":"api_key","subscriptionType":"pro"}"#.utf8)) == nil)
+        #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":false,"authMethod":"claude.ai","subscriptionType":"pro"}"#.utf8)) == nil)
         #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":true,"authMethod":"api_key"}"#.utf8)) == nil)
         #expect(ClaudeAuthStatus.plan(Data(#"{"loggedIn":true,"subscriptionType":null}"#.utf8)) == nil)
         #expect(ClaudeAuthStatus.plan(Data("not json".utf8)) == nil)
