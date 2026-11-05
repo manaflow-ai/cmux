@@ -60,7 +60,7 @@ import Testing
     }
 
     struct FixedZoom: ZoomCapturing {
-        func capture(windowID: UInt32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
+        func capture(windowID: UInt32, pid: Int32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
             -> (CGImage, ZoomMapping) {
             // Native: twice the screenshot's pixels for the region.
             let width = Int(region.pixels.width * 2), height = Int(region.pixels.height * 2)
@@ -202,7 +202,7 @@ import Testing
     }
 
     struct FailingZoom: ZoomCapturing {
-        func capture(windowID: UInt32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
+        func capture(windowID: UInt32, pid: Int32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
             -> (CGImage, ZoomMapping) { throw ToolError("no capture") }
     }
 
@@ -449,5 +449,40 @@ extension PerceptionTests {
         let ids = lines.dropFirst().map { HelperWire.object($0)?["id"] as? Int }
         #expect(ids == [1, 2], "replies in the order of the calls")
         #expect(tools.log.withLock { $0 } == ["start get_window_state", "end get_window_state", "start click", "end click"])
+    }
+}
+
+// MARK: Native zoom only of the process the driver checked
+
+extension PerceptionTests {
+    /// Records the process each capture was asked for.
+    final class RecordingZoom: ZoomCapturing, @unchecked Sendable {
+        let pids = OSAllocatedUnfairLock<[Int32]>(initialState: [])
+        func capture(windowID: UInt32, pid: Int32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
+            -> (CGImage, ZoomMapping) {
+            pids.withLock { $0.append(pid) }
+            return try await FixedZoom().capture(windowID: windowID, pid: pid, region: region, frame: frame)
+        }
+    }
+
+    @Test func aNativeZoomIsOfTheProcessTheDriverChecked() async throws {
+        let tools = ScriptedTools()
+        let recording = RecordingZoom()
+        var perception = Perception(tools: tools, session: PerceptionSession())
+        perception.zoomCapture = recording
+        tools.queue(Self.windowState(Self.png(), pid: 4))
+        _ = try await perception.call(name: "get_window_state", arguments: HelperWire.json(["pid": 4, "window_id": 7]))
+        tools.queue(Self.driverZoom)
+        _ = try await perception.call(name: "zoom", arguments: HelperWire.json(["window_id": 7, "x1": 0, "y1": 0, "x2": 10, "y2": 10]))
+        tools.queue(Self.driverZoom)
+        _ = try await perception.call(name: "zoom", arguments: HelperWire.json(
+            ["pid": 5, "window_id": 7, "x1": 0, "y1": 0, "x2": 10, "y2": 10]))
+        #expect(recording.pids.withLock { $0 } == [4, 5], "the read's pid, then the zoom call's own")
+    }
+
+    @Test func aWindowOwnedByAnotherProcessIsNotCaptured() {
+        #expect(PerceptionZoom.owned(4, by: 4))
+        #expect(!PerceptionZoom.owned(5, by: 4))
+        #expect(!PerceptionZoom.owned(nil, by: 4), "no known owner is not the checked process")
     }
 }

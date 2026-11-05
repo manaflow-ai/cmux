@@ -95,7 +95,8 @@ public final class PerceptionSession: Sendable {
 /// Captures a zoom region again at native resolution; ScreenCaptureKit in
 /// production, a fake in tests.
 protocol ZoomCapturing: Sendable {
-    func capture(windowID: UInt32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
+    /// Captures window `windowID` only while process `pid` owns it.
+    func capture(windowID: UInt32, pid: Int32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
         -> (CGImage, ZoomMapping)
 }
 
@@ -338,7 +339,10 @@ struct Perception: Sendable {
 
     private func zoom(_ args: [String: Any]) async throws -> Data {
         let result = try await tools.invoke(name: "zoom", arguments: HelperWire.json(args))
+        // The process the driver's target check passed for this window: the
+        // native capture is of that process's window or not made at all.
         guard let windowID = Self.windowID(args),
+              let pid = Self.pid(args) ?? session.window(windowID).pid,
               let frame = session.window(windowID).frame,
               let region = PerceptionZoom.region(args, frame: frame),
               var reply = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
@@ -348,7 +352,7 @@ struct Perception: Sendable {
         let image: CGImage
         let mapping: ZoomMapping
         do {
-            (image, mapping) = try await zoomCapture.capture(windowID: windowID, region: region, frame: frame)
+            (image, mapping) = try await zoomCapture.capture(windowID: windowID, pid: pid, region: region, frame: frame)
         } catch {
             perceptionLogger.notice("zoom: native capture failed, keeping the driver's crop: \(String(describing: error), privacy: .public)")
             return result
@@ -373,8 +377,7 @@ struct Perception: Sendable {
         structured["zoom_screenshot_pixels_per_pixel"] = ["x": mapping.pixelsPerZoomPixelX, "y": mapping.pixelsPerZoomPixelY]
         reply["content"] = content
         reply["structuredContent"] = structured
-        session.setZoom(PerceptionSession.Zoom(windowID: windowID, pid: Self.pid(args) ?? session.window(windowID).pid,
-                                               mapping: mapping))
+        session.setZoom(PerceptionSession.Zoom(windowID: windowID, pid: pid, mapping: mapping))
         return HelperWire.json(reply)
     }
 

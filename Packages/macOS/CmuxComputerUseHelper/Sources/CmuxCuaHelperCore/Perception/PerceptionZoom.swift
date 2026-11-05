@@ -79,6 +79,10 @@ struct PerceptionZoom: Sendable {
         return Region(pixels: CGRect(x: left, y: top, width: right - left, height: bottom - top))
     }
 
+    /// Whether a window whose owner is `owner` belongs to `pid`; a window
+    /// with no known owner belongs to nobody.
+    static func owned(_ owner: pid_t?, by pid: Int32) -> Bool { owner.map { $0 == pid } ?? false }
+
     /// What to capture for `region`: the source rectangle in window points
     /// (ScreenCaptureKit's `sourceRect`) and the output size in pixels, the
     /// display's `pointPixelScale` pixels per point, capped at `maxLongEdge`.
@@ -96,11 +100,17 @@ struct PerceptionZoom: Sendable {
         return (source, max(1, Int(width.rounded())), max(1, Int(height.rounded())))
     }
 
-    /// Captures `region` of window `windowID` at native resolution (capped at `maxLongEdge`).
-    func capture(windowID: UInt32, region: Region, frame: ScreenshotFrame) async throws -> (CGImage, ZoomMapping) {
+    /// Captures `region` of window `windowID` at native resolution (capped at
+    /// `maxLongEdge`), only while process `pid` owns it: a window id freed and
+    /// given to another process since the driver's target check is refused.
+    func capture(windowID: UInt32, pid: Int32, region: Region, frame: ScreenshotFrame) async throws
+        -> (CGImage, ZoomMapping) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
             throw ToolError("zoom: window \(windowID) is not capturable")
+        }
+        guard Self.owned(window.owningApplication?.processID, by: pid) else {
+            throw ToolError("zoom: window \(windowID) is no longer process \(pid)'s")
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let plan = Self.plan(region, frame: frame, pointPixelScale: Double(filter.pointPixelScale))
