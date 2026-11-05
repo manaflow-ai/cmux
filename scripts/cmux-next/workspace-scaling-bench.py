@@ -67,6 +67,10 @@ def instant_rows(report, count):
         entry = summary.get(f"idle{suffix}/{command}") or summary.get(f"idle/{command}")
         if not isinstance(entry, dict):
             continue
+        if entry.get("missed"):
+            # An explicit missed count invalidates the percentile, even when a few
+            # samples were present. Scaling ratios must compare complete probes.
+            continue
         values = []
         if entry:
             # Keep every warm-arm sample when present so p50/p95/p99 are meaningful.
@@ -79,6 +83,9 @@ def instant_rows(report, count):
                                         "p99": entry.get("visible_p99", entry.get("visible_p95")),
                                         "n": entry.get("n")}
                     continue
+            if any(not isinstance(value, (int, float)) for value in values):
+                # Do not silently drop missed samples and publish a partial percentile.
+                continue
         if values:
             sample = stats(values)
             # A probe can exit successfully after missing every display sample. Do not publish

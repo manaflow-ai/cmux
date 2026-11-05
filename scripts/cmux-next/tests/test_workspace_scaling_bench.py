@@ -48,6 +48,16 @@ class WorkspaceScalingTests(unittest.TestCase):
         report = {"summary": {"idle@1ws/new_workspace": {"visible_p50": 3.0}}}
         self.assertEqual(bench.instant_rows(report, 1), {})
 
+    def test_mixed_instant_samples_are_incomplete(self):
+        report = {
+            "summary": {"idle@1ws/new_workspace": {"visible_p50": 3.0, "visible_p95": 4.0, "missed": 1}},
+            "runs": [
+                {"phase": "idle@1ws", "command": "new_workspace", "visible_ms": 3.0},
+                {"phase": "idle@1ws", "command": "new_workspace", "visible_ms": None},
+            ],
+        }
+        self.assertEqual(bench.instant_rows(report, 1), {})
+
     def test_switch_uses_real_two_row_baseline(self):
         rows = [{"interaction": "switch", "workspaces": 100, "p95": 10},
                 {"interaction": "switch", "workspaces": 1000, "p95": 11.1}]
