@@ -79,4 +79,60 @@ import Testing
             #expect(request.arguments[old] == nil, "\(id)")
         }
     }
+
+    /// Two spellings of one argument in one request are refused, never one silently winning.
+    @Test func twoSpellingsOfOneArgumentAreRefused() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudRelayChat" })
+        let args: [String: JSONValue] = ["promptId": .string("p-1"), "prompt-id": .string("p-2"),
+                                         "prompt": .string("hi"), "agent": .string("claude")]
+        #expect(throws: ControlError.self) { try Self.validated(Self.info(descriptor), args) }
+    }
+
+    /// The requests the CLI's own encoder builds (cmux-tui `cli/tests/action_argument_contract.rs` writes
+    /// them to cmux-tui/spec/fixtures/cli-action-requests.json: `cmux cloud start-chat`'s relay request as the
+    /// CLI sends it, and one request per CLI action with every argument given as its `--flag`) pass the
+    /// app's own validation under the catalog's exact names, no alias folding. `--prompt-id` reaching an
+    /// argument named `prompt-id` as `promptId` fails here.
+    @Test func everyRequestTheCLIEncodesValidatesAgainstTheCatalog() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        while !FileManager.default.fileExists(atPath: root.appendingPathComponent("cmux-tui/spec").path) {
+            let parent = root.deletingLastPathComponent()
+            try #require(parent.path != root.path, "no cmux-tui/spec above \(#filePath)")
+            root = parent
+        }
+        let data = try Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/fixtures/cli-action-requests.json"))
+        let fixture = try JSONDecoder().decode([String: JSONValue].self, from: data)
+        guard case .array(let requests) = try #require(fixture["requests"]) else {
+            Issue.record("cli-action-requests.json has no requests array")
+            return
+        }
+        #expect(requests.count > 50, "only \(requests.count) CLI requests; is the fixture stale?")
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first })
+        let byCLI = Dictionary(ActionCatalog.all.map { ($0.cliName, $0) }, uniquingKeysWith: { first, _ in first })
+        for entry in requests {
+            guard case .object(let row) = entry, case .object(let params)? = row["params"],
+                  let action = params["action"]?.stringValue else {
+                Issue.record("a malformed request: \(entry)")
+                continue
+            }
+            let source = row["source"]?.stringValue ?? action
+            guard let descriptor = byID[action] ?? byCLI[action] else {
+                Issue.record("\(source): the CLI runs '\(action)', which the app has no action for")
+                continue
+            }
+            let names = Set(descriptor.arguments.map(\.name))
+            if case .object(let args)? = params["args"] {
+                for key in args.keys where !names.contains(key) {
+                    Issue.record("\(source): \(descriptor.id.rawValue) has no argument '\(key)' (it takes \(names.sorted()))")
+                }
+            }
+            var checked = params
+            checked["origin"] = nil
+            #expect(throws: Never.self, "\(source)") {
+                try ControlRouter.validatedRequest(for: Self.info(descriptor), params: checked,
+                                                   knownKinds: ActionTargetKind.allCases.map(\.rawValue),
+                                                   connection: ControlConnectionID(rawValue: 1))
+            }
+        }
+    }
 }

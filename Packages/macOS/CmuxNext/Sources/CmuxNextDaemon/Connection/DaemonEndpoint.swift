@@ -525,6 +525,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// A workspace `layout.bulk` also closes the chosen workspaces with no tab, in the same commit,
+    /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
+    /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
+    case layoutBulkBare = "layout-bulk-bare-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -574,7 +578,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
             return .optional
         }
     }

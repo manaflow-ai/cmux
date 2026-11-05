@@ -91,6 +91,66 @@ fn one_pass_replays_equal_the_two_pass_bytes_on_the_corpus() {
     }
 }
 
+const FULL_BUDGET: usize = 15 * 1024 * 1024;
+
+/// A fresh mirror rebuilt from `bytes` at the source's grid.
+fn mirror_of(cols: u16, rows: u16, bytes: &[u8]) -> Terminal {
+    terminal_with(cols, rows, bytes)
+}
+
+fn total_rows(term: &Terminal) -> u64 {
+    term.scrollbar().map_or(0, |scrollbar| scrollbar.total)
+}
+
+/// Latest screen first: a tail replay with no history allowance rebuilds the
+/// same screen from a small fraction of the bytes, and says how many rows of
+/// history it left out.
+#[test]
+fn a_tail_replay_without_history_rebuilds_the_screen_and_counts_the_rest() {
+    let mut source = terminal_with(120, 40, &history_text(10_000));
+    let full = source.vt_replay_bounded_theme_portable_with_aliases(FULL_BUDGET).unwrap();
+    let tail = source.vt_replay_tail_theme_portable_with_aliases(FULL_BUDGET, 0).unwrap();
+    let mut mirror = mirror_of(120, 40, &tail.replay.self_contained_bytes());
+    assert_eq!(mirror.viewport_text().unwrap(), source.viewport_text().unwrap());
+    assert_eq!(total_rows(&mirror), 40, "the mirror holds the screen only");
+    assert_eq!(tail.history_rows_omitted, total_rows(&source) - 40);
+    assert!(
+        tail.replay.bytes.len() * 50 < full.bytes.len(),
+        "a screen-only replay of {} bytes is not far under the full {}",
+        tail.replay.bytes.len(),
+        full.bytes.len()
+    );
+}
+
+/// A history allowance keeps exactly that many of the newest history rows.
+#[test]
+fn a_tail_replay_keeps_its_newest_history_rows() {
+    let mut source = terminal_with(120, 40, &history_text(10_000));
+    let tail = source.vt_replay_tail_theme_portable_with_aliases(FULL_BUDGET, 200).unwrap();
+    let mut mirror = mirror_of(120, 40, &tail.replay.self_contained_bytes());
+    assert_eq!(mirror.viewport_text().unwrap(), source.viewport_text().unwrap());
+    assert_eq!(total_rows(&mirror), 240);
+    assert_eq!(tail.history_rows_omitted, total_rows(&source) - 240);
+    let oldest = mirror.plain_text().unwrap();
+    let first = oldest.lines().next().unwrap_or_default().to_owned();
+    let expected = format!("line {:05}", 10_000 - 200 - 39);
+    assert!(first.starts_with(&expected), "the oldest kept row is {first:?}, not {expected}");
+}
+
+/// History that fits the allowance comes whole, byte for byte the full
+/// replay: a short session is not cut, and nothing is said to be missing.
+#[test]
+fn a_tail_replay_of_a_short_history_is_the_full_replay() {
+    for allowance in [500, u64::MAX] {
+        let mut source = terminal_with(120, 40, &history_text(300));
+        let full = source.vt_replay_bounded_theme_portable_with_aliases(FULL_BUDGET).unwrap();
+        let tail =
+            source.vt_replay_tail_theme_portable_with_aliases(FULL_BUDGET, allowance).unwrap();
+        assert_eq!(tail.history_rows_omitted, 0, "allowance {allowance}");
+        assert_eq!(tail.replay.bytes, full.bytes, "allowance {allowance}");
+    }
+}
+
 /// Bench: one theme-portable replay build (what a byte mirror gets on attach
 /// and resize) of a 120x40 terminal with 10,000 lines of history, one pass
 /// against two (the reference path). The arms are interleaved, their
