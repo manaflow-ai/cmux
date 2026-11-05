@@ -158,8 +158,13 @@
    "shot": false
   },
   {
-   "title": "Blade: cuts with lit accent lines",
-   "wait": 2
+   "title": "Blade: cuts with lit accent lines (first tab selected: it stands on the card's edge)",
+   "wait": 2,
+   "cmux": [
+    "action",
+    "run",
+    "tab.next"
+   ]
   }
  ]
 }

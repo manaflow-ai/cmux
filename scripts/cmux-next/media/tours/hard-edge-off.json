@@ -158,8 +158,13 @@
    "shot": false
   },
   {
-   "title": "Today (baseline)",
-   "wait": 2
+   "title": "Today (baseline) (first tab selected: it stands on the card's edge)",
+   "wait": 2,
+   "cmux": [
+    "action",
+    "run",
+    "tab.next"
+   ]
   }
  ]
 }

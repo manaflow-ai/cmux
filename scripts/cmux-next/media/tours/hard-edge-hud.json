@@ -158,8 +158,13 @@
    "shot": false
   },
   {
-   "title": "HUD: layered frames with diamond rivets",
-   "wait": 2
+   "title": "HUD: layered frames with diamond rivets (first tab selected: it stands on the card's edge)",
+   "wait": 2,
+   "cmux": [
+    "action",
+    "run",
+    "tab.next"
+   ]
   }
  ]
 }
