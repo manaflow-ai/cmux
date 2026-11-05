@@ -60,8 +60,11 @@ extension AgentIncoming {
         let harness = provenance?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
         func one(_ name: String, _ words: String, id: String? = nil) -> AgentIncoming {
-            AgentIncoming(messages: [Message(sender: name, text: unsigned(words.trimmed, name))], harness: harness,
-                          messageID: id ?? relay?.id, raw: text)
+            // A message that signs itself (`[land-and-ci-c9] …`, `From lane-a: …`) names its sender
+            // better than its envelope, unless the signature only repeats it (as the Mac's `agentSigned`).
+            let signed = signature(words.trimmed, sender: name)
+            return AgentIncoming(messages: [Message(sender: signed?.name ?? name, text: signed?.text ?? words.trimmed)],
+                                 harness: harness, messageID: id ?? relay?.id, raw: text)
         }
         switch kind {
         case "inbox_notice":
@@ -71,7 +74,7 @@ extension AgentIncoming {
                     return recorded.compactMap { m in
                         guard let words = m["text"]?.stringValue else { return nil }
                         let sender = m["from"]?.nonEmpty ?? from
-                        return Message(sender: sender, text: unsigned(RelayEnvelope.without(words).trimmed, sender))
+                        return signedMessage(sender, RelayEnvelope.without(words))
                     }
                 }
                 // The thread's preview, or (a notice logged before the provenance carried one) its line in the notice's text.
@@ -80,7 +83,8 @@ extension AgentIncoming {
                 guard let preview else { return [] }
                 return [Message(sender: from, text: preview)]
             }
-            return messages.isEmpty ? nil : AgentIncoming(messages: messages, raw: text)
+            // A notice that names no thread is bookkeeping: hidden, never the person's bubble.
+            return AgentIncoming(messages: messages, raw: text)
         case "agent_digest":
             let messages = digest(body)
             if !messages.isEmpty { return AgentIncoming(messages: messages, harness: harness, raw: text) }
@@ -95,13 +99,23 @@ extension AgentIncoming {
             guard let from = provenance?["from"]?.nonEmpty else { break }
             let name = provenance?["fromShortName"]?.nonEmpty ?? provenance?["fromName"]?.nonEmpty ?? from
             return one(name, body)
-        case "agent_message", "notice":
+        case "agent_message":
             guard let from = provenance?["from"]?.nonEmpty else { break }
             let name = provenance?["fromName"]?.nonEmpty ?? from
             let msgID = provenance?["msgId"]?.nonEmpty
             return one(name, renderedBody(body, msgID: msgID) ?? body, id: msgID)
+        case "notice":
+            // A tool's or reconciler's notice: its sender, and its body without the rendered head and
+            // Links line (the Mac's `noticeBody`).
+            guard let name = provenance?["notice"]?["sender"]?.nonEmpty ?? provenance?["fromName"]?.nonEmpty
+                ?? provenance?["from"]?.nonEmpty else { break }
+            return AgentIncoming(messages: [Message(sender: name, text: noticeBody(body))], harness: harness,
+                                 messageID: relay?.id, raw: text)
         default:
-            break
+            // A kind this build doesn't know, from an agent's address (`acp:…`, or a named sender).
+            if fromAgentAddress(provenance), let from = provenance?["from"]?.nonEmpty {
+                return one(provenance?["fromName"]?.nonEmpty ?? from, body)
+            }
         }
         return relay.map { one($0.sender, $0.body) }
     }
@@ -112,7 +126,7 @@ extension AgentIncoming {
     /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
     /// acpmux with none) it came by `acpmux send` at a shell, a peer or the outbox.
     static func fromAgent(provenance: JSONValue?, client: String?) -> Bool {
-        if let provenance { return provenance["kind"]?.stringValue.map(agentKinds.contains) ?? false }
+        if let provenance { return (provenance["kind"]?.stringValue.map(agentKinds.contains) ?? false) || fromAgentAddress(provenance) }
         guard let client else { return false }
         return ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"].contains { client.hasPrefix($0) }
     }
@@ -146,7 +160,7 @@ extension AgentIncoming {
             }
         }
         if let message = current { out.append(message) }
-        return out.map { Message(sender: $0.sender, text: unsigned(RelayEnvelope.without($0.text).trimmed, $0.sender)) }
+        return out.map { signedMessage($0.sender, RelayEnvelope.without($0.text)) }
     }
 
     private static func digestSender(_ line: Substring) -> String? {
@@ -170,15 +184,79 @@ extension AgentIncoming {
     }
 
     /// `text` without a signature that only repeats the sender (`[lane-a] Merged`, `From lane-a: Merged`).
-    static func unsigned(_ text: String, _ name: String) -> String {
-        let short = name.split(separator: "/").last.map(String.init) ?? name
-        for said in [name, short] where !said.isEmpty {
-            for prefix in ["[\(said)] ", "From \(said): ", "From \(said). "] where text.lowercased().hasPrefix(prefix.lowercased()) {
-                let rest = text.dropFirst(prefix.count).trimmed
-                if !rest.isEmpty { return rest }
+    /// A message under `sender`, or under the sender it signs itself with, without the signature.
+    static func signedMessage(_ sender: String, _ text: String) -> Message {
+        let signed = signature(text.trimmed, sender: sender)
+        return Message(sender: signed?.name ?? sender, text: signed?.text ?? text.trimmed)
+    }
+
+    /// Whether a provenance's sender is an agent's address: another chat (`acp:<id>`) or a sender
+    /// that named itself (`fromAgent`, the broker's `--from`).
+    static func fromAgentAddress(_ provenance: JSONValue?) -> Bool {
+        guard let from = provenance?["from"]?.stringValue else { return false }
+        return from == "fromAgent" || from.hasPrefix("acp:")
+    }
+
+    /// The sender a message signs itself with and its text after the signature: `[from APP › PERSONA] …`,
+    /// `[name] …` or `From name: …` (the Mac's `agentSigned`). A signature that only repeats `sender`
+    /// keeps `sender`, the fuller name; nil when the text is not signed.
+    static func signature(_ text: String, sender: String) -> (name: String, text: String)? {
+        func groups(_ pattern: String) -> [String]? {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+            return (1..<m.numberOfRanges).map { Range(m.range(at: $0), in: text).map { String(text[$0]) } ?? "" }
+        }
+        func named(_ name: String, _ rest: String) -> (name: String, text: String)? {
+            let rest = rest.trimmed
+            guard !rest.isEmpty else { return nil }
+            return (namesSender(name, sender) ? sender : name, rest)
+        }
+        if let label = groups(#"^\[from ([^\]\n]{1,110})\]\s+(\S[\s\S]*)$"#) {
+            let name = label[0].split(separator: "›").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")
+            if !name.isEmpty { return named(name, label[1]) }
+        }
+        if let bracket = groups(#"^\[([^\]\n]{1,64})\]\s+(\S[\s\S]*)$"#) {
+            let name = bracket[0].trimmed
+            if match(name, #"^[\w.@/:-]+(?: [\w.@/:-]+){0,3}$"#), !match(name, #"^(?:Request interrupted|Subagent hand-back|cmux agent message)"#),
+               envelopeAgent(name) || namesSender(name, sender) {
+                return named(name, bracket[1])
             }
         }
-        return text
+        if let from = groups(#"^From ([\w@/:-]+(?:\.[\w@/:-]+)*)[:.]\s+(\S[\s\S]*)$"#), envelopeAgent(from[0]) || namesSender(from[0], sender) {
+            return named(from[0], from[1])
+        }
+        return nil
+    }
+
+    private static func match(_ text: String, _ pattern: String) -> Bool {
+        text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// An agent's name as envelopes write it: lowercase words joined by `-` or `/` (`land-and-ci-c9`,
+    /// `build-box/lane-3`), never a person's (`Leo`).
+    static func envelopeAgent(_ name: String) -> Bool {
+        name == name.lowercased() && match(name, "[a-z]") && match(name, #"^[\w.@:]+(?:[-/][\w.@:]+)+$"#)
+    }
+
+    /// Whether `name` is the sender, or the sender on another machine (`<peer>/<name>`), ignoring
+    /// case and runs of spaces.
+    static func namesSender(_ name: String, _ sender: String) -> Bool {
+        func folded(_ s: String) -> String { s.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let said = folded(name), full = folded(sender)
+        guard !said.isEmpty, !full.isEmpty else { return false }
+        return said == full || said == full.split(separator: "/").last.map(String.init) || full == said.split(separator: "/").last.map(String.init)
+    }
+
+    /// A notice prompt's body without the rendered head (`[notice from SENDER( on HOST)?( · FIRE| · WARN)?] TITLE`)
+    /// and the closing `Links: …` line, which the card doesn't draw (the Mac's `noticeBody`).
+    static func noticeBody(_ text: String) -> String {
+        var lines = text.trimmed.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if let first = lines.first, match(first, #"^\[notice from [\w.@/:-]{1,64}(?: on [A-Za-z0-9._-]{1,64})?(?: · (?:FIRE|WARN))?\][ \t]+\S"#) {
+            lines.removeFirst()
+        }
+        if let last = lines.last, match(last.trimmed, #"^Links:[ \t]+https://\S+"#) { lines.removeLast() }
+        let body = lines.joined(separator: "\n").trimmed
+        return body.isEmpty ? text.trimmed : body
     }
 }
 
