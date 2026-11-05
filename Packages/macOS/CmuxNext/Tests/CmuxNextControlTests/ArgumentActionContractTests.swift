@@ -11,7 +11,8 @@ import Testing
 /// its argument `prompt-id` while the CLI sent `promptId`, and every `cmux cloud start-chat` failed
 /// `invalid_params` (#36193); `new_tab` and `cmux_next` were out of the CLI's reach the same way.
 @MainActor
-@Suite struct ActionArgumentContractTests {
+// Named so check-action-surfaces.sh's `ActionContractTests` filter runs it on every catalog change.
+@Suite struct ArgumentActionContractTests {
     static func info(_ descriptor: ActionDescriptor) -> ControlActionInfo {
         ControlActionInfo(id: descriptor.id.rawValue, title: descriptor.title, category: descriptor.category.rawValue,
                           categoryTitle: descriptor.category.title, cliName: descriptor.cliName, symbol: descriptor.symbol,
