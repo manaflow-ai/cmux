@@ -166,7 +166,7 @@ export function morphIntoTab(button: HTMLElement, label: string): void {
       { transform: `translateX(${travel}px)`, clipPath: tab, opacity: 1, offset: 0.7 },
       { transform: `translateX(${travel}px)`, clipPath: tab, opacity: 0, offset: 1 },
     ],
-    { duration: MOTION_MS.large + MOTION_MS.quick, easing: MOTION_EASE_OUT },
+    { duration: MOTION_MS.large, easing: MOTION_EASE_OUT },
   );
   const current = { element, animation };
   ghost = current;
