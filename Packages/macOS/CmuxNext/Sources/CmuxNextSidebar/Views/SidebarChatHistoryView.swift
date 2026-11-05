@@ -55,7 +55,7 @@ final class SidebarChatHistoryViews {
 }
 
 /// One history block: a quiet header (Pinned, or Earlier, which folds), then one compact row per
-/// chat (its title and a faint age), and for Earlier a Show More row. A row resumes its chat on a
+/// chat (its title and a faint age), and for Earlier a Show More row, or a Loading row until acpmux first answers. A row resumes its chat on a
 /// click and pins or unpins it from its right-click menu. Rows are made for the shown page only.
 final class SidebarChatHistoryView: NSView {
     enum Part { case pinned, earlier }
@@ -66,6 +66,7 @@ final class SidebarChatHistoryView: NSView {
     let more = SidebarChatHistoryRow()
     private var chats: [SidebarHistoryChat] = []
     private var showsMore = false
+    private var showsLoading = false
     private var folded = false
     private var metrics = SidebarLayoutMetrics.standard
     /// Where the history's clicks go (tests swap in their own).
@@ -82,7 +83,10 @@ final class SidebarChatHistoryView: NSView {
             guard let self, self.part == .earlier else { return }
             self.history.toggleEarlier()
         }
-        more.onClick = { [weak self] in self?.history.showMore() }
+        more.onClick = { [weak self] in
+            guard let self, !self.showsLoading else { return }
+            self.history.showMore()
+        }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -97,10 +101,12 @@ final class SidebarChatHistoryView: NSView {
 
     func show(_ state: SidebarChatHistoryState, metrics: SidebarLayoutMetrics) {
         let chats = part == .pinned ? state.pinned : state.earlier
-        let showsMore = part == .earlier && state.hasMore && !state.earlierFolded
+        let showsLoading = part == .earlier && state.showsLoading
+        let showsMore = part == .earlier && state.hasMore && !state.earlierFolded && !showsLoading
         let folded = part == .earlier && state.earlierFolded
-        guard chats != self.chats || showsMore != self.showsMore || folded != self.folded || metrics != self.metrics else { return }
-        (self.chats, self.showsMore, self.folded, self.metrics) = (chats, showsMore, folded, metrics)
+        guard chats != self.chats || showsMore != self.showsMore || showsLoading != self.showsLoading || folded != self.folded
+            || metrics != self.metrics else { return }
+        (self.chats, self.showsMore, self.showsLoading, self.folded, self.metrics) = (chats, showsMore, showsLoading, folded, metrics)
         let title = part == .pinned ? Strings.pinned : Strings.chatHistoryEarlier
         header.configure(title: title, foldable: part == .earlier, folded: folded)
         setAccessibilityLabel(title)
@@ -127,8 +133,9 @@ final class SidebarChatHistoryView: NSView {
                 return menu
             }
         }
-        more.configure(title: Strings.chatHistoryShowMore, meta: nil, harness: nil, quiet: true)
-        more.isHidden = !showsMore
+        more.configure(title: showsLoading ? Strings.chatHistoryLoading : Strings.chatHistoryShowMore, meta: nil, harness: nil,
+                       quiet: true)
+        more.isHidden = !(showsMore || showsLoading)
         needsLayout = true
     }
 

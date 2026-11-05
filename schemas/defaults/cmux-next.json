@@ -240,6 +240,7 @@
     "setting.agentPane.display.font.lineHeight": 1.625,
     "setting.agentPane.display.font.preset": "markdown",
     "setting.agentPane.display.font.size": 14,
+    "setting.agentPane.display.font.ui": "inter-tuned",
     "setting.agentPane.display.fullWidth": false,
     "setting.agentPane.display.harnessPlacement": "symbols",
     "setting.agentPane.display.minimap": "compact",
