@@ -1408,6 +1408,19 @@ impl Harness {
         self.brain.step(input);
     }
 
+    /// Steps the brain's inputs until `n` prompts were sent. A turn sends
+    /// other inputs before `Settled` (the compactor's stuck-line state, a
+    /// progress note), so one `step` does not reach its prompt.
+    pub fn step_to_prompts(&mut self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        while self.agents.inner.lock().unwrap().prompts.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no prompt {n}");
+            if let Ok(input) = self.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                self.brain.step(input);
+            }
+        }
+    }
+
     /// The whole memory log: (kind, text).
     pub fn log(&self) -> Vec<(String, String)> {
         let n = self.chat.status().messages;
