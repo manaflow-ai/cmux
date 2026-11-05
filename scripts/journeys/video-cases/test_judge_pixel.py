@@ -82,6 +82,35 @@ DIV_TOUCH = 0              # strip-touch: no divider band at all, the two strips
 # m18/m14 terminal surface films (the trace's `terminal` rows): held, stale, on its pane, and the owned (frame owner) rows
 SURFACE_VARIANTS = ("strip-held", "strip-stale", "strip-surface", "strip-surface-owned", "strip-held-owned")
 HELD_SAMPLES = {"strip-held": 14, "strip-held-owned": 5}  # samples 10.. whose committed surface keeps A_REST
+# m18 text wrap (pixel-perfect's primary-screen fixture): A shows lines of solid blocks, one color per line, wrapped at its
+# columns; strip-wrap re-wraps every frame, strip-wrap-crop keeps the rest wrap while A shrinks (its rows run past the last
+# whole cell, cut by the view), strip-wrap-narrow keeps it while A grows (every row short at one column)
+WRAP_VARIANTS = ("strip-wrap", "strip-wrap-crop", "strip-wrap-narrow")
+WRAP_COLORS = [(200, 60, 20), (20, 160, 60), (60, 60, 200)]
+WRAP_LINE_ROWS = 4         # each line: 3 full rows, then a last row of 5 cells
+
+
+def wrap_cols(w_px):
+    return (int(round(w_px)) - 2 * PAD) // CW
+
+
+def wrap_cols_shown(s, variant):
+    """The columns A's text is wrapped at in sample s."""
+    if variant != "strip-wrap" and MOVE[0] <= s < MOVE[1]:
+        return wrap_cols(A_REST)  # not re-wrapped: the rest wrap
+    return wrap_cols(a_width(s, variant))
+
+
+def draw_wrap(img, x0, w, cols, y0):
+    """A primary-screen terminal in [x0, x0 + w) x [y0, H): its ground, then lines of solid blocks wrapped at COLS columns
+    (cut by the view's edge), one color per line of WRAP_LINE_ROWS rows."""
+    x0, w = int(round(x0)), int(round(w))
+    img[y0:, x0:x0 + w] = CYAN
+    for r in range((H - y0 - 2 * PAD) // CH):
+        line, part = divmod(r, WRAP_LINE_ROWS)
+        n = cols if part < WRAP_LINE_ROWS - 1 else min(5, cols)
+        y = y0 + PAD + r * CH
+        img[y:y + CH, x0 + PAD:min(x0 + PAD + n * CW, x0 + w)] = WRAP_COLORS[line % len(WRAP_COLORS)]
 
 
 def rows_of(variant):
@@ -123,7 +152,9 @@ def a_width(k, variant):
             return float(A_REST)
         g = float(jp.spring_g(t, SPRING["response"], SPRING["damping"]))
         return A_REST + 40 * (1 - g)
-    sign = -1 if variant in ("cut", "backdrop", "strip-page-lag2", "strip-page-lag3") else 1  # pane A shrinks, pane B grows
+    if variant == "strip-wrap-narrow":
+        return float(A_REST + 4 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))  # grows 80 px over samples 10-29
+    sign = -1 if variant in ("cut", "backdrop", "strip-page-lag2", "strip-page-lag3", "strip-wrap-crop") else 1  # A shrinks
     return float(A_REST + sign * 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
 
 
@@ -205,7 +236,9 @@ def frame(k, variant):
         a_view = A_REST  # A's content keeps its rest width while its pane grows
     if variant == "strip-tui-a-late" and 11 <= k <= 30:
         a_view = a_width(max(s - 1, 0), variant)  # m14: A's view keeps the previous sample's size (m6 "late"), anchored top-left
-    if variant in HELD_SAMPLES and MOVE[0] <= s < MOVE[0] + HELD_SAMPLES[variant]:
+    if variant in WRAP_VARIANTS:
+        draw_wrap(img, 0, a_view, wrap_cols_shown(s, variant), y0)
+    elif variant in HELD_SAMPLES and MOVE[0] <= s < MOVE[0] + HELD_SAMPLES[variant]:
         # m14 held: the surface keeps its old size (A_REST) while the pane grows; the host paints the terminal's ground
         # beside it, so the pixels show A's old grid padded by its own ground up to the new pane edge (they pass)
         draw_tui(img, 0, a_view, picture_w=A_REST, y0=y0)
@@ -701,7 +734,7 @@ def build(root, name, variant):
         shift = 0.5 if variant == "d4-cover" and k >= 30 else 0.0
         page = [bw, 150 - cy, bw + shift, 150 - cy, 0, WINDOW_X + bx, WINDOW_X + bx - shift, bw]
         extra = {"closing": closing_key} if closing_key else {}
-        if variant in SURFACE_VARIANTS:
+        if variant in SURFACE_VARIANTS or variant in WRAP_VARIANTS:
             # the trace's terminal rows (TerminalSurfaceView+MotionSample): the surface layer [x, y, w, h] (window points,
             # top-left), the shown IOSurface's w and h (device px), render counters, owned, presenter, host frame
             owned = variant.endswith("-owned")
@@ -754,6 +787,9 @@ def build(root, name, variant):
         note["lines"] = {"strip_rows": {"pa": STRIP_ROW, "pb": STRIP_ROW}}
         note["chrome"] = [{"pane": "pa", "cell": [0, 0, a0, 150], "strip": [0, 0, a0, 12], "pill": [8, 2, 100, 8]},
                           {"pane": "pb", "cell": [b0, 0, 300 - b0, 150], "strip": [b0, 0, 300 - b0, 12], "pill": [b0 + 8, 2, 100, 8]}]
+    if variant in WRAP_VARIANTS:
+        note["panes"]["pa"]["wrap"] = {"cell_px": CW, "pad_px": PAD,
+                                       "colors": ["#%02X%02X%02X" % c for c in WRAP_COLORS]}
     if variant == "spring":
         note.update(spring=dict(SPRING), input="keys")
     if variant == "spring-slow":
@@ -2060,6 +2096,42 @@ class HeldSurfaceTests(unittest.TestCase):
         row = self.row("strip-held-owned")
         self.assertEqual((jp_frames(row["held_ranges"]), row["surface_phase"]), (held, 1), row)
         self.assertEqual(row["held_worst_pt"], 5.0)
+
+
+class WrapTests(unittest.TestCase):
+    """m18 text wrap (pixel-perfect, 2026-11-05: a primary-screen fixture, lines of solid one-color blocks, each line
+    about 3 pane widths): on each scan row through a block, the colored run ends within one cell of the view's last whole
+    cell, the columns from the trace (the committed surface's width less the padding, over the cell width; the note's
+    `wrap`: cell_px, pad_px, colors). A run past the last whole cell is a crop (not re-wrapped); every row of a frame short
+    of it at one column is a narrower wrap; one short row is a line's last row (information)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-wrap-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True) for v in WRAP_VARIANTS}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def row(self, variant):
+        return self.reports[variant]["m18"]["kinds"]["terminal"]
+
+    def test_text_re_wrapped_every_frame_passes(self):
+        row = self.row("strip-wrap")
+        self.assertEqual((row["wrap"], row["fail"]), (0, 0), row)
+        self.assertGreater(row["wrap_rows"], 100)
+
+    def test_a_wrap_wider_than_the_frame_fails(self):
+        want = {s + 1 for s in range(MOVE[0], MOVE[1])
+                if min(wrap_cols(A_REST) * CW, int(round(a_width(s, "strip-wrap-crop"))) - PAD) >
+                wrap_cols(a_width(s, "strip-wrap-crop")) * CW + 1}
+        self.assertEqual(jp_frames(self.row("strip-wrap-crop")["wrap_ranges"]), want)
+
+    def test_a_wrap_narrower_than_the_frame_fails(self):
+        want = {s + 1 for s in range(MOVE[0], MOVE[1]) if wrap_cols(a_width(s, "strip-wrap-narrow")) > wrap_cols(A_REST) + 1}
+        self.assertTrue(want)
+        self.assertEqual(jp_frames(self.row("strip-wrap-narrow")["wrap_ranges"]), want)
 
 
 class M18ContractTests(unittest.TestCase):
