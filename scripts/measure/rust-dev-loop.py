@@ -76,10 +76,10 @@ def variants(tools: Path) -> dict[str, dict]:
     v: dict[str, dict] = {"base": {}}
     if darwin:
         lld = find_lld(tools)
-        v["lld"] = {"rustflags": [f"-Clink-arg=-fuse-ld={lld}"]} if lld else {"skip": "no ld64.lld or rust-lld"}
+        v["lld"] = {"rustflags": [f"-Clink-arg=--ld-path={lld}"]} if lld else {"skip": "no ld64.lld or rust-lld"}
     else:
         fl = find_fast_linker()
-        v["mold"] = ({"rustflags": ["-Clinker=clang", f"-Clink-arg=-fuse-ld={fl[1]}"], "linker": fl[0]}
+        v["mold"] = ({"rustflags": ["-Clinker=clang", f"-Clink-arg=--ld-path={fl[1]}"], "linker": fl[0]}
                      if fl else {"skip": "no mold or wild on PATH"})
         v["split"] = {"config": ['profile.dev.split-debuginfo="unpacked"']}
     v["nodebug"] = {"config": ["profile.dev.debug=0"]}
@@ -94,17 +94,28 @@ def variants(tools: Path) -> dict[str, dict]:
     v["cranelift+all"] = {"toolchain": NIGHTLY, "zflags": ["-Zcodegen-backend"],
                           "rustflags": ["-Zthreads=8", *v[fast].get("rustflags", [])],
                           "config": ['profile.dev.codegen-backend="cranelift"',
-                                     'profile.dev.package."*".codegen-backend="llvm"', "profile.dev.debug=0"]}
+                                     'profile.dev.package."*".codegen-backend="llvm"', "profile.dev.debug=0"],
+                          **({"skip": v[fast]["skip"]} if "skip" in v[fast] else {})}
+    for k in ("cranelift", "cranelift+all"):
+        v[k]["cranelift"] = True
     return v
 
 
-def ensure_nightly(log) -> str | None:
+def ensure_nightly(log, cranelift: bool) -> tuple[str | None, str | None]:
+    """(error for every nightly variant, error for the cranelift ones)."""
     if not shutil.which("rustup"):
-        return "no rustup on this host"
-    r = subprocess.run(["rustup", "toolchain", "install", NIGHTLY, "--profile", "minimal",
-                        "--component", "rustc-codegen-cranelift-preview"], capture_output=True, text=True)
+        return "no rustup on this host", None
+    r = subprocess.run(["rustup", "toolchain", "install", NIGHTLY, "--profile", "minimal"],
+                       capture_output=True, text=True)
     log(f"rustup install {NIGHTLY}: exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
-    return None if r.returncode == 0 else f"rustup install {NIGHTLY} failed"
+    if r.returncode != 0:
+        return f"rustup install {NIGHTLY} failed", None
+    if not cranelift:
+        return None, None
+    r = subprocess.run(["rustup", "component", "add", "--toolchain", NIGHTLY, "rustc-codegen-cranelift-preview"],
+                       capture_output=True, text=True)
+    log(f"rustup component add rustc-codegen-cranelift-preview: exit {r.returncode}")
+    return None, (None if r.returncode == 0 else "no rustc-codegen-cranelift-preview for this host")
 
 
 def toolchain_bin(toolchain: str) -> str:
@@ -115,14 +126,20 @@ def toolchain_bin(toolchain: str) -> str:
 
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = dict(os.environ)
+    # Only this variant's settings: no inherited profile, wrapper or flags (a worker's global
+    # config.toml may set a wrapper or rustflags; empty values here override it for every variant).
+    for name in list(env):
+        if name.startswith(("CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_")) or name in (
+                "RUSTFLAGS", "CARGO_INCREMENTAL", "RUSTC_WORKSPACE_WRAPPER"):
+            del env[name]
     env["CARGO_TARGET_DIR"] = str(target)
-    env.pop("RUSTC_WRAPPER", None)
-    env.pop("CARGO_BUILD_RUSTC_WRAPPER", None)
-    env.pop("RUSTFLAGS", None)
-    if spec.get("rustflags"):
-        env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(spec["rustflags"])
-    else:
-        env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+    env["RUSTC_WRAPPER"] = ""
+    env["CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER"] = ""
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(spec.get("rustflags", []))
+    # ghostty-vt-sys runs `zig build`; its caches live in the variant's target, so a clean build
+    # of every variant compiles libghostty-vt from nothing, not only the first.
+    env["ZIG_LOCAL_CACHE_DIR"] = str(target / "zig-local-cache")
+    env["ZIG_GLOBAL_CACHE_DIR"] = str(target / "zig-global-cache")
     cmd = ["cargo"]
     env.pop("RUSTUP_TOOLCHAIN", None)
     if spec.get("toolchain"):
@@ -196,11 +213,12 @@ def main() -> int:
             continue
         chosen[name] = allv[name]
     if any(s.get("toolchain") == NIGHTLY for s in chosen.values()):
-        err = ensure_nightly(log)
-        if err:
-            for k, s in chosen.items():
-                if s.get("toolchain") == NIGHTLY:
-                    s["skip"] = err
+        err, cl_err = ensure_nightly(log, any(s.get("cranelift") for s in chosen.values()))
+        for k, s in chosen.items():
+            if s.get("toolchain") == NIGHTLY and err:
+                s["skip"] = err
+            elif s.get("cranelift") and cl_err:
+                s["skip"] = cl_err
     for k in list(chosen):
         tc = chosen[k].get("toolchain")
         if tc and not chosen[k].get("skip"):
@@ -242,12 +260,16 @@ def main() -> int:
         chosen = {k: s for k, s in chosen.items() if not s.get("skip")}
 
     try:
+        # Round -> scenario -> variant: one edit, then every variant builds it, so each target
+        # sees exactly one changed crate since its last build (cargo dirties by mtime, and the
+        # variants share this source tree).
         for i in range(a.n):
-            for k, spec in chosen.items():
-                for s in scen:
+            for s in scen:
+                if s in EDITS:
+                    edit(ws / EDITS[s], i + 1)
+                for k, spec in chosen.items():
                     lp = out / f"{targets[k].name}.log"
                     if s in EDITS:
-                        edit(ws / EDITS[s], 1000 * i + hash(k) % 997)
                         dt, rc, comp = cargo(spec, targets[k], BUILD, lp)
                         rec(k, s, dt, rc, comp, i)
                     elif s == "switch" and i == 0:

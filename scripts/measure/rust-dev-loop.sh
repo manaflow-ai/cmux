@@ -12,7 +12,8 @@
 # workspace-hack crate removes). tests=PKGS times `cargo test` against `cargo nextest run`.
 # Variants (scripts/measure/rust-dev-loop.py `variants`): base, lld (macOS) or mold/split
 # (Linux), nodebug, lld+nodebug, nightly, nightly+threads8, cranelift, cranelift+all.
-# Output: DEVLOOP lines (variant scenario n p50 p95 min max compiled failures), DEVLOOP-SAMPLE
+# Output: DEVLOOP lines (variant scenario n p50 p95 min max compiled failures; with n under 20
+# p95 is close to the max), DEVLOOP-SAMPLE
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
