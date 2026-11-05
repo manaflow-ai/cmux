@@ -955,7 +955,8 @@ export class MockSettingsProvider {
       const family = run.family ?? "";
       const brand = ({ codex: "ChatGPT", claude: "Claude" } as Record<string, string>)[family];
       if (!brand) throw new ProtocolError("cmux.settings.invalid", "accountAdd needs codex or claude");
-      if (run.way === "key" && !run.secret) throw new ProtocolError("cmux.settings.invalid", "a key needs its reference");
+      if (run.way === "key" && !run.secret)
+        throw new ProtocolError("cmux.settings.invalid", "a key needs its reference");
       let number = Math.max(2, accounts.filter((account) => account.family === family).length + 1);
       while (accounts.some((account) => account.id === `${family}-${number}`)) number += 1;
       this.harnessRuns.push(run);
