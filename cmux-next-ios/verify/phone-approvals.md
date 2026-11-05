@@ -1,4 +1,16 @@
-# Phone pairing and Face ID approvals
+# Phone pairing and signed approvals
+
+> **2026-11-04: no Face ID on approvals.** At the user's request ("remove the
+> need for Face ID around the cmux next iOS app, it's unnecessary friction"),
+> an Allow or an answer no longer asks for Face ID or the passcode. The
+> approval key is a Secure Enclave key with `.privateKeyUsage` only, readable
+> after the first unlock (`approval-np`), so a signature still proves this
+> phone, made from the unlocked app or an unlock-gated notification button.
+> An older enclave `approval` key (made with `.userPresence`) is deleted on
+> first use and replaced, so each Mac asks once to allow the phone again.
+> The opt-in Settings → Require Face ID app lock (off by default) is unchanged.
+> Sections below that describe a Face ID prompt per Allow are the earlier
+> design and its verification record.
 
 Branch `feat-cnx-ios-approvals`. Production audit items B2 (device trust),
 B5 (Allow and answers from the phone) and B11 (Require Face ID).
@@ -42,7 +54,7 @@ them. Only the enclave's encrypted blobs are stored, in the Keychain with
 | Key | Access control | Used for |
 | --- | --- | --- |
 | identity | `.privateKeyUsage`, after first unlock | Each link's pairing challenge, with no prompt. |
-| approval | `.privateKeyUsage` + `.userPresence`, when unlocked | Each Allow or answer: Face ID, with the device passcode as the fallback. |
+| approval | `.privateKeyUsage`, after first unlock (`approval-np`; before 2026-11-04 `.userPresence`, when unlocked) | Each Allow or answer, with no prompt. |
 
 Two keys, not one: a link is set up on every launch, foreground and network
 change, and must not prompt; an approval must always prompt.
