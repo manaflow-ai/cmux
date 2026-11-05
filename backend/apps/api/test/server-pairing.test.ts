@@ -4,6 +4,7 @@ import { codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairi
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { userDomain, type UserState } from "../src/domains/user.ts"
 import { handlePairWait, pairApprove } from "../src/pair-routes.ts"
+import { hostsLeavingOwner } from "../src/team-host-replica-drop.ts"
 import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 
 const OWNER = "user_00000000000000000001"
@@ -87,6 +88,15 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, code: "nope", invite: "x" }, ctx(null))).toMatchObject({ ok: false, code: "validation.invalid" })
     // Another install's host, or a host that is gone: nothing recorded.
     expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: "inst_00000000000000000077", code: "7KQ4M2XD", invite: null }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { recorded: false } })
+  })
+
+  it("drops the replica of a server that signed itself out, as for a revoke; a sign-out that found no host drops nothing", () => {
+    const host = "host_00000000000000000042"
+    for (const op of ["server.revoke", "server.signed_out"]) {
+      expect(hostsLeavingOwner(op, [{ t: "result", value: { host, install: INSTALL, owner_user: OWNER } } as never])).toEqual([{ host, tombstone: true, reason: "the host was removed" }])
+    }
+    expect(hostsLeavingOwner("server.signed_out", [{ t: "result", value: { host: null, install: INSTALL } } as never])).toEqual([])
+    expect(hostsLeavingOwner("server.signed_out", [{ t: "result", value: { host, install: INSTALL }, replayed: true } as never])).toEqual([])
   })
 
   it("server.signed_out (the box's own install signed out) removes its host without queueing a revocation; a repeat changes nothing", () => {

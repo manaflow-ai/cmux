@@ -10,6 +10,7 @@
 
 use std::path::Path;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{Transport, confirmation, identity};
@@ -77,17 +78,22 @@ fn sign_out(record: &identity::Identity, transport: &dyn Transport) -> Result<Cl
             Some(bearer.as_str()),
         )
         .map_err(cloud_error)?;
-    if answer["ok"] == true
-        && answer["op"] == "install.sign_out"
-        && answer["value"]["id"] == paired.install
+    let field = |path: &str| answer.pointer(path);
+    if field("/ok") == Some(&Value::Bool(true))
+        && field("/op").and_then(Value::as_str) == Some("install.sign_out")
+        && field("/value/id").and_then(Value::as_str) == Some(paired.install.as_str())
     {
         return Ok(Cloud::SignedOut);
     }
-    Err(if answer["ok"] == false && answer["error"]["retryable"] == true {
-        Error::unreachable(UNREACHABLE)
-    } else {
-        Error::rejected(REFUSED)
-    })
+    Err(
+        if field("/ok") == Some(&Value::Bool(false))
+            && field("/error/retryable") == Some(&Value::Bool(true))
+        {
+            Error::unreachable(UNREACHABLE)
+        } else {
+            Error::rejected(REFUSED)
+        },
+    )
 }
 
 /// Leave cmux Cloud and forget the local enrollment. `{"state":"unpaired",
@@ -113,8 +119,8 @@ pub fn unpair(path: &Path, transport: &dyn Transport, local_only: bool) -> Resul
     }
     let mut out = json!({"state": "unpaired", "cloud": cloud.as_str(), "removed": true});
     if let Some(paired) = &record.paired {
-        out["host"] = paired.host.clone().into();
-        out["install"] = paired.install.clone().into();
+        out.set("host", paired.host.clone().into());
+        out.set("install", paired.install.clone().into());
     }
     drop(store);
     Ok(out)
