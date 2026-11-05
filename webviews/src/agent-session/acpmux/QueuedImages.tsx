@@ -225,7 +225,7 @@ function QueuedImage({
             (composerAttachments.css): a 36px tile has no room for a centred glyph as well. */}
         {video && (
           <span className="acpmux-attachment-video-length acpmux-queued-video" aria-hidden="true">
-            <PlayTriangle size={8} />
+            <PlayTriangle size={12} />
             {length}
           </span>
         )}
