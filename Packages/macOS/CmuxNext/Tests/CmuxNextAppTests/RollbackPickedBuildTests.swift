@@ -41,4 +41,15 @@ import Testing
         updater.applyDownloadPolicy()
         #expect(accepted == 1)
     }
+
+    /// An update the organization requires (`MinimumVersion`) still downloads on the picked build.
+    @Test func aRequiredUpdateDownloadsOnThePickedBuild() {
+        let updater = SilentBackgroundUpdateTests.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.defaults.set(updater.identity.build, forKey: UpdaterService.pickedBuildKey)
+        updater.applyManagedPolicy(channel: nil, minimumVersion: "9.0")
+        #expect(updater.requiredMinimumVersion == "9.0")
+        #expect(accepted == 1, "the rollback hold kept an update the organization requires from downloading")
+    }
 }

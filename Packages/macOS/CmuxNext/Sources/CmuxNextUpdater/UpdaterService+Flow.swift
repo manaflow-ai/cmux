@@ -323,8 +323,9 @@ extension UpdaterService {
         }
         // Downloads came on (the setting, the link or the policy): an update a check found while they
         // were off downloads now instead of waiting for a click (the driver's own state decides; a
-        // no-op when none waits). On the build the person picked it keeps waiting for their click (#36419).
-        if resumed && !runsPickedBuild { acceptAvailable() }
+        // no-op when none waits). On the build the person picked it keeps waiting for their click (#36419),
+        // unless the organization requires it.
+        if resumed && (required || !runsPickedBuild) { acceptAvailable() }
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).
