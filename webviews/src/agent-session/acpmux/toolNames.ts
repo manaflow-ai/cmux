@@ -168,7 +168,7 @@ const GEMINI_FETCH = /^Fetching content from:\s*(\S+)/;
 const GEMINI_WEB_SEARCH = /^Searching the web for:\s*"(.*)"\s*$/;
 const GEMINI_WRITE = /^Writing to\s+(.+)$/;
 const GEMINI_PATTERN = /^'(.+?)'(?:\s+in\s+\S+)?(?:\s+within\s+.+)?$/;
-const GEMINI_REPLACE = /^([^\s:]+):\s.*=>/;
+const GEMINI_REPLACE = /^(.+?):\s.*=>/;
 
 /// A call's canonical tool and input, read from its title's name and its input's shape, or undefined
 /// for a call none of the harnesses' tables or shapes name (an MCP tool, a harness's own tool).
@@ -203,6 +203,7 @@ function readCall(tool: Tool): CanonicalCall | undefined {
   if ((match = title.match(GEMINI_WEB_SEARCH))) return { tool: "websearch", input: { query: match[1], ...input } };
   if (tool.kind === "edit" && (match = title.match(GEMINI_WRITE)))
     return { tool: "write", input: { path: match[1]!.trim(), ...input } };
+  // "<path>: old => new"; a location names the file even when its path has a space or a colon.
   if (tool.kind === "edit" && (match = title.match(GEMINI_REPLACE)))
     return { tool: "edit", input: { path: match[1], ...input } };
   if (tool.kind === "search" && (match = title.match(GEMINI_PATTERN))) {
@@ -273,10 +274,10 @@ function inputOf(raw: Record<string, unknown> | undefined, tool: Tool): Canonica
   return input;
 }
 
-/// A file pattern rather than a text one: `**/*.ts`, `*.md`, `src/*.ts`, `src/{a,b}.ts`. A `*` after
-/// `.`, `)`, `]` or `\` repeats in a regex (`foo.*bar`), so it is no file wildcard.
+/// A file pattern rather than a text one: `**/*.ts`, `*.md`, `src/*.ts`, `src/{a,b}.ts`. A `*` opens
+/// a glob only at the start or after `/` (`foo*bar`, `foo.*bar` repeat in a regex).
 function looksLikeGlob(pattern: string): boolean {
-  return /(?:^|[^.)\]\\])\*|\{[^}]*,[^}]*\}/.test(pattern);
+  return /(?:^|\/)\*|\{[^}]*,[^}]*\}/.test(pattern);
 }
 
 /// `text` reads as one path: a folder in it, or a file name with an extension.

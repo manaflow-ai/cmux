@@ -107,6 +107,11 @@ test("Gemini's file writes and replaces read as writes and edits of their file",
   expect(label(replace)).toBe("Edit src/foo.ts");
 });
 
+test("a Gemini replace of a path with a space names its file", () => {
+  const replace = call("src/my file.ts: const a = 1 => const a = 2", "edit", at(`${CWD}/src/my file.ts`));
+  expect(label(replace)).toBe("Edit src/my file.ts");
+});
+
 test("Gemini's list_directory and Muse's read_file name their subject", () => {
   expect(label(call("src/components", "search"))).toBe("List src/components");
   expect(label(call("read_file: src/parser.rs", "read", at(`${CWD}/src/parser.rs`)))).toBe("Read src/parser.rs");
@@ -116,6 +121,7 @@ test("Gemini's bare folder lists and single-star globs read as such; a regex sta
   expect(label(call("src", "search"))).toBe("List src");
   expect(label(call("'src/*.ts' within ./", "search"))).toBe("Glob src/*.ts");
   expect(label(call("'foo.*bar' within ./", "search"))).toBe("Search foo.*bar");
+  expect(label(call("'foo*bar' within ./", "search"))).toBe("Search foo*bar");
 });
 
 test("a Claude Code Grep and Glob draw and count as searches, not reads", () => {
