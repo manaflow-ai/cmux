@@ -66,7 +66,8 @@ extension PageWebView {
         let chromiumLive = live && hosting.setLivePages(true)
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                 chromiumServes: hosting.serves(descriptor),
-                                liveWebOverride: live && !chromiumLive).decide(for: descriptor, options: options)
+                                // A projection window still serves through WebKit (``WebProjection``).
+                                liveWebOverride: (live && !chromiumLive) || WebProjection.shared.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.

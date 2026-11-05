@@ -190,6 +190,7 @@ mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
+mod tool_read_images;
 mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
