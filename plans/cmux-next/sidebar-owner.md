@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: a collapsed group's rows fade out fast. Leo, verbatim: "when you're collapsing a group, the text needs
+  to fade faster. Otherwise, you just get a ton of text like just jumbled up inside." The fold of 2026-11-02 kept the
+  members in place but faded them on the slot's `.move` spring, so their words stayed while the rows below rose into
+  them. A leaving row (a folded member, a closed workspace) now fades out on `.fadeOut` (80 ms) through
+  `Motion.sidebar`; its frame and fold clip still close on `.move`, and it is recycled when the move ends
+  (`SidebarRowMotion.animate`, `shift`). Regression:
+  `SidebarRowsMoveOnRenderServerTests.collapsingAGroupFadesItsMembersOutFasterThanItsSlotCloses`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius

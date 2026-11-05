@@ -105,8 +105,8 @@ struct RowMotion {
     /// down"): every frame goes on the render server's `.move` spring from one begin time (`SidebarDragSpring`), so
     /// the rows below an insert move as one with the row opening above them, and no row's frame is written on the
     /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). Only the
-    /// opacity of the few rows that open, close or still fade runs on AppKit's `.move` spring, with the group lines'
-    /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
+    /// opacity of the few rows that open or still fade in runs on AppKit's `.move` spring, with the group lines' fades
+    /// (`lines`); a row that leaves fades out on the shorter `.fadeOut`. `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
     /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
     /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
     /// `insert`: a new workspace row's motion (`SidebarInsertMotion`): its spring for the frames and the fades, and how far
@@ -135,8 +135,16 @@ struct RowMotion {
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
+        // A row that leaves (a folded group's members, a closed workspace) fades out on the short `.fadeOut`, not on
+        // the rows' spring: its words are gone before the rows below rise into its place (Leo, 2026-11-05: "when you're
+        // collapsing a group, the text needs to fade faster. Otherwise, you just get a ton of text like just jumbled up
+        // inside"). Its frame and its fold clip still close on the spring; it is recycled when the move ends.
+        let leaving = fades.filter { $0.1 == 0 }
+        if !leaving.isEmpty {
+            Motion.sidebar.animate(.fadeOut, in: list, { for (view, _) in leaving { view.animator().alphaValue = 0 } })
+        }
         Motion.sidebar.animate(token, in: list, {
-            for (view, alpha) in fades { view.animator().alphaValue = alpha }
+            for (view, alpha) in fades where alpha != 0 { view.animator().alphaValue = alpha }
             lines()
         }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.commit()
@@ -177,10 +185,10 @@ struct RowMotion {
         let retargeted = closing.filter { view in view.closingEnd.map { view.frame != $0 } ?? false }
         guard !retargeted.isEmpty else { return }
         // The close's own completion (`run`) still recycles each row.
+        Motion.sidebar.animate(.fadeOut, in: list, { for view in retargeted { view.animator().alphaValue = 0 } })
         Motion.sidebar.animate(.move, in: list, {
             for view in retargeted {
                 guard let end = view.closingEnd else { continue }
-                view.animator().alphaValue = 0
                 view.animator().frame = end
             }
         })
