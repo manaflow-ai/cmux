@@ -142,7 +142,10 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
     const mode = motionMode(doc);
     // An engine with no Web Animations (a test DOM) changes the words the way motion off does.
     if (!view || !old || mode === "none" || typeof element.animate !== "function") {
+      // An earlier change's old words go too: their fade is not in `playing`.
       stopPlaying(swap);
+      for (const ghost of swap.ghosts) ghost.remove();
+      swap.ghosts = [];
       return;
     }
     const stop = element.closest(`[${TEXT_SWAP_ROOT}]`) ?? element.parentElement ?? element;
@@ -197,12 +200,15 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
       duration: mode === "full" ? MOTION_MS.standard : MOTION_MS.micro,
       easing: MOTION_EASE_OUT,
     };
-    // The new words show only once the clock, sliding right out of their way, has mostly passed.
+    // The new words show only once the clock is out of their way: past TEXT_SWAP_SHOW_FROM when
+    // they are shorter, and when they are longer (the clock slides right across them) not before it
+    // lands.
+    const showFrom = shift < 0 ? Math.max(TEXT_SWAP_SHOW_FROM, MOTION_MS.micro / timing.duration) : TEXT_SWAP_SHOW_FROM;
     const incoming =
       mode === "full"
         ? [
             { opacity: 0, transform: `translateY(${TEXT_SWAP_RISE_PX}px)` },
-            { opacity: 0, offset: TEXT_SWAP_SHOW_FROM },
+            { opacity: 0, offset: showFrom },
             { opacity: 1, transform: "translateY(0px)" },
           ]
         : [{ opacity: 0 }, { opacity: 1 }];
