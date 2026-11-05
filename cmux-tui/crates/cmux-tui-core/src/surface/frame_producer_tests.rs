@@ -103,3 +103,91 @@ fn an_announced_request_inside_the_take_window_is_announced() {
     assert!(fired.load(Ordering::SeqCst), "the window was never entered");
     *AFTER_CLEAR_HOOK.lock().unwrap() = None;
 }
+
+/// Feed `bytes` to the test terminal as output and ask the producer for its
+/// frame, as the PTY reader does; the requested generation.
+fn feed_sync_output(pty: &PtySurface, bytes: &[u8]) -> u64 {
+    pty.term.lock().unwrap().vt_write(bytes);
+    let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+    pty.frame_requests.request(generation, false);
+    generation
+}
+
+fn built_generation(pty: &PtySurface) -> u64 {
+    pty.render.lock().unwrap().built_generation
+}
+
+fn wait_for_built(pty: &PtySurface, generation: u64, within: Duration) -> Option<Duration> {
+    let started = Instant::now();
+    while built_generation(pty) < generation {
+        if started.elapsed() > within {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    Some(started.elapsed())
+}
+
+/// A synchronized update (DEC mode 2026) draws as one frame for a render
+/// viewer: no frame while the program holds the mode, then one frame with the
+/// whole update as soon as it ends.
+#[test]
+fn a_synchronized_update_is_one_frame_for_a_render_viewer() {
+    let mux = Mux::new_for_test("frame-sync-output", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_951, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let _viewer = surface.attach_render_stream().unwrap();
+
+    let before = feed_sync_output(pty, b"\x1b[1;1Hbefore");
+    assert!(wait_for_built(pty, before, Duration::from_secs(5)).is_some(), "plain output built no frame");
+
+    let half = feed_sync_output(pty, b"\x1b[?2026h\x1b[2J\x1b[1;1Hhalf");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(built_generation(pty) < half, "a frame of the half-drawn update was built");
+
+    let done = feed_sync_output(pty, b" done\x1b[?2026l");
+    let waited = wait_for_built(pty, done, Duration::from_millis(500))
+        .expect("the update's end built no frame");
+    assert!(waited < SYNCHRONIZED_OUTPUT_HOLD / 2, "the end of the update waited {waited:?}");
+}
+
+/// A program that starts a synchronized update and never ends it is shown
+/// again after the hold, so the view never freezes.
+#[test]
+fn an_update_that_never_ends_is_shown_after_the_hold() {
+    let mux = Mux::new_for_test("frame-sync-output-stuck", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_952, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let _viewer = surface.attach_render_stream().unwrap();
+
+    let stuck = feed_sync_output(pty, b"\x1b[?2026h\x1b[1;1Hstuck");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(built_generation(pty) < stuck, "the open update was drawn before the hold ended");
+    assert!(
+        wait_for_built(pty, stuck, SYNCHRONIZED_OUTPUT_HOLD * 3).is_some(),
+        "an update that never ended was never drawn"
+    );
+}
+
+/// With no render viewer nothing is held: the output event still goes out.
+#[test]
+fn a_synchronized_update_without_a_viewer_holds_nothing() {
+    let mux = Mux::new_for_test("frame-sync-output-unviewed", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_953, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    pty.dirty.store(false, Ordering::SeqCst);
+    pty.term.lock().unwrap().vt_write(b"\x1b[?2026h\x1b[1;1Hx");
+    let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+    pty.frame_requests.request(generation, true);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while !pty.dirty.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "an unviewed synchronized update held its output event");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
