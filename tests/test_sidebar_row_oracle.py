@@ -178,6 +178,16 @@ class FailingFilms(unittest.TestCase):
         self.assertEqual(result["verdict"], "FAIL")
         self.assertEqual(motion["height_error_frames"][0], FIRST)
 
+    def test_new_row_view_at_zero_size_is_not_a_position_error(self):
+        # Feat film e7bd36d8 (light-50, insert #4): the new row's view shows once as [0, 0, 0, 0] (made, not laid out)
+        # before its place. It draws nothing, so its edge is not a row position error; its height is still judged.
+        frames = film("insert")
+        frames[FIRST]["views"][NEW] = [0.0, 0.0, 0.0, 0.0, 1.0]
+        result = judge(frames)
+        motion, = result["motions"]
+        self.assertEqual(motion["row_error_frames"], [])
+        self.assertEqual(motion["height_error_frames"], [FIRST] if ease(1) * ROW_H * SCALE > TOL else [])
+
     def test_closing_row_that_vanishes_early_fails(self):
         frames = film("remove")
         for f in range(STILL + 10, STILL + MOTION):
