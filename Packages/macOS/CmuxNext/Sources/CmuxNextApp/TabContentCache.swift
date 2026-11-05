@@ -462,7 +462,7 @@ final class TabContentCache {
         let key = tab.id
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        _ = tracked(install(page, for: key), tab)
+        _ = tracked(installReplacement(page, for: key), tab)
         onBrowserReady?(key)
     }
 

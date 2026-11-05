@@ -148,13 +148,19 @@ extension TabContentCache {
         }
     }
 
-    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
-    /// lifecycle does not change, so no reveal follows: a tab on screen
-    /// shows the new page at once (a remote view tab's Connect starts its
-    /// stream here; before, the replacement never learned it was visible).
-    func installReplacement(_ page: any BrowserTab, for key: String) {
-        _ = install(page, for: key)
-        if shownPages.contains(key) { page.setContentVisible(true) }
+    /// Installs the page that replaces a tab's page (`swapPage`, `replacePage`). The
+    /// tab's lifecycle does not change, so no reveal or conceal follows: the new page
+    /// takes the tab's visibility here. A tab on screen shows it at once (a remote view
+    /// tab's Connect starts its stream here; before, the replacement never learned it
+    /// was visible), and a hidden tab's is hidden: a new Chromium page starts visible,
+    /// and one put into a page area already hidden never gets the hide that conceals
+    /// it, so it drew under the tab on screen (Leo, 2026-11-05: a Cloud chat's Claude
+    /// sign-in page showing through the agent pane).
+    @discardableResult
+    func installReplacement(_ page: any BrowserTab, for key: String) -> BrowserEntry {
+        let entry = install(page, for: key)
+        page.setContentVisible(shownPages.contains(key))
+        return entry
     }
 
     private func reveal(_ key: String) {
