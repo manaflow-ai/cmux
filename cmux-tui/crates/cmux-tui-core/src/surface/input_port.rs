@@ -13,10 +13,22 @@
 //!
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
+//! - A person's key (at most 1 KB) to an idle port, with nothing queued or in flight and no reconnect wait, is written
+//!   on the request's own turn when the connection's writer is free and the host socket has room for it now
+//!   (`InputPort::try_write_now`: a room check, then a send with room, under the port lock): no thread hand-off,
+//!   which cost each key a wake under load (#35413 A/B). Anything else (a busy writer, a full socket, an error, a
+//!   frame ahead) goes to the port as below, so a key still never waits for another writer or a host that stopped
+//!   reading.
+//! - Once the writer takes a person's key it runs at user-interactive QoS for its life, as the connection threads
+//!   that carried the key do (server/input_qos.rs); a port only automation writes to keeps the default QoS.
 //! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
 //!   publishes another route ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline,
 //!   `HOST_INPUT_RECONNECT_WAIT` after the port took it. The old path's deadline started at the write call, so writes
 //!   queued behind a host that does not come back fail together, and a later loss gives its writes their own wait.
+//!   When no route will come (the reader ended or gave the host up, or the owner detaches the terminal),
+//!   [`InputPort::reconnect_ended`] ends the wait at once and the frame fails then, as the old path's write did.
+//! - The port lock is a leaf: no holder of it waits for another lock. So the runtime lock's holders (a route
+//!   publication, a detach, the order barrier's callers) may take it.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
 //! - A connection the reader shut down (`Failed`, it keeps retrying: [`InputRoute::Failed`]) or a reader that ended
@@ -159,6 +171,10 @@ struct PortFrame {
     reconnect_by: Instant,
     /// The waiting writer of an [`InputReply::Written`] write; dropped unanswered when the frame is dropped.
     waiter: Option<FrameWaiter>,
+    /// A viewer-size control frame another writer of the connection queued behind the port's frames
+    /// ([`PortOrder::enqueue_after_pending`]): only its newest state matters, so a newer one replaces it while it
+    /// is the last frame queued.
+    control: bool,
 }
 
 impl PortFrame {
@@ -192,6 +208,15 @@ struct PortState {
     reply_wait: Option<Duration>,
     #[cfg(test)]
     reconnect_wait: Option<Duration>,
+    /// Tests: the writer panics after it took its next frame (a writer lost during a write).
+    #[cfg(test)]
+    panic_after_take: bool,
+    /// Tests: no inline write ([`InputPort::queue_every_write_for_test`]).
+    #[cfg(all(test, unix))]
+    inline_off: bool,
+    /// Tests (macOS, where a thread has a QoS class): the writer thread's QoS class when it last took a frame.
+    #[cfg(all(test, target_os = "macos"))]
+    writer_qos: Option<u32>,
 }
 
 #[derive(Default)]
@@ -215,6 +240,45 @@ impl PortShared {
 pub(crate) struct PortOrder(Arc<PortShared>);
 
 impl PortOrder {
+    /// Queues the viewer-size frame `kind` (`ViewerSize`, `ReleaseViewer`) behind the frames the port holds and
+    /// returns true; false when the port holds none or closed: the caller writes it directly then, as no frame of the
+    /// port is ahead of it. Nothing waits, so a size sent on a key's turn under the sizing lock never waits for the
+    /// port (#35082 review 1, item 4). A newer size replaces a queued one that is still the last frame (nothing
+    /// between them), so sizes cannot pile up behind a stalled port.
+    ///
+    /// It queues while the writer waits for a reconnect too (#35375 review): the port's frames, a size queued before
+    /// the loss among them, go to the new connection after the install, so a size written directly instead would go
+    /// to the lost connection and the stale queued one would be the new host's last. Queued, the newest size (or
+    /// release) is the last size frame the new host reads. The order barrier skips during that wait because its
+    /// callers hold the runtime lock the install needs; this never waits, so that reason does not apply.
+    pub(crate) fn enqueue_after_pending(&self, kind: MessageKind, bytes: &[u8]) -> bool {
+        let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Frames pending means the writer runs: it took a frame it has not finished (it may wait for a reconnect),
+        // or one is queued.
+        if state.closed || state.finished >= state.accepted {
+            return false;
+        }
+        if let Some(last) = state.frames.back_mut().filter(|frame| frame.control) {
+            let before = last.cost();
+            last.kind = kind;
+            last.bytes = bytes.to_vec();
+            let after = last.cost();
+            state.queued_bytes = state.queued_bytes.saturating_sub(before).saturating_add(after);
+            return true;
+        }
+        let reconnect_by =
+            Instant::now().checked_add(reconnect_wait(&state)).unwrap_or_else(Instant::now);
+        let frame =
+            PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter: None, control: true };
+        // Not counted against the capacity: one control frame per run of other frames, a few bytes each.
+        state.queued_bytes = state.queued_bytes.saturating_add(frame.cost());
+        state.accepted = state.accepted.saturating_add(1);
+        state.frames.push_back(frame);
+        drop(state);
+        self.0.changed.notify_one();
+        true
+    }
+
     /// Waits until the port finished every frame it took before this call. Returns at once while the port's writer
     /// waits for a reconnect or when the port closed, and at `deadline`. Frames taken after the call do not extend
     /// the wait.
@@ -251,8 +315,9 @@ impl Drop for InputPort {
 }
 
 impl InputPort {
-    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]); the
-    /// terminal's writer thread writes them after every earlier write of the port.
+    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]): written
+    /// on this turn when the port is idle and the connection takes them now (`try_write_now`), else by the terminal's
+    /// writer thread after every earlier write of the port.
     pub(crate) fn enqueue(
         &self,
         terminal: &Arc<PtyTerminalRuntime>,
@@ -278,10 +343,17 @@ impl InputPort {
         self.enqueue_frame(terminal, kind, bytes, Some(waiter))?;
         match written.recv_timeout(self.reply_wait()) {
             Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "the terminal's input port stopped before it wrote the input",
-            )),
+            // The waiter's sender dropped unanswered: the writer stopped. A frame it had taken may be partly written.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if state.load(Ordering::Acquire) == FRAME_TAKEN {
+                    Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, InputMayBeWritten))
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "the terminal's input port stopped before it wrote the input",
+                    ))
+                }
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if state
                     .compare_exchange(
@@ -336,11 +408,17 @@ impl InputPort {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
-        let reconnect_by =
-            Instant::now().checked_add(reconnect_wait(&self.shared)).unwrap_or_else(Instant::now);
+        // A person's key with nothing ahead of it is written on this turn: no thread hand-off (#35413 A/B).
+        #[cfg(unix)]
+        if waiter.is_none() && self.try_write_now(terminal, kind, bytes) {
+            return Ok(());
+        }
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
-        let frame = PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter };
+        let bytes = bytes.to_vec();
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let reconnect_by =
+            Instant::now().checked_add(reconnect_wait(&state)).unwrap_or_else(Instant::now);
+        let frame = PortFrame { kind, bytes, reconnect_by, waiter, control: false };
         let Some(total) = state
             .queued_bytes
             .checked_add(frame.cost())
@@ -365,6 +443,50 @@ impl InputPort {
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
+    }
+
+    /// A person's key to an idle port, written on the caller's turn (#35413 A/B: the hand-off to the port's writer
+    /// thread cost each key its wake, +0.17 ms at p95 and +0.53 ms at p99 under the L6 load). Only when nothing can
+    /// make it wait or pass another frame: the port holds no frame and is not writing one (the writer may run, idle),
+    /// no reconnect wait is under way, and [`HostInputRoute::try_send_now`] can write it now (the connection's writer
+    /// is free and the socket takes it whole). The check and the write are under the port lock, so no frame the port
+    /// takes meanwhile can go first: frames taken later queue behind it, in order. A barrier waiting for frames the
+    /// port took earlier is unaffected: there are none. True when it was written and counted as one of the port's
+    /// frames; false leaves everything to the port, as before.
+    #[cfg(unix)]
+    fn try_write_now(
+        &self,
+        terminal: &Arc<PtyTerminalRuntime>,
+        kind: MessageKind,
+        bytes: &[u8],
+    ) -> bool {
+        if bytes.len() > crate::terminal_host_runtime::INLINE_FRAME_MAX {
+            return false;
+        }
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.closed || state.reconnecting || state.finished < state.accepted {
+            return false;
+        }
+        #[cfg(test)]
+        if state.inline_off {
+            return false;
+        }
+        let route = terminal.input_route.load();
+        let Some(InputRoute::Hosted(route)) = route.as_deref() else { return false };
+        if !route.try_send_now(kind, bytes) {
+            return false;
+        }
+        // Counted as taken and finished at once: no barrier waits for it (none can: the port was idle).
+        state.accepted = state.accepted.saturating_add(1);
+        state.finished = state.finished.saturating_add(1);
+        true
+    }
+
+    /// Tests: every write goes through the port's writer thread, as before the inline write (a test of the writer
+    /// itself: its order, reconnect and QoS).
+    #[cfg(all(test, unix))]
+    pub(crate) fn queue_every_write_for_test(&self) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).inline_off = true;
     }
 
     /// The port's order for the other writers of the terminal's host connection.
@@ -404,6 +526,18 @@ impl InputPort {
             Some(wait);
     }
 
+    /// Tests (macOS): the writer thread's QoS class when it last took a frame.
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn writer_qos_for_test(&self) -> Option<u32> {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).writer_qos
+    }
+
+    /// Tests: the writer panics after it takes its next frame.
+    #[cfg(test)]
+    pub(crate) fn panic_after_take_for_test(&self) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).panic_after_take = true;
+    }
+
     /// Tests: whether the writer waits for a reconnect now.
     #[cfg(test)]
     pub(crate) fn reconnecting_for_test(&self) -> bool {
@@ -421,15 +555,24 @@ impl InputPort {
     pub(crate) fn queued_frames_for_test(&self) -> usize {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).frames.len()
     }
+
+    /// Tests: the port holds no frame and is writing none (the next key may go inline).
+    #[cfg(test)]
+    pub(crate) fn idle_for_test(&self) -> bool {
+        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.frames.is_empty() && state.finished >= state.accepted
+    }
 }
 
-/// The reconnect wait of `shared`'s port ([`HOST_INPUT_RECONNECT_WAIT`] unless a test set one).
-fn reconnect_wait(shared: &PortShared) -> Duration {
+/// The reconnect wait of the port whose locked `state` the caller holds ([`HOST_INPUT_RECONNECT_WAIT`] unless a test
+/// set one). It reads the caller's guard and never takes the port lock itself: a second lock of the same mutex on one
+/// thread deadlocks, as `PortOrder::enqueue_after_pending` did in test builds.
+fn reconnect_wait(state: &PortState) -> Duration {
     #[cfg(test)]
-    if let Some(wait) = shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnect_wait {
+    if let Some(wait) = state.reconnect_wait {
         return wait;
     }
-    let _ = shared;
+    let _ = state;
     HOST_INPUT_RECONNECT_WAIT
 }
 
@@ -500,6 +643,14 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
             finish_frames(shared, 1);
             continue;
         }
+        // A frame with no waiter that is not a viewer size is the person's key (`InputPort::enqueue`, only for
+        // `InputReply::Accepted`): from then on this writer runs at user-interactive QoS, as the connection threads
+        // that carried the key do (server/input_qos.rs; DESIGN 2.6.1). Under full CPU a default-QoS writer waited for
+        // a CPU between the key's acceptance and its write to the host. A port only automation writes to keeps the
+        // default QoS. Once per thread; a writer that exits idle starts again at the default.
+        if frame.waiter.is_none() && !frame.control {
+            crate::server::raise_input_thread_qos();
+        }
         #[cfg(test)]
         {
             let paused = shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused.take();
@@ -507,6 +658,16 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
                 let _ = paused.recv();
                 shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
             }
+            #[cfg(target_os = "macos")]
+            {
+                shared.state.lock().unwrap_or_else(PoisonError::into_inner).writer_qos =
+                    Some(crate::server::current_input_thread_qos());
+            }
+            let lost = std::mem::take(
+                &mut shared.state.lock().unwrap_or_else(PoisonError::into_inner).panic_after_take,
+            );
+            // crash-allow: test-only panic, a writer lost after it took its frame.
+            assert!(!lost, "test: the input port's writer is lost after it took its frame");
         }
         // The terminal is gone: its port closed, and nothing is left to write to.
         let Some(runtime) = terminal.upgrade() else {
@@ -519,6 +680,9 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
             // The waiting writer answers its request with the result.
             (written, Some(waiter)) => {
                 let _ = waiter.done.send(written);
+            }
+            (Err(error), None) if frame.control => {
+                eprintln!("cmux-tui: terminal host {:?} frame not written: {error}", frame.kind);
             }
             (Err(error), None) => eprintln!(
                 "cmux-tui: terminal input not written ({} bytes, already accepted): {error}",

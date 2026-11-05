@@ -48,6 +48,7 @@ struct ViewWindowTests {
         #expect(parsed.query.map(\.0) == ["density", "script"])
         let defaults = ViewWindow.parse(["port": "99999"])
         #expect(defaults.port == ViewWindow.defaultPort && defaults.size == CGSize(width: 1280, height: 800) && defaults.query.isEmpty)
+        #expect(ViewWindow.parse(["width": "nan", "height": "inf"]).size == CGSize(width: 1280, height: 800))
     }
 
     @Test func sizesAreClampedLikeTheShells() {

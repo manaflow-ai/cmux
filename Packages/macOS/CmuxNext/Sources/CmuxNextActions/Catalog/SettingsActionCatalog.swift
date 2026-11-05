@@ -534,7 +534,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
             // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
-            // the running app (`ViewWindow`), no DEV or shell build; `url`, `width`, `height` and any mock app key
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
             // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(
                 id: "debug.viewWindow",

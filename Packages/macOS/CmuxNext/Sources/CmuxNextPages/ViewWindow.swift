@@ -59,7 +59,7 @@ import WebKit
         glass.state = .followsWindowActiveState
         glass.autoresizingMask = [.width, .height]
         let webView = WKWebView(frame: glass.bounds, configuration: WKWebViewConfiguration())
-        webView.clearBackground()
+        PageWebView.clearBackground(of: webView)
         webView.autoresizingMask = [.width, .height]
         glass.addSubview(webView)
         window.contentView = glass
@@ -113,8 +113,8 @@ import WebKit
     /// The port, the clamped size and the mock app keys (sorted) of the action's arguments.
     nonisolated static func parse(_ arguments: [String: String]) -> (port: Int, size: CGSize, query: [(String, String)]) {
         let port = arguments["port"].flatMap(Int.init).flatMap { (1...65_535).contains($0) ? $0 : nil } ?? defaultPort
-        let width = arguments["width"].flatMap(Double.init) ?? 1280
-        let height = arguments["height"].flatMap(Double.init) ?? 800
+        let width = arguments["width"].flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil } ?? 1280
+        let height = arguments["height"].flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil } ?? 800
         let query = arguments.filter { !["port", "width", "height"].contains($0.key) }.map { ($0.key, $0.value) }
             .sorted { $0.0 < $1.0 }
         return (port, clamped(CGSize(width: width, height: height)), query)
@@ -133,14 +133,3 @@ import WebKit
     }
 }
 
-extension WKWebView {
-    /// The page is transparent; WebKit's opaque backing would hide the window's backdrop. macOS has no
-    /// public switch, so this uses `_setDrawsBackground:` through KVC, checked first (``PageWebView`` and
-    /// ``ViewWindow``).
-    func clearBackground() {
-        if responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            setValue(false, forKey: "drawsBackground")
-        }
-        underPageBackgroundColor = .clear
-    }
-}

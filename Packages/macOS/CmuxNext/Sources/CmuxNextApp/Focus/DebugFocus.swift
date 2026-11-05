@@ -102,7 +102,7 @@ enum DebugFocus {
             }),
             "appkit": .object([
                 "first_responder": window?.firstResponder.map { .string(String(describing: type(of: $0))) } ?? .null,
-                "classified": .string(FocusResponderClassifier.describe(actual)),
+                "classified": .string(actual.debugName),
                 "child_window_page": controller.focusApplier.focusedChildWindowPageID.map(JSONValue.string) ?? .null,
                 "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null,
             ]),
@@ -124,7 +124,7 @@ enum DebugFocus {
         if let pane = state.pane, layoutFocus != pane { problems.append("layout focus \(layoutFocus ?? "nil") != model pane \(pane)") }
         let childPage = controller.focusApplier.focusedChildWindowPageID == nil ? nil : resolved.tab
         if let expected = InputInvariants.expectedResponder(resolved, childPage: childPage), expected != actual {
-            problems.append("appkit \(FocusResponderClassifier.describe(actual)) != model \(resolved.kind)")
+            problems.append("appkit \(actual.debugName) != model \(resolved.kind)")
         }
         let ownTabs = Set(controller.content?.panes.values.compactMap(\.currentTabKey) ?? [])
         if let ghosttyProblem = resolved.ghosttyMismatch(focused: ghostty, ownTabs: ownTabs, isKey: isKey) { problems.append(ghosttyProblem) }

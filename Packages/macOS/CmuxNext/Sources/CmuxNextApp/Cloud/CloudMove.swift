@@ -283,34 +283,16 @@ struct CloudMove {
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
-        // Every first send from a workspace waits here for its new machine (Leo, 2026-11-04: "why is it taking so long to start a chat
-        // \"in cloud\"?"): read 1 s apart for the first 20 reads, then 3 s (80 reads, about 3 min), and a pause ends
-        // as soon as another read shows it running.
-        await session.untilRunning(pause: { attempt in
-            _ = await CloudWait.holds(within: .seconds(attempt <= 20 ? 1 : 3)) { session.machine.status == .running }
-            try Task.checkCancellation()
-        })
+        // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
+        // (cloud.machine.upsert or its own read of that machine), never a list read from here.
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
             try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
-        session.beginLegacyAttempt()
-        let daemon = session.daemon
-        // A failed resume ends the wait at once, with its reason, and so does a legacy link start that no
-        // retry can help (a refusal: signed out, a plan, the server's 4xx). Within the wait a link that
-        // ended is dialed again every 30 s: an app link's connect, or a legacy link's backoff woken now.
-        guard await CloudWait.holds(tries: 6, each: .seconds(30), redial: {
-            if session.appLink != nil, session.linkEnded != nil, session.machine.status == .running { session.retryNow() }
-            if session.link != nil, session.legacyLinkFailure != nil, session.machine.status.isLive { session.retryNow() }
-        }, until: {
-            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
-                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
-        }) else {
-            throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
-        }
+        let up = await session.linkUp(within: CloudStartSession.connectWait)
         if let failure = session.resumeFailure { throw Failure(message: failure, retry: .move(machineID: session.machineID)) }
-        if daemon.connection == nil || AgentTabStore.registryHost(of: daemon) == nil {
+        guard up, session.daemon.connection != nil, AgentTabStore.registryHost(of: session.daemon) != nil else {
             throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
         }
         return session

@@ -354,6 +354,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     let source = concat!(
         include_str!("lib.rs"),
         include_str!("input_ffi.rs"),
+        include_str!("line_reader_ffi.rs"),
         include_str!("session_ffi.rs"),
         include_str!("upstream_ffi.rs"),
         include_str!("bulk_ffi.rs")
@@ -409,6 +410,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert_eq!(size_of::<CmuxRdStats>(), 24);
     assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
     assert_eq!(size_of::<CmuxRdUpstreamStats>(), 32);
+    assert_eq!(size_of::<CmuxRdLine>(), 120);
     for (name, value) in [
         ("CMUX_RD_INPUT_KEY", CMUX_RD_INPUT_KEY as usize),
         ("CMUX_RD_INPUT_POINTER", CMUX_RD_INPUT_POINTER as usize),
@@ -429,6 +431,18 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_MEDIA_MIC", CMUX_RD_MEDIA_MIC as usize),
         ("CMUX_RD_MEDIA_CAMERA", CMUX_RD_MEDIA_CAMERA as usize),
         ("CMUX_RD_MEDIA_SCREEN", CMUX_RD_MEDIA_SCREEN as usize),
+        ("CMUX_RD_LINE_KEY", CMUX_RD_LINE_KEY as usize),
+        ("CMUX_RD_LINE_CANDIDATE", CMUX_RD_LINE_CANDIDATE as usize),
+        ("CMUX_RD_LINE_CANDIDATES_DONE", CMUX_RD_LINE_CANDIDATES_DONE as usize),
+        ("CMUX_RD_LINE_CONNECTED", CMUX_RD_LINE_CONNECTED as usize),
+        ("CMUX_RD_LINE_LISTENING", CMUX_RD_LINE_LISTENING as usize),
+        ("CMUX_RD_LINE_ENDED", CMUX_RD_LINE_ENDED as usize),
+        ("CMUX_RD_LINE_PATH", CMUX_RD_LINE_PATH as usize),
+        ("CMUX_RD_LINE_PATH_KIND", CMUX_RD_LINE_PATH_KIND as usize),
+        ("CMUX_RD_LINE_PATH_RTT", CMUX_RD_LINE_PATH_RTT as usize),
+        ("CMUX_RD_LINE_DISPLAYS", CMUX_RD_LINE_DISPLAYS as usize),
+        ("CMUX_RD_LINE_CURRENT", CMUX_RD_LINE_CURRENT as usize),
+        ("CMUX_RD_LINE_ERROR", CMUX_RD_LINE_ERROR as usize),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }

@@ -1,0 +1,244 @@
+name: Cloud VM dogfood journey
+
+# One timed trip through NEXT Cloud's cmux VM API (vm.cmux.dev, vm-staging.cmux.dev;
+# workers/cmux-vm/openapi.json): create, list, exec, agent CLIs present, a named
+# terminal over WebSocket, pause and resume with memory kept, the same terminal
+# reattached, delete. The public cmux-tui install is timed alongside. The job
+# summary carries every step's time; the artifact carries the JSON. The VM is
+# made with the cmux-vm environment's smoke key and deleted by its exact id.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Backend to dogfood
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      skip_sleep:
+        description: Skip the pause and resume leg
+        required: false
+        default: false
+        type: boolean
+      confirm_production:
+        description: Required when target is production (creates one paid VM for a few minutes)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-vm-dogfood-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  # Exercise the rolling public install path in a disposable job that receives
+  # no repository secret. Its binary crosses into the journey only after a
+  # separate no-secret job verifies its published digest and provenance.
+  public-installer-smoke:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Install cmux-tui the way users do
+        run: |
+          set -euo pipefail
+          export CMUX_INSTALL="$RUNNER_TEMP/public-cmux"
+          started=$(date +%s%3N)
+          curl --proto '=https' --tlsv1.2 -fsSL https://cmux.com/tui/install.sh | sh
+          "$CMUX_INSTALL/bin/cmux" --version
+          CMUX_TUI_INSTALL_MS=$(( $(date +%s%3N) - started ))
+          artifact="$RUNNER_TEMP/public-cmux-artifact"
+          mkdir -p "$artifact"
+          test -f "$CMUX_INSTALL/bin/cmux" && test ! -L "$CMUX_INSTALL/bin/cmux"
+          install -m 755 "$CMUX_INSTALL/bin/cmux" "$artifact/cmux"
+          printf '%s\n' "$CMUX_TUI_INSTALL_MS" > "$artifact/install-ms"
+
+      - name: Upload the public-installed binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-vm-dogfood-public-cmux
+          path: ${{ runner.temp }}/public-cmux-artifact
+          if-no-files-found: error
+          retention-days: 1
+
+  # Authenticate the exact bytes produced by the public installer. This job
+  # still receives no repository secret and never executes the downloaded
+  # artifact before its digest and source provenance pass.
+  installer:
+    needs: public-installer-smoke
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      attestations: read
+      contents: read
+    steps:
+      - name: Download the public-installed binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cloud-vm-dogfood-public-cmux
+          path: ${{ runner.temp }}/public-cmux
+
+      - name: Checkout trusted main history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the public-installed cmux-tui binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          public="$RUNNER_TEMP/public-cmux/cmux"
+          test -f "$public" && test ! -L "$public"
+          attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
+          gh attestation verify "$public" \
+            --repo manaflow-ai/cmux \
+            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
+            --source-ref refs/heads/main \
+            --format json > "$attestation"
+          commit="$(jq -er '[.[].verificationResult.signature.certificate.sourceRepositoryDigest] | unique | if length == 1 then .[0] else error("attestations disagree on source digest") end' "$attestation")"
+          workflow="$(jq -er '[.[].verificationResult.statement.predicate.buildDefinition.externalParameters.workflow.path] | unique | if length == 1 then .[0] else error("attestations disagree on workflow path") end' "$attestation")"
+          ref="$(jq -er '[.[].verificationResult.signature.certificate.sourceRepositoryRef] | unique | if length == 1 then .[0] else error("attestations disagree on source ref") end' "$attestation")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
+          [ "$ref" = refs/heads/main ]
+          git cat-file -e "$commit^{commit}"
+          git merge-base --is-ancestor "$commit" HEAD
+          digest="$(sha256sum "$public" | awk '{print $1}')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          install_ms="$(cat "$RUNNER_TEMP/public-cmux/install-ms")"
+          [[ "$install_ms" =~ ^[0-9]+$ ]]
+          out="$RUNNER_TEMP/trusted-cmux"
+          mkdir -p "$out"
+          install -m 755 "$public" "$out/cmux"
+          printf '%s\n' "$commit" > "$out/source-commit"
+          printf '%s\n' "$digest" > "$out/sha256"
+          printf '%s\n' "$install_ms" > "$out/install-ms"
+
+      - name: Upload the attested cmux-tui binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-vm-dogfood-cmux
+          path: ${{ runner.temp }}/trusted-cmux
+          if-no-files-found: error
+          retention-days: 1
+
+  journey:
+    needs: installer
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
+    # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
+    environment: cmux-vm-${{ inputs.target }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/feat-cmux-next
+          persist-credentials: false
+
+      - name: Download the attested cmux-tui binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cloud-vm-dogfood-cmux
+          path: ${{ runner.temp }}/trusted-cmux
+
+      - name: Verify the journey binary
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/trusted-cmux/cmux"
+          digest="$(cat "$RUNNER_TEMP/trusted-cmux/sha256")"
+          install_ms="$(cat "$RUNNER_TEMP/trusted-cmux/install-ms")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$install_ms" =~ ^[0-9]+$ ]]
+          echo "$digest  $binary" | sha256sum --check --strict
+          chmod 755 "$binary"
+          echo "CMUX_TUI_VERSION=$("$binary" --version | head -1)" >> "$GITHUB_ENV"
+          echo "CMUX_TUI_INSTALL_MS=$install_ms" >> "$GITHUB_ENV"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Guard
+        env:
+          TARGET: ${{ inputs.target }}
+          CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
+          STAGING_URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          PRODUCTION_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+          HAS_TENANT_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY != '' }}
+          HAS_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' && vars.CMUX_VM_SMOKE_SERVICE_TEAM != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = "production" ] && [ "$CONFIRM_PRODUCTION" != "true" ]; then
+            echo "::error::A production dogfood run requires confirm_production=true"
+            exit 1
+          fi
+          if [ "$HAS_TENANT_KEY" != true ] && [ "$HAS_SERVICE_KEY" != true ]; then
+            echo "::error::cmux-vm-$TARGET needs CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM"
+            exit 1
+          fi
+          if [ "$TARGET" = "production" ]; then url="${PRODUCTION_URL:-https://vm.cmux.dev}"; else url="${STAGING_URL:-https://vm-staging.cmux.dev}"; fi
+          echo "CMUX_VM_DOGFOOD_URL=$url" >> "$GITHUB_ENV"
+
+      # Runners have no IPv6 route; pin the API host IPv4 first (scripts/cmux-next/release/pin-host.ts).
+      - name: Pin the API host's address
+        continue-on-error: true
+        run: |
+          host="${CMUX_VM_DOGFOOD_URL#https://}"; host="${host%%/*}"
+          line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 120)"
+          echo "$line" | sudo tee -a /etc/hosts
+
+      - name: Journey
+        env:
+          SKIP_SLEEP: ${{ inputs.skip_sleep }}
+          CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
+          CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
+          CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dogfood"
+          args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
+          if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
+          bun scripts/cmux-next/cloud-vm-dogfood-journey.ts "${args[@]}"
+
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          result="$RUNNER_TEMP/dogfood/result.json"
+          [ -s "$result" ] || { echo "No result was written." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          {
+            echo "### Cloud dogfood journey ($TARGET, cmux VM API)"
+            echo
+            jq -r '"ok: \(.ok)" + (if .ok then "" else ", failed at `\(.stage)`: \(.error)" end)' "$result"
+            echo
+            echo "cmux-tui: ${CMUX_TUI_VERSION:-}"
+            echo
+            echo "| Step | ms |"
+            echo "| --- | ---: |"
+            echo "| installCmuxTui | ${CMUX_TUI_INSTALL_MS:-} |"
+            jq -r '.timings | to_entries[] | "| \(.key | sub("Ms$"; "")) | \(.value) |"' "$result"
+            echo
+            jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)"] | join(", ")) else empty end' "$result"
+            jq -r 'if has("memoryKept") then "Memory kept across pause: \(.memoryKept)" else empty end' "$result"
+            jq -r '.notes[]? | "- \(.)"' "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-vm-dogfood-${{ inputs.target }}
+          path: ${{ runner.temp }}/dogfood
+          if-no-files-found: warn
+          retention-days: 30

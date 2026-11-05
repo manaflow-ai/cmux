@@ -1270,8 +1270,10 @@ class Journey:
                 alias["pane"] = place[1].get("id")
         record["named_terminals"] = found
         # Restore settles when every shown terminal view is attached live (restore-journey.py's rule); then the
-        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS).
-        settled = False
+        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS). A loaded topology with no
+        # terminal tab has no view to wait for: it is settled at once (else every such reopen waited out the whole
+        # RELAUNCH_SECONDS, and a journey of quits with no terminal did not fit its lease).
+        settled = bool(topo) and not any(term for *_, term in self.places(topo))
         while now() < end and not settled:
             try:
                 shown = [p for p in app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]

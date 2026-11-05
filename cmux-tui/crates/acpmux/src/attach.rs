@@ -696,7 +696,7 @@ fn remove_uploads(dirs: &[PathBuf]) {
 pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
     let message = format!(
-        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux host update {}`",
+        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux machine update {}`",
         peer.name, peer.name
     );
     refused("attach.unsupported", message)

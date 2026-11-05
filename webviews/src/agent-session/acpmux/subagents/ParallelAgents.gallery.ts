@@ -5,8 +5,9 @@
 // transcript: "Tray only, richer". Each running line says its title, its state (one that stopped to
 // wait on background work of its own says so), its time and what it did last; the agents that ended
 // leave their quiet line in the transcript. The `?mock` daemon's `mock-parallel-agents` chat
-// (mockFixture.ts) plays the same scene live. Compare where the latest line sits
-// (trayLatest.experiment.ts).
+// (mockFixture.ts) plays the same scene live. Each line is one row (Leo, 2026-11-04: "how Claude code
+// just has one lines too"), and the failed line leads the list (trayAttention.ts). Compare where the
+// latest line sits (trayLatest.experiment.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -82,6 +83,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/AgentLine.tsx",
     "agent-session/acpmux/subagents/trayDetail.ts",
     "agent-session/acpmux/subagents/trayLatest.experiment.ts",
+    "agent-session/acpmux/subagents/trayAttention.ts",
   ],
   experiment: {
     definition: trayLatestLook,
@@ -89,12 +91,12 @@ export default agentPaneEntry({
   },
   variants: {
     "four-agents": {
-      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each running line has its title, state, time and a quiet second line with what it did last; the ended ones leave their quiet lines in the transcript.",
+      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed line leads, so the list's cap never hides it; the ended ones leave their quiet lines in the transcript.",
       play: expanded,
       snapshot: scene(FOUR),
     },
     "all-running": {
-      note: "Four agents still running, each with its latest step on its second line; the time and Stop keep their columns.",
+      note: "Four agents still running, each with its latest step after its title on its one row; the time and Stop keep their columns.",
       play: expanded,
       snapshot: scene(
         FOUR.map((one, index) => ({
@@ -112,7 +114,7 @@ export default agentPaneEntry({
       ),
     },
     "own-work": {
-      note: "One agent that stopped to wait on background work of its own: 'Waiting on its background work', its clock still going, its last words on the second line, and no 'Subagent finished' line yet.",
+      note: "One agent that stopped to wait on background work of its own: 'Waiting on its background work', its clock still going, its last words after its title, and no 'Subagent finished' line yet.",
       play: expanded,
       snapshot: scene([FOUR[1]!]),
     },

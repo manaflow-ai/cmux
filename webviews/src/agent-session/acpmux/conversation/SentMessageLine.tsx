@@ -257,11 +257,7 @@ export function SentMessageLine({
             </span>
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </div>
       {below && (
         // The first line, on its own line at the text column, cut there; it toggles as the row does.
@@ -329,7 +325,7 @@ export function RawToggle({
     >
       {icon}
       {t("subsession.raw")}
-      <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+      <ChevronRight size={12} className={`cv-rotor${open ? " is-open" : ""}`} />
     </button>
   );
   return (

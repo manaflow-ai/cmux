@@ -9,8 +9,8 @@ public nonisolated enum PaneBorderStyle: String, Sendable, CaseIterable, Codable
 }
 
 /// How panes are told apart (`layout.paneSeparation` in cmux.json, R93).
-/// `layout.panePadding`, `layout.paneCornerRadius` and the border keys
-/// refine it; `appearance.borders` = none still removes every line.
+/// `layout.panePadding` and the border keys refine it (`layout.paneCornerRadius`
+/// rounds whatever card the separation draws); `appearance.borders` = none still removes every line.
 public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable {
     /// Edge to edge with nothing drawn: no border and no divider line at
     /// rest, on hover or while dragging. Resizing still works through the
@@ -52,13 +52,19 @@ public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable 
 }
 
 /// User overrides for pane chrome (`layout.panePadding`,
-/// `layout.paneCornerRadius`, `layout.paneBorder`, `layout.paneBorderColor`,
+/// `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorder`, `layout.paneBorderColor`,
 /// `layout.paneBorderWidth` and `layout.paneSeparation`). Nil fields follow the defaults in
 /// `Metrics` (density padding and radius, a subtle one-pixel border in the
 /// Ghostty theme's border color). The focus ring is `focusRing.*`.
 public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
     public var padding: CGFloat?
+    /// `layout.paneCornerRadius`: the one outer corner radius of panes, the curved main pane and
+    /// tab bar tabs (each nested shape is concentric with it, ``ConcentricCorners``); nil is the
+    /// density default.
     public var cornerRadius: CGFloat?
+    /// `layout.cornerPadding`: the gap between a pane's edge and its tab pills, which nested
+    /// corners subtract from the outer radius; nil follows the tab strip height.
+    public var cornerPadding: CGFloat?
     public var border: PaneBorderStyle?
     /// Border color; nil derives it from the Ghostty theme.
     public var borderColor: ThemeRGB?
@@ -68,24 +74,28 @@ public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
     /// (`PaneSeparation.resolve`).
     public var separation: PaneSeparation?
 
-    public init(padding: CGFloat? = nil, cornerRadius: CGFloat? = nil, border: PaneBorderStyle? = nil,
+    public init(padding: CGFloat? = nil, cornerRadius: CGFloat? = nil, cornerPadding: CGFloat? = nil, border: PaneBorderStyle? = nil,
                 borderColor: ThemeRGB? = nil, borderWidth: CGFloat? = nil, separation: PaneSeparation? = nil) {
         self.separation = separation
         self.padding = padding
         self.cornerRadius = cornerRadius
+        self.cornerPadding = cornerPadding
         self.border = border
         self.borderColor = borderColor
         self.borderWidth = borderWidth
     }
 
-    /// A padding, corner radius, border color or border width is set: keys
-    /// that only mean something for padded, outlined panes.
+    /// A padding, border color or border width is set: keys that only mean
+    /// something for padded, outlined panes. The corner radius is not one: it
+    /// also rounds the curved main pane and the tabs, so setting it keeps the
+    /// separation (2026-11-04, one radius for panes and tabs).
     package var describesBorderedPanes: Bool {
-        padding != nil || cornerRadius != nil || borderColor != nil || borderWidth != nil
+        padding != nil || borderColor != nil || borderWidth != nil
     }
 
     public static let paddingRange: ClosedRange<CGFloat> = 0...16
     public static let cornerRadiusRange: ClosedRange<CGFloat> = 0...20
+    public static let cornerPaddingRange: ClosedRange<CGFloat> = 0...12
     public static let borderWidthRange: ClosedRange<CGFloat> = 0.5...4
 
     /// These overrides with padding, radius and width clamped to their ranges.
@@ -93,6 +103,7 @@ public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
         var result = self
         result.padding = padding.map { Self.clamp($0, Self.paddingRange) }
         result.cornerRadius = cornerRadius.map { Self.clamp($0, Self.cornerRadiusRange) }
+        result.cornerPadding = cornerPadding.map { Self.clamp($0, Self.cornerPaddingRange) }
         result.borderWidth = borderWidth.map { Self.clamp($0, Self.borderWidthRange) }
         return result
     }

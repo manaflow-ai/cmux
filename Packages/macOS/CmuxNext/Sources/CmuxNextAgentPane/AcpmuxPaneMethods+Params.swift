@@ -20,7 +20,9 @@ nonisolated extension AcpmuxPaneMethods {
         // in place is `_acpmux/app_reply`, never a prompt (acpmux refuses one from the app too).
         // `inlineParts`: display descriptors for the prompt's attachment blocks. The daemon
         // validates them against those blocks and keeps them out of the agent's request.
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
+        // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
+        // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
@@ -106,6 +108,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
+        "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),

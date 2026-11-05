@@ -308,7 +308,13 @@ impl Mux {
                 let mut source_record = topology_pane(&topology, &source_pane_id)?.clone();
                 let mut target_record = topology_pane(&topology, &target_pane_id)?.clone();
                 if source_pane == target_pane {
-                    source_record.active_tab = Some(tab_id.clone());
+                    // A move to the place the tab already holds changes nothing in the live
+                    // state (`move_tab_in_state`, the reducer): the pane keeps its active tab.
+                    // Storing the moved tab as active here left the stored pane disagreeing
+                    // with the live one, which a later scoped projection then trusted.
+                    if final_index != old_index {
+                        source_record.active_tab = Some(tab_id.clone());
+                    }
                     target_record = source_record.clone();
                 } else {
                     source_record.active_tab = source_order
@@ -414,6 +420,20 @@ impl Mux {
                 } else {
                     Vec::new()
                 };
+                // A move within the pane changes its screen's value too, which lists each pane's
+                // tabs in order: restate it, so the journal states the new order. A later scoped
+                // walk that leaves this workspace out trusts the stated value
+                // (`layout_ops_conserve_tabs`).
+                if source_pane == target_pane && final_index != old_index {
+                    let screen = topology_screen(&after, &target_screen_id)?;
+                    let value = screen_value(
+                        screen,
+                        &after,
+                        after.active_workspace.as_ref(),
+                        active_screen(&after, &screen.workspace_id),
+                    )?;
+                    deltas.push(upsert(deltas.len(), "screen", target_screen_id.as_str(), value));
+                }
                 let mut changed_tabs = vec![tab_id.clone()];
                 changed_tabs.extend(shifted);
                 changed_tabs.extend(

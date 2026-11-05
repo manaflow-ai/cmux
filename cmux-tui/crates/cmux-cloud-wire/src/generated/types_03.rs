@@ -4,6 +4,19 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingPreview {
+    pub code: PairingCode,
+    pub info: PairingInfo,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub country: Option<String>,
+    pub expires_at: i64,
+}
+
+/// user_<id>, agent_<name> or addr_<26> (an invited address).
+pub type ParticipantId = String;
+
 wire_enum! {
     Platform {
         Macos = "macos",
@@ -884,22 +897,4 @@ pub struct TeamPolicyVersion {
     pub at: i64,
     pub reason: Option<String>,
     pub rollback_of: Option<i64>,
-}
-
-wire_enum! {
-    TeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-        Billing = "billing",
-        Guest = "guest",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountUser {
-    pub user: String,
-    pub uid: i64,
-    pub class: SshCertClass,
-    pub principals: Vec<String>,
 }

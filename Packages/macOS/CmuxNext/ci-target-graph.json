@@ -35,8 +35,11 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextAgentUpdates",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
@@ -312,6 +315,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
+        "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -466,6 +470,7 @@
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport",
+        "CmuxNextWebUpdates",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
       ],
@@ -490,6 +495,8 @@
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
+        "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
+        "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
         "plans/cmux-next/",
         "schemas/agent-cursor-visibility/vectors.json",
         "schemas/agent-pane/wake-state.json",
@@ -523,6 +530,7 @@
         "CmuxNextApps",
         "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
       "packages": [],
@@ -789,7 +797,8 @@
         "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
-        "CmuxNextDaemon"
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -798,7 +807,9 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
         "CmuxNextCloud",
-        "CmuxNextDaemon"
+        "CmuxNextDaemon",
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1359,10 +1370,19 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextLiveCode": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
+      "targets": [
+        "CmuxNextCompat"
       ],
       "packages": []
     },
@@ -1381,6 +1401,18 @@
       ],
       "packages": [
         "CmuxScreenKit"
+      ]
+    },
+    "CmuxNextMacScreenTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests",
+      "targets": [
+        "CmuxNextMacScreen",
+        "CmuxNextRemoteView"
+      ],
+      "packages": [],
+      "reads": [
+        "cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"
       ]
     },
     "CmuxNextMallocZone": {

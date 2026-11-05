@@ -171,6 +171,37 @@ test.each(["compact", "full"])(
   },
 );
 
+// The rail container's identifier (railSide.ts): macOS accessibility exposes a DOM id as the
+// element's AXDOMIdentifier, the one handle a capture of a release build has to measure the rail's
+// rect. It is API: a rename breaks those captures, so the literal is pinned here.
+test.each(["compact", "full"])("the %s rail's container carries the cmux.agent.threadMap identifier", async (arm) => {
+  const { RAIL_ACCESSIBILITY_ID } = await import("../src/agent-session/acpmux/threadMinimap/railSide");
+  expect(RAIL_ACCESSIBILITY_ID).toBe("cmux.agent.threadMap");
+  setChatDisplay({ "agentPane.display.minimap": arm });
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId={`rail-id-${arm}`}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const named = document.querySelectorAll(`[id="${RAIL_ACCESSIBILITY_ID}"]`);
+    expect(named).toHaveLength(1);
+    expect(named[0]).toBe(rail());
+    // The full arm draws the ScrollMap's nav, the compact one ThreadMinimap's.
+    expect(rail().classList.contains("acpmux-scrollmap")).toBe(arm === "full");
+    expect(rail().getAttribute("aria-label")).toBe("Thread map");
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
+  }
+});
+
 // Under the edge-strip gutter (gutter.experiment.ts), a pane too narrow for the rail beside the text
 // hides it at rest on either edge and keeps the live hover strip at that same edge
 // (design/session-rail.md: never removed for pane width).
@@ -205,7 +236,8 @@ for (const side of ["left", "right"] as const)
   });
 
 // With the VS Code minimap on (agentPane.display.vscodeMinimap), the right edge holds it: the right
-// rail sits on its inner side, the minimap's 56 px plus its 10 px edge further in, never under it.
+// rail sits on its inner side, the minimap's strip (120 px in a 1040 px pane's 160 px gutter,
+// chatMinimap/paint.ts minimapWidth) plus its 10 px edge further in, never under it.
 // The left rail does not move for it.
 for (const side of ["left", "right"] as const)
   test(`with the VS Code minimap on, a ${side} rail stays clear of it`, async () => {
@@ -228,8 +260,8 @@ for (const side of ["left", "right"] as const)
         ),
       );
       if (side === "right") {
-        expect(rail().style.right).toBe("82px");
-        expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("66px");
+        expect(rail().style.right).toBe("146px");
+        expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("130px");
       } else expect(rail().style.left).toBe("16px");
     } finally {
       await act(async () => root.unmount());

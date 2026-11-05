@@ -25,7 +25,7 @@ fn a_poisoned_roster_does_not_break_agent_list_or_terminal_close() {
     let mux = test_mux();
     mux.new_workspace(None, Some((80, 24))).unwrap();
     poison(&mux.agent_roster);
-    poison(&mux.agent_roster_fold);
+    poison(&mux.agent_roster_worker.fold);
 
     let caught = |run: &dyn Fn()| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

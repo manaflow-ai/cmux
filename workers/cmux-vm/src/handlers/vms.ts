@@ -35,7 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { MeshStore } from "../db/mesh.ts";
-import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
+import { agentBudgetAllows, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -304,13 +304,36 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
 
+/**
+ * A CI job's VMs pause within its run cap and the provider deletes them once stopped, so a job cancelled before its
+ * cleanup leaves a row the provider no longer has. Before a CI principal creates, each of its own VMs the provider
+ * answers 404 for goes through the ordinary delete (which forgets a gone VM), so those rows stop holding its quota.
+ */
+const reclaimGoneCiVms = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">) =>
+  Effect.gen(function* () {
+    const budget = caller.value.agent;
+    if (caller.value.maxRunSeconds === undefined || budget === undefined) return;
+    const upstream = yield* UpstreamClient;
+    const page = yield* visitOwnedVms(caller, { limit: budget.maxVms + 5, after: null, labels: null }, (vm, owns) =>
+      upstream.getVmForWrite(vm, { owns, scope }).pipe(
+        Effect.as(Option.none<string>()),
+        Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(Option.some<string>(vm.value)) : Effect.fail(unavailable(error)))),
+      ),
+    ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
+    for (const gone of page.results) {
+      if (Option.isSome(gone)) yield* deleteVmById(gone.value);
+    }
+  });
+
 const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.gen(function* () {
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       // An agent key's VMs get its labels without asking; a label naming another agent is refused.
-      const payload = yield* withAgentLabels(principal, requested);
+      // A CI trust row's VMs pause within its run cap and are deleted once stopped, whatever was asked.
+      const payload = withRunCap(principal, yield* withAgentLabels(principal, requested));
+      yield* ciSizeAllowed(principal, payload);
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
@@ -357,7 +380,10 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
-            if (resumeSlot(key, prior) === undefined) yield* agentBudgetAllows(caller, scope, payload.resources);
+            if (resumeSlot(key, prior) === undefined) {
+              yield* reclaimGoneCiVms(caller, scope);
+              yield* agentBudgetAllows(caller, scope, payload.resources);
+            }
             const attempt = { key, prior };
             if (payload.snapshotId === undefined) {
               return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
