@@ -745,6 +745,10 @@ def main():
     parser.add_argument("--out")
     args = parser.parse_args()
     # perf-idle-power.sh passes only settings= through: its "debugTunables" object is the run's Debug Settings, not cmux.json.
+    # The fleet controller allows no JSON characters in a step's args, so `debugTunables:KEY=JSON,KEY=JSON` says the same.
+    if args.config.startswith("debugTunables:"):
+        args.tunable += [item for item in args.config.removeprefix("debugTunables:").split(",") if item]
+        args.config = "{}"
     config = json.loads(args.config)
     if isinstance(config, dict) and isinstance(config.get("debugTunables"), dict):
         args.tunable += [f"{k}={json.dumps(v)}" for k, v in config.pop("debugTunables").items()]
