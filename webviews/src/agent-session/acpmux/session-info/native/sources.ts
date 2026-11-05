@@ -7,7 +7,7 @@ import { SOURCES_SHOWN, scopedPath } from "../SourcesSection";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
 import { extraFolderName } from "../../extraFolders";
-import { pullRequestDiffUrl } from "../pullRequestDiff";
+import { openPullRequestDiff, pullRequestDiffUrl } from "../pullRequestDiff";
 
 const SYMBOLS: Record<SummarySourceKind, string> = {
   file: "doc.text",
@@ -78,7 +78,7 @@ export function sourcesSection(
               menu: [
                 {
                   label: t("sessionInfo.changes.viewDiff"),
-                  action: actions.add(`sources.viewDiff:${url}`, () => openUrl(diffUrl)),
+                  action: actions.add(`sources.viewDiff:${url}`, () => openPullRequestDiff(diffUrl)),
                 },
               ],
               menuLabel: t("sessionInfo.changes.more", { reference: source.label }),

@@ -6,7 +6,7 @@ import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
-import { pullRequestDiffUrl } from "./pullRequestDiff";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
 
 export const SOURCES_SHOWN = 5;
 type RowProps = {
@@ -189,7 +189,7 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
             label={t("sessionInfo.changes.actions", { reference: source.label })}
             align="end"
           >
-            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onOpenBeside?.(diffUrl)}>
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
               {t("sessionInfo.changes.viewDiff")}
             </MenuItem>
           </MenuPopup>

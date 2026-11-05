@@ -15,7 +15,7 @@ import {
   type NativeInfoTone,
 } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
-import { pullRequestDiffUrl } from "../pullRequestDiff";
+import { openPullRequestDiff, pullRequestDiffUrl } from "../pullRequestDiff";
 
 const TONES: Record<PullRequestGlyphState, NativeInfoTone> = {
   open: "done",
@@ -96,7 +96,7 @@ export function changesSection(
         ? [
             {
               label: t("sessionInfo.changes.viewDiff"),
-              action: actions.add(`changes.viewDiff:${pr.url}`, () => openUrl(diffUrl)),
+              action: actions.add(`changes.viewDiff:${pr.url}`, () => openPullRequestDiff(diffUrl)),
             },
           ]
         : []),

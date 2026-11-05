@@ -21,7 +21,7 @@ import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
-import { pullRequestDiffUrl } from "./pullRequestDiff";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows shown before Show more (Claude Code desktop's Changes shows five).
@@ -351,7 +351,7 @@ function PullRequestRow({
           align="end"
         >
           {diffUrl && (
-            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onOpenBeside?.(diffUrl)}>
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
               {t("sessionInfo.changes.viewDiff")}
             </MenuItem>
           )}
