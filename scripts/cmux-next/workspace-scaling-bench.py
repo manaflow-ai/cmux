@@ -14,7 +14,6 @@ import argparse
 import json
 import os
 import pathlib
-import statistics
 import subprocess
 import sys
 
@@ -63,7 +62,11 @@ def instant_rows(report, count):
             values = [r.get("visible_ms") for r in (report or {}).get("runs", [])
                       if r.get("phase") == f"idle{suffix}" and r.get("command") == command]
             if not values:
-                values = _samples(entry, "visible_ms")
+                if isinstance(entry.get("visible_p50"), (int, float)):
+                    out[interaction] = {"p50": entry["visible_p50"], "p95": entry.get("visible_p95"),
+                                        "p99": entry.get("visible_p99", entry.get("visible_p95")),
+                                        "n": entry.get("n")}
+                    continue
         if values:
             out[interaction] = stats(values)
     return out
@@ -73,7 +76,6 @@ def sidebar_rows(report, count):
     size = ((report or {}).get("sizes") or {}).get(str(count)) or {}
     out = {}
     frame_reply = (size.get("scroll") or {}).get("frames") or {}
-    frame_metrics = frame_reply.get("frame_metrics") or {}
     values = frame_reply.get("intervals_ms") or []
     if not values:
         values = _samples((size.get("scroll") or {}).get("event_rpc_ms"), "p95")
@@ -148,18 +150,19 @@ def run_app(opts):
         instant = root / "instant"
         run_probe(HERE / "instant-new-surfaces-bench.py",
                   ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
-                   "--workspaces", str(count), "--arms", "warm", "--phases", "idle", "--runs", "6",
+                   "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
                    "--out", str(instant), "--json", str(instant / "report.json")], root)
         sidebar = root / "sidebar"
         run_probe(HERE / "sidebar-stress-bench.py",
                   ["--tag", opts.tag, "--app", opts.app, "--sizes", str(count), "--tickers", "15",
                    "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root)
         typing = root / "typing"
-        # The typing probe's `--agents` creates the same number of active workspace rows.  Keep its
-        # existing browser/typing workspaces; they are constant overhead at every count.
+        # Seed empty rows to reach the requested topology, while keeping only ten active terminals
+        # so the 1000-workspace run never exhausts the host's PTY limit.
+        agents = min(10, max(0, count - 2))
         run_probe(HERE / "automation-typing-bench.py",
-                  ["--app", opts.app, "--agents", str(count), "--layouts", "light", "--samples", "30",
-                   "--rounds", "1", "--out", str(typing), "--json", str(typing / "report.json")], root)
+                  ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
+                   "--rounds", "1", *(["--no-browser"] if count == 1 else []), "--out", str(typing), "--json", str(typing / "report.json")], root)
         reports[count] = {"instant": json.loads((instant / "report.json").read_text()) if (instant / "report.json").exists() else {},
                           "sidebar": json.loads((sidebar / "results.json").read_text()) if (sidebar / "results.json").exists() else {},
                           "typing": json.loads((typing / "report.json").read_text()) if (typing / "report.json").exists() else {}}
