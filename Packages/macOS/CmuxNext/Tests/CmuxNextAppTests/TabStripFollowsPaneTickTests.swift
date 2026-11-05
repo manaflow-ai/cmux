@@ -263,13 +263,12 @@ struct TabStripFollowsPaneTickTests {
     /// surface follows its pane in every frame in both (with it off it took at most one new size per press before); the
     /// switch says only who presents each size's frame. The grid: each PTY ends at its final grid (m18 coalesces the
     /// view's grid, about 25 ms; a synchronous run of frames is one window, so one grid).
-    @Test(arguments: [LayoutDirection.left, .right, .up, .down], [false, true])
-    func aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction: LayoutDirection, switchOn: Bool) async throws {
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
+    func aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction: LayoutDirection) async throws {
         typealias Ground = PaneGroundCoversPaneTests
         let vertical = direction == .up || direction == .down
         let rig = Ground.Rig(Ground.column(vertical ? Ground.stack : Ground.pair), focused: "p2")
         defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
         /// The strips, and with `terminals` each terminal host and surface, against their pane (both states, every frame).
@@ -296,7 +295,6 @@ struct TabStripFollowsPaneTickTests {
         let atRest = try off("at rest", terminals: true, atRest: true)
         try #require(atRest.isEmpty, "\(atRest)")
         let before = try panes.map { try #require(rig.root.context.hosts[$0]).frame }
-        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         var found: [String] = [], frames = 0, moving = true

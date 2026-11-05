@@ -27,6 +27,9 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
 
+    /// The pixel size last given to `ghostty_surface_set_size` (``setSurfacePixels(_:on:)``).
+    private var lastSurfacePixels: (width: UInt32, height: UInt32)?
+
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
     /// the PTY owner's announced grid once there is one; the view's grid is
     /// only reported.
@@ -232,6 +235,8 @@ public final class TerminalSurfaceView: NSView {
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
         ghostty_surface_set_host_sized(surface, true)
+        // Its window's commit presents every new size (FRAME OWNER S4; cmux-ad m19: no switch).
+        ownFramesByCommit()
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
@@ -391,8 +396,10 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
-        if resized, isShown { updateSurfaceSize() }
-        copyMode.syncCursor()
+        // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
+        if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
+        // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
+        if !frameOwnership.landing { copyMode.syncCursor() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -404,6 +411,8 @@ public final class TerminalSurfaceView: NSView {
         if scale != appliedContentScale {
             appliedContentScale = scale
             ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+            // A new scale: the next size goes to Ghostty even at the same pixel size.
+            lastSurfacePixels = nil
         }
         if let window {
             let backing = backingScaleOverride ?? window.backingScaleFactor
@@ -454,8 +463,7 @@ public final class TerminalSurfaceView: NSView {
     /// Until the owner announces the view's grid, Ghostty draws the locked
     /// grid reflowed to the view's grid (render only); a view whose grid the
     /// owner does not apply draws the locked grid, cropped or padded. In a key
-    /// resize whose host follows its pane with `motion.frameOwner.terminals`
-    /// on, it stays on in every frame (``TerminalGridPolicy/previewsViewGrid(followingPane:)``).
+    /// resize whose host follows its pane, it stays on in every frame (``TerminalGridPolicy/previewsViewGrid(followingPane:)``).
     /// `reporting`: this call reports a new grid to the owner.
     func updateReflowPreview(reporting: Bool = false) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         guard let surface else { return }
@@ -485,10 +493,12 @@ public final class TerminalSurfaceView: NSView {
             pendingForcedReport = pendingForcedReport || forceReport
             return
         }
-        let pixels = toBacking(bounds.size)
+        // The size asked of Ghostty and not shown yet, else the size drawn ahead for the next refresh (a call here must
+        // not take Ghostty back to the shown size and drop that frame), else the view's (``place(_:anchor:)``).
+        let pixels = toBacking(frameOwnership.inFlight ?? frameOwnership.ahead ?? bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
-        ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        setSurfacePixels(pixels, on: surface)
         let size = ghostty_surface_size(surface)
         publish(size: size)
         guard size.columns > 0, size.rows > 0 else { return }
@@ -518,6 +528,15 @@ public final class TerminalSurfaceView: NSView {
             gridReportCoalescer.viewSized(report)
             if !live { flushGridReport() }
         }
+    }
+
+    /// `ghostty_surface_set_size`, unless Ghostty already has `pixels` (the size a landing shows, the size drawn ahead): a
+    /// second call at the same size would drop the frame Ghostty drew for it.
+    func setSurfacePixels(_ pixels: NSSize, on surface: ghostty_surface_t) {
+        let size = (width: UInt32(pixels.width), height: UInt32(pixels.height))
+        guard lastSurfacePixels?.width != size.width || lastSurfacePixels?.height != size.height else { return }
+        lastSurfacePixels = size
+        ghostty_surface_set_size(surface, size.width, size.height)
     }
 
     private func publish(size: ghostty_surface_size_s) {

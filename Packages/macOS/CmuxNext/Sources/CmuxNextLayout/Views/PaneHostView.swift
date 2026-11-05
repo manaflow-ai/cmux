@@ -321,6 +321,14 @@ final class PaneHostView: NSView, RestingPlacement {
         applyChromeShape()
     }
 
+    /// Draw ahead (cmux-ad m26): the host will be `sizeChange` larger (negative: smaller) at its spring's next refresh. A
+    /// key hold's area hands it to its followers (a terminal asks its renderer for that size now); its content's chrome
+    /// does not change size in a spring, so the area changes by the same amount.
+    func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
+        guard holdsUntilAfterLanding, let heldArea else { return }
+        heldArea.drawAhead(sizeChange: sizeChange)
+    }
+
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
     /// the landing (its terminal then sizes its surface from its final frame).
     private func syncHeldArea() {

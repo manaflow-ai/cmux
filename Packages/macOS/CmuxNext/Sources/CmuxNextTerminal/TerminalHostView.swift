@@ -11,7 +11,7 @@ import Observation
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
+    private(set) weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
     var onVeil: ((ThemeRGB?) -> Void)?
@@ -302,7 +302,8 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.place(surfacePlacement)
+        let placement = surfacePlacement
+        surfaceView.place(placement.frame, anchor: placement.anchor)
         // At the back: the scroller and the overlays stay over every swapped-in surface.
         addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
@@ -373,14 +374,15 @@ public final class TerminalHostView: NSView {
     /// (``holdSurface(size:anchor:)``), pinned to the hold's edge of the area; the host clips it and paints the terminal
     /// background beside it. While the host follows its pane through a key resize, the surface takes the area in every
     /// frame (``followedSurfaceFrame(in:)``, cmux-ad m18).
-    private var surfacePlacement: CGRect {
+    /// The edge is the one a frame kept while its new size is drawn rides (``TerminalSurfaceView/place(_:anchor:)``).
+    private var surfacePlacement: (frame: CGRect, anchor: PaneMotionAnchor) {
         let area = terminalBounds
-        if surfaceFollowsArea { return followedSurfaceFrame(in: area) }
+        if surfaceFollowsArea { return (followedSurfaceFrame(in: area), .top) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
-            return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
+            return (CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height), hold.anchor)
         }
-        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
+        return (CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height), .top)
     }
 
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
@@ -412,7 +414,9 @@ public final class TerminalHostView: NSView {
 
     /// The current surface takes its frame (``surfacePlacement``).
     private func placeSurface() { // perf-hot: 4ms motion-frame
-        current?.place(surfacePlacement)
+        guard let current else { return }
+        let placement = surfacePlacement
+        current.place(placement.frame, anchor: placement.anchor)
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)

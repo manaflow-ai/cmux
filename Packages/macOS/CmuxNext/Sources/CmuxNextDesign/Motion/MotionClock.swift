@@ -38,8 +38,15 @@ public final class MotionClock {
     private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
     }, settle: { [weak self] in self?.settleAll() }) { [weak self] tick in
-        self?.tick(tick.frameElapsed) ?? false
+        guard let self else { return false }
+        // The next frame shows one refresh after this one's target time (draw ahead, cmux-ad m26).
+        if let interval = tick.refreshInterval { nextFrameInterval = interval }
+        return self.tick(tick.frameElapsed)
     }
+    /// Seconds from this frame's target time to the next one's: the display's refresh period (8.33 ms at 120 Hz,
+    /// 16.7 ms at 60 Hz) from the last display-link frame; 1/120 s before one (and for a synthesized frame, the last
+    /// real one's). A spring's next value is its value one such interval ahead.
+    public private(set) var nextFrameInterval: Double = 1.0 / 120
     /// The window whose scheduler the clock ticks on (nil: the app clock).
     private weak var window: NSWindow?
     /// The animator whose `motionStep` runs now, and whether it called `run` on itself

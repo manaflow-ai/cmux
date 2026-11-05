@@ -65,8 +65,6 @@ struct KeyboardResizeReflowAfterLandingTests {
     func theTerminalFollowsItsPaneInEveryFrameAndItsPTYEndsAtTheLandingsGrid(direction: LayoutDirection) async throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
-        try #require(PaneGroundCoversPaneTests.ownFrames(), "the switch motion.frameOwner.terminals did not turn on")
         let panes: [PaneID] = ["p1", "p2"]
         func sizes() throws -> [PaneID: (host: CGSize, surface: CGSize)] {
             try Dictionary(uniqueKeysWithValues: panes.map { pane in
@@ -107,49 +105,6 @@ struct KeyboardResizeReflowAfterLandingTests {
         }
         #expect(surfacesOff.isEmpty, "\(surfacesOff.count) frames showed a surface off its pane's size: \(surfacesOff.prefix(3))")
         #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
-        try await KeyboardResizeContentHoldTests.expectEachPTYEndsAtItsViewsGrid(panes, rig)
-    }
-
-    /// The kill switch (`motion.frameOwner.terminals` off; review of #35470 at c4d6c936c92, T5: the base checked this
-    /// path). cmux-ad m18 deleted the key hold in both states: the producer (the terminal surface) takes its host's area in
-    /// every frame of the spring, as with the switch on (it laid out once, at its final size, before), no grid goes by
-    /// the press's first frame, and the last grid each PTY gets is its view's at rest.
-    @Test(arguments: [LayoutDirection.left, .right])
-    func theProducerFollowsItsPaneWithTheSwitchOffToo(direction: LayoutDirection) async throws {
-        let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
-        defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
-        try #require(PaneGroundCoversPaneTests.ownFrames(false), "the switch motion.frameOwner.terminals did not turn off")
-        let panes: [PaneID] = ["p1", "p2"]
-        let reports = TerminalSurfaceView.gridReports
-        #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
-        rig.root.syncWithModel()
-        try #require(rig.frame(), "the press did not spring")
-        #expect(TerminalSurfaceView.gridReports == reports, "up to its first frame the press sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its 25 ms")
-        var frames = 1, off: [String] = [], sizes: [PaneID: [CGSize]] = [:]
-        func check(_ label: String) throws {
-            for pane in panes {
-                let session = try #require(rig.provider.sessions[pane]?.session)
-                let area = try #require(session.view.superview)
-                let host = session.view, surface = session.surfaceView.frame.size
-                if sizes[pane]?.contains(surface) != true { sizes[pane, default: []].append(surface) }
-                if host.frame.size != area.bounds.size { off.append("\(label): \(pane)'s host \(host.frame.size) in \(area.bounds.size)") }
-                let shown = host.surfaceSize(forHostSize: host.bounds.size)
-                if surface != shown { off.append("\(label): \(pane)'s surface \(surface) in a \(shown) area") }
-            }
-        }
-        try check("frame 1")
-        while frames < 240, rig.frame() {
-            frames += 1
-            try check("frame \(frames)")
-        }
-        rig.commit()
-        try check("after the landing")
-        #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(off.isEmpty, "\(off.count) frames showed a terminal host or surface off its pane: \(off.prefix(3))")
-        for pane in panes {
-            #expect((sizes[pane]?.count ?? 0) > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: it did not follow its pane")
-        }
         try await KeyboardResizeContentHoldTests.expectEachPTYEndsAtItsViewsGrid(panes, rig)
     }
 }

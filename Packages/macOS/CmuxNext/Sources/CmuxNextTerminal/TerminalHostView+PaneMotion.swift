@@ -3,11 +3,11 @@ public import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S3 and cmux-ad m18: in a keyboard resize the terminal host is a container that follows its pane
 /// in every frame: the pane's content area gives it its bounds each frame, so the terminal's own ground, padding,
-/// scroller and overlays cover the whole pane and the window's shell never shows inside it. The surface follows too,
-/// whatever `motion.frameOwner.terminals` says: it takes the area it shows in, in every frame
+/// scroller and overlays cover the whole pane and the window's shell never shows inside it. The surface follows too: it
+/// takes the area it shows in, in every frame
 /// (``followedSurfaceFrame(in:)``), and draws the grid that size fits (Ghostty's reflow preview re-wraps the text at it);
-/// the PTY gets the view's grid coalesced (``TerminalSurfaceView`` `updateSurfaceSize`). The switch only says who
-/// presents each size's frame (the window's commit, or Ghostty's renderer). No key hold is left: m18 deleted it.
+/// the PTY gets the view's grid coalesced (``TerminalSurfaceView`` `updateSurfaceSize`), and the window's commit presents
+/// each size's frame. No key hold is left (m18), and no switch (m19).
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
@@ -29,6 +29,13 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// through a key resize. The surface then holds no size (``TerminalSurfaceView`` `restAt`), and its reflow preview
     /// stays on, so each frame draws the grid its size fits with the cursor row in view.
     var surfaceFollowsArea: Bool { followedHold != nil }
+
+    /// Draw ahead (cmux-ad m26): its pane's spring gives the host `nextHostSize` at the next refresh. The surface asks
+    /// Ghostty for the size it will take then, after this refresh's commit, so that frame is drawn when it is needed.
+    public func drawAhead(nextHostSize: CGSize) { // perf-hot: 1ms motion-frame
+        guard surfaceFollowsArea, let current else { return }
+        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
+    }
 
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
     /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).

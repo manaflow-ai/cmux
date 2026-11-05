@@ -4,25 +4,36 @@ import CmuxNextWakeups
 import GhosttyNextKit
 import QuartzCore
 
-/// FRAME OWNER REFACTOR S4 (`motion.frameOwner.terminals`, ``TerminalDragTunables/framesOwnedByCommit``), cmux-ad m18:
-/// one per window. A terminal whose size changes takes its new bounds at once and asks Ghostty for that size in the same
-/// turn (``TerminalSurfaceView/place(_:)``); Ghostty draws it on its renderer thread (the reflow preview re-wraps the text
-/// at that size). Just before Core Animation's commit of every main run-loop turn while a request waits (a run-loop
-/// observer at ``passOrder``), the presenter's pass asks each waiting terminal for that frame
-/// (`ghostty_surface_host_frame`, present true): a drawn one becomes the layer's contents in the commit that carries its
-/// bounds. One not drawn yet is a late landing (``Stats/lateLandings``, ``isLate(_:)``): its bounds are already in this
-/// commit with the last frame, top-left and not stretched, and the frame shows in the first commit after it is drawn
-/// (the watch, each refresh). Nothing keeps an old size (m18 deleted ready-or-keep's keep, its keep limit and the group
-/// that held ready frames for a slow neighbour: with no keep every request lands in its first pass, so a group could only
-/// delay a ready frame). The main thread never waits for a frame; the present and the geometry go together under
-/// `[CATransaction lock]` (Ghostty's call-site rule for `ghostty_surface_host_frame`).
+/// FRAME OWNER REFACTOR S4 (cmux-ad m18, m19: no switch, every terminal's frames go through it; m26: draw ahead): one
+/// per window. A terminal's bounds change only in the commit that presents a frame drawn at those bounds. The present and
+/// the new bounds go together under `[CATransaction lock]` (Ghostty's call-site rule for `ghostty_surface_host_frame`).
+/// A terminal whose size changes asks Ghostty for a frame at the new size (``TerminalSurfaceView/place(_:anchor:)``) and
+/// keeps its old bounds and old frame. Just before Core Animation's commit of every main run-loop turn while a request
+/// waits (a run-loop observer at ``passOrder``), the presenter's pass asks each waiting terminal for that frame
+/// (`ghostty_surface_host_frame`): a drawn one becomes the layer's contents and the view takes the new bounds in that
+/// same commit; one not drawn yet keeps both (counted in ``Stats/keeps``, and past ``longKeepTicks`` refreshes in
+/// ``Stats/longKeeps``, as data: a late frame stays late and is never a main-thread wait, and the bounds never go without
+/// their frame, which would stretch or crop it). The pass never draws and never waits.
 ///
-/// One refresh after a commit that changed a terminal's shown size, the presenter tells Ghostty that commit is done
-/// (`ghostty_surface_host_frame_committed`), so the terminal's echo goes to the screen off the main thread again. A new
-/// display scale is the same request: the layer takes the scale with the frame drawn at it, or at the pass anyway
-/// (``TerminalSurfaceView/holdsScale(_:)``). The lock span holds only the present and the scale; what follows the new
-/// size runs after it (``TerminalSurfaceView/frameDidLand()``).
+/// In a spring the next refresh's size is known: after the pass, each terminal its pane's spring asked to
+/// (``TerminalSurfaceView/drawAhead(_:)``) gives Ghostty that size (render only), so the renderer draws it during the
+/// refresh and the next pass presents it with its bounds: no refresh is kept after the spring's first. A divider drag or
+/// a Reduce Motion jump has no next size: the last bounds and frame stay until the new frame is drawn. Chromium does the
+/// same at a resize: the browser compositor shows a new size only with a frame the renderer submitted for it, keeps the
+/// old surface until then, and the renderer gets the size before the compositor needs its frame.
+///
+/// Requests of one refresh form a group that presents together for at most ``groupTicks`` refreshes, so two terminals
+/// beside one divider land in the same commit. One refresh after a commit that changed a terminal's shown size, the
+/// presenter tells Ghostty that commit is done (`ghostty_surface_host_frame_committed`), so the terminal's echo goes to
+/// the screen off the main thread again. A new display scale is the same request: the layer keeps its scale until the
+/// frame drawn at the new one shows (``TerminalSurfaceView/holdsScale(_:)``). The lock span holds only the present and
+/// the geometry; what follows the new size runs after it (``TerminalSurfaceView/frameDidLand()``).
 final class TerminalFramePresenter {
+    /// Refreshes a group of requests waits for its slowest member.
+    static let groupTicks: UInt64 = 2
+    /// Refreshes a request keeps its old size before its keep counts as long (``Stats/longKeeps``): the 2-refresh
+    /// allowance of cmux-ad m18.
+    static let longKeepTicks: UInt64 = 2
     /// The pass's run-loop order: just before Core Animation's commit (2,000,000), after the turn's other work.
     static let passOrder: CFIndex = 1_999_999
     /// Refreshes a terminal whose bounds changed without a present is watched for its frame.
@@ -31,11 +42,16 @@ final class TerminalFramePresenter {
     /// What the presenters did, cumulative (diagnostics and tests).
     struct Stats: Equatable {
         var passes = 0
-        /// Requests whose frame showed with their bounds in one commit.
+        /// Requests that took their bounds with their frame in one commit.
         var presented = 0
-        /// Requests whose new bounds landed before Ghostty drew their frame: the layer shows its last frame (top-left,
-        /// not stretched) in them until that frame shows (``TerminalFramePresenter/isLate(_:)``).
-        var lateLandings = 0
+        /// Passes that kept a request at its old size (its frame was not drawn yet).
+        var keeps = 0
+        /// Passes that kept a ready request because another of its group was not ready.
+        var groupWaits = 0
+        /// Passes that kept a request longer than ``longKeepTicks`` refreshes (its frame is late; it still keeps).
+        var longKeeps = 0
+        /// Sizes drawn ahead of a spring's next refresh (``TerminalSurfaceView/applyAhead()``).
+        var drawnAhead = 0
         var longestPass: Duration = .zero
     }
 
@@ -44,13 +60,13 @@ final class TerminalFramePresenter {
 
     private struct Request {
         weak var view: TerminalSurfaceView?
+        /// The refresh it was made in: its group.
+        var epoch: UInt64
     }
 
     private struct Watch {
         weak var view: TerminalSurfaceView?
         var ticks = 0
-        /// Its bounds landed before its frame was drawn: it shows its last frame until the new one shows.
-        var late = false
     }
 
     private weak var window: NSWindow?
@@ -60,6 +76,13 @@ final class TerminalFramePresenter {
     private var watched: [ObjectIdentifier: Watch] = [:]
     /// Terminals whose shown size changed in a commit that is done by the next refresh.
     private var commits: [ObjectIdentifier: Watch] = [:]
+    private var epoch: UInt64 = 0
+    /// Terminals whose spring's next size goes to Ghostty after this turn's pass (``drawAhead(_:)``); one whose frame
+    /// still waits keeps its entry until that frame lands.
+    private var aheads: [ObjectIdentifier: Request] = [:]
+    /// Terminals whose draw-ahead size went to Ghostty, and the refresh it went in: one that no layout took within 2
+    /// refreshes (its spring ended or moved elsewhere) goes back to its bounds' size (``TerminalSurfaceView/dropAhead()``).
+    private var applied: [ObjectIdentifier: Request] = [:]
     /// The pass before each commit, installed while a request waits.
     private var passObserver: MainRunLoopObserver?
     private lazy var client = FrameClient(owner: "Terminal.framePresenter", isAnimation: false, scheduler: { [weak self] in
@@ -82,10 +105,10 @@ final class TerminalFramePresenter {
         return presenter
     }
 
-    /// `view` asked Ghostty for a frame at a new size: the next pass presents it with its bounds, or counts it late.
+    /// `view` asked Ghostty for a frame at a new size: the next commits present it with its bounds, or keep both.
     func request(_ view: TerminalSurfaceView) {
         let id = ObjectIdentifier(view)
-        requests[id] = Request(view: view)
+        requests[id] = Request(view: view, epoch: epoch)
         watched[id] = nil
         armPass()
         client.activate()
@@ -99,36 +122,33 @@ final class TerminalFramePresenter {
         client.activate()
     }
 
-    /// `view` stops owning its frame through this window (the switch, another window).
+    /// `view`'s spring gives it a new size at the next refresh: the size goes to Ghostty after this turn's pass, once this
+    /// refresh's frame is presented (``TerminalSurfaceView/applyAhead()``).
+    func drawAhead(_ view: TerminalSurfaceView) {
+        aheads[ObjectIdentifier(view)] = Request(view: view, epoch: epoch)
+        armPass()
+        client.activate()
+    }
+
+    /// `view` stops owning its frame through this window (another window, hidden).
     func cancel(_ view: TerminalSurfaceView) {
         let id = ObjectIdentifier(view)
         requests[id] = nil
+        aheads[id] = nil
+        applied[id] = nil
         watched[id] = nil
         commits[id] = nil
-        lateCounts[id] = nil
     }
 
     /// Whether `view` waits for a present here.
     func isWaiting(_ view: TerminalSurfaceView) -> Bool { requests[ObjectIdentifier(view)] != nil }
 
-    /// Whether `view`'s bounds landed before Ghostty drew their frame and that frame has not shown yet (counted in
-    /// ``Stats/lateLandings`` and ``lateLandings(of:)``).
-    func isLate(_ view: TerminalSurfaceView) -> Bool { watched[ObjectIdentifier(view)]?.late == true }
-
-    /// How many times `view`'s bounds landed before their frame was drawn, cumulative (films, bench and tests).
-    func lateLandings(of view: TerminalSurfaceView) -> Int { lateCounts[ObjectIdentifier(view)] ?? 0 }
-
-    /// Late landings per terminal (``lateLandings(of:)``); a terminal's entry goes with ``cancel(_:)``.
-    private var lateCounts: [ObjectIdentifier: Int] = [:]
-
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for the pass), "late" (its
-    /// bounds landed before its frame was drawn), "watch" (its shown size changed outside a present), "commit" (its
-    /// commit is reported at the next refresh), or "-".
+    /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
+    /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
     func debugState(of view: TerminalSurfaceView) -> String {
         let id = ObjectIdentifier(view)
         if requests[id] != nil { return "request" }
-        if watched[id]?.late == true { return "late" }
         if watched[id] != nil { return "watch" }
         if commits[id] != nil { return "commit" }
         return "-"
@@ -139,9 +159,19 @@ final class TerminalFramePresenter {
 
     /// One refresh: the commits of earlier passes are done (``commits``), and watched terminals are read.
     private func tick() -> Bool {
+        epoch &+= 1
         if !commits.isEmpty {
             for (_, done) in commits { done.view?.hostFrameCommitted() }
             commits.removeAll(keepingCapacity: true)
+        }
+        for (id, ahead) in applied {
+            guard let view = ahead.view, view.frameOwnership.ahead != nil else {
+                applied[id] = nil
+                continue
+            }
+            guard epoch &- ahead.epoch >= 2 else { continue }
+            applied[id] = nil
+            view.dropAhead()
         }
         for (id, watch) in watched {
             guard let view = watch.view else {
@@ -155,8 +185,9 @@ final class TerminalFramePresenter {
             case GHOSTTY_HOST_FRAME_HIDDEN:
                 // Shown again, it is watched again (``TerminalSurfaceView/updateOcclusion()``).
                 watched[id] = nil
-            case GHOSTTY_HOST_FRAME_READY:
-                // Its bounds already have the host size (they were given without a present): the frame fits them.
+            case GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil:
+                // Its bounds already have the host size (they were given without a present): the frame fits them. Not a
+                // frame drawn ahead: it waits for the bounds of its refresh.
                 CATransaction.lock()
                 _ = view.hostFrame(present: true)
                 CATransaction.unlock()
@@ -166,7 +197,7 @@ final class TerminalFramePresenter {
                 watched[id] = next.ticks > Self.watchLimit ? nil : next
             }
         }
-        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty
+        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !applied.isEmpty || !aheads.isEmpty
     }
 
     /// Installs the pass before each commit while a request waits. An observer never wakes the run loop: the
@@ -178,48 +209,98 @@ final class TerminalFramePresenter {
         }
     }
 
-    /// Before this turn's commit: each waiting terminal shows its frame drawn at its new bounds in this commit, or, not
-    /// drawn yet, lands late (its bounds are in this commit already) and is watched until its frame shows. It never
-    /// waits and never keeps.
+    /// Before this turn's commit: each waiting terminal shows its frame at the new size with its new bounds, or keeps
+    /// both. It never waits; a terminal that lands short asks for its newest size here (a grid report, as any size).
     func pass() { // perf-hot: 1ms motion-frame
-        guard !requests.isEmpty else {
+        guard !requests.isEmpty || !aheads.isEmpty else {
             passObserver = nil
             return
         }
+        defer { applyAheads() }
         let started = ContinuousClock.now
         stats.passes += 1
-        for (id, request) in requests {
+        // A group (the requests of one refresh) waits for its slowest member while it is younger than `groupTicks`.
+        var waitingGroups: [UInt64] = []
+        for (_, request) in requests where !waitingGroups.contains(request.epoch) {
             guard let view = request.view else { continue }
-            // Ghostty's call-site rule: the present and the layer's geometry under the Core Animation lock, so no
-            // off-main commit of another terminal can ship this one's new frame with other geometry in between.
+            if !Self.isReady(view.hostFrame(present: false)) { waitingGroups.append(request.epoch) }
+        }
+        for (id, request) in requests {
+            guard let view = request.view else {
+                requests[id] = nil
+                continue
+            }
+            let age = epoch &- request.epoch
+            if waitingGroups.contains(request.epoch), age < Self.groupTicks {
+                if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
+                continue
+            }
+            // Ghostty's call-site rule: the present and the new bounds under the Core Animation lock, so no off-main
+            // commit of another terminal can ship this one's new frame with its old bounds in between.
             CATransaction.lock()
             let shown = view.hostFrame(present: true)
-            // The layer takes a held scale with its frame, or now (no keep across commits).
-            view.applyHeldScale()
+            let presented = shown == GHOSTTY_HOST_FRAME_PRESENTED || shown == GHOSTTY_HOST_FRAME_SHOWN
+            // Cleared before the frame changes: a request the new frame makes for this view stays.
+            if presented { requests[id] = nil }
+            let followUp = presented ? view.landRequestedFrame() : false
             CATransaction.unlock()
-            switch shown {
-            case GHOSTTY_HOST_FRAME_PRESENTED, GHOSTTY_HOST_FRAME_SHOWN:
+            if presented {
                 stats.presented += 1
-                commits[id] = Watch(view: view)
-                // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
-                view.frameDidLand()
-            case GHOSTTY_HOST_FRAME_NONE:
-                // Nothing shown yet: the first frame presents itself and fits these bounds.
-                watched[id] = Watch(view: view)
-            case GHOSTTY_HOST_FRAME_HIDDEN:
-                // Shown again, it is watched again (``TerminalSurfaceView/updateOcclusion()``).
-                break
+                landed(view, id: id, watch: false, followUp: followUp)
+                continue
+            }
+            switch shown {
+            case GHOSTTY_HOST_FRAME_NONE, GHOSTTY_HOST_FRAME_HIDDEN:
+                // Nothing to keep: the bounds go now; a frame that comes later fits them.
+                land(view, id: id, watch: shown == GHOSTTY_HOST_FRAME_NONE)
             default:
-                // Not drawn yet (or held by synchronized output): the bounds stay, the last frame shows in them, and the
-                // watch presents the new frame in the first commit after it is drawn.
-                stats.lateLandings += 1
-                lateCounts[id, default: 0] += 1
-                watched[id] = Watch(view: view, late: true)
-                view.frameDidLand()
+                // Kept: its bounds and its frame stay as they are (never the bounds alone: that stretches the frame).
+                stats.keeps += 1
+                if age > Self.longKeepTicks { stats.longKeeps += 1 }
             }
         }
-        requests.removeAll(keepingCapacity: true)
-        passObserver = nil
+        if requests.isEmpty, aheads.isEmpty { passObserver = nil }
         stats.longestPass = max(stats.longestPass, started.duration(to: .now))
+    }
+
+    /// After the pass: each spring's next size goes to Ghostty (render only), so its frame is drawn during the refresh.
+    private func applyAheads() { // perf-hot: 1ms motion-frame
+        guard !aheads.isEmpty else { return }
+        for (id, ahead) in aheads {
+            guard let view = ahead.view, view.frameOwnership.pendingAhead != nil else {
+                aheads[id] = nil
+                continue
+            }
+            // Its frame of this refresh still waits: the next size goes once that frame lands (a newer one wanted at it
+            // would drop the frame).
+            guard view.frameOwnership.inFlight == nil else { continue }
+            aheads[id] = nil
+            view.applyAhead()
+            if view.frameOwnership.ahead != nil {
+                stats.drawnAhead += 1
+                applied[id] = Request(view: view, epoch: epoch)
+            }
+        }
+        if requests.isEmpty, aheads.isEmpty { passObserver = nil }
+    }
+
+    /// The view takes the size its shown frame has; one that wants another size since asks for it now (a new
+    /// request, presented from the next turn).
+    private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool) {
+        requests[id] = nil
+        landed(view, id: id, watch: watch, followUp: view.landRequestedFrame())
+    }
+
+    private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
+        // A request the landing made for this view owns it; it is not watched beside it.
+        if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
+        // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
+        view.frameDidLand()
+        if followUp { view.requestWantedFrame() }
+    }
+
+    private static func isReady(_ state: ghostty_host_frame_e) -> Bool {
+        state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+            || state == GHOSTTY_HOST_FRAME_NONE || state == GHOSTTY_HOST_FRAME_HIDDEN
     }
 }

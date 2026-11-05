@@ -151,23 +151,6 @@ struct PaneGroundCoversPaneTests {
             + "\(type(of: culprit)) at x \(Int(r.minX))..\(Int(r.maxX)) y \(Int(r.minY))..\(Int(r.maxY))"
     }
 
-    /// Turns `motion.frameOwner.terminals` on (or, with `on` false, off) for the frames that follow (on by default
-    /// since cmux-ad m19, 2026-11-05): the key-resize contract tests (cmux-ad m6) run with it on, and the guards of
-    /// the default path (one surface size per press) with it off. The store is process-wide and another test sets or
-    /// resets it, so an async test calls this again after each `await`, before its next press or frame (main-actor code
-    /// between two awaits never interleaves with another test). Its value: whether the switch has the value asked for.
-    @discardableResult
-    static func ownFrames(_ on: Bool = true) -> Bool {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(TerminalDragTunables.all)
-        return TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(on)) == .bool(on)
-    }
-
-    /// The switch back to its default (a test that called ``ownFrames()`` defers this).
-    static func releaseFrames() {
-        TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
-    }
-
     nonisolated static let pair: SplitNode = .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
     nonisolated static let stack: SplitNode = .split("x", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
 
@@ -175,12 +158,10 @@ struct PaneGroundCoversPaneTests {
 
     /// (a) One Ctrl-Shift-H/L/K/J press on p2: at every tick, each pane's terminal ground covers its content area. In both
     /// states of `motion.frameOwner.terminals` (review of #35470, T5).
-    @Test(arguments: [LayoutDirection.left, .right, .up, .down], [false, true])
-    func aKeyPressShowsEachPanesOwnGroundInEveryFrame(direction: LayoutDirection, switchOn: Bool) throws {
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
+    func aKeyPressShowsEachPanesOwnGroundInEveryFrame(direction: LayoutDirection) throws {
         let rig = Rig(Self.column(direction == .left || direction == .right ? Self.pair : Self.stack), focused: "p2")
         defer { rig.close() }
-        defer { Self.releaseFrames() }
-        try #require(Self.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(rig.misses().isEmpty, "SETUP: at rest a pane's ground does not cover it: \(rig.misses())")
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
@@ -200,12 +181,10 @@ struct PaneGroundCoversPaneTests {
 
     /// (b) A held key: three Ctrl-Shift-L presses 4 frames apart retarget one spring. In both states of
     /// `motion.frameOwner.terminals` (review of #35470, T5).
-    @Test(arguments: [false, true])
-    func aHeldKeyShowsEachPanesOwnGroundInEveryFrame(switchOn: Bool) throws {
+    @Test
+    func aHeldKeyShowsEachPanesOwnGroundInEveryFrame() throws {
         let rig = Rig(Self.column(Self.pair), focused: "p1")
         defer { rig.close() }
-        defer { Self.releaseFrames() }
-        try #require(Self.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(rig.misses().isEmpty, "SETUP: at rest a pane's ground does not cover it: \(rig.misses())")
         var found: [String] = []
         var frames = 0
@@ -231,7 +210,7 @@ struct PaneGroundCoversPaneTests {
 
     /// (c) Cmd-W on the middle of three split panes; (d) on the middle of three columns. At every tick the closed pane's
     /// place is covered by panes (the closing one shrinking on its neighbours' spring) beyond the gap it rests at.
-    @Test(arguments: [false, true])
+    @Test
     func aCloseLeavesNoHoleWhereThePaneWas(columns: Bool) throws {
         let layout: ScreenLayout = columns
             ? .columns([LayoutColumn(id: "c0", width: 1.0 / 3, root: .leaf("p1")), LayoutColumn(id: "c1", width: 1.0 / 3, root: .leaf("p2")),

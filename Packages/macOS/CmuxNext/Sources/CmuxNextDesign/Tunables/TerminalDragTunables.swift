@@ -17,16 +17,5 @@ public nonisolated struct TerminalDragTunables {
         help: "While a divider is dragged, each terminal keeps its size and text (clipped or padded) and reflows once when the drag lands. Off: the text reflows to the pane on every frame of the drag.",
         default: false, code: "TerminalDragTunables.holdsSurfaceDuringDrag")
 
-    /// On (the default, cmux-ad m18): a resized terminal's view takes its new bounds at once, and the window's commit
-    /// shows the frame Ghostty drew at that size with them when it is drawn by that commit; one drawn later shows in the
-    /// first commit after it (a late landing, counted; nothing keeps an old size). In a key resize the terminal follows its
-    /// pane in every frame and its text is re-wrapped at each frame's size, whatever this switch says. Off (the kill
-    /// switch): Ghostty's renderer shows each size's frame on its own, its display pass waiting up to 4 ms for it. Read on
-    /// every layout, so one build films both.
-    public static let framesOwnedByCommit = Tunable<Bool>.toggle(
-        "motion.frameOwner.terminals", section, "Terminal frame and size in one commit",
-        help: "A resized terminal takes its new size at once, and the window shows the frame drawn at that size in the same commit when it is ready, else in the next one. Off: Ghostty's renderer shows each new size's frame on its own.",
-        default: true, code: "TerminalDragTunables.framesOwnedByCommit")
-
-    public static var all: [TunableDescriptor] { [holdsSurfaceDuringDrag.descriptor, framesOwnedByCommit.descriptor] }
+    public static var all: [TunableDescriptor] { [holdsSurfaceDuringDrag.descriptor] }
 }

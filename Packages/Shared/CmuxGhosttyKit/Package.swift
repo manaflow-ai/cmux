@@ -104,7 +104,7 @@ import PackageDescription
 // size's frame itself with ghostty_surface_host_frame in the transaction that
 // gives the view its bounds, and reports its commit with
 // ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
-// behind motion.frameOwner.terminals).
+// the frame owner).
 //
 // Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
 // off-main present never commits while it holds [CATransaction lock]. #70's

@@ -77,8 +77,6 @@ struct KeyboardResizeContentHoldTests {
     @Test func theTerminalFollowsItsPaneInEveryFrameAndItsPTYEndsAtTheLandingsGrid() async throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
-        try #require(PaneGroundCoversPaneTests.ownFrames(), "the switch motion.frameOwner.terminals did not turn on")
         let panes: [PaneID] = ["p1", "p2"]
         var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
         var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]
@@ -128,54 +126,5 @@ struct KeyboardResizeContentHoldTests {
             let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
             #expect(grids.last == final, "\(pane)'s PTY got \(grids), not ending at its view's grid \(final)")
         }
-    }
-
-    /// The kill switch (`motion.frameOwner.terminals` off; review of #35470 at c4d6c936c92, T5: the base checked this
-    /// path). cmux-ad m18 deleted the key hold in both states: the switch says only who presents each size's frame. The
-    /// containers (each terminal host) take their pane's content area in every frame of the spring, and the producer (the
-    /// terminal surface) takes its host's area in every frame too (it took one size per press, its final size, before).
-    @Test func theProducerFollowsItsPaneWithTheSwitchOffToo() async throws {
-        let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
-        defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
-        try #require(PaneGroundCoversPaneTests.ownFrames(false), "the switch motion.frameOwner.terminals did not turn off")
-        let panes: [PaneID] = ["p1", "p2"]
-        var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
-        var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]
-        func note(_ label: String) throws {
-            for pane in panes {
-                let session = try #require(rig.provider.sessions[pane]?.session)
-                let area = try #require(session.view.superview, "\(pane)'s terminal host is not in its pane")
-                let now = (host: session.view.frame.size, surface: session.surfaceView.frame.size)
-                if let was = last[pane] {
-                    if now.host != was.host { hosts[pane, default: []].append(now.host) }
-                    if now.surface != was.surface { surfaces[pane, default: []].append(now.surface) }
-                }
-                last[pane] = now
-                if now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
-            }
-        }
-        try note("at rest")
-        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        try note("the key's turn")
-        var frames = 0
-        while frames < 240, rig.frame() {
-            frames += 1
-            try note("frame \(frames)")
-        }
-        rig.commit()
-        try note("after the landing")
-        #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(off.isEmpty, "a terminal host (a container) did not follow its pane: \(off.prefix(3))")
-        for pane in panes {
-            let session = try #require(rig.provider.sessions[pane]?.session)
-            #expect((surfaces[pane] ?? []).count > 3, "\(pane)'s surface (the producer) took \(surfaces[pane]?.count ?? 0) sizes in a \(frames)-frame spring: it did not follow its pane")
-            #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
-            let host = session.view
-            #expect(session.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size), "\(pane)'s surface did not land at its host's size")
-        }
-        try await Self.expectEachPTYEndsAtItsViewsGrid(panes, rig)
     }
 }

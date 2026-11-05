@@ -41,9 +41,9 @@ public protocol PaneMotionHolding: NSView {
 /// A container in a pane's content area that follows the area in every frame of a hold (FRAME OWNER REFACTOR S3: a
 /// terminal's host, a browser's chrome). The area gives it its own bounds in each frame, so its background, padding,
 /// toolbar and scroller cover the pane. Its producer (the terminal surface, the page: pixels drawn on another thread or
-/// in another process) keeps its size on the hold's edges and lays out once when the hold ends; with
-/// `motion.frameOwner.terminals` on, a terminal's surface follows the area too (cmux-ad m6, S4: each size shows with
-/// its frame, or the last frame stays, top-left).
+/// in another process) keeps its size on the hold's edges and lays out once when the hold ends; a terminal's surface
+/// follows the area too (cmux-ad m6, m18: each size shows with its frame, or, late, the last frame top-left in the new
+/// bounds for a commit).
 @MainActor
 public protocol PaneMotionHoldFollowing: NSView {
     /// Whether it follows now (a page kind that cannot hold its pixels yet is held whole, as in S1).
@@ -51,8 +51,13 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// The area holds on `hold`'s edges, from an area `heldSize` big when the hold began (the size the view had then);
     /// nil, nil: the hold ended, and the view's frame is the area's again. Called once per change, never per frame.
     func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?)
+    /// Draw ahead (cmux-ad m26): the pane's spring gives this follower `nextHostSize` at the next refresh. A producer that
+    /// draws on another thread asks for that size now, after this refresh's commit, so its frame is ready when the refresh
+    /// shows it. Called once per spring frame, only on followers of a hold.
+    func drawAhead(nextHostSize: CGSize)
 }
 
 public extension PaneMotionHoldFollowing {
     var followsPaneMotion: Bool { true }
+    func drawAhead(nextHostSize: CGSize) {}
 }
