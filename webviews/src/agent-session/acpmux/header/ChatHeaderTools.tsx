@@ -383,21 +383,12 @@ function ChatHeaderToolsView({
     onSideTabs,
     t,
   });
-  // A consolidated layout (Debug Settings `agentChat.topRight.consolidate`) draws its own web controls in
-  // place of the row, so the native row's copy of the buttons stays off while one is chosen. The glass
-  // toolbar and the three controls, when picked, keep their own layout.
-  const consolidated =
-    topRightLayout !== "row" &&
-    glassLook === "off" &&
-    (controls ?? headerControls) !== "trio" &&
-    tabTools &&
-    actions.length > 0
-      ? topRightLayout
-      : undefined;
-  // The three controls, the glass toolbar and a consolidated layout draw their own sets; the contextual
-  // styles apply to the plain row.
+  // A consolidated layout picked in Debug Settings (`agentChat.topRight.consolidate`) wins over the
+  // contextual styles, which apply to the plain row; the three controls and the glass toolbar draw their own.
+  const layoutPicked =
+    topRightLayout !== "row" && glassLook === "off" && (controls ?? headerControls) !== "trio" && tabTools;
   const headerIcons =
-    glassLook === "off" && (controls ?? headerControls) !== "trio" && !consolidated ? iconsPicked : "standard";
+    glassLook === "off" && (controls ?? headerControls) !== "trio" && !layoutPicked ? iconsPicked : "standard";
   // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
   const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
@@ -424,7 +415,7 @@ function ChatHeaderToolsView({
           },
         ]
       : [];
-  const native = useNativeRowTools(consolidated ? undefined : nativeRowTools, relevance.shown, {
+  const native = useNativeRowTools(nativeRowTools, relevance.shown, {
     customize,
     glass: glassLook !== "off",
     extra: [
@@ -465,6 +456,18 @@ function ChatHeaderToolsView({
   // actions wait in "..."; Terminal, Browser and [+] are New's.
   const trio =
     glassLook === "off" && (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
+  // A consolidated layout (Debug Settings `agentChat.topRight.consolidate`) draws its own web controls in
+  // place of the web row's buttons. The native tab row keeps its tools (nativeRowStaysNative.test.ts), and
+  // the glass toolbar and the three controls, when picked, keep their own layout.
+  const consolidated =
+    topRightLayout !== "row" &&
+    !native &&
+    glassLook === "off" &&
+    (controls ?? headerControls) !== "trio" &&
+    tabTools &&
+    actions.length > 0
+      ? topRightLayout
+      : undefined;
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && !trio && tabTools && actions.length > 0;

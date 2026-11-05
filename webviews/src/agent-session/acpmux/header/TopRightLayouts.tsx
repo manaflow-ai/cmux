@@ -14,9 +14,18 @@
 // Every move is in the `web` motion category: the CSS runs on the pane's motion tokens (0 with
 // animation off, data-cmux-motion), and the one scripted glide asks motionMode() first, so with
 // animation off each change lands in one frame and every handler still runs.
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { useT } from "../i18n";
 import { tooltipProps } from "../shortcuts";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { HeaderIcon } from "./HeaderIcon";
@@ -82,7 +91,12 @@ function glide(from: Element | null, to: Element | null) {
   const end = to.getBoundingClientRect();
   const ghost = glyph.cloneNode(true) as HTMLElement;
   ghost.classList.add("acpmux-topright-ghost");
-  Object.assign(ghost.style, { left: `${start.left}px`, top: `${start.top}px`, width: `${start.width}px`, height: `${start.height}px` });
+  Object.assign(ghost.style, {
+    left: `${start.left}px`,
+    top: `${start.top}px`,
+    width: `${start.width}px`,
+    height: `${start.height}px`,
+  });
   from.ownerDocument.body.append(ghost);
   const dx = end.left + (end.width - start.width) / 2 - start.left;
   const dy = end.top + (end.height - start.height) / 2 - start.top;
@@ -154,7 +168,7 @@ function ToolButton({
       {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcut)}
       onClick={(event) => onPick(tool, event.currentTarget)}
     >
-      <HeaderIcon name={tool.icon} size={GLYPH} selected={tool.pressed === true} />
+      <HeaderIcon name={tool.icon} size={GLYPH} lit={tool.pressed === true} />
     </button>
   );
 }
@@ -185,27 +199,39 @@ function MorphControl({
     doc?.addEventListener("pointerdown", away, true);
     // From the keyboard, the set's first icon takes focus, as a toolbar's does.
     if (byKeyboard.current)
-      root.current?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button")?.focus({ preventScroll: true });
+      focusRoute(
+        root.current?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button"),
+        "person",
+        "the morph set opened from the keyboard: its first icon",
+        { preventScroll: true },
+      );
     return () => doc?.removeEventListener("pointerdown", away, true);
   }, [open]);
   const pick = (tool: HeaderQuickTool, button: HTMLButtonElement) => {
     runTool(tool);
     setOpen(false);
     glide(button, trigger.current);
-    if (byKeyboard.current) trigger.current?.focus({ preventScroll: true });
+    if (byKeyboard.current)
+      focusRoute(trigger.current, "person", "an icon picked from the keyboard: back to the morph control", {
+        preventScroll: true,
+      });
   };
   const label = t("header.topRight.panes");
   return (
     <div
       ref={root}
       className="acpmux-topright-morph"
+      role="group"
+      aria-label={label}
       data-open={open || undefined}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
-        trigger.current?.focus({ preventScroll: true });
+        focusRoute(trigger.current, "person", "Escape closed the morph set: back to its control", {
+          preventScroll: true,
+        });
       }}
     >
       <div
@@ -242,7 +268,7 @@ function MorphControl({
         }}
       >
         <span className="acpmux-topright-face" key={face?.id ?? "panes"}>
-          <HeaderIcon name={face?.icon ?? "tunable.sidebar"} size={GLYPH} selected={face !== undefined} />
+          <HeaderIcon name={face?.icon ?? "tunable.sidebar"} size={GLYPH} lit={face !== undefined} />
         </span>
         {openCount > 1 && (
           <span className="acpmux-topright-count" aria-hidden="true">
@@ -319,7 +345,7 @@ function DockButton({
         onSelect={() => runTool(tool)}
       >
         <span className="acpmux-topright-dock-glyph" data-on={tool.pressed || undefined}>
-          <HeaderIcon name={tool.icon} size={14} selected={tool.pressed === true} />
+          <HeaderIcon name={tool.icon} size={14} lit={tool.pressed === true} />
         </span>
         <span className="acpmux-chat-menu-label">{tool.title ?? tool.label}</span>
         {shortcuts[tool.id] && <kbd className="acpmux-chat-menu-key">{shortcuts[tool.id]}</kbd>}
@@ -333,7 +359,7 @@ function DockButton({
         title={label}
         data-menu="recent-panes"
       >
-        <HeaderIcon name="history.recent" size={GLYPH} selected={sections.open.length > 0} />
+        <HeaderIcon name="history.recent" size={GLYPH} lit={sections.open.length > 0} />
         {sections.open.length > 0 && (
           <span className="acpmux-topright-count" aria-hidden="true">
             {sections.open.length}
@@ -342,7 +368,9 @@ function DockButton({
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover acpmux-topright-dock-popover" align="end">
         {sections.open.length > 0 && <MenuGroup label={t("header.topRight.openNow")}>{rows(sections.open)}</MenuGroup>}
-        {sections.recent.length > 0 && <MenuGroup label={t("header.topRight.recent")}>{rows(sections.recent)}</MenuGroup>}
+        {sections.recent.length > 0 && (
+          <MenuGroup label={t("header.topRight.recent")}>{rows(sections.recent)}</MenuGroup>
+        )}
         {sections.more.length > 0 && <MenuGroup label={t("header.topRight.more")}>{rows(sections.more)}</MenuGroup>}
       </MenuPopup>
     </Menu>
