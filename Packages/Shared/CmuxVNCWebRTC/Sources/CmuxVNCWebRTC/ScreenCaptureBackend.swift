@@ -237,8 +237,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let configuration = configuration(for: display, frameRate: rate, cursor: cursor)
         let size = pixelSize(display)
         let pids = Self.excluded(excluded, drawsCursor: cursor)
-        let filter = await Self.filter(display: display, excluding: pids)
-        lock.withLock { excludedApplied = pids }
+        let (filter, applied) = await Self.filter(display: display, excluding: pids)
+        // Not applied (the window list failed): the watcher tries again.
+        lock.withLock { excludedApplied = applied ? pids : [] }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
@@ -270,14 +271,16 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         drawsCursor ? [] : Set(source?() ?? [])
     }
 
-    /// The display, without the windows of `pids` (none: the whole display).
-    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> SCContentFilter {
-        guard !pids.isEmpty,
-              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
-            return SCContentFilter(display: display, excludingWindows: [])
+    /// The display, without the windows of `pids` (none: the whole display),
+    /// and whether `pids` are left out (false when the window list failed:
+    /// the whole display, until the next try).
+    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> (SCContentFilter, Bool) {
+        guard !pids.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
+            return (SCContentFilter(display: display, excludingWindows: []), false)
         }
         let apps = content.applications.filter { pids.contains($0.processID) }
-        return SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: [])
+        return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
     }
 
     /// Every 2 s: when the processes to leave out changed (the agent's helper
@@ -298,7 +301,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                     return (stream, streamDisplay)
                 }
                 guard let running else { continue }
-                let filter = await Self.filter(display: running.1, excluding: pids)
+                let (filter, applied) = await Self.filter(display: running.1, excluding: pids)
+                guard applied else { continue }
                 do {
                     try await running.0.updateContentFilter(filter)
                     lock.withLock { excludedApplied = pids }
