@@ -15,7 +15,7 @@ import Testing
         ("sidebarWidth", 208), ("titlebarHeight", 32), ("sidebarRowHeight", 24), ("sidebarRowHeightWithSubtitle", 36),
         ("sidebarHeaderHeight", 22), ("roomDotDiameter", 8), ("roomDotSlot", 24), ("tabHeight", 24), ("controlHeight", 24),
         ("tabMaxWidth", 200), ("tabMinWidth", 32), ("paletteRowHeight", 28), ("paletteSearchHeight", 44), ("paletteWidth", 640),
-        ("panelInset", 6), ("columnGap", 6), ("densityPaneCornerRadius", 6), ("panelCornerRadius", 10), ("itemCornerRadius", 6),
+        ("panelInset", 6), ("columnGap", 6), ("densityPaneCornerRadius", 10), ("panelCornerRadius", 10), ("itemCornerRadius", 6),
         ("iconSize", 14), ("smallIconSize", 12), ("scrollEdgeFade", 18),
     ]
 

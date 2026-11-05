@@ -154,6 +154,12 @@ const GROUPS: &[Group] = &[
                 "エージェントセッション（claude、codex など）を開始",
             ),
             verb(
+                "relay-chat",
+                "{target} --agent AGENT --prompt TEXT [--cwd DIR] [--prompt-id ID]",
+                "Send a prompt over the machine's relay and answer when the turn ends",
+                "マシンのリレー経由でプロンプトを送り、ターンの終了時に応答を返す",
+            ),
+            verb(
                 "open-desktop",
                 "{target} [--viewer web]",
                 "Show the machine's desktop in a browser tab",

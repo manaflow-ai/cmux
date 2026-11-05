@@ -445,6 +445,8 @@ CmuxNextAgentLanes	struct	AgentChatsPaletteStrings	0	MIXED	65	0	Packages/macOS/C
 CmuxNextAgentLanes	class	AgentNeedsInputJump	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentNeedsInputJump.swift	from class AgentNeedsInputJump:15: which chat/tab needing input to jump to next (ordering rule), per key
 CmuxNextAgentLanes	enum	AgentPeerSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPeerSession.swift	host to acpmux session resolution
 CmuxNextAgentLanes	extension	Collection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPeerSession.swift	from enum AgentPeerSession:7: host to acpmux session resolution
+CmuxNextAgentLanes	struct	AgentSessionOpenRefusal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentSessionOpenTarget.swift	localized refusal text (bundle resources)
+CmuxNextAgentLanes	extension	AgentLaneStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentSessionOpenTarget.swift	from struct AgentSessionOpenRefusal:7: session and host an agent session tab opens to
 CmuxNextAgentLanes	class	AgentPriorityChats	0	MIXED	46	54	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPriorityChats.swift	from class AgentPriorityChats:12: priority chat rows: mirror of acpmux chats/machines; merge and ordering LOGIC (approx)
 CmuxNextAgentLanes	class	AgentPriorityMarks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPriorityMarks.swift	from class AgentPriorityMarks:10: pinned/read/snooze marks persisted in UserDefaults
 CmuxNextAgentLanes	struct	AgentPriorityRanking	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentPriorityRanking.swift	priority ranking: states, idle horizon 24 h, order
