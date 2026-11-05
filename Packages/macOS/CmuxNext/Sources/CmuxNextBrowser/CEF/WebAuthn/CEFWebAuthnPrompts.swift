@@ -66,7 +66,11 @@ final class CEFWebAuthnPrompts {
         guard request.mediation == .modal else {
             return complete(request.id, error: "NotAllowedError", "cmux offers passkeys only after a prompt.")
         }
-        let tab = CEFRuntime.shared.tabsByBrowser[request.browserID]
+        // A request whose tab cmux does not know (browser 0, a popup Chromium made) cannot say which tab
+        // asked, nor show in that tab's window: refuse it instead of prompting in some other window.
+        guard let tab = CEFRuntime.shared.tabsByBrowser[request.browserID] else {
+            return complete(request.id, error: "NotAllowedError", "cmux does not know the tab that asked.")
+        }
         guard let (placement, window) = scope(for: tab) else {
             return complete(request.id, error: "NotAllowedError", "No cmux window can show this request.")
         }
@@ -147,11 +151,11 @@ final class CEFWebAuthnPrompts {
     static func spec(for request: CEFWebAuthnRequest, tab: CEFTab?, tabShown: Bool) -> CmuxDialogSpec {
         var lines: [String] = []
         if request.crossOrigin { lines.append(Strings.webAuthnFrame(request.topOrigin)) }
-        if !tabShown, let tab {
-            let name = tab.state.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab.state.url?.host() ?? request.origin
-            lines.append(Strings.webAuthnTab(name))
+        // The tab is named by its URL's host, never its title: the page sets the title and could name another site.
+        if !tabShown, let tab { lines.append(Strings.webAuthnTab(tab.state.url?.host() ?? request.origin)) }
+        if tab?.isAgentDriven == true || request.tabMode == CEFWebAuthnRequest.delegateTabMode {
+            lines.append(Strings.webAuthnAgent)
         }
-        if tab?.isAgentDriven == true { lines.append(Strings.webAuthnAgent) }
         if !request.userActivation { lines.append(Strings.webAuthnNoGesture) }
         if request.detached { lines.append(Strings.webAuthnNotOnScreen) }
         lines.append(request.kind == .create ? Strings.webAuthnCreateNext : Strings.webAuthnSignInNext)
