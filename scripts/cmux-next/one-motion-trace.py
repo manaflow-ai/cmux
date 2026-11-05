@@ -40,6 +40,8 @@ parser.add_argument("--motions", default="")
 parser.add_argument("--rounds", type=int, default=1)
 parser.add_argument("--gap", type=int, default=120, help="ms between Cmd-B and Cmd-D in b-then-d")
 parser.add_argument("--record", action="store_true", help="record each motion's window as a movie (debug.motion record_*)")
+parser.add_argument("--rows", type=int, default=5000, help="transcript rows seeded into the chat (a long transcript)")
+parser.add_argument("--frame-rounds", type=int, default=3, help="untraced repeats of each motion for frame drops and main-thread work")
 parser.add_argument("--content", default="chat", choices=("chat", "terminal"), help="what the main pane shows")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
@@ -137,7 +139,8 @@ def setup():
             if not terminal:
                 break
             action("closePane", target=f"pane:{terminal}", settle=0.8)
-        rpc("debug.agent_pane", {"action": "seed_rows", "count": 200}, timeout=60)
+        seeded = rpc("debug.agent_pane", {"action": "seed_rows", "count": opts.rows}, timeout=120)
+        print(f"seeded {opts.rows} rows: {json.dumps(seeded)[:200]}", flush=True)
     else:
         action("terminal.sendText", {"text": "seq 1 3000\r"}, settle=0.5)
     time.sleep(1.5)  # test harness: setup work settles
@@ -219,6 +222,33 @@ def measure(name, perform):
     return result
 
 
+def frames(perform):
+    """Display frames around one untraced run of `perform` (no trace or recording on the main thread): missed frames,
+    frame interval p95 and max, main-thread work per frame, hangs (`debug.frames`, `debug.main_cpu`, `debug.hangs`)."""
+    rpc("debug.hangs", {"clear": True})
+    rpc("debug.frames", {"action": "start"})
+    rpc("debug.main_cpu", {"action": "start"})
+    time.sleep(0.1)  # test harness: frames at rest before the action
+    acted = perform()
+    time.sleep(1.0)  # test harness: every spring lands
+    cpu = rpc("debug.main_cpu", {"action": "stop"}) or {}
+    stats = rpc("debug.frames", {"action": "stop"}) or {}
+    hangs = rpc("debug.hangs") or {}
+    if isinstance(cpu, dict) and not cpu.get("error"):
+        stats = {**stats, **{k: v for k, v in cpu.items() if k != "frames"}}
+    listed = hangs.get("hangs") if isinstance(hangs, dict) else None
+    return {"missed": stats.get("missed"), "p95_ms": stats.get("p95_ms"), "max_ms": stats.get("max_ms"),
+            "main_ms_p95": stats.get("main_ms_p95"), "main_ms_max": stats.get("main_ms_max"),
+            "main_ms_total": stats.get("main_ms_total"), "refresh_ms": stats.get("refresh_ms"),
+            "hangs": len(listed) if isinstance(listed, list) else hangs.get("count"),
+            "error": error_of(acted) if isinstance(acted, dict) else None}
+
+
+def median(values):
+    values = sorted(v for v in values if isinstance(v, (int, float)))
+    return values[len(values) // 2] if values else None
+
+
 def cleanup():
     if os.environ.get("ONE_MOTION_KEEP") or not app:
         return
@@ -273,6 +303,21 @@ def main():
                 time.sleep(0.6)  # test harness: the prepare's own motion lands before the traced one
             run = measure(name if index == 0 else f"{name}-{index}", perform)
             run["round"] = index
+            plan_names = [n for n, _, _ in plan]
+            undo = plan[plan_names.index(name) + 1] if prepare and plan_names.index(name) + 1 < len(plan) else None
+            passes = []
+            for _ in range(opts.frame_rounds if prepare and undo and undo[1] is None else 0):
+                # Undo the traced motion, set up again, and time the same motion untraced.
+                undo[2]()
+                time.sleep(1.0)  # test harness: the undo lands
+                prepare()
+                time.sleep(0.6)  # test harness: the prepare lands
+                passes.append(frames(perform))
+            if passes:
+                run["frames"] = {key: median([p[key] for p in passes]) for key in
+                                 ("missed", "p95_ms", "max_ms", "main_ms_p95", "main_ms_max", "main_ms_total", "hangs")}
+                run["frames"]["passes"] = passes
+                print(f"      frames (median of {len(passes)}): {json.dumps(run['frames'] | {'passes': len(passes)})}", flush=True)
             report["runs"].append(run)
             for path in filter(None, (opts.json, os.path.join(OUT, "one-motion.json"))):
                 json.dump(report, open(path, "w"), indent=1)
