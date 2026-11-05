@@ -197,6 +197,14 @@ public struct Metrics {
         if panePadding == 0 && paneBorder == .none { return 0 }
         return cornerRadius
     }
+    /// The radius of a shape `inset` points inside a pane, `size` big: concentric with the
+    /// pane's corner (``paneCornerRadius``, or the one ``cornerRadius`` where panes are square
+    /// inside the rounded main pane), at most half the shape's shorter side.
+    public static func paneNestedCornerRadius(inset: CGFloat, size: CGSize) -> CGFloat {
+        let corners = corners
+        let pane = paneCornerRadius > 0 ? paneCornerRadius : corners.outer
+        return corners.radius(fitting: size, radius: corners.nested(in: pane, inset: inset))
+    }
     /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
     /// 10 pt compact and 11 pt comfortable, so the tab pills nested 2 and 3 pt inside
     /// keep Helium's 8 pt (``heliumTabCornerRadius``), and the compact main pane is
