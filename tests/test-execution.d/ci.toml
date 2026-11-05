@@ -14,6 +14,10 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_affected_tests.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_blacksmith_linux_failover.py"
 lane = "linux-guard"
 
@@ -32,10 +36,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cargo_affected.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_affected_tests.py"
 lane = "linux-guard"
 
 [[test]]
