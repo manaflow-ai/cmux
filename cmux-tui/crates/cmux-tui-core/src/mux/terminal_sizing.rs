@@ -387,7 +387,7 @@ impl Mux {
     /// Runs `hold` while this thread holds the client sizing lock (tests: a person's key must not wait for it).
     #[cfg(test)]
     pub(crate) fn hold_client_sizing_for_test(&self, hold: &dyn Fn()) {
-        let _held = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        // NEVER MERGE: a mutation that removes the hold, so the hold's control must fail.
         hold();
     }
 
