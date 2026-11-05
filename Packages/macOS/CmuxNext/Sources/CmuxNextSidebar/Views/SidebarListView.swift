@@ -159,6 +159,10 @@ final class SidebarListView: NSView {
     /// workspace row: the app forwards it so that chat is read before the click
     /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
     var onHoverTab: ((TabID?) -> Void)?
+    /// The workspace of the row under the pointer, nil off every workspace row: the app wakes the pages
+    /// its click would show once the pointer rests (plans/cmux-next/hover-preload-DESIGN.md). Called only
+    /// when the hovered row changes; it records the row and returns (no layout, no model write).
+    var onHoverWorkspace: ((WorkspaceID?) -> Void)?
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?

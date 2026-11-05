@@ -1,6 +1,6 @@
 import CmuxNextBridge
-import CoreGraphics
-import Foundation
+package import CoreGraphics
+package import Foundation
 
 /// Hibernated pages' last frames, kept compressed (JPEG, or PNG when transparent) under their
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
@@ -11,35 +11,40 @@ import Foundation
 /// A picture's image decodes from its bytes when drawn; the placeholder decodes it off the main
 /// thread, and holds the decoded pixels only while a pane shows it (`HibernatedBrowserTab`).
 @MainActor
-final class HibernationSnapshots {
+package final class HibernationSnapshots {
     /// A page picture at 2x is about 0.2 to 1.5 MB as JPEG, so this holds 40 to 300 of them.
-    let capacityBytes: Int
-    private(set) var totalBytes = 0
+    package let capacityBytes: Int
+    package private(set) var totalBytes = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.
     private var order: [String] = []
 
     /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture kept in `previews`
     /// when `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
-    nonisolated struct Picture: Sendable {
-        let data: Data?
-        let image: CGImage
+    package nonisolated struct Picture: Sendable {
+        package let data: Data?
+        package let image: CGImage
+
+        package init(data: Data?, image: CGImage) {
+            self.data = data
+            self.image = image
+        }
     }
 
-    init(capacityBytes: Int = 64 << 20) {
+    package init(capacityBytes: Int = 64 << 20) {
         self.capacityBytes = capacityBytes
     }
 
-    var count: Int { pictures.count }
+    package var count: Int { pictures.count }
 
-    func image(for key: String) -> CGImage? {
+    package func image(for key: String) -> CGImage? {
         guard let picture = pictures[key] else { return nil }
         order.removeAll { $0 == key }
         order.append(key)
         return picture.image
     }
 
-    func insert(_ picture: Picture, for key: String) {
+    package func insert(_ picture: Picture, for key: String) {
         guard let cost = picture.data?.count, cost <= capacityBytes else { return }
         remove(key)
         pictures[key] = picture
@@ -48,7 +53,7 @@ final class HibernationSnapshots {
         while totalBytes > capacityBytes, let oldest = order.first { remove(oldest) }
     }
 
-    func remove(_ key: String) {
+    package func remove(_ key: String) {
         guard let picture = pictures.removeValue(forKey: key) else { return }
         totalBytes -= picture.data?.count ?? 0
         order.removeAll { $0 == key }
@@ -57,11 +62,11 @@ final class HibernationSnapshots {
     /// `image` as a JPEG at most `PreviewImageCache.maxCompressedPixels` large (same aspect and color space), encoded on a
     /// background task; a PNG when it has transparent pixels, which JPEG would turn black (a page
     /// with a transparent background); nil when ImageIO cannot encode it.
-    nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
+    package nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
         await Task.detached(priority: .userInitiated) { compressed(image, quality: quality) }.value
     }
 
-    nonisolated static func compressed(_ image: CGImage, quality: Double) -> Picture? {
+    package nonisolated static func compressed(_ image: CGImage, quality: Double) -> Picture? {
         PreviewImageCache.compressed(image, quality: quality).map { Picture(data: $0.data, image: $0.image) }
     }
 }

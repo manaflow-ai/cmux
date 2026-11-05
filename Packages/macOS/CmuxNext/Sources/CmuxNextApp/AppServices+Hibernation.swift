@@ -21,6 +21,7 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).browserTabMemory()
         }
+        hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
         hibernation.start()

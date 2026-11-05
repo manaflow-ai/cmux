@@ -1,31 +1,33 @@
-import CmuxNextBrowser
-import CmuxNextSettings
+package import CmuxNextBrowserCore
+package import CmuxNextSettings
 
 /// The latest wakes of hibernated pages (`debug.surfaces` `wakes`, scripts/cmux-next/bench_hibernation.py):
 /// from the `restore` effect to the page being back (`mounted_ms`) and to its load ending
 /// (`loaded_ms`, nil while it loads or when it did not end within 15 s), whether a snapshot
 /// covered the pane meanwhile, and whether the tab was shown when it came back (a neighbor or a
 /// hover wakes it hidden).
-nonisolated struct HibernationWakes {
-    nonisolated struct Wake: Equatable {
-        let tab: String
-        let engine: BrowserEngineKind
-        let snapshot: Bool
-        var mountedMs: Int?
-        var loadedMs: Int?
-        var visible = false
+package nonisolated struct HibernationWakes {
+    package nonisolated struct Wake: Equatable {
+        package let tab: String
+        package let engine: BrowserEngineKind
+        package let snapshot: Bool
+        package var mountedMs: Int?
+        package var loadedMs: Int?
+        package var visible = false
     }
 
     /// Wakes kept, newest last.
-    static let limit = 32
-    private(set) var records: [Wake] = []
+    package static let limit = 32
+    package private(set) var records: [Wake] = []
     private var started: [String: (at: ContinuousClock.Instant, engine: BrowserEngineKind, snapshot: Bool)] = [:]
 
-    mutating func start(_ key: String, engine: BrowserEngineKind, snapshot: Bool, at now: ContinuousClock.Instant = .now) {
+    package init() {}
+
+    package mutating func start(_ key: String, engine: BrowserEngineKind, snapshot: Bool, at now: ContinuousClock.Instant = .now) {
         started[key] = (now, engine, snapshot)
     }
 
-    mutating func mounted(_ key: String, visible: Bool, at now: ContinuousClock.Instant = .now) {
+    package mutating func mounted(_ key: String, visible: Bool, at now: ContinuousClock.Instant = .now) {
         guard let start = started[key] else { return }
         records.append(Wake(tab: key, engine: start.engine, snapshot: start.snapshot,
                             mountedMs: Self.milliseconds(now - start.at), visible: visible))
@@ -33,17 +35,17 @@ nonisolated struct HibernationWakes {
     }
 
     /// The woken page's load ended (`ended`), or did not in time.
-    mutating func loaded(_ key: String, ended: Bool, at now: ContinuousClock.Instant = .now) {
+    package mutating func loaded(_ key: String, ended: Bool, at now: ContinuousClock.Instant = .now) {
         guard let start = started.removeValue(forKey: key), ended,
               let index = records.lastIndex(where: { $0.tab == key }), records[index].loadedMs == nil else { return }
         records[index].loadedMs = Self.milliseconds(now - start.at)
     }
 
-    mutating func forget(_ key: String) {
+    package mutating func forget(_ key: String) {
         started[key] = nil
     }
 
-    var json: JSONValue {
+    package var json: JSONValue {
         .array(records.map { wake -> JSONValue in
             [
                 "tab": .string(wake.tab), "engine": .string(wake.engine == .cef ? "chromium" : "webkit"),

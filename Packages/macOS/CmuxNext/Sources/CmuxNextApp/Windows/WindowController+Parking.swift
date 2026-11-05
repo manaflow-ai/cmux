@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextHibernation
 import CmuxNextLayout
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): the workspaces this window showed most recently stay
@@ -8,6 +9,24 @@ extension WindowController {
     /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
     var mountedContents: [WorkspaceContentController] {
         (content.map { [$0] } ?? []) + parked.values.sorted { $0.parkedSerial > $1.parkedSerial }
+    }
+
+    /// The tabs workspace `id` shows when the person selects it in this window (hover preload,
+    /// plans/cmux-next/hover-preload-DESIGN.md): the selected tab of each pane on its active screen
+    /// (the zoomed pane alone when one is zoomed), this window's selection when it is parked here, else
+    /// the daemon's default tab. None for the workspace this window shows.
+    func shownTabsIfSelected(_ id: String) -> [String] {
+        guard id != state.workspaceID else { return [] }
+        let kept = parked[id]
+        guard let workspace = kept?.workspace ?? services.machines.workspace(id: id)?.0,
+              let screen = workspace.screens.first(where: \.isActive) ?? workspace.screens.first else { return [] }
+        var chosen: [String: String] = [:]
+        if let kept { for pane in kept.panes.values { if let key = pane.currentTabKey { chosen[pane.paneKey] = key } } }
+        let panes = screen.panes.map { pane in
+            HoverWakePanes.Pane(id: pane.id, selected: chosen[pane.id] ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id))
+        }
+        let zoomed = screen.zoomedPane.flatMap { handle in screen.panes.first { $0.handle == handle }?.id }
+        return HoverWakePanes(panes, zoomed: zoomed).shownTabs()
     }
 
     /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their

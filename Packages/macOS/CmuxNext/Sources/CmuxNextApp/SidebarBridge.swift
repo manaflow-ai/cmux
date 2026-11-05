@@ -87,6 +87,11 @@ final class SidebarBridge {
             let tabs = self.services.agentTabs
             tabs.existingView(shown.rawValue)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil && tabs.daemonForTab($0.rawValue)?.isLocal == true ? tabs.session(of: $0.rawValue) : nil })
         }
+        // The pages a row's click would show wake once the pointer rests on it (plans/cmux-next/hover-preload-DESIGN.md).
+        container.sidebarView.onHoverWorkspace = { [weak self] id in
+            guard let self, let window = self.state?.id else { return }
+            self.services.cache.hibernation?.noteWorkspaceHover(id?.rawValue, window: window)
+        }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization

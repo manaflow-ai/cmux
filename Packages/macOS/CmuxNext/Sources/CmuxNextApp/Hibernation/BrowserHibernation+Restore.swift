@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CoreGraphics
 import Foundation
 import Observation
