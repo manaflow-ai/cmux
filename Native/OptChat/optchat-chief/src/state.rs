@@ -490,6 +490,10 @@ pub struct SubRecord {
     /// (`control interrupt|restart` with a message).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_stop: Option<String>,
+    /// The prompt id `after_stop` goes out under: the interrupting tell's,
+    /// so its receipt stays true (None: a fresh id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_stop_prompt: Option<String>,
     /// `control pause`: no auto-resume, the inbox is held until `resume`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub paused: bool,

@@ -311,6 +311,9 @@ pub enum Input {
         id: String,
         session: String,
         message: String,
+        /// The prompt id the tell's receipt named: the interrupt's next prompt
+        /// goes out under it (or under an earlier joined tell's, traced).
+        prompt_id: String,
     },
     /// `send(text, attachments, reply_to)` (send.rs).
     Send {
@@ -1677,7 +1680,8 @@ impl Brain {
                 id,
                 session,
                 message,
-            } => self.tell_unsteered(&id, &session, &message),
+                prompt_id,
+            } => self.tell_unsteered(&id, &session, &message, &prompt_id),
             Input::Send { call, reply } => {
                 let _ = reply.send(self.send(call));
             }

@@ -114,6 +114,31 @@ fn a_tell_to_a_starting_subagent_waits_and_follows_its_task() {
             .expect("second message delivered"),
     );
     assert!(one < two, "in order: {later}");
+    // Issue 36496: the held messages were handed to its session, not seen
+    // taken, so the flush is traced (and noted) as submitted, never delivered.
+    let traced = |ev: &str| -> usize {
+        std::fs::read_dir(h.dir.path().join("traces"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
+            .map(|text| {
+                text.lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .filter(|value| value["ev"] == ev)
+                    .count()
+            })
+            .sum()
+    };
+    assert!(
+        traced("tell.submitted") >= 1,
+        "the inbox flush was not traced as submitted"
+    );
+    assert_eq!(
+        traced("tell.delivered"),
+        0,
+        "the inbox flush claimed delivery"
+    );
 }
 
 #[test]
@@ -272,14 +297,21 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     let a = sp.clone();
     let told = run(&mut h, move || a.tell("a1", "stop and fix the build")).unwrap();
     // Issue 36496: the tell returns before the harness took it, so its
-    // receipt says submitted (never done), names the prompt id, the session
-    // it went to, and the mode asked for and used.
+    // receipt says submitted (never done), names the prompt id and the
+    // session, and leaves the effective route pending: this agent refuses the
+    // steer, so the turn is interrupted instead, which the receipt must not
+    // have called a steer.
     assert!(told.starts_with("outcome: submitted."), "{told}");
-    assert!(told.contains("a1 prompt optchat-tell:a1:"), "{told}");
+    let prompt_id = told
+        .split_whitespace()
+        .find(|word| word.starts_with("optchat-tell:a1:"))
+        .expect("the receipt names its prompt id")
+        .to_owned();
     assert!(told.contains(&format!("in session {session}.")), "{told}");
     assert!(told.contains("Requested: now"), "{told}");
-    assert!(told.contains("Effective: steered in now"), "{told}");
-    assert!(told.contains("not yet confirmed read"), "{told}");
+    assert!(told.contains("Effective: pending"), "{told}");
+    assert!(!told.contains("Effective: steered"), "{told}");
+    assert!(told.contains("Not yet confirmed read"), "{told}");
     assert!(!told.contains("outcome: done"), "{told}");
     wait_for(&mut h, |h| {
         !h.agents.inner.lock().unwrap().cancels.is_empty()
@@ -298,6 +330,9 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
     let prompts = sub_prompts(&h);
     assert!(prompts[1].contains("stop and fix the build"), "{prompts:?}");
+    // The interrupt's next prompt goes out under the receipt's prompt id.
+    let ids = h.agents.inner.lock().unwrap().prompt_ids.clone();
+    assert_eq!(ids.last(), Some(&prompt_id), "{ids:?}");
 }
 
 /// `queue: true` keeps the old behavior for a low-priority FYI: no
@@ -318,7 +353,7 @@ fn a_queue_tell_waits_for_the_turn() {
     assert!(told.starts_with("outcome: submitted."), "{told}");
     assert!(told.contains("Requested: queue"), "{told}");
     assert!(
-        told.contains("Effective: steered in: read between its tool calls"),
+        told.contains("Effective: pending. Read between its tool calls"),
         "{told}"
     );
     wait_for(&mut h, |h| sub_prompts(h).len() >= 2);

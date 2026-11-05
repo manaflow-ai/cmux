@@ -587,11 +587,13 @@ impl Brain {
         });
         if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = follow;
+            sub.after_stop_prompt = None;
         }
         self.save();
         if let Err(e) = self.agents.cancel(&session) {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.after_stop = None;
+                sub.after_stop_prompt = None;
             }
             self.save();
             return outcome("refused", format!("{id} could not be interrupted: {e}"));
@@ -878,6 +880,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.after_stop_prompt = None;
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1210,6 +1213,7 @@ impl Brain {
         );
         let attempt = if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = Some(text);
+            sub.after_stop_prompt = None;
             sub.auto_continues += 1;
             sub.continued_ms = now;
             sub.auto_continues
@@ -1223,6 +1227,7 @@ impl Brain {
             ));
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.after_stop = None;
+                sub.after_stop_prompt = None;
             }
             self.save();
             return;
@@ -1278,6 +1283,7 @@ impl Brain {
             && let Some(s) = self.state.sub_mut(id)
             && let Some(dropped) = s.after_stop.take()
         {
+            s.after_stop_prompt = None;
             (self.log)(&format!(
                 "subagent {id}: dropped a follow-up an hour old: {}",
                 one_line(&dropped, 120)
