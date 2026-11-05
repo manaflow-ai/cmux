@@ -340,11 +340,11 @@ fn cli_name_at(
     None
 }
 
-fn drift_in(path: &Path, actions: &[Action]) -> Vec<Drift> {
+fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool) -> Vec<Drift> {
     let by_cli: BTreeMap<String, usize> = actions
         .iter()
         .enumerate()
-        .filter(|(_, action)| !action.cli_name.is_empty())
+        .filter(|(_, action)| !action.cli_name.is_empty() && reaches_app(&action.cli_name))
         .map(|(index, action)| (action.cli_name.clone(), index))
         .collect();
     let by_id: BTreeMap<&str, usize> =
@@ -371,7 +371,9 @@ fn drift_in(path: &Path, actions: &[Action]) -> Vec<Drift> {
     while index < tokens.len() {
         let (token, line) = &tokens[index];
         match token {
+            // A new function or match arm is another call.
             Token::Ident(word) if word == "fn" => current = None,
+            Token::Punct('=') if matches!(tokens.get(index + 1), Some((Token::Punct('>'), _))) => current = None,
             Token::Ident(word) if word == "action_run_params" => {
                 if let (Some((Token::Punct('('), _)), Some((Token::Str(name), _))) =
                     (tokens.get(index + 1), tokens.get(index + 2))
@@ -451,6 +453,19 @@ fn drift_in(path: &Path, actions: &[Action]) -> Vec<Drift> {
     drift
 }
 
+/// Whether CLI words reach the app action of that CLI name as its own
+/// arguments: the CLI's own grammars (the mux grammar, the agents grammar)
+/// run first and map their flags themselves (`run_app_action_fallback`), so
+/// words one of them takes are not this contract's.
+fn reaches_app(cli_name: &str) -> bool {
+    let words = cli_name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    if matches!(super::super::app::parse(&words), Ok(Some(_))) {
+        return true;
+    }
+    super::super::parse(&words, super::super::Surface::Cmux).is_err()
+        && super::super::agents::command(&words).is_err()
+}
+
 /// Every hand-named argument a CLI call site sends is one its action takes,
 /// under its canonical name.
 #[test]
@@ -458,7 +473,7 @@ fn every_cli_call_site_sends_only_arguments_its_action_takes() {
     let actions = actions();
     let mut drift = Vec::new();
     for file in source_files() {
-        drift.extend(drift_in(&file, &actions));
+        drift.extend(drift_in(&file, &actions, &reaches_app));
     }
     let lines = drift
         .iter()
@@ -512,7 +527,7 @@ fn the_scanner_finds_a_drifted_argument_in_every_call_shape() {
         "#,
     )
     .unwrap();
-    let found = drift_in(&file, &actions).into_iter().map(|drift| drift.sent).collect::<Vec<_>>();
+    let found = drift_in(&file, &actions, &|_| true).into_iter().map(|drift| drift.sent).collect::<Vec<_>>();
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(found, ["promptIdent", "prompt_id", "promptID"]);
 }
