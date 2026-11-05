@@ -171,9 +171,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: |
+            .xcode-version
             scripts/ci
             scripts/apple-developer-id-certs
             scripts/import-apple-developer-id-intermediates.sh
+            scripts/select-ci-xcode.sh
           sparse-checkout-cone-mode: false
 
       - name: Checkout the signing scripts
@@ -186,7 +188,9 @@ jobs:
           sparse-checkout: scripts/cmux-next
           sparse-checkout-cone-mode: false
 
-      # No Xcode selection: signing uses only the system codesign, PlistBuddy and ditto.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Download the unsigned helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
