@@ -48,6 +48,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'journey'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
+    'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
+     {'sign'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
      {'sign', 'publish', 'tip-dmg'}),
     'cmux-tui-build-package.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
