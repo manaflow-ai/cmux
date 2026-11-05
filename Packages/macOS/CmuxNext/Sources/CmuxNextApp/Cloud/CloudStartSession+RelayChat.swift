@@ -28,9 +28,7 @@ extension CloudStartSession {
         var loginWithin: Duration = CloudStartSession.loginWithin
 
         static func live(_ services: AppServices) -> RelaySteps {
-            RelaySteps(login: { machine, started, still in
-                try await CloudStartSession(services: services).passHarnessLogin(machine, agent: started.agent, login: started.login, still: still)
-            }, relay: { services.cloud.relayChat })
+            RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat })
         }
     }
 
@@ -83,13 +81,11 @@ extension CloudStartSession {
                 // the rest. A step still running sends nothing (it goes on and ends on its own); the caller goes the
                 // start-session way, whose start waits for its own step.
                 let clock = ContinuousClock(), begun = clock.now
-                let refusal: (code: String, message: String)?
-                do {
-                    guard let decided = try await Self.first(within: steps.loginWithin, login) else {
-                        return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
-                    }
-                    refusal = decided
-                } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
+                let decided: (code: String, message: String)??
+                do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
+                guard let refusal = decided else {
+                    return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
+                }
                 if let refusal {
                     // The rules' reason, and the start-session command that recovers (its `--login` choice is the caller's).
                     var fields = notSent(refusal.code, refusal.message)
