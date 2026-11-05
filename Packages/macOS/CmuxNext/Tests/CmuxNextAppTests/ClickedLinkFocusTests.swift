@@ -91,6 +91,30 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in the browser pane right
+    /// of the source (``splitRightHoldingABrowser(_:_:_:)``; made in the source, then moved there): its close, emptying
+    /// that pane, gives the focus back to the source, as the web tab's does.
+    @Test func theGitHubPageInAnotherPaneGivesTheFocusBackToTheSource() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            services.linkOpener.placement = { .splitRight }
+
+            let opened = try await Self.click(services, from: pane, native: true)
+            try await PinnedPageTests.until({ content.focusedPane === right && right.pane.tabs.contains { $0.id == opened } },
+                                            report: { "the GitHub page is not in the focused pane on the right: " + Self.describe(content, opened) })
+            // A close that empties its pane goes back to the chat's pane, not a neighbour: the record that close reads.
+            let shown = try #require(content.focusedPane)
+            #expect(services.linkOpener.returnPane(closing: TabID(opened), in: shown, emptiesPane: true) === pane,
+                    "the GitHub tab's close does not give the focus back to the chat's pane")
+        }
+    }
+
     /// The same link clicked again (an agent chat's PR link or card, Austin 2026-10-25: eleven tabs of
     /// one PR in the pane on the right) selects and focuses the tab the pane on the right already has
     /// for it, never a second tab of the same page.
