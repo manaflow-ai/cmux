@@ -123,7 +123,7 @@ def failures_in_log(log: str) -> list[dict]:
     return list(found.values())
 
 
-def collect(since: str, until: str, out: Path, max_runs: int) -> int:
+def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = "") -> int:
     prs = []
     for page in range(1, 6):
         batch = json.loads(gh("api", f"repos/{REPO}/pulls?state=closed&base={BASE_BRANCH}&sort=updated&direction=desc&per_page=100&page={page}"))
@@ -137,7 +137,7 @@ def collect(since: str, until: str, out: Path, max_runs: int) -> int:
     for workflow in TEST_WORKFLOWS:
         for page in range(1, 11):
             data = json.loads(gh("api", f"repos/{REPO}/actions/workflows/{workflow}/runs?status=failure&event=pull_request"
-                                        f"&created={since}..{until}&per_page=100&page={page}"))
+                                        f"&created={runs_since or since}..{until}&per_page=100&page={page}"))
             for run in data.get("workflow_runs", []):
                 pr = by_branch.get(run["head_branch"]) or next(iter({p["number"] for p in run.get("pull_requests") or []} & numbers), None)
                 if not pr or runs_read >= max_runs:
@@ -305,13 +305,14 @@ def main(argv: list[str]) -> int:
     c.add_argument("--until", default="9999")
     c.add_argument("--out", type=Path, required=True)
     c.add_argument("--max-runs", type=int, default=400)
+    c.add_argument("--runs-since", default="", help="read runs created from here (a PR fails before it merges); default --since")
     k = sub.add_parser("check")
     k.add_argument("failures", type=Path)
     k.add_argument("--metadata", type=Path, required=True)
     k.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
     if args.cmd == "collect":
-        return collect(args.since, args.until, args.out, args.max_runs)
+        return collect(args.since, args.until, args.out, args.max_runs, args.runs_since)
     return check(args.failures, args.metadata, args.json)
 
 
