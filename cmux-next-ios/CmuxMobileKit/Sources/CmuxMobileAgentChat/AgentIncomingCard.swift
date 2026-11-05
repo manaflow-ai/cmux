@@ -74,8 +74,11 @@ struct AgentIncomingCard: View {
 
     private func headerLine(chevron open: Bool?) -> some View {
         HStack(spacing: 6) {
-            AgentSenderIcon(harness: incoming.messages.count == 1 ? incoming.harness : nil,
-                            identity: incoming.messages.count == 1 ? incoming.senders : "messages", size: 16)
+            // One sender, however many messages: its family's mark and its own badge.
+            let one = incoming.messages.first.map(\.sender).flatMap { sender in
+                incoming.messages.allSatisfy { $0.sender == sender } ? sender : nil
+            }
+            AgentSenderIcon(harness: one.flatMap { harness(for: $0) }, identity: one ?? "messages", size: 16)
             Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
