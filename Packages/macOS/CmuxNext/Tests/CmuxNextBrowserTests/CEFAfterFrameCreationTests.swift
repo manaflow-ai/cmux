@@ -1,0 +1,48 @@
+import AppKit
+@testable import CmuxNextBrowser
+import Foundation
+import Testing
+
+extension CEFSparePageSuites {
+    /// A link opened on the right has a stand-in tab: its page is made once the key's frame committed
+    /// (`TabContentCache.browser(for:)`), which takes the spare Chromium window and shows the tab, and the tab's
+    /// browser waited for another after-commit pass (`CEFPaneHost.createAfterCommit`). That pass is the main run
+    /// loop's next idle one, which a busy main thread holds back: `tab_add` started 35 ms after the spare window's
+    /// take at idle, 84 ms on a cold launch and 246 ms under load (medians, instant-new-surfaces link_right, fleet
+    /// step d45296d5). Work that runs after the frame committed (`CEFRuntime.afterFrameCommitted`) is already past
+    /// that commit: a tab it shows gets its browser at the end of that work, in the same pass.
+    /// The stand-in shim and helpers are `CEFSparePageTests`' (`CEFSparePageFixture.swift`).
+    @MainActor @Suite struct CEFAfterFrameCreationTests {
+        typealias Rig = CEFSparePageTests
+
+        @Test func aTabShownInAfterFrameWorkGetsItsBrowserWhenThatWorkEnds() throws {
+            let (runtime, root) = try Rig.runtime()
+            defer { Rig.tearDown(runtime, root) }
+            Rig.setSparePage(false)
+            let (host, _, container) = try Rig.liveHost(runtime)
+            SpareSpy.clearRecords()
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            runtime.afterFrameCommitted {
+                host.present(link, in: container)
+                #expect(SpareSpy.added.isEmpty, "never inside the work that showed it")
+            }
+            #expect(SpareSpy.added.map(\.anchor) == [10], "its browser joined the live window when the work ended")
+            #expect(link.browserID != nil)
+        }
+
+        @Test func aTabShownOutsideAfterFrameWorkStillWaitsForTheFramesCommit() throws {
+            let (runtime, root) = try Rig.runtime()
+            defer { Rig.tearDown(runtime, root) }
+            Rig.setSparePage(false)
+            let (host, _, container) = try Rig.liveHost(runtime)
+            SpareSpy.clearRecords()
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            #expect(SpareSpy.added.isEmpty, "a tab shown in a key's turn gets its browser after that turn's frame")
+            host.createDeferred()
+            #expect(SpareSpy.added.map(\.anchor) == [10])
+        }
+    }
+}
