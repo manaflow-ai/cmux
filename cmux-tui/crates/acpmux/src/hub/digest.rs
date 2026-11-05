@@ -571,6 +571,7 @@ mod tests {
             full_access_device: None,
             message_id: None,
             message_sender: None,
+            goal_mark: None,
         })
     }
 
@@ -679,6 +680,7 @@ mod tests {
             full_access_device: None,
             message_id: None,
             message_sender: None,
+            goal_mark: None,
         };
         let digest = DigestTurn::default();
         *digest.taken.lock().unwrap() = vec![QueuedPrompt {

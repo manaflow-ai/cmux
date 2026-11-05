@@ -257,4 +257,33 @@ mod tests {
         assert!(moved_on(check_goal_mark(&session, Some(&older))));
         assert!(check_goal_mark(&session, Some(&newer)).is_ok());
     }
+
+    /// The person's Send now on a queued continuation whose goal moved on refuses it instead of
+    /// steering it in: the queued run keeps its mark. Codex review of #36641, F2.
+    #[tokio::test]
+    async fn a_continuation_sent_now_is_refused_once_its_goal_moved_on() {
+        let hub = hub();
+        let session = chat(&hub);
+        hub.goal_set(&session, &request("Make the suite pass")).unwrap();
+        let mark = step(&session);
+        hub.goal_update(&session, Reported::Complete, None).unwrap();
+        let run = crate::hub::queue::PromptRun {
+            size: Default::default(),
+            blocks: vec![json!({"type": "text", "text": "Keep going"})],
+            display_parts: None,
+            control: crate::hub::Control::Local,
+            cloud_mobile: false,
+            trust_gate: false,
+            provenance: None,
+            agent: Some(SENDER.to_owned()),
+            class: None,
+            supersede: None,
+            full_access_device: None,
+            message_id: None,
+            message_sender: None,
+            goal_mark: Some(mark),
+        };
+        let answer = hub.steer_queued(&session, Arc::new(run), SENDER, "goal-1").await;
+        assert!(moved_on(answer.map(|_| ())));
+    }
 }

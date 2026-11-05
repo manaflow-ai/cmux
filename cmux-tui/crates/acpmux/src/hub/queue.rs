@@ -125,6 +125,9 @@ pub(super) struct PromptRun {
     /// Delivery metadata normalized before queueing or recovered from a durable queued record.
     pub(super) message_id: Option<String>,
     pub(super) message_sender: Option<Value>,
+    /// A goal's continuation's mark (`PromptOptions::goal_mark`): checked when it runs, also
+    /// when it is sent now as a steer (`steer_queued`); an edit drops it.
+    pub(super) goal_mark: Option<String>,
     /// What its content holds, measured once (`queue_admission::run_bytes`).
     pub(super) size: std::sync::OnceLock<u64>,
 }
@@ -164,6 +167,8 @@ pub(super) struct Slot<'a> {
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
     pub(super) after_turn: bool,
+    /// `PromptOptions::goal_mark`, kept on its run.
+    pub(super) goal_mark: Option<&'a str>,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -424,6 +429,7 @@ impl Hub {
                                 full_access_device: p.full_access_device.map(str::to_owned),
                                 message_id: message_opts.message_id,
                                 message_sender: message_opts.message_sender,
+                                goal_mark: p.goal_mark.map(str::to_owned),
                             };
                             session.accept_prepared(p.prompt_id, &turn_id);
                             return Ok((
@@ -551,6 +557,8 @@ impl Hub {
             .step
             .contains(prompt_id);
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
+        // A goal's continuation whose goal moved on is refused, not steered in (`goal_tools.rs`).
+        super::goal_tools::check_goal_mark(session, run.goal_mark.as_deref())?;
         let opts = PromptOptions {
             prompt_id,
             message_id: run.message_id.clone(),
@@ -571,6 +579,7 @@ impl Hub {
             send_now: !digest || persons,
             // Taken out of the queue to steer: if it waits again, it waited already.
             admitted: true,
+            goal_mark: run.goal_mark.clone(),
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -743,6 +752,7 @@ impl Hub {
                     full_access_device: p.full_access_device.map(str::to_owned),
                     message_id: message_opts.message_id,
                     message_sender: message_opts.message_sender,
+                    goal_mark: p.goal_mark.map(str::to_owned),
                 }),
                 restored: false,
                 resume: false,
@@ -1520,6 +1530,7 @@ impl Hub {
                         full_access_device: None,
                         message_id: restored_message_opts.message_id,
                         message_sender: restored_message_opts.message_sender,
+                        goal_mark: None,
                     },
                     approval,
                 )),

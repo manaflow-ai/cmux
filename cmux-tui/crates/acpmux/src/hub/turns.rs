@@ -585,6 +585,7 @@ impl Hub {
             no_queue: opts.no_queue,
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
+            goal_mark: goal_mark.as_deref(),
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {

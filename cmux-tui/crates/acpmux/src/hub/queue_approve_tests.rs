@@ -119,6 +119,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         no_queue: false,
         admitted: false,
         after_turn: false,
+        goal_mark: None,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };

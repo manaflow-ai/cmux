@@ -448,6 +448,7 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
         full_access_device: None,
         message_id: None,
         message_sender: None,
+        goal_mark: None,
     });
     let (hub, session) = (f.hub.clone(), f.session.clone());
     let steered =

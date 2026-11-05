@@ -369,6 +369,7 @@ impl Hub {
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
                 message_id: None,
                 message_sender: None,
+                goal_mark: None,
             });
             q.preview = short_text(&text, 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
@@ -481,6 +482,7 @@ impl Hub {
                     full_access_device: device,
                     message_id: q.run.message_id.clone(),
                     message_sender: q.run.message_sender.clone(),
+                    goal_mark: None,
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

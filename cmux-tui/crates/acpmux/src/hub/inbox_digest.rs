@@ -433,6 +433,7 @@ impl Hub {
             // The digest is no session's message: the messages it took kept theirs.
             message_id: None,
             message_sender: None,
+            goal_mark: None,
         };
         queue.insert(
             at,
