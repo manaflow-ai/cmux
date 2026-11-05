@@ -41,9 +41,21 @@ describe("webSources", () => {
   });
 
   test("the opened result drops the links line the chip lists", () => {
-    expect(withoutLinks(SEARCH)).toBe(
+    expect(withoutLinks(tool({ output: SEARCH }), SEARCH)).toBe(
       'Web search results for query: "T3 Code desktop app"\n\nT3 Code is built around an Electron desktop app.',
     );
+  });
+
+  // Codex review of #36386, F1: a fetched page's own `Links: [...]` line is the page's text.
+  test("a fetched page keeps a Links line of its own, and its chip is the page it fetched", () => {
+    const page = 'Links: [{"title":"Elsewhere","url":"https://elsewhere.example/"}]\nThe page.';
+    const fetch = tool({ title: "Fetch https://example.com/docs", output: page });
+    expect(webSources(fetch).map((source) => source.url)).toEqual(["https://example.com/docs"]);
+    expect(withoutLinks(fetch, page)).toBe(page);
+  });
+
+  test("a call without sources keeps its output whole", () => {
+    expect(withoutLinks(tool({ output: "Links: [not json]" }), "Links: [not json]")).toBe("Links: [not json]");
   });
 });
 

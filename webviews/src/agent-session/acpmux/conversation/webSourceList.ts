@@ -39,8 +39,11 @@ export function webSources(tool: Tool | undefined): WebSource[] {
     const host = hostOf(url);
     if (host) found.push({ title: typeof title === "string" && title.trim() ? title.trim() : host, url, host });
   };
-  const links = tool.output ? LINKS.exec(tool.output)?.[1] : undefined;
-  if (links) {
+  // A fetch's own page may hold a `Links: [...]` line of its own: only a search's output is read for it.
+  const fetched = FETCH.exec(tool.title.trim())?.[1];
+  const links = !fetched && tool.output ? LINKS.exec(tool.output)?.[1] : undefined;
+  if (fetched) add(undefined, fetched);
+  else if (links) {
     try {
       const list: unknown = JSON.parse(links);
       if (Array.isArray(list))
@@ -50,16 +53,15 @@ export function webSources(tool: Tool | undefined): WebSource[] {
     } catch {
       // Not the harness's list: the call keeps its plain row.
     }
-  } else {
-    const url = FETCH.exec(tool.title.trim())?.[1];
-    if (url) add(undefined, url);
   }
   read.set(tool, found);
   return found;
 }
 
-/// The call's output without its links line, which the chip lists instead.
-export function withoutLinks(output: string): string {
+/// The call's output as its row draws it: a search's links line goes, since the chip lists it; a
+/// fetched page and a call without sources keep their output whole.
+export function withoutLinks(tool: Tool, output: string): string {
+  if (!webSources(tool).length || FETCH.test(tool.title.trim())) return output;
   return output.replace(LINKS, "").replace(/\n{3,}/g, "\n\n");
 }
 

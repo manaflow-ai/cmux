@@ -13,6 +13,7 @@ import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
+import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
 
@@ -77,7 +78,9 @@ function drawnText(item: AcpmuxActivity): string {
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const raw = shell ? undefined : callOutput(tool);
+  // A search's links line is its sources chip's, not its body's (webSourceList.ts withoutLinks).
+  const called = shell ? undefined : callOutput(tool);
+  const raw = called && withoutLinks(tool, called);
   const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
   const output = shell
     ? shellOutput(tool)

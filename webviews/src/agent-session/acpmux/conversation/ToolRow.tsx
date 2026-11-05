@@ -117,7 +117,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // A web search's links show in its sources chip (WebSources.tsx), not again in its body.
   const sources = useMemo(() => webSources(tool), [tool]);
   const output = callOutput(tool, failure);
-  const source = output && sources.length ? withoutLinks(output) : output;
+  const source = output && withoutLinks(tool, output);
   const result = useMemo(() => {
     if (shell || !source) return undefined;
     return toolResult(source, cleanText, strip, {

@@ -1,9 +1,11 @@
 // A web search or fetch call's sources (webSourceList.ts) under its row: one quiet line, "Sources"
 // and the first sites' names, that opens to each page's title and site; a click on a page opens
-// it in a cmux browser tab, as a link in a reply does (chips/LinkHoverCard.tsx `browser.openIn`).
-import { memo, useId, useState } from "react";
+// it in a cmux browser tab, as a link in a reply does (chips/LinkHoverCard.tsx `browser.openIn`). In a
+// read-only transcript (readOnly.ts) cmux's tabs are the owner's: a page opens in the reader's browser.
+import { memo, useId, useState, type MouseEvent } from "react";
 import { callChipHost } from "../chips/host";
 import { useT } from "../i18n";
+import { useTranscriptReadOnly } from "./readOnly";
 import { ChevronRight, Globe } from "./icons";
 import { sourcesLine, type WebSource } from "./webSourceList";
 import "./WebSources.css";
@@ -15,6 +17,7 @@ const open = (url: string) => void callChipHost("browser.openIn", { url, browser
 
 export const WebSources = memo(function WebSources({ sources }: { sources: readonly WebSource[] }) {
   const t = useT();
+  const readOnly = useTranscriptReadOnly();
   const [shown, setShown] = useState(false);
   const listId = useId();
   if (!sources.length) return null;
@@ -42,10 +45,14 @@ export const WebSources = memo(function WebSources({ sources }: { sources: reado
                 href={source.url}
                 className="cv-web-sources__page"
                 title={source.url}
-                onClick={(event) => {
-                  event.preventDefault();
-                  open(source.url);
-                }}
+                {...(readOnly
+                  ? { target: "_blank", rel: "noopener noreferrer" }
+                  : {
+                      onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+                        event.preventDefault();
+                        open(source.url);
+                      },
+                    })}
               >
                 <span className="cv-web-sources__title">{source.title}</span>
                 <span className="cv-web-sources__site">{source.host}</span>
