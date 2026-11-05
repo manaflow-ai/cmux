@@ -165,6 +165,24 @@ pub(super) fn no_secret(text: &str) {
 }
 
 #[test]
+fn selected_team_uses_the_platform_team_header() {
+    let (origin, requests) = fake(Arc::new(|_| (200, "[]".into())));
+    let platform = platform(&origin).with_team(Some("team_0123456789abcdef0123".into()));
+    platform.post("/v1/machines/credentials", json!({})).unwrap();
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team: team_0123456789abcdef0123"))
+    );
+    assert!(
+        !request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team-id: team_0123456789abcdef0123"))
+    );
+}
+
+#[test]
 fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
     assert_eq!(command(&["machine", "add"]).verb, Verb::Add(AddArgs::default()));
     assert_eq!(

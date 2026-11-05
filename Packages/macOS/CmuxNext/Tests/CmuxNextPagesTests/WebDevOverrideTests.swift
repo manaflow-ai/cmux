@@ -25,6 +25,14 @@ struct WebDevOverrideTests {
         #expect(noPort.server == nil)
     }
 
+    @Test func parsesALoopbackGalleryServerThatPagesIgnore() {
+        let value = WebDevOverride.parse(Data(#"{"gallery": "http://127.0.0.1:4178/"}"#.utf8), home: home)
+        #expect(value.gallery?.absoluteString == "http://127.0.0.1:4178/")
+        #expect(!value.isActive)
+        let remote = WebDevOverride.parse(Data(#"{"gallery": "http://10.0.0.2:4178/"}"#.utf8), home: home)
+        #expect(remote.gallery == nil)
+    }
+
     @Test func disabledOrInvalidFileIsEmpty() {
         let off = WebDevOverride.parse(Data(#"{"enabled": false, "server": "http://127.0.0.1:4181/"}"#.utf8), home: home)
         #expect(off == WebDevOverride())

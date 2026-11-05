@@ -142,11 +142,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           )}
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}

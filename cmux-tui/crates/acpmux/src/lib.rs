@@ -50,6 +50,7 @@ pub mod codex_app_server;
 mod codex_auth_file;
 pub mod complete;
 pub mod config;
+pub mod context_inventory;
 pub mod cpu_class;
 pub mod cua_socket;
 pub mod cua_v2;
@@ -142,6 +143,7 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub mod sr2_cost_labels;

@@ -623,6 +623,7 @@ impl HostAttachment {
             writer: Arc::downgrade(&self.writer),
             responses: Arc::downgrade(&self.control_responses),
             protocol_version: self.protocol_version,
+            input_order: self.input_order.clone(),
         }
     }
 }
@@ -636,6 +637,8 @@ pub(crate) struct ClipboardReplier {
     pub(crate) writer: Weak<Mutex<HostStream>>,
     pub(crate) responses: Weak<ControlResponses>,
     pub(crate) protocol_version: u16,
+    /// The terminal's input port order: the reply goes after the keys the port took before it (S1.6b).
+    pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
 }
 
 impl ClipboardReplier {
@@ -651,6 +654,9 @@ impl ClipboardReplier {
             return Ok(false);
         }
         let reply = encode_clipboard_read_reply(token, text);
+        if let Some(order) = &self.input_order {
+            order.barrier(super::attachment::input_order_deadline(None));
+        }
         send_host_frame(&writer, self.protocol_version, MessageKind::ClipboardReadReply, &reply)?;
         Ok(true)
     }

@@ -36,6 +36,10 @@ concurrency:
   group: gallery-advisory-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Drafts skip until they are marked ready, and CI_QUOTA_HOLD=1 pauses the
   # receipt while the GITHUB_TOKEN budget is reserved for the nightly

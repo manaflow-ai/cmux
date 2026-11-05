@@ -522,7 +522,7 @@ export function IncomingMessageLine({
             }}
           >
             {t("message.details")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
+            <ChevronRight size={12} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
             <div id={rawId} {...envelope.bodyProps}>

@@ -10,6 +10,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
+import { THINKING_VERBS } from "./thinkingVerbs";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -912,6 +913,9 @@ const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
     throw new Error("assistant prose picked up a message container surface");
 };
 
+/// The live line's word before a step: "Thinking", or the turn's verb in English (thinkingVerbs.ts).
+const THINKING_WORD = new RegExp(`^(?:Thinking|${THINKING_VERBS.join("|")})`);
+
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
 /// The running line starts with its words, with no mark before them. Only the word Thinking may
@@ -1658,7 +1662,7 @@ export default agentPaneEntry({
     thinking: {
       note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it; the word itself shimmers in the theme accent, as in the Codex app (still under Reduce Motion). Play: the shimmer is the line's only loop.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
-      play: runningLineStill(/^Thinking/, true),
+      play: runningLineStill(THINKING_WORD, true),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -2151,7 +2155,7 @@ export default agentPaneEntry({
           turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
         },
       ),
-      play: runningLineStill(/^Thinking/, true),
+      play: runningLineStill(THINKING_WORD, true),
     },
     "working-tokens-total": {
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
@@ -2163,7 +2167,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(/^Thinking/, true),
+      play: runningLineStill(THINKING_WORD, true),
     },
     "worked-tokens": {
       note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",

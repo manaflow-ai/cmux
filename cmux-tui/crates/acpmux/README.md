@@ -1475,6 +1475,17 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
   `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
+- `store.journal`: `true` sends every event-log line through one append-only journal in
+  `journal/` as well (default `false`, a dogfood switch). A line is then durable within one group
+  commit (an OS crash or a power loss keeps it), and the next start writes back into a chat's log
+  every line it lost. `journal-projected.json` names how far the logs are synced. Lines the start
+  could not write into a log that changed without the journal (a run with the switch off after a
+  crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
+  writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
+  which writes the logs again: it exits with status 74, and its supervisor (or the next client)
+  starts it again. A reply and an acknowledged event wait until what they show is durable. With it
+  on, an event line over 64 MiB (the journal's record limit) is refused, and its log does not get
+  it either; with it off, the log takes it. Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

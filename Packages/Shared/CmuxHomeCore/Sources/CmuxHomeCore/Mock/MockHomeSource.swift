@@ -28,6 +28,9 @@ public actor MockHomeSource: HomeSource {
         public static let immediate = Options(chiefHistory: 300, latency: .zero, replyDelay: .zero)
     }
 
+    /// What ``agentSessions(_:of:)`` answers (``setAgentSessions(_:)``).
+    private var agentSessionRefs: [HomeAgentSessionRef] = []
+
     private let options: Options
     private let clock: any Clock<Duration>
     private var online: Bool
@@ -535,6 +538,18 @@ public actor MockHomeSource: HomeSource {
     /// - Parameter event: The frame, for example an `.activity` frame with the step running now.
     public func streamLive(_ event: HomeLiveEvent) {
         publish(.live(event))
+    }
+
+    /// Sets where the mock Chief's agents run (tests and the DEBUG Home fixture's move captures).
+    ///
+    /// - Parameter refs: Every agent's session and place; ``agentSessions(_:of:)`` answers those of the asked
+    ///   agents, for any chat.
+    public func setAgentSessions(_ refs: [HomeAgentSessionRef]) {
+        agentSessionRefs = refs
+    }
+
+    public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
+        agentSessionRefs.filter { peers.contains($0.peer) }
     }
 
     // MARK: Owner logic

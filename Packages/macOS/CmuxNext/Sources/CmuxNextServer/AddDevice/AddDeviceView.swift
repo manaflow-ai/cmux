@@ -253,6 +253,7 @@ public final class AddDeviceView: NSView {
         case .copyJoinLine: "copyJoinLine"
         case .makeJoinLine: "makeJoinLine"
         case .newJoinLine: "newJoinLine"
+        case .signIn: "signIn"
         case .showMachines: "showMachines"
         case .done: "done"
         case .cancel: "cancel"

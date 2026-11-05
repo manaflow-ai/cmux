@@ -193,8 +193,12 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
             assert not any(word in step_name for word in FEED_STEP_WORDS) or "checkout" in uses or "token" in step_name, (
                 f"{name}: {step_name!r} runs before the lease")
         # The release is the job's last step and runs whatever happened once the lock step ran:
-        # a lease PUT can land while its response is lost, and unlock checks the owner.
-        assert unlock == len(steps) - 1, name
+        # a lease PUT can land while its response is lost, and unlock checks the owner. On an owned
+        # Mac only the always() wipe of the job's credentials and files follows it
+        # (tests/test_nightly_owned_minis_only.py), since unlock runs from the files it removes.
+        last = steps[-1]
+        wipe_last = last.get("id") == "wipe-credentials" and str(last.get("if", "")) == "always()"
+        assert unlock == len(steps) - (2 if wipe_last else 1), name
         assert steps[unlock]["if"] == "always() && steps.lease.outcome != 'skipped'", name
         assert steps[unlock]["env"] == steps[lock]["env"], name
         # A short TTL kept alive by a heartbeat: a dead holder blocks the feed at most one TTL,

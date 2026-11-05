@@ -61,12 +61,20 @@ STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 FAILED = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
+    # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
+    re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Where a display-named Swift Testing failure recorded its issue: `✘ Test "name" recorded an issue [with N
+# arguments ...] at <File>.swift:<line>:<col>`. A `@Test("...")` name prints with no suite, and suites run
+# interleaved (three were open at once in tests/fixtures/test_reds/26346-head-run-40620080851.log), so the
+# enclosing suite cannot be read from the line; the issue's file can, and two suites with the same display name
+# are in different files. Greedy up to the last ` at <file>.swift:`, since an argument value may hold one
+# (cmux#35902).
+ISSUE_SITE = re.compile(r'✘ Test ("[^"\n]*") recorded an issue\b.*\bat ([\w+.-]+\.swift):\d+')
 # Swift Testing emits type suites without quotes and custom suite names in quotes.
 SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
@@ -214,6 +222,9 @@ class Result:
         self.failed: set = set()
         self.passed: set = set()
         self.messages: dict = {}
+        # A display-named failure's issue files (ISSUE_SITE): {'"a name"': {"ATests.swift"}}. Empty for a test
+        # whose name already says its suite (`a()`, `Suite.test()`), and for a log that prints no issue line.
+        self.sites: dict = {}
         self.crashes: list = []
         self.truncated: list = []
 
@@ -257,9 +268,46 @@ def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
     return found
 
 
+# Tokens that differ run to run in the same error (2026-11-04: the same release-notary red on a PR and on the base
+# named /tmp/tmp.Pw5bL0wmeb on one side and another mktemp name on the other). volatile() masks them before two
+# errors are compared; it never decides on its own that a red is the base's, only that two lines say the same thing.
+# A temp dir named for its run: mktemp's tmp.XXXXXXXXXX and Python's tmpXXXXXXXX under /tmp or $RUNNER_TEMP, a UUID
+# under $RUNNER_TEMP, macOS's /var/folders/XX/YYYY/T root; the runner's checkout root; an ISO time. Only names shaped
+# like these: /tmp/release-notes.md and /tmp/appcast.xml stay two errors. Numbers are left to the caller
+# (base_red_excuse masks every digit of an error line; a test's message keeps its numbers, so a timing or count
+# that changed is still a different failure). Hex ids and UUIDs outside a temp dir are compared as they are: a
+# missing artifact deadbeef1 is not a missing artifact abcdef12 (base_red_excuse's mask_shas masks only commit shas
+# for the same reason).
+_TEMP_ROOT = r"(?:(?<![\w.])/tmp|(?:/[^/\s'\"]+)*/_temp)"
+_TEMP_NAME = (r"(?:tmp\.[A-Za-z0-9]{6,}|tmp[a-z0-9_]{8}|"
+              r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![\w-])")
+VOLATILE = (
+    (re.compile(r"(?:/private)?/var/folders/[^/\s'\"]+/[^/\s'\"]+/T(?=/|\b)"), "<tmp>"),
+    (re.compile(_TEMP_ROOT + "/" + _TEMP_NAME), "<tmp>"),
+    (re.compile(r"(?:/[^/\s'\"]+)*/_temp(?=/)"), "<runner-temp>"),
+    (re.compile(r"(?:/home/runner/work|(?:/[^/\s'\"]+)*/_work)/[^/\s'\"]+/[^/\s'\"]+(?=/)"), "<workspace>"),
+    (re.compile(r"\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:[.,]\d+)?)?(?:Z|[+-]\d\d:?\d\d)?"), "<time>"),
+)
+
+
+def volatile(text: str) -> str:
+    """TEXT with its run-to-run tokens masked (VOLATILE), for comparing one error with another."""
+    for pattern, mask in VOLATILE:
+        text = pattern.sub(mask, text)
+    return text
+
+
+def same_error(head: str | None, base: str | None) -> bool:
+    """Whether two printed errors say the same thing once their run-to-run tokens are masked."""
+    return bool(head) and bool(base) and volatile(head) == volatile(base)
+
+
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
-    return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+    # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
+    # shares the stream ("\u200b✔ Suite \"x\" passed"); left in, the anchored suite patterns miss the line and
+    # a suite that passed reads as never finished (https://github.com/manaflow-ai/cmux/pull/35296).
+    return [STAMP.sub("", ANSI.sub("", line)).lstrip("\u200b").rstrip() for line in log.splitlines()]
 
 
 def lines_of(log: str) -> list[str]:
@@ -318,6 +366,15 @@ def failed_names(lines: list[str]) -> set[str]:
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
+    return found
+
+
+def issue_sites(lines: list[str]) -> dict:
+    """The files each display-named failure in LINES recorded an issue in (ISSUE_SITE)."""
+    found: dict = {}
+    for text in lines:
+        if match := ISSUE_SITE.search(text):
+            found.setdefault(match.group(1), set()).add(match.group(2))
     return found
 
 
@@ -595,9 +652,11 @@ def read(log: str | None, bun: bool = True) -> Result:
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
-    if names := failed_names([text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]):
+    real = [text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]
+    if names := failed_names(real):
         result.failed |= names
         result.ran = True
+    result.sites = issue_sites(real)
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
     # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
     # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
@@ -901,7 +960,7 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
     differ = [name for name in sorted(head.failed & seen)
               if (head.messages.get(name) or base_result.messages.get(name))
-              and head.messages.get(name) != base_result.messages.get(name) and name not in flaky]
+              and not same_error(head.messages.get(name), base_result.messages.get(name)) and name not in flaky]
     if base_log is None and head.failed - flaky.keys():
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
@@ -911,7 +970,20 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         said = [f"{name} ({head.messages.get(name) or 'no error read'} here; "
                 f"{base_result.messages.get(name) or 'no error read'} on {base})" for name in differ]
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
-    shared = sorted(head.failed & seen - set(differ) - flaky.keys())
+    # A display name says nothing about its suite, so the same one in two suites is two tests: compare the files
+    # their issues name, and call it the head's own when neither side's files are the other's. The same test
+    # failing at another line, or at a second expectation, still overlaps; with no file on a side, the name alone
+    # decides, as before (cmux#35902).
+    elsewhere = [name for name in sorted(head.failed & seen)
+                 if head.sites.get(name) and base_result.sites.get(name)
+                 and not (head.sites[name] & base_result.sites[name])
+                 and name not in flaky and name not in differ]
+    if elsewhere:
+        said = [f"{name} (here in {', '.join(sorted(head.sites[name]))}; "
+                f"on {base} in {', '.join(sorted(base_result.sites[name]))})" for name in elsewhere]
+        reasons.append(f"{len(elsewhere)} display-named test(s) fail in different files on {base}, so the name is "
+                       f"two tests, not one red: {'; '.join(said)[:600]}")
+    shared = sorted(head.failed & seen - set(differ) - set(elsewhere) - flaky.keys())
     shared += [f"{name} ({why})" for name, why in sorted(flaky.items())]
     return Verdict(bool(reasons), reasons, shared)
 
@@ -1150,7 +1222,7 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
             new.append(name)
             continue
         mine, theirs = head.failed.get(name, ""), seen.failed[name]
-        if not mine or not theirs or mine != theirs:
+        if not same_error(mine, theirs):
             differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
             continue
         shared.append(name)

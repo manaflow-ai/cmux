@@ -15,7 +15,10 @@ passes when
      HomeDock.page: the Chief conversation, whose empty state is the first-run
      panel) selected, and the launch marks the app streams to
      CMUX_NEXT_LAUNCH_MARKS_FD (LaunchMarkSink) include
-     first_window_frame_committed.
+     first_window_frame_committed. While the first-run Bring your history page
+     covers Home, the tab has no selection: the mark
+     first_run.history_import_shown stands in, so this path proves the frame
+     and that the page opened, not Home's first-run view behind it.
 
 The app keeps its defaults in the account's preferences whatever HOME says
 (cfprefsd), so the run holds a per-bundle lock, sets the domain aside
@@ -61,8 +64,15 @@ PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
 AFTER_RENDER = None
 # A caller's preparation of the fresh home before the app starts: prepare(env) (None for the nightly smoke).
 PREPARE_HOME = None
+# A caller whose ready state is not Home (scripts/cmux-next/idle_cpu.py: any visible window) sets this to
+# ready(snapshot) -> bool; it replaces only the Home-tab check, never the first_window_frame_committed mark.
+# None (the nightly smoke): home_rendered, Home's tab selected or covered by the first-run page.
+READY = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
+# The app marks this when it opens the first-run Bring your history page over Home. That page is not
+# in the topology, so Home's tab has no selection while it shows.
+FIRST_RUN_MARK = "first_run.history_import_shown"
 
 
 class CannotRun(Exception):
@@ -301,6 +311,35 @@ def home_tab(snap: dict | None) -> dict | None:
     return None
 
 
+def first_run_home_tab(snap: dict | None) -> dict | None:
+    """Home's page tab with nothing selected in its pane, in a workspace a visible window shows; None otherwise.
+
+    This alone does not prove a healthy launch. It counts only with FIRST_RUN_MARK, the app's word that
+    its first-run page is what covers Home.
+    """
+    topology = (snap or {}).get("topology") or {}
+    shown = {window.get("workspace") for window in topology.get("windows") or []
+             if isinstance(window, dict) and window.get("visible")}
+    for workspace in topology.get("workspaces") or []:
+        if not isinstance(workspace, dict) or workspace.get("id") not in shown:
+            continue
+        for screen in workspace.get("screens") or []:
+            for pane in (screen or {}).get("panes") or []:
+                if (pane or {}).get("selected_tab") is not None:
+                    continue
+                for tab in (pane or {}).get("tabs") or []:
+                    if isinstance(tab, dict) and tab.get("page") == HOME_PAGE:
+                        return tab
+    return None
+
+
+def home_rendered(snap: dict | None, marks: dict[str, float]) -> bool:
+    """A visible window committed a frame showing Home, or the first-run page the app opened over Home."""
+    if RENDER_MARK not in marks:
+        return False
+    return bool(home_tab(snap)) or (FIRST_RUN_MARK in marks and bool(first_run_home_tab(snap)))
+
+
 def read_marks(path: Path) -> dict[str, float]:
     marks: dict[str, float] = {}
     try:
@@ -433,7 +472,9 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 break
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
-                if home_tab(snap) and RENDER_MARK in read_marks(marks_path):
+                seen = read_marks(marks_path)
+                shown = READY(snap) and RENDER_MARK in seen if READY is not None else home_rendered(snap, seen)
+                if shown:
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
@@ -515,7 +556,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
-                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'})")
+                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
+                        f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")

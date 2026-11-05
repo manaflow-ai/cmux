@@ -1742,8 +1742,7 @@ fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
     std::fs::create_dir_all(&elsewhere).unwrap();
 
     let listener = UnixListener::bind(&socket).unwrap();
-    let service: &'static FsService =
-        Box::leak(Box::new(FsService::new(Roots::new([home.clone()]))));
+    let service: &'static FsService = Box::leak(Box::new(FsService::new(Roots::new([home]))));
     let swapped: &'static std::sync::atomic::AtomicBool = Box::leak(Box::default());
     let (sub, target) = (remote.join("sub"), elsewhere.clone());
     std::thread::spawn(move || {

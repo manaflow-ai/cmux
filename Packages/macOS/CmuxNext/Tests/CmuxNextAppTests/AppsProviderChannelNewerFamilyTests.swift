@@ -31,6 +31,25 @@ struct AppsProviderChannelNewerFamilyTests {
         #expect(seen == [["agent_cli", "coderouter", "memory"], ["agent_cli", "coderouter"]])
     }
 
+    /// A daemon that has `memory` but predates `toast` keeps `memory`: only the newest
+    /// family it refuses is dropped, one at a time.
+    @Test func aDaemonWithMemoryButNoToastKeepsMemory() async {
+        let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
+        let connection = NSObject()
+        let link = AppsProviderLink(connection: { connection }, register: { _, families in
+            sink.yield(families)
+            if families.contains("toast") { return "bad-request" }
+            sink.finish()
+            return nil
+        }, answer: { _, _, _, _ in })
+        let channel = AppsProviderChannel(link: link)
+        channel.attach(AppHostCapabilities([Owner(families: ["coderouter"]), Owner(families: ["memory"]), Owner(families: ["toast"])]))
+        channel.connectionChanged(epoch: 1)
+        var seen: [[String]] = []
+        for await families in attempts { seen.append(families) }
+        #expect(seen == [["coderouter", "memory", "toast"], ["coderouter", "memory"]])
+    }
+
     @Test func aCurrentDaemonRegistersEveryFamilyOnce() async {
         let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
         let connection = NSObject()

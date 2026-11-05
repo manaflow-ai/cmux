@@ -114,7 +114,7 @@ export function DisclosureRow({
       {status && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}

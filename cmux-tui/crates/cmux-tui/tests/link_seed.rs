@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
 use cmux_tui_core::git_seed::{self, GitSeedService};
 use serde_json::{Value, json};
+use sha2::Digest as _;
 
 const URL: &str = "https://github.com/acme/widget.git";
 
@@ -236,12 +237,15 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     let mut expected = files(&w.work);
     expected.retain(|path, _| path != ".env" && !path.starts_with("node_modules/"));
     assert_eq!(files(&remote), expected);
-    // No bundle is left beside the folder.
-    let left: Vec<_> = std::fs::read_dir(w.home.join("work"))
+    // No bundle is left beside the folder; only the folder's repository sync barrier stays
+    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock).
+    let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(left, ["widget"], "{left:?}");
+    left.sort();
+    let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
+    assert_eq!(left, [barrier.as_str(), "widget"], "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");

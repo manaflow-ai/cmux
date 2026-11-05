@@ -29,13 +29,11 @@ struct CloseTeardownAfterLandingTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(reduceMotion: Bool = false, contentPolicy: Bool = false) {
+        init(reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: CloseTeardownAfterLandingTests.columns(["p1", "p2", "p3"]))],
                                 activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = reduceMotion
-            // FRAME OWNER S3c off: the closed host hides in the close's turn (these cases); on: it shows its own ground.
-            root.context.contentPolicyOverride = contentPolicy
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root
@@ -58,11 +56,10 @@ struct CloseTeardownAfterLandingTests {
         .columns(panes.map { LayoutColumn(id: ColumnID("c-\($0.rawValue)"), width: 1.0 / 3, root: .leaf($0)) })
     }
 
-    /// `contentPolicy` (FRAME OWNER S3c, `motion.frameOwner.contentPolicy`): on, the closed host stays shown with only its
-    /// ground (its content hidden, no ring, no hit) on its collapsing frame; off, it hides. Either way it goes at the landing.
-    @Test(arguments: [false, true])
-    func aSpringingCloseTearsTheClosedPaneDownWhenItLands(contentPolicy: Bool) throws {
-        let strip = Strip(contentPolicy: contentPolicy)
+    /// FRAME OWNER S3c: the closed host stays shown with only its ground (its content hidden, no ring, no hit) on its
+    /// collapsing frame, and goes at the landing.
+    @Test func aSpringingCloseTearsTheClosedPaneDownWhenItLands() throws {
+        let strip = Strip()
         defer { strip.window.closeAfterTest() }
         let closed = try #require(strip.root.context.hosts["p2"])
         #expect(closed.superview === strip.screen && !closed.isHidden)
@@ -72,13 +69,9 @@ struct CloseTeardownAfterLandingTests {
         #expect(strip.root.context.hosts["p2"] == nil, "the closed pane has left the layout")
         #expect(strip.provider.released.isEmpty, "the close's own turn released the closed content: \(strip.provider.released)")
         #expect(closed.superview === strip.screen, "the close's own turn took the closed host's layers out of the tree")
-        if contentPolicy {
-            #expect(!closed.isHidden && closed.showsClosingGround && closed.content.isHidden && closed.chrome.isHidden,
-                    "the closed host shows only its ground, no content and no ring, from the close's first frame")
-            #expect(closed.hitTest(NSPoint(x: closed.frame.midX, y: closed.frame.midY)) == nil, "the closing host takes clicks")
-        } else {
-            #expect(closed.isHidden && closed.chrome.isHidden, "the closed host and its ring are hidden from the close's first frame")
-        }
+        #expect(!closed.isHidden && closed.showsClosingGround && closed.content.isHidden && closed.chrome.isHidden,
+                "the closed host shows only its ground, no content and no ring, from the close's first frame")
+        #expect(closed.hitTest(NSPoint(x: closed.frame.midX, y: closed.frame.midY)) == nil, "the closing host takes clicks")
         // The provider's shown panes lose it in the close's own turn (the App's `content.panes`: a key, a focus or a
         // lookup there never finds the closed pane, ClosedPendingSplitFocusTests); only the teardown waits.
         #expect(strip.provider.shown == ["p1", "p3"], "the close's own turn left the closed pane shown: \(strip.provider.shown)")
@@ -95,9 +88,8 @@ struct CloseTeardownAfterLandingTests {
         #expect(closed.superview == nil && closed.chrome.superview == nil, "the landing takes the closed host and its ring out of the tree")
     }
 
-    @Test(arguments: [false, true])
-    func aCloseTakenBackBeforeItLandsShowsTheSameHostAgain(contentPolicy: Bool) throws {
-        let strip = Strip(contentPolicy: contentPolicy)
+    @Test func aCloseTakenBackBeforeItLandsShowsTheSameHostAgain() throws {
+        let strip = Strip()
         defer { strip.window.closeAfterTest() }
         let closed = try #require(strip.root.context.hosts["p2"])
         strip.show(["p1", "p3"], focus: "p1")

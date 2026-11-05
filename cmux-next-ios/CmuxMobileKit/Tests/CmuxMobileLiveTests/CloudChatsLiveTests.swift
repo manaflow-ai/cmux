@@ -8,7 +8,20 @@ import Testing
 
 /// Exercises the production ACP client/source over the Cloud service, including
 /// two VMs that use the same local session id. No transcript-specific mock source.
-@MainActor @Suite struct CloudChatsLiveTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct CloudChatsLiveTests {
+    /// Each wait ends on what it waits for (the hub's ready event, or an observed change), and
+    /// the suite's one-minute time limit is its only bound. A 2 s budget failed on a loaded
+    /// simulator (the full kit beside other simulator steps) while the same tests passed alone.
+    static let waitLimit: Duration = .seconds(60)
+
+    func ready(_ hub: AcpmuxHub) async -> Bool {
+        await hub.waitUntilReady(timeout: Self.waitLimit, clock: ContinuousClock())
+    }
+
+    func until(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
+        await ObservationWait(condition, budget: Self.waitLimit).value
+    }
+
     final class Wire: MacLink, @unchecked Sendable {
         let transport = TransportKind.wireGuard
         let states: AsyncStream<LinkState> = AsyncStream { $0.finish() }
@@ -141,19 +154,19 @@ import Testing
         let second = CloudChatRelay(machine: try machine("vm-b"), macID: "mac")
         first.bind(wire)
         second.bind(wire)
-        #expect(await ObservationWait({ first.hub.isReady && second.hub.isReady }, budget: .seconds(2)).value)
+        #expect(await ready(first.hub))
+        #expect(await ready(second.hub))
         #expect(wire.services.allSatisfy { $0.0 == "cloud-acpmux" && $0.1["team_id"] == "team" })
         let a = try #require(first.store(sessionID: "shared"))
         let b = try #require(second.store(sessionID: "shared"))
         #expect(a !== b)
         #expect(first.store(sessionID: "missing") == nil)
         #expect(first.store(sessionID: "peer/shared") == nil)
-        #expect(await ObservationWait({ a.turns.first?.answerMarkdown == "vm-a" && b.turns.first?.answerMarkdown == "vm-b" },
-                                     budget: .seconds(2)).value)
+        #expect(await until { a.turns.first?.answerMarkdown == "vm-a" && b.turns.first?.answerMarkdown == "vm-b" })
         a.send(prompt: "continue-a")
         // Wait for the user_message the remote journal returned, then verify
         // which machine actually received the prompt.
-        #expect(await ObservationWait({ a.turns.count > 1 }, budget: .seconds(2)).value)
+        #expect(await until { a.turns.count > 1 })
         #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == "shared" && $0.2 == "continue-a" })
         #expect(!wire.sent.contains { $0.0 == "vm-b" })
         first.disconnect()
@@ -164,13 +177,13 @@ import Testing
         let relay = CloudChatRelay(machine: try machine("vm"), macID: "mac")
         let old = Wire()
         relay.bind(old)
-        #expect(await ObservationWait({ relay.hub.isReady }, budget: .seconds(2)).value)
+        #expect(await ready(relay.hub))
         let store = try #require(relay.store(sessionID: "shared"))
         relay.disconnect()
-        #expect(await ObservationWait({ !relay.hub.isReady }, budget: .seconds(2)).value)
+        #expect(await until { !relay.hub.isReady })
         let new = Wire()
         relay.bind(new)
-        #expect(await ObservationWait({ relay.hub.isReady }, budget: .seconds(2)).value)
+        #expect(await ready(relay.hub))
         #expect(relay.store(sessionID: "shared") === store)
         #expect(new.services.first?.0 == "cloud-acpmux")
         #expect(new.services.first?.1["machine_id"] == "vm")
@@ -181,7 +194,7 @@ import Testing
         let relay = CloudChatRelay(machine: try machine("vm"), macID: "mac")
         let wire = Wire()
         relay.bind(wire)
-        #expect(await ObservationWait({ relay.hub.isReady }, budget: .seconds(2)).value)
+        #expect(await ready(relay.hub))
         _ = try #require(relay.store(sessionID: "shared"))
         relay.retire()
         #expect(relay.isRetired)

@@ -5,9 +5,10 @@ import CmuxNextDesign
 /// button at the chat's top-left, beside the traffic lights (refs/imessage-layout/2.png). It runs
 /// the list's own New Message action and right-click menu (`HomeSidebarView.newMessage`).
 final class HomeChatComposeButton: ClickableButton {
-    /// The button's diameter: the list's glass filter circle's (`HomeSidebarHeaderLayout.side`),
-    /// as Messages' compose and filter circles are one size.
-    static let side: CGFloat = HomeSidebarHeaderLayout.side
+    /// The button's diameter: the list's glass filter circle's at Compact with the default text
+    /// (`HomeSidebarHeaderMetrics.standard`), as Messages' compose and filter circles are one size.
+    /// The chat's header does not follow the sidebar's density and text size.
+    static let side: CGFloat = HomeSidebarHeaderMetrics.standard.side
     /// A right-click menu (the list compose's: New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 

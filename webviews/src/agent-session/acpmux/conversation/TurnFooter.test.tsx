@@ -115,8 +115,7 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
     },
     { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
   ] as AcpmuxRow[];
-  // Its Worked for open, so the run is the row above the footer.
-  const drawn = turnView(rows, new Set(["worked-p"]), { agentFamily: "claude", now: 10_000 });
+  const drawn = turnView(rows, new Set(), { agentFamily: "claude", now: 10_000 });
   const at = drawn.findIndex((row) => row.kind === "turnSummary");
   const last = drawn[at]!;
   expect(last.text).toBeUndefined();

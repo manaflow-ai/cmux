@@ -73,6 +73,8 @@
 # on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
 # cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
 # (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
+# Every file of the run shares one cache of the React Compiler's output (CMUX_VITE_TRANSFORM_CACHE,
+# a folder of the run's own unless set; webviews/reactCompiler.mjs), keyed by each module's exact code.
 #
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
@@ -271,6 +273,10 @@ fi
 jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
 trap 'rm -rf "$results"' EXIT
+# One React Compiler output cache for every file of this run (webviews/reactCompiler.mjs): without it
+# each dev server file compiled the agent pane again in its own Vite (App.tsx alone took 33 s), and
+# that start put dev server files past their limits on a busy shard.
+export CMUX_VITE_TRANSFORM_CACHE="${CMUX_VITE_TRANSFORM_CACHE:-$results/vite-transforms}"
 
 # bun test's default file names, from the git index so the list is the same everywhere. Outside
 # GitHub Actions (`bun run test` on a checkout, a fleet step) untracked files that git does not
@@ -389,8 +395,25 @@ if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $brows
 else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
+# warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
+# modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
+# 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
+# without the script, or a warm that fails, leaves each file to compile what it needs, as before.
+warm_transforms() {
+  [ -e "$results/transforms-warmed" ] && return 0
+  : > "$results/transforms-warmed"
+  [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
+  { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
+  if run_with_timeout 300 bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
+    grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
+  else
+    echo "warm-react-compiler-cache failed (exit $?); each file compiles its own modules"
+    tail -n 20 "$results/warm-transforms.log" || true
+  fi
+}
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
-  xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+  # The plain jsdom files start at once; the browser files wait for the warm, beside them.
+  { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
@@ -402,9 +425,11 @@ else
     xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
   fi
   if [ -s "$results/browser" ]; then
+    warm_transforms
     xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
+[ ! -s "$results/serial" ] || warm_transforms
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {

@@ -2892,7 +2892,7 @@ Params:
 
 Result: `{}`. The commit's `layout-changed` event carries `transaction`.
 
-Errors: a refused value answers with its single command's error and `error_code` (`layout-ratio-target-missing`, `layout-ratio-out-of-range`, `row-split-compat-readonly`, `viewport-width-out-of-range`, `viewport-column-not-found`), its message prefixed with `value <index>: `. A value on another screen than the first returns `error_code:"layout-sizes-other-screen"`; no value or more than 64 returns `error_code:"invalid-argument"`; a commit the store refuses returns `error_code:"layout-sizes-not-persisted"`. In every error case nothing changed.
+Errors: a refused value answers with its single command's error and `error_code` (`layout-ratio-target-missing`, `layout-ratio-out-of-range`, `row-split-compat-readonly`, `viewport-width-out-of-range`, `viewport-column-not-found`), its message prefixed with `value <index>: `. A value on another screen than the first returns `error_code:"layout-sizes-other-screen"`; no value or more than 64 returns `error_code:"invalid-argument"`; a value that is not exactly `{split, ratio}` or `{pane, width}` (both pairs, or another field) is refused as a malformed request; a commit the store refuses returns `error_code:"layout-sizes-not-persisted"`. In every error case nothing changed.
 
 Example:
 

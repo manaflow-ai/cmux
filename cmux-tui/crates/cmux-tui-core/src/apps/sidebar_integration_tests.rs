@@ -621,3 +621,77 @@ fn an_uninstalled_or_hidden_local_app_is_placed_only_when_shown() {
     drop(supervisor);
     mux.shutdown();
 }
+
+/// The customize app installs with the read scopes of its first save. A later
+/// save that declares a new read scope (the person copies the
+/// sidebar-section template over the starter) gets it too, the way a first
+/// install would; other scopes still wait for the person (base red: the
+/// record kept the first save's grants, so the new view showed "this app
+/// cannot call workspace.list").
+#[test]
+fn a_customize_save_that_declares_a_new_read_scope_gets_it() {
+    let session = Session::new();
+    let mux = session.open();
+    let supervisor = session.supervisor(&mux);
+    let customize = session.0.join("customize");
+    write_app(&customize, "local/customize", "1.0.0");
+    let prints = supervisor.reload_local_apps(&HashMap::new());
+    let grants = |supervisor: &Supervisor| {
+        supervisor.inner.lock().unwrap().mirror.apps["local/customize"].grants.clone()
+    };
+    assert!(grants(&supervisor).is_empty());
+    let path = customize.join("cmux-app.v2.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!("1.0.1");
+    manifest["scopes"] = json!({"workspace:read": "r", "workspace:write": "w"});
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    supervisor.reload_local_apps(&prints);
+    assert_eq!(
+        grants(&supervisor).into_iter().collect::<Vec<_>>(),
+        vec!["workspace:read".to_string()]
+    );
+    drop(supervisor);
+    mux.shutdown();
+}
+
+/// A read scope the person turned off stays off through a broken save and a
+/// save that drops and re-adds it (base red: the scopes declared before came
+/// from the last catalog, which a broken save empties, so the next good
+/// save granted the read again).
+#[test]
+fn a_read_the_person_turned_off_stays_off_through_a_broken_save() {
+    let session = Session::new();
+    let mux = session.open();
+    let supervisor = session.supervisor(&mux);
+    let customize = session.0.join("customize");
+    write_app(&customize, "local/customize", "1.0.0");
+    let path = customize.join("cmux-app.v2.json");
+    let good: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let save = |version: &str, scopes: Value| {
+        let mut manifest = good.clone();
+        manifest["version"] = json!(version);
+        manifest["scopes"] = scopes;
+        std::fs::write(&path, manifest.to_string()).unwrap();
+    };
+    save("1.0.1", json!({"workspace:read": "r"}));
+    let mut prints = supervisor.reload_local_apps(&HashMap::new());
+    let grants = |supervisor: &Supervisor| {
+        supervisor.inner.lock().unwrap().mirror.apps["local/customize"].grants.clone()
+    };
+    assert!(grants(&supervisor).contains("workspace:read"));
+    // The person turns it off in Settings > Apps > My views.
+    supervisor.inner.lock().unwrap().mirror.apps.get_mut("local/customize").unwrap().grants.clear();
+    std::fs::write(&path, "{ half a save").unwrap();
+    prints = supervisor.reload_local_apps(&prints);
+    save("1.0.2", json!({"workspace:read": "r"}));
+    prints = supervisor.reload_local_apps(&prints);
+    assert!(grants(&supervisor).is_empty(), "after a broken save");
+    save("1.0.3", json!({}));
+    prints = supervisor.reload_local_apps(&prints);
+    save("1.0.4", json!({"workspace:read": "r"}));
+    supervisor.reload_local_apps(&prints);
+    assert!(grants(&supervisor).is_empty(), "after dropping and re-adding it");
+    drop(supervisor);
+    mux.shutdown();
+}

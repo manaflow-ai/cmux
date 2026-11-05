@@ -15,6 +15,8 @@ struct HomeAgentPills {
         let peer: String
         let title: String
         let state: String
+        /// The unread dot: a report newer than the one the person last opened.
+        let unread: Bool
         let rect: CGRect
     }
 
@@ -38,7 +40,8 @@ struct HomeAgentPills {
             let w = min(max(120, Self.contentWidth(title, shape: shape)), max(120, width - 8))
             // Chips keep one row (the row's height does not depend on its width): the rest are left out.
             if shape == .chip, x > 0, x + w > width - 8 { break }
-            out.append(Pill(peer: peer, title: title, state: state, rect: CGRect(x: x, y: y, width: w, height: tall)))
+            let unread = p.unread[checked: i] ?? (state == "reported")
+            out.append(Pill(peer: peer, title: title, state: state, unread: unread, rect: CGRect(x: x, y: y, width: w, height: tall)))
             if shape == .chip { x += w + Self.gap } else { y += tall + Self.gap }
         }
         pills = out
@@ -89,7 +92,7 @@ struct HomeAgentPills {
             let right = r.maxX - side
             // The chevron, then the unread dot left of it.
             chevron(ctx, center: CGPoint(x: right - 4, y: shape == .twoLine ? r.midY : mid), color: muted)
-            let unread = pill.state == "reported"
+            let unread = pill.unread
             if unread { dot(ctx, center: CGPoint(x: right - 20, y: mid), radius: 3.5, color: NSColor.systemBlue) }
             let titleRoom = right - (unread ? 30 : 16) - textX
             let title = NSAttributedString(string: pill.title, attributes: [.font: Self.titleFont(shape), .foregroundColor: ink])

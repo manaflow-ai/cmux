@@ -282,6 +282,18 @@ const GROUPS: &[Group] = &[
                 "ポートの転送を停止",
             ),
             verb(
+                "preview-share",
+                "{target} --port PORT",
+                "Copy a one-day link anyone can open to a port",
+                "誰でも開けるポートへの 1 日有効なリンクをコピー",
+            ),
+            verb(
+                "preview-revoke",
+                "{target} --port PORT --link-id ID",
+                "Revoke a port's shared link",
+                "ポートの共有リンクを無効にする",
+            ),
+            verb(
                 "open-browser",
                 "{target} --port PORT [--path /PATH]",
                 "Open a port in a browser tab",

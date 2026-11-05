@@ -1,6 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery/debug text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
-import { RAIL_HEIGHTS, type RailHeightArm } from "./model";
+import { RAIL_HEIGHTS, type RailHeightArm, type RailHeightConfig } from "./model";
 
 /// The compact rail's initial and maximum height. Leo first asked for a rail that grows toward
 /// ChatGPT's nearly full-pane rail instead of tracking the visible transcript slice
@@ -46,4 +46,4 @@ export const threadMinimapHeight = defineExperiment({
   defaultArm: "fixed-240",
 });
 
-export const railHeightConfig = (arm: RailHeightArm) => RAIL_HEIGHTS[arm];
+export const railHeightConfig = (arm: RailHeightArm): RailHeightConfig => RAIL_HEIGHTS[arm];

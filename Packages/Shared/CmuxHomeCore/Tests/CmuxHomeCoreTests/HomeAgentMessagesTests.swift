@@ -172,6 +172,8 @@ struct HomeAgentMessagesTests {
         expectedFold.latest = "checked"
         // Each agent's title: the first words of the Chief's first message to it.
         expectedFold.peerTitles = ["please check", "please build"]
+        // a1's report is unread until the person opens a1 (the agent pane).
+        expectedFold.peerUnread = [true, false]
         #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))

@@ -376,17 +376,41 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
             return closed(&mut connection, &error);
         }
-        // A peer can keep sending bytes without a newline and never hit a
-        // socket timeout. Bound the whole response, including partial data
-        // retained across interrupted reads, just as identify does.
+        // Read in bounded chunks instead of using `read_until`: the latter
+        // can perform an unbounded number of successful socket reads while a
+        // peer trickles one byte just before each per-read timeout. Refresh
+        // the socket timeout before every read so the absolute deadline is
+        // enforced even for an unterminated response.
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
-        match connection.by_ref().take(available as u64).read_until(b'\n', &mut line) {
-            Ok(_) if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") => {
-                // Malformed input is not evidence authorizing replacement.
-                return Probe::Answered;
+        let mut chunk = [0_u8; 4096];
+        let read_len = available.min(chunk.len());
+        // `read_len` never exceeds the chunk, and `Read` never reports more
+        // bytes than the buffer holds; a reader that breaks that contract
+        // is not evidence authorizing replacement either.
+        let Some(buffer) = chunk.get_mut(..read_len) else {
+            return Probe::Answered;
+        };
+        match connection.read(buffer) {
+            Ok(0) => return Probe::Answered,
+            Ok(count) => {
+                let Some(received) = buffer.get(..count) else {
+                    return Probe::Answered;
+                };
+                let previous_len = line.len();
+                line.extend_from_slice(received);
+                if line.len() > super::identify::RESPONSE_LIMIT {
+                    // Malformed input is not evidence authorizing replacement.
+                    return Probe::Answered;
+                }
+                if let Some(end) = received.iter().position(|byte| *byte == b'\n') {
+                    line.truncate(previous_len + end + 1);
+                    return if super::identify::is_refusal(&line) {
+                        Probe::Refused
+                    } else {
+                        Probe::Answered
+                    };
+                }
             }
-            Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
-            Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if is_timeout(&error) && line.is_empty() => {}
             Err(error) if is_timeout(&error) => {

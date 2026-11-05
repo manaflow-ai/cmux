@@ -64,6 +64,30 @@ impl Hub {
             }
         }
     }
+
+    /// Restore the highest transfer fencing epoch before a session can accept a resumed move.
+    /// Epochs live in transfer events rather than session metadata so old stores remain readable.
+    pub(super) fn restore_ownership_epoch(&self, session: &Session) -> anyhow::Result<()> {
+        let mut epoch = 0;
+        let mut malformed = false;
+        self.store.scan_kinds_strict(
+            &session.id,
+            &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
+            &mut |record| {
+                if let Some(value) = record.msg.get("epoch") {
+                    if let Some(value) = value.as_u64() {
+                        epoch = epoch.max(value);
+                    } else {
+                        malformed = true;
+                    }
+                }
+                true
+            },
+        )?;
+        anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
+        session.restore_ownership_epoch(epoch);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -308,7 +332,7 @@ mod tests {
             .transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id}))
             .await
             .unwrap();
-        let params = json!({"sessionId": session.id, "transferId": begun["transferId"]});
+        let params = json!({"sessionId": session.id, "transferId": begun["transferId"], "epoch": begun["epoch"]});
         hub.transfer_request("_acpmux/transfer_abort", &params).await.unwrap();
         assert_eq!(
             *moving_at_abort.lock().unwrap(),
@@ -381,7 +405,8 @@ mod tests {
             .await
             .unwrap();
         let transfer = begun["transferId"].as_str().unwrap().to_owned();
-        let params = json!({"sessionId": session.id, "transferId": transfer});
+        let params =
+            json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
         let aborted = hub.transfer_request("_acpmux/transfer_abort", &params).await;
         let _ = std::fs::remove_dir_all(super::transfer_out::transfers_dir().join(&transfer));
         assert!(aborted.is_err(), "an abort reported done without its record: {aborted:?}");
@@ -432,8 +457,9 @@ mod tests {
         assert!(here.resolve("import-receipt").is_err(), "the failed import left its chat");
     }
 
-    /// A begin whose bundle fails ends its move only once that end is logged: otherwise the
-    /// chat stays frozen, as its durable `transfer_out` says.
+    /// A bundle failure before `transfer_out` is durable has no transfer authority to restore:
+    /// the in-memory move stays frozen until its abort is logged, but a restart still sees this
+    /// chat as local because no move was ever offered.
     #[tokio::test]
     async fn a_failed_bundle_whose_abort_is_not_logged_keeps_the_chat_frozen() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -462,7 +488,7 @@ mod tests {
         let begun =
             hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
         assert!(begun.is_err(), "the bundle was made: {begun:?}");
-        assert_eq!(session.transfer_blocked(), Some(true));
+        assert_eq!(session.transfer_blocked(), Some(false));
         assert!(session.moving().is_some(), "it unfroze without a logged abort");
     }
 }

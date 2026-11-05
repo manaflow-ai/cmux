@@ -76,7 +76,7 @@ final class ServerMachineSession {
             let localIdentity = localIdentity
             daemon.start(remote: { path }, admit: { identity in
                 // The brain's daemon is its own session, never this Mac's home daemon (fails closed).
-                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+                try identity.checkNotLocal(local: localIdentity())
             })
         case .overlay(let linkSocket):
             guard localIdentity() != nil else { return }
@@ -94,7 +94,7 @@ final class ServerMachineSession {
             // server's owner session; the server refuses anyone but its owner.
             let bridge = DaemonBridge(executable: cli.path, arguments: reach.dialArguments(linkSocket: linkSocket))
             daemon.start(remote: { linkSocket }, bridge: bridge, admit: { identity in
-                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+                try identity.checkNotLocal(local: localIdentity())
             }, onEnd: { [weak self] in self?.onOverlayEnded?() })
         }
     }

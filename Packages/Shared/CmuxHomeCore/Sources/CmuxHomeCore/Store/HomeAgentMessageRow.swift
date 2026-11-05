@@ -27,10 +27,6 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         case fold(count: Int, peers: [String], expanded: Bool)
         /// One message from `from` to `to`; `outgoing` is the Chief's message to the agent, else the agent's report.
         case message(from: String, to: String, outgoing: Bool, text: String)
-        /// The fold of `count` status notes (agents that stopped with no report) from `peers`, shown in
-        /// full when `expanded`; `reason` is their one shared reason, nil when they differ. `HomeAgentMessages`
-        /// no longer makes it (status notes join the agents row since 2026-11-03); renderers still draw it.
-        case notes(count: Int, peers: [String], reason: StatusNote?, expanded: Bool)
         /// One status note from `peer`: why it stopped, and the note's own words (no parentheses).
         case note(peer: String, reason: StatusNote, text: String)
     }
@@ -60,14 +56,17 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     public var group: String
     /// What the row shows.
     public var kind: Kind
-    /// For a fold or notes row: each agent's state, in the order of its `peers`; empty for other rows.
+    /// For an agents row: each agent's state, in the order of its `peers`; empty for other rows.
     public var peerStates: [PeerState] = []
-    /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
+    /// For an agents row: the newest message's words (a one-line preview); nil for other rows.
     public var latest: String?
-    /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
+    /// For an agents row: each agent's title, in the order of its `peers`: the `Title:` line of the
     /// first message the Chief sent it (a spawn task's first line), else its first clause (``title(of:)``); the agent's id
     /// when the Chief sent it nothing here. Empty for other rows.
     public var peerTitles: [String] = []
+    /// For an agents row: whether each agent, in the order of its `peers`, has a report newer than the one
+    /// the person last opened (its unread dot). Empty for other rows.
+    public var peerUnread: [Bool] = []
 
     /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
     public static let titleLength = 32
@@ -138,9 +137,6 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         if inner.hasPrefix("its report could not be read") { return .unreadable }
         return nil
     }
-
-    /// The fold id of the status notes in fold `group` (they open and close apart from its messages).
-    public static func notesGroup(_ group: String) -> String { hex("notes\u{0}\(group)") }
 
     /// The link a click on a fold row follows to expand or collapse `group`: `cmux://agent-messages/<group>`.
     public static func toggleLink(group: String) -> String { "cmux://agent-messages/\(group)" }

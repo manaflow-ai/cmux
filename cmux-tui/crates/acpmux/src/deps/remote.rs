@@ -100,6 +100,27 @@ pub enum Stored {
     Off,
 }
 
+/// What the machine that stored an archive measured, kept beside it so a
+/// machine with no measurements of its own can still choose (`warm.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Meta {
+    /// Its cold install, which this archive saves.
+    pub cold_ms: u64,
+    pub archive_bytes: u64,
+}
+
+/// A timing record is a few dozen bytes; anything larger is not one.
+const META_MAX_BYTES: u64 = 4096;
+
+/// The key of `key`'s timing record: an entry of its own, of the same
+/// ecosystem, that no lockfile's key can equal.
+pub fn meta_key(key: &str) -> Option<String> {
+    let (ecosystem, _) = key.split_once('-')?;
+    let digest = Sha256::digest(format!("acpmux-deps meta\n{key}").as_bytes());
+    Some(format!("{ecosystem}-{}", hex(&digest)))
+}
+
 pub struct Remote {
     origin: String,
     bearer: String,
@@ -199,6 +220,28 @@ impl Remote {
         Ok(Fetched::Hit(size))
     }
 
+    /// `key`'s timing record, when its archive's uploader stored one.
+    pub async fn fetch_meta(&self, key: &str) -> Result<Option<Meta>> {
+        let Some(meta) = meta_key(key) else { return Ok(None) };
+        let scratch = tempfile::tempdir()?;
+        let path = scratch.path().join("meta.json");
+        match self.fetch(&meta, &path, |_, size, _| size > META_MAX_BYTES).await? {
+            Fetched::Hit(size) if size <= META_MAX_BYTES => {
+                Ok(serde_json::from_slice(&std::fs::read(&path)?).ok())
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Store `key`'s timing record (once: a later one finds it there).
+    pub async fn store_meta(&self, key: &str, meta: Meta) -> Result<Stored> {
+        let Some(meta_key) = meta_key(key) else { bail!("key has no ecosystem") };
+        let scratch = tempfile::tempdir()?;
+        let path = scratch.path().join("meta.json");
+        std::fs::write(&path, serde_json::to_vec(&meta)?)?;
+        self.store(&meta_key, &path).await
+    }
+
     /// Upload the archive in `file` under `key`.
     pub async fn store(&self, key: &str, file: &Path) -> Result<Stored> {
         let mut id = [0u8; 12];
@@ -272,6 +315,18 @@ mod tests {
 
     fn sha(data: &[u8]) -> [u8; 32] {
         Sha256::digest(data).into()
+    }
+
+    #[test]
+    fn a_timing_record_has_a_key_of_its_own() {
+        let key = format!("bun-{}", "a".repeat(64));
+        let meta = meta_key(&key).unwrap();
+        assert!(meta.starts_with("bun-"));
+        assert_eq!(meta.len(), key.len());
+        assert_ne!(meta, key);
+        assert!(meta[4..].bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(meta_key(&key), Some(meta));
+        assert_eq!(meta_key("nodash"), None);
     }
 
     #[test]

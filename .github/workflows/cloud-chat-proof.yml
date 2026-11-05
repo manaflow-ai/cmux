@@ -1,4 +1,5 @@
 name: Cloud chat proof (staging, tagged DEV app)
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0})', inputs.build) }}
 
 # One manual trip through a Cloud chat from a tagged DEV build of the dispatched commit, signed in as
 # the team's agent test account: build and launch the app with `scripts/reload.sh --auth-profile agent
@@ -11,14 +12,25 @@ name: Cloud chat proof (staging, tagged DEV app)
 #
 # Secrets: the repo's dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, the pair ios-e2e.yml
 # writes as CMUX_UITEST_STACK_* for the agent profile) reaches one step through env, which writes them
-# to a 0600 file only the app reads; an always() step removes it. Manual dispatch on feat-cmux-next only.
+# to a 0600 file the app (and the proof's reservation step) reads; an always() step removes it.
+# Manual dispatch on feat-cmux-next only.
+#
+# build: published runs the same trip from the signed cmux NEXT DEV app of the cmux-next-dev release
+# instead (no build): scripts/cmux-next/dev-signin-token.py signs the agent account in and seeds the
+# app's file token store, the way a person's Mac gets it below, so it opens signed in.
+# signin_pubkey: no proof; the signin job mints the agent account's staging session, encrypts it to
+# that RSA public key (base64 PEM) and uploads only the ciphertext for a day, for the Mac holding the
+# private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
+# cleanup_machine: no proof; the published NEXT DEV app signs in the same way, then reads
+# `cloud machine-status` for that machine and kills it (one retry), for a machine an earlier run
+# leaked. The machine's Cloud verbs live in the macOS app, so this stays on the macos_26 job.
 on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: The prompt the Cloud chat gets
+        description: Extra context for the Cloud chat; the browser proof is always required
         required: false
-        default: "Reply with one short sentence that names the planet you are on."
+        default: "After the browser proof, mention the result in one short sentence."
         type: string
       agent:
         description: The harness the chat starts (claude or codex)
@@ -26,6 +38,27 @@ on:
         default: claude
         type: choice
         options: [claude, codex]
+      build:
+        description: tagged (a reload.sh build of this commit) or published (the signed NEXT DEV release)
+        required: false
+        default: tagged
+        type: choice
+        options: [tagged, published]
+      signin_pubkey:
+        description: Base64 PEM RSA public key; mints an encrypted DEV sign-in session instead of a proof
+        required: false
+        default: ""
+        type: string
+      request_id:
+        description: Names the sign-in run (its run-name), so the requester finds it
+        required: false
+        default: ""
+        type: string
+      cleanup_machine:
+        description: A leaked Cloud machine id (vm_<hex>) to inspect and kill from the published app, instead of a proof
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -35,8 +68,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  signin:
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != ''
+    # Holds the stack pair: an ephemeral Blacksmith Linux runner, never an owned pool (cloud-newlink-e2e.yml).
+    environment: cmux-next-vm-image-dev
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+
+      - name: Mint and encrypt the session
+        env:
+          PUBKEY_B64: ${{ inputs.signin_pubkey }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          case "$PUBKEY_B64" in *[!A-Za-z0-9+/=]*) echo "::error::signin_pubkey is not base64"; exit 1;; esac
+          printf '%s' "$PUBKEY_B64" | base64 -d > "$RUNNER_TEMP/pub.pem"
+          openssl rsa -pubin -in "$RUNNER_TEMP/pub.pem" -noout
+          python3 -I scripts/cmux-next/dev-signin-token.py --pubkey "$RUNNER_TEMP/pub.pem" --out "$RUNNER_TEMP/session"
+
+      - name: Upload the encrypted session
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dev-signin-session
+          path: |
+            ${{ runner.temp }}/session/session.enc
+            ${{ runner.temp }}/session/key.enc
+          if-no-files-found: error
+          retention-days: 1
+
   proof:
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == ''
     # The environment machine-join-e2e.yml and machine-vault-e2e.yml use: limited to feat-cmux-next
     # by GitHub's branch policy. The job holds the stack pair, so an ephemeral Blacksmith macOS VM
     # from the declared pool, never a variable that could name a persistent Mac.
@@ -45,15 +113,22 @@ jobs:
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
+      # A cleanup needs no build: it always uses the published app.
+      CMUX_PROOF_BUILD: ${{ inputs.cleanup_machine != '' && 'published' || inputs.build }}
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
           REF: ${{ github.ref }}
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
         run: |
           if [ "$REF" != refs/heads/feat-cmux-next ]; then
             echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+          if [ -n "$CLEANUP_MACHINE" ] && ! printf '%s' "$CLEANUP_MACHINE" | grep -Eqx 'vm_[0-9a-f]{1,64}'; then
+            echo "::error::cleanup_machine must look like vm_<lowercase hex>"
             exit 1
           fi
 
@@ -64,28 +139,82 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: ./scripts/select-ci-xcode.sh
 
       # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
       - name: Setup Node
+        if: env.CMUX_PROOF_BUILD != 'published'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Setup Bun
+        if: env.CMUX_PROOF_BUILD != 'published'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
 
+      # As in reload-build.yml: without these, reload.sh waits for a cmux-tui
+      # artifacts run of the exact tree, which stopped run 41806140144. The
+      # app bundle starts the in-tree acpmux, and the client comes from the
+      # newest published commit with the same cmux-tui and Ghostty inputs,
+      # checked against its build-provenance attestation.
+      - name: Build in-tree acpmux
+        if: env.CMUX_PROOF_BUILD != 'published'
+        run: |
+          set -euo pipefail
+          ./scripts/install-rust-ci.sh
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      - name: Install the matching published cmux-tui client
+        if: env.CMUX_PROOF_BUILD != 'published'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
+          client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
+          mkdir -p "$client_bundle/Contents"
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
+            --expected-commit "$client_commit" --require-capability wireguard-hub \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
+          client="$client_bundle/Contents/Resources/bin/cmux"
+          probe="$("$client" remote-probe --json)"
+          version="$("$client" --version)"
+          # Packaged clients stamp the libghostty-vt source: ghostty-next where
+          # the tree has it, else ghostty (older trees).
+          ghostty_source=ghostty
+          if git rev-parse --verify -q HEAD:ghostty-next >/dev/null; then
+            ghostty_source=ghostty-next
+          fi
+          ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
+          import json
+          import os
+
+          if json.loads(os.environ["PROBE"]).get("build_identity") != os.environ["EXPECTED_COMMIT"]:
+              raise SystemExit("published cmux-tui client has the wrong build identity")
+          if os.environ["EXPECTED_GHOSTTY"] not in os.environ["VERSION"]:
+              raise SystemExit("published cmux-tui client has the wrong Ghostty identity")
+          PYVERIFY
+          echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+
       - name: Install build prerequisites
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize the agent auth profile
+        if: env.CMUX_PROOF_BUILD != 'published'
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -103,7 +232,36 @@ jobs:
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
+      - name: Install, sign in and launch the published NEXT DEV app
+        if: env.CMUX_PROOF_BUILD == 'published'
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/published"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/app.zip" \
+            https://github.com/manaflow-ai/cmux/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip
+          ditto -x -k "$dir/app.zip" "$dir"
+          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          if [ -z "$app" ]; then echo "::error::the release zip holds no app"; exit 1; fi
+          # Seed and launch only the real signed NEXT DEV app: its bundle id, a valid signature and our team
+          # (router-review F1 at 62482314: a replaced asset must never run with the seeded session).
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          if [ "$bundle" != com.cmuxterm.app.debug.next ]; then
+            echo "::error::the release app is $bundle, not com.cmuxterm.app.debug.next"; exit 1
+          fi
+          codesign --verify --deep --strict "$app"
+          team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          if [ "$team" != 7WLXT3NR37 ]; then echo "::error::the release app is signed by team '$team'"; exit 1; fi
+          xattr -cr "$app"
+          python3 -I scripts/cmux-next/dev-signin-token.py --seed
+          open -n --env "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-$CMUX_PROOF_TAG.sock" "$app"
+          echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
+
       - name: Build and launch the tagged app
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
           ./scripts/reload.sh \
@@ -120,6 +278,7 @@ jobs:
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Token, Cloud chat and reply
+        if: inputs.cleanup_machine == ''
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -128,6 +287,15 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
 
+      - name: Machine status and kill
+        if: inputs.cleanup_machine != ''
+        timeout-minutes: 15
+        env:
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+        run: |
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --cleanup-machine "$CLEANUP_MACHINE" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+
       - name: Summarize the evidence
         id: evidence
         if: always()
@@ -135,7 +303,7 @@ jobs:
           set -euo pipefail
           file="$RUNNER_TEMP/cloud-chat-proof/evidence.json"
           [ -s "$file" ] || { echo "::warning::no evidence was written"; exit 0; }
-          if grep -Eq 'cmvm_|cmk_|eyJ[A-Za-z0-9_-]{8,}\.|[Bb]earer ' "$file"; then
+          if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
             echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
             exit 1
           fi
@@ -162,3 +330,4 @@ jobs:
         run: |
           rm -f "$HOME/.secrets/cmuxterm-dev.env"
           rmdir "$HOME/.secrets" 2>/dev/null || true
+          rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.debug.next/454ecd03-1db2-4050-845e-4ce5b0cd9895/credentials.json"
