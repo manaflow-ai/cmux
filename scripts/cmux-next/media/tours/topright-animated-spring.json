@@ -45,10 +45,28 @@
    "optional": "debug.appearance is DEBUG only"
   },
   {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Header motion"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
    "title": "Open agent chat",
    "cmux": [
-    "agent",
-    "new-chat"
+    "agents",
+    "chat",
+    "new",
+    "--harness",
+    "fake",
+    "--name",
+    "header-motion-light",
+    "--",
+    "Title: Tidy the login form\nTidy the login form and report what changed."
    ],
    "wait": 5,
    "shot": false,
@@ -116,8 +134,15 @@
   {
    "title": "Open agent chat",
    "cmux": [
-    "agent",
-    "new-chat"
+    "agents",
+    "chat",
+    "new",
+    "--harness",
+    "fake",
+    "--name",
+    "header-motion-dark",
+    "--",
+    "Title: Tidy the login form\nTidy the login form and report what changed."
    ],
    "wait": 5,
    "shot": false,
