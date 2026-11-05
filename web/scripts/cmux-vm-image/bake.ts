@@ -160,8 +160,8 @@ export type BakeOptions = {
    */
   prodCopy?: boolean;
   /**
-   * The layered bake (layers.ts): reuse the base snapshot of this lock's base key (bake it once when there is
-   * none), then bake only the app layer (this lock's cmux-tui) on a clone of it. Dev snapshots only.
+   * The layered bake (layers.ts): boot the cached system and agents snapshots of this lock's keys (building a
+   * missing one on its parent), then bake only the app layer (this lock's cmux-tui) on top. Dev snapshots only.
    */
   layered?: boolean;
 };
