@@ -9,9 +9,10 @@ use std::path::PathBuf;
 mod recovery;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
-/// The hub a join with no `--hub` uses: cmux-platform's development origin
-/// (production serves no join yet: cmux-platform#830 thread).
-pub const DEFAULT_HUB: &str = cmux_cloud_client::backend::Backend::Development.platform();
+/// The hub a join with no `--hub` uses: cmux-platform's production origin
+/// (Leo, 2026-11-04: "If I tell you to do something, don't stick it into
+/// dev. Put it into prod."). `--hub` still names another one.
+pub const DEFAULT_HUB: &str = cmux_cloud_client::backend::Backend::Production.platform();
 pub const CONSENT_REQUIRED: &str = "consent_required";
 const MAX_TOKEN_BYTES: usize = 512;
 const CREDENTIAL_FILE: &str = "machine-credential.json";
