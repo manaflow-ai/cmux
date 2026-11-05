@@ -36,7 +36,7 @@ export const person = (team?: string) => {
   const user = cloudTestUser(++seq)
   const t = team ?? personalTeamIdFor(user)
   const p: Principal = { identity: `user:${user}`, user, team: t, kind: "session" }
-  return { team: t, user, p, stub: cloudStub(t) }
+  return { team: t, user, p, get stub() { return cloudStub(t) } }
 }
 export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"], installKind = "cli"): Principal => {
   const install = `inst_${(p.user ?? "").slice(5, 9)}${"7".repeat(16)}`

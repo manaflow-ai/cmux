@@ -11,7 +11,6 @@ import type { HostDO } from "./host-do.ts"
 import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
-import type { CloudDO } from "./cloud-do.ts"
 import type { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
@@ -115,8 +114,8 @@ export interface Env {
   readonly TEAM_VM_API_SERVICE_KEY?: string
   readonly TEAM_VM_API_IMAGE?: string
   readonly TEAM_VM_API_IMAGE_REVISION?: string
-  /** One CloudDO per team: Cloud machines, the provider-call ledger and plan checks (state-placement.md 5). */
-  readonly CLOUD_DO: DurableObjectNamespace<CloudDO>
+  /** One CloudDO per team, served by cmux-platform (script_name in wrangler.jsonc); its typed client is platform-cloud.ts. */
+  readonly CLOUD_DO: DurableObjectNamespace
   /**
    * Secret: the cmux-next Cloud Freestyle key (state-placement.md 5.3), never FREESTYLE_API_KEY (the team VM lane's).
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
