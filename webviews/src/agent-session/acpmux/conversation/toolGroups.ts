@@ -284,7 +284,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
+    // A dispatch keeps its own card even when it ran as a shell (`acpmux dispatch` in a Shell call).
+    const kind = tool && !dispatch && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];

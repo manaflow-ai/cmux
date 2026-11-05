@@ -91,6 +91,9 @@ export function toolLabel(
   // A harness's built-in tool reads as every harness's does (toolNames.ts): Gemini's read_file
   // "src/foo.ts" and opencode's read read "Read src/foo.ts", as Claude Code's Read does.
   const canonical = canonicalCall(title ? tool : { ...tool, title: fallbackName });
+  // A write or edit waiting on its permission keeps its own title ("Writing to notes.md"), as
+  // WriteLabel.tsx `writeCall` leaves it (cx-p5fgx).
+  if (title && tool.status === "pending" && (canonical?.tool === "write" || canonical?.tool === "edit")) return title;
   const named = canonical && canonicalLabel(canonical, title, paths, cwd);
   if (named) return named;
   if (paths.length) {
@@ -100,6 +103,10 @@ export function toolLabel(
   // A harness's own tool reads as what it does ("Scheduled a wakeup"), never as "ScheduleWakeup".
   return harnessToolLabel(translatorFor(currentLanguage()), tool, title || fallbackName) ?? (title || fallbackName);
 }
+
+/// The titles' own verbs a row keeps: acpmux's for Claude Code (`tool_title`) and Codex's. A raw tool
+/// name ("NotebookRead", "WebFetch") takes the canonical verb.
+const OWN_VERBS = new Set(["Read", "Grep", "Glob", "Search", "Fetch", "List", "Edit", "Write"]);
 
 /// A canonical read, search, list or web call's label: its verb, then its file, pattern, page or
 /// words. The verb is the title's own when it is one already ("Read", "Grep", "Search": Claude Code's
@@ -112,7 +119,7 @@ function canonicalLabel(
   cwd?: string,
 ): string | undefined {
   const head = firstWord(title);
-  const own = /^[A-Z][A-Za-z]*$/.test(head) && toolForName(head) !== undefined;
+  const own = OWN_VERBS.has(head);
   const verb = own ? head : CANONICAL_VERB[call.tool];
   switch (call.tool) {
     case "read":

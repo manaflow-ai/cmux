@@ -5,7 +5,7 @@
 // Leo, 2026-11-05: "idk how much we wanna potentially improve acpmux and cmux-next's rendering? We
 // have a pretty good situation as-is but could we potentially do even better?"
 import { describe, expect, test } from "bun:test";
-import { toolGroupKind } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
@@ -105,6 +105,19 @@ test("Gemini's file writes and replaces read as writes and edits of their file",
   const replace = call("src/foo.ts: const a = 1 => const a = 2", "edit", at(`${CWD}/src/foo.ts`));
   expect(canonicalCall(replace)?.tool).toBe("edit");
   expect(label(replace)).toBe("Edit src/foo.ts");
+});
+
+test("a raw tool name takes the canonical verb; a pending Gemini write keeps its own title", () => {
+  expect(label(call("WebFetch", "fetch", { inputSummary: JSON.stringify({ url: "https://example.com" }) }))).toBe(
+    "Fetch https://example.com",
+  );
+  expect(label(call("NotebookRead", "read", at(`${CWD}/a.ipynb`)))).toBe("Read a.ipynb");
+  expect(label(call(`Writing to ${CWD}/notes.md`, "edit", { status: "pending" }))).toBe(`Writing to ${CWD}/notes.md`);
+});
+
+test("an acpmux dispatch run as a shell keeps its dispatch card", () => {
+  const cli = call("Shell", "execute", { command: "acpmux dispatch brief.md --host h" });
+  expect(toolGroups([{ kind: "tool", text: cli.title, tool: cli }])[0]?.type).toBe("dispatch");
 });
 
 test("a Gemini replace of a path with a space names its file", () => {
