@@ -508,7 +508,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aResumeRefreshFailureKeepsTheRawPausedRecord() async {
         let session = Self.session(status: .paused)
-        session.resumer = { [session] _ in
+        session.resumer = { [session] _, _ in
             // CloudService's accepted resume leaves this optimistic status until a list settles it.
             session.machine.pendingChange = .starting
         }
@@ -685,7 +685,7 @@ struct CloudMachineChangeStateTests {
         // A Resume shown from the click does not resume it a second time through an attach.
         session.machine.status = .paused
         session.machine.pendingChange = .starting
-        session.resumer = { _ in }
+        session.resumer = { _, _ in }
         session.attach()
         #expect(!session.resuming)
         session.disconnect()

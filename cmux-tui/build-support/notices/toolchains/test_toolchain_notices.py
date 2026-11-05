@@ -68,6 +68,15 @@ class Fixture:
     def load(self) -> "tn.Manifest":
         return tn.Manifest.from_dict(self.manifest, self.texts)
 
+    def add_zig(self, version: str, sources: list) -> None:
+        rel = f"zig-{version}/LICENSE"
+        self.files[rel] = self.files["zig-0.16.0/LICENSE"]
+        (self.texts / rel).parent.mkdir(parents=True, exist_ok=True)
+        (self.texts / rel).write_bytes(self.files[rel])
+        self.manifest["zig"].append(
+            {"version": version, "ci_version": version, "file": rel, "sha256": sha(self.files[rel]),
+             "source": "fixture", "ghostty_sources": sources, "binaries": "bin/cmux"})
+
 
 class ToolchainNoticesTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -117,6 +126,39 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertEqual(tn.repo_problems(self.fx.load(), self.fx.root), [])
         self.fx.write("ghostty/build.zig.zon", '.{\n    .minimum_zig_version = "0.15.2",\n}\n')
         self.assertEqual(tn.repo_problems(self.fx.load(), self.fx.root), [])
+
+    def test_a_second_reviewed_zig_without_sources_is_not_tied_to_a_manifest(self) -> None:
+        # The next Zig is reviewed (installable, its LICENSE bundled) before the
+        # ghostty-next gitlink moves to it; the shipped Zig stays the one that
+        # lists ghostty-next.
+        self.fx.add_zig("0.17.0", [])
+        manifest = self.fx.load()
+        self.assertEqual(tn.repo_problems(manifest, self.fx.root), [])
+        self.assertEqual(manifest.zig_for("ghostty-next").version, "0.16.0")
+        app = self.app_with(b"")
+        self.assertEqual(tn.zig_std_problems(manifest, app), [])
+
+    def test_the_gitlink_move_hands_ghostty_next_to_the_new_zig(self) -> None:
+        self.fx.add_zig("0.17.0", ["ghostty-next"])
+        self.fx.manifest["zig"][0]["ghostty_sources"] = []
+        self.fx.write("ghostty-next/build.zig.zon", '.{\n    .minimum_zig_version = "0.17.0",\n}\n')
+        manifest = self.fx.load()
+        self.assertEqual(tn.repo_problems(manifest, self.fx.root), [])
+        self.assertEqual(manifest.zig_for("ghostty-next").version, "0.17.0")
+
+    def test_two_zig_entries_cannot_claim_one_source_or_version(self) -> None:
+        self.fx.add_zig("0.17.0", ["ghostty-next"])
+        with self.assertRaises(tn.ManifestError):
+            self.fx.load()
+        self.fx.manifest["zig"][1]["ghostty_sources"] = []
+        self.fx.manifest["zig"][1]["version"] = self.fx.manifest["zig"][1]["ci_version"] = "0.16.0"
+        with self.assertRaises(tn.ManifestError):
+            self.fx.load()
+
+    def test_no_entry_for_ghostty_next_has_no_shipped_zig(self) -> None:
+        self.fx.manifest["zig"][0]["ghostty_sources"] = []
+        with self.assertRaises(tn.ManifestError):
+            self.fx.load().zig_for("ghostty-next")
 
     def test_a_stored_text_must_match_its_sha256(self) -> None:
         (self.fx.texts / "zig-0.16.0/LICENSE").write_bytes(b"edited\n")
@@ -207,10 +249,16 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertIn("Native/DiffSidecar/rust-toolchain.toml", rust["1.98.1"].toolchain_files)
         self.assertEqual(rust["1.95.0"].rustc_commit, "59807616e1fa2540724bfbac14d7976d7e4a3860")
         self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
-        [zig] = manifest.zig
-        self.assertEqual(zig.version, "0.16.0")
-        self.assertEqual(zig.ci_version, "0.16.0")
-        self.assertEqual(zig.ghostty_sources, ["ghostty-next"])
+        zig = {e.version: e for e in manifest.zig}
+        # 0.17.0 builds the shipped ghostty-next since the upstream sync
+        # (manaflow-ai/ghostty-next#74); 0.16.0 stays reviewed for the classic
+        # ghostty submodule, which no cmux-next binary links.
+        self.assertEqual(sorted(zig), ["0.16.0", "0.17.0"])
+        for version, entry in zig.items():
+            self.assertEqual(entry.ci_version, version)
+        self.assertIs(manifest.zig_for("ghostty-next"), zig["0.17.0"])
+        self.assertEqual(zig["0.16.0"].ghostty_sources, [])
+        self.assertEqual(zig["0.17.0"].sha256, "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177")
 
     def test_shipped_rust_ties_hold_for_this_checkout(self) -> None:
         # The Zig half needs the Ghostty submodules; CI initializes them.

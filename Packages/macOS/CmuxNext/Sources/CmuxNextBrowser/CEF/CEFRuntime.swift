@@ -136,9 +136,9 @@ final class CEFRuntime {
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
-    /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
-    /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
+    /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
+    let hostingSwitch = CEFHostingSwitch() // takes a hosting switch flip to the shown pages at once
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).

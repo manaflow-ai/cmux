@@ -53,21 +53,21 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
-      - name: Init ghostty submodule
+      # cmux-terminal-client links ghostty-vt, whose build script builds
+      # libghostty-vt from ghostty-next with the Zig its build.zig.zon names.
+      - name: Init ghostty-next submodule
         shell: bash
-        run: bash scripts/ci/init-submodule.sh ghostty
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        shell: bash
-        run: |
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
+      # install-zig-ci.sh, not setup-zig: it installs only a reviewed Zig and
+      # applies the std fix that the iOS slices need (Zig 0.17.0's
+      # std/Io/Threaded.zig, the same edit as ghostty-next's next/install-zig.sh).
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        shell: bash
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          ZIG_FORCE_LOCAL_INSTALL: "1"
+        run: ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

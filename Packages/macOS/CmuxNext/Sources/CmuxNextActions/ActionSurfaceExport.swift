@@ -57,7 +57,43 @@ public nonisolated enum ActionSurfaceExport {
         row["default_chord"] = descriptor.defaultChord.map { [wireShortcut($0.first), wireShortcut($0.second)] as Any } ?? NSNull()
         row["default_aliases"] = defaultAliases(for: descriptor.id)
         row["palette_suggested"] = descriptor.paletteSuggestionRank.map { $0 as Any } ?? NSNull()
+        row["args"] = descriptor.arguments.map(wireArgument)
         return row
+    }
+
+    /// One argument as `action.run` takes it: its canonical name (lowerCamelCase, what the CLI's
+    /// `--flag-name` becomes), its kind, whether it is required, an enumeration's values and a target's
+    /// kind. The Rust CLI's argument contract test (cmux-tui `cli/tests/action_argument_contract.rs`)
+    /// checks every call site against these, so a hand-spelled name that drifts fails on Linux.
+    public static func wireArgument(_ argument: ActionArgument) -> [String: Any] {
+        var wire: [String: Any] = ["name": argument.name, "required": argument.isRequired]
+        switch argument.kind {
+        case .string: wire["kind"] = "string"
+        case .int: wire["kind"] = "int"
+        case .bool: wire["kind"] = "bool"
+        case .enumeration(let cases):
+            wire["kind"] = "enum"
+            wire["values"] = cases.map(\.value)
+        case .target(let kind):
+            wire["kind"] = "target"
+            wire["target_kind"] = kind.rawValue
+        }
+        return wire
+    }
+
+    /// Whether `name` is an argument's canonical spelling: lowerCamelCase, no `-` or `_`
+    /// (`promptId`, never `prompt-id` or `prompt_id`). The CLI turns `--prompt-id` into `promptId`, so any
+    /// other spelling is out of its reach.
+    public static func isCanonicalArgumentName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, ("a"..."z").contains(first) else { return false }
+        return name.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("A"..."Z").contains($0) || ("0"..."9").contains($0) }
+    }
+
+    /// An argument name with case, `-` and `_` folded away: `prompt-id`, `prompt_id` and `promptId` are
+    /// one name. The control router takes any spelling that folds to an argument's name, so a caller still
+    /// on an old spelling keeps working for a release; the contract tests keep new code on the canonical one.
+    public static func foldedArgumentName(_ name: String) -> String {
+        String(name.lowercased().filter { $0 != "-" && $0 != "_" })
     }
 
     /// The binding table's default entries for `id` beyond its catalog key

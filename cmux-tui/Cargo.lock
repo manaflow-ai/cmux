@@ -1824,6 +1824,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-cloud-config",
+ "cmux-cloud-client",
  "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",

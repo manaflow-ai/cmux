@@ -3,8 +3,9 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules } from "../policy-gate.ts"
-import { type BrainConfig, patchError } from "./brain-store.ts"
+import { patchError } from "./brain-store.ts"
 import { effectRefusal } from "./effect-policy.ts"
+import { declared } from "../do-stub.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -36,12 +37,6 @@ export const CHIEFS_DESCRIPTION =
   "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model; the answer says whether its brain is on, and you tell the person exactly that (never that it answers when it is not on). update changes another Chief (chief plus display_name, role, personality or instructions). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
 
 interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null; created_by?: string }
-type Settings = { status(): Promise<{ config: BrainConfig }>; configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> }
-type UserStub = {
-  readOp(entity: string, p: unknown, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
-  homeTeamsOf(entity: string): Promise<Array<{ team: string }>>
-  chiefManage(entity: string, agent: string, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-}
 
 export class ChiefsRefused extends Error {
   constructor(readonly reason: string, message: string) {
@@ -49,8 +44,8 @@ export class ChiefsRefused extends Error {
   }
 }
 
-const settings = (env: Env, agent: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as Settings
-const user = (env: Env, owner: string) => env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as UserStub
+const settings = (env: Env, agent: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
+const user = (env: Env, owner: string) => declared(env.USER_DO.get(env.USER_DO.idFromName(owner)))
 
 const listChiefs = async (env: Env, owner: string): Promise<Array<Record0>> => {
   const r = await user(env, owner).readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})

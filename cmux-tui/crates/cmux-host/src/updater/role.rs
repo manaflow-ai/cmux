@@ -367,12 +367,18 @@ fn check_inner(paths: &Paths) -> Outcome {
         "profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
-        &plan.cmux_tui.sha256[..12],
-        &plan.commit[..12]
+        short_hex(&plan.cmux_tui.sha256),
+        short_hex(&plan.commit)
     ));
     restart_after_flip(&store_binary(&plan.old_cmux_tui));
     drop(commit);
     Outcome::Updating(plan.commit)
+}
+
+/// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
+/// inside a character.
+pub(super) fn short_hex(hash: &str) -> &str {
+    hash.get(..12).unwrap_or(hash)
 }
 
 fn store_binary(sha: &str) -> PathBuf {
