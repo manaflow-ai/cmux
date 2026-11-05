@@ -140,6 +140,19 @@ struct ImportScannerTests {
         #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
     }
 
+    /// Conductor's workspaces are counted from its folders; its database alone is enough for a
+    /// card; nothing of Conductor's means no card.
+    @Test func conductorCountsItsWorkspaceFolders() throws {
+        let home = try Home(["conductor/workspaces/app/lima/README", "conductor/workspaces/app/oslo/README", "conductor/workspaces/web/kyiv/README"])
+        let found = Self.scanner(home) { _ in .missing }.scan().first { $0.kind == .conductor }
+        #expect(found?.id == "agents.conductor")
+        #expect(found?.count == 3)
+
+        let databaseOnly = try Home(["Library/Application Support/com.conductor.app/conductor.db"])
+        #expect(Self.scanner(databaseOnly) { _ in .missing }.scan().first { $0.kind == .conductor }?.count == 0)
+        #expect(Self.scanner(try Home()) { _ in .missing }.scan().allSatisfy { $0.kind != .conductor })
+    }
+
     @Test func iTermProfilesAndTheirColors() throws {
         let color = { (r: Double, g: Double, b: Double) in ["Red Component": r, "Green Component": g, "Blue Component": b] }
         let plist: [String: Any] = [

@@ -62,6 +62,16 @@ public struct CloudConfiguration: Sendable, Equatable {
         return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
     }
 
+    /// The namespaced store a build with runtime selection used for this legacy default before #36384
+    /// (4198271655001 read `<bundle id>.auth.<namespace>`): a session signed in there is adopted once.
+    /// Nil for every other selection, whose own store is already namespaced or project-scoped.
+    func namespacedLegacyStorage(homeDirectory: URL) -> (keychainService: String, credentialsDirectory: URL)? {
+        guard let selection = runtimeSelection, selection.legacyStorage, selection.authStorageNamespace == nil,
+              let bundleID, !bundleID.isEmpty else { return nil }
+        return ("\(bundleID).auth.\(selection.authNamespace)",
+                credentialsDirectory(homeDirectory: homeDirectory).appendingPathComponent(selection.authNamespace, isDirectory: true))
+    }
+
     func authDefaultsKey(_ key: String) -> String {
         authStorageProject.map { "\(key).\($0)" } ?? key
     }

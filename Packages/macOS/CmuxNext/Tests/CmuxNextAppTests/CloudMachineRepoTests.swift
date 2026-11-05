@@ -74,6 +74,13 @@ struct CloudMachineRepoTests {
         #expect(try CloudMachineRepo.parse("o/r").step.contains("github=1"))
     }
 
+    @Test func anotherHostThatDoesNotCloneFailsInsteadOfWaitingForGitHub() throws {
+        let step = try CloudMachineRepo.parse("https://gitlab.com/o/r").step
+        let failed = try #require(step.range(of: #"[ "$github" = 1 ] || die "#))
+        let needs = try #require(step.range(of: "status=needs_github; result"))
+        #expect(failed.upperBound < needs.lowerBound, "off GitHub the step exits failed before it would say needs_github")
+    }
+
     @Test func aRefThatNeedsQuotingIsRefused() {
         for ref in ["HEAD", "HEAD/x", "topic/.hidden", "a.lock/b", "-x", "a..b", "a b", "a'b", "a\"b", "a;b", "x.lock", "a/", "$(id)", "a@{1}"] {
             #expect(throws: CloudMachineRepo.Invalid.invalidRef, "\(ref)") { try CloudMachineRepo.parse("o/r@\(ref)") }

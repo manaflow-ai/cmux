@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemonService
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -7,8 +8,8 @@ import Foundation
 import Testing
 import CmuxNextTestSupport
 
-/// The Machines section's joined machines (Labs `labs.machineJoin`): rows from `cmux machine list`
-/// (none while the switch is off), Revoke and Rotate through the CLI and a fresh read after, Check
+/// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
+/// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
 @MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
@@ -41,15 +42,79 @@ import CmuxNextTestSupport
         }
     }
 
-    @Test func theStoreListsNothingWhileTheLabsSwitchIsOff() async {
+    @Test func theStoreListsNothingWhileItHasNoService() async {
         let fake = Fake()
         let store = fake.store()
         await store.refresh()
         #expect(store.machines.map(\.id) == ["m_1"])
         fake.on = false
         await store.refresh()
-        #expect(store.machines.isEmpty, "turning the switch off empties the section's joined rows")
+        #expect(store.machines.isEmpty, "signing out (no service) empties the section's joined rows")
         #expect(fake.lists == 1)
+    }
+
+    /// An online row turns offline once its heartbeat passes the 90 s window, offline and revoked rows
+    /// stay as they are, and the next deadline is the first online row's expiry.
+    @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-30))
+        let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
+        #expect(fresh.aged(now: t0.addingTimeInterval(90)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(91)).state == .offline)
+        #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
+        #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
+                "no readable heartbeat: the CLI's word stands")
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(60))
+        #expect(JoinedMachine.nextExpiry([off]) == nil)
+    }
+
+    /// The re-check deadline runs only while a section shows the rows: it starts with a visible
+    /// section, stops when the last one hides, and a fire that finds none on screen reads nothing.
+    @Test func theRecheckRunsOnlyWhileASectionIsVisible() async {
+        let now = Date()
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: now.addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        #expect(!store.isAging, "no section shows the rows: no deadline")
+        let section = NSObject()
+        var visible = true
+        store.startAging(section) { visible }
+        #expect(store.isAging)
+        store.stopAging(section)
+        #expect(!store.isAging, "the last section hid: the deadline stops")
+        store.startAging(section) { visible }
+        visible = false
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
+        #expect(store.isAging, "an occluded section keeps its aging: one more window, never lost")
+        store.stopAging(section)
+        #expect(!store.isAging)
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
+        await store.refresh()
+        visible = true
+        store.startAging(section) { visible }
+        #expect(!store.isAging, "no online row: nothing can age, no deadline")
+        store.stopAging(section)
+    }
+
+    /// While visible, a fire reads the list once; a row the read did not renew ages offline.
+    @Test func aFireReadsOnceAndAgesWhatTheReadDidNotRenew() async {
+        let past = Date().addingTimeInterval(-200)
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: past)]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { true }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.first?.state == .offline)
+        #expect(!store.isAging, "no online row left: no next deadline")
+        store.stopAging(section)
     }
 
     @Test func aRefreshIsOneReadAndAFailedReadKeepsTheRows() async {
@@ -100,7 +165,7 @@ import CmuxNextTestSupport
         #expect(row.id == "joined:m_1")
         #expect(row.isConnected)
         #expect(row.joined?.mintedBy == "you@example.com")
-        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · added by you@example.com")
+        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · Linux · added by you@example.com")
         #expect(!MachineSectionRow.joined(revoked, health: nil).isConnected)
         #expect(JoinedMachineStrings.caption(revoked, failed: nil).hasPrefix("Revoked"))
     }
@@ -292,6 +357,20 @@ import CmuxNextTestSupport
         #expect(store.machines.isEmpty, "a read that started before the switch turned off is older than its emptying")
     }
 
+    /// Each row shows its name, platform and online state; a revoked machine drops out of the section.
+    @Test func theSectionListsHubMachinesWithTheirPlatformAndDropsRevokedOnes() {
+        let store = JoinedMachineStore(service: { nil })
+        store.apply([Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "gpu-west", state: .offline),
+                     Fake.machine("m_3", "old-box", state: .revoked)])
+        let rows = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
+            .filter { $0.kind == .joined }
+        #expect(rows.map(\.name) == ["lane-vm-3", "gpu-west"], "the revoked machine has no row")
+        #expect(rows.map(\.isConnected) == [true, false])
+        #expect(JoinedMachineStrings.caption(store.machines[1], failed: nil) == "Offline · Linux · added by you@example.com")
+        #expect(JoinedMachineStrings.platform("macos") == "macOS")
+        #expect(JoinedMachineStrings.platform("freebsd") == "freebsd")
+    }
+
     @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {
         let machine = Fake.machine("m_1", "lane-vm-3", mesh: "ssh-7")
         let linked = MachineSectionRow(id: "ssh-7", name: "lane-vm-3", isConnected: true, isLocal: false, joined: machine)
@@ -427,6 +506,30 @@ import CmuxNextTestSupport
         #expect(failed.snapshot?.caption == JoinedMachineStrings.caption(Fake.machine("m_1", "lane-vm-3"), failed: .rotate))
         #expect(failed.snapshot?.failed == true)
         #expect(opened == 0)
+    }
+
+    /// The section as the sidebar shows it: This Mac, then the hub's machines (an online Linux box, an
+    /// offline Mac) with the revoked one gone: `Packages/macOS/CmuxNext/.build/machines-section-hub.png`.
+    @Test func theSectionWithHubMachinesRenders() throws {
+        _ = NSApplication.shared
+        let store = JoinedMachineStore(service: { nil })
+        store.apply([Fake.machine("m_1", "lane-vm-3"),
+                     JoinedMachine(id: "m_2", name: "studio-mini", state: .offline, platform: "macos", mintedBy: "you@example.com"),
+                     Fake.machine("m_3", "old-box", state: .revoked)])
+        let hub = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
+            .filter { $0.kind == .joined }
+        let section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}))
+        section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + hub, style: .compact)
+        #expect(section.shownLines.contains("lane-vm-3 · Online · Linux · added by you@example.com"))
+        #expect(section.shownLines.contains("studio-mini · Offline · macOS · added by you@example.com"))
+        #expect(!section.shownLines.contains { $0.contains("old-box") }, "a revoked machine has no row")
+        section.frame = NSRect(x: 0, y: 0, width: 300, height: 220)
+        section.layoutSubtreeIfNeeded()
+        let image = try AddMachineShotsTests.render(section)
+        let data = try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("Machines: hub machines", image)]))
+        let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-section-hub.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: out)
     }
 
     /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
