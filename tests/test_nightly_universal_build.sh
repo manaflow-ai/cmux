@@ -1531,8 +1531,14 @@ if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publis
 fi
 bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
 
-if grep -Fq "publish-nightly.result == 'success'" <<<"$sign_job$verify_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
+if grep -Fq "publish-nightly.result == 'success'" <<<"$verify_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
   echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
+  exit 1
+fi
+# The sign job takes the publish job's own condition (test_nightly_next_identity.py checks they agree), so a
+# recovered build another run published (no source run) still signs; only this run's unpublished build waits.
+if ! grep -Fq "|| needs.legacy-identity-target.outputs.source_run == '')" <<<"$sign_job"; then
+  echo "FAIL: sign-nightly-identity-legacy must still sign a recovered build that another run published"
   exit 1
 fi
 

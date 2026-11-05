@@ -123,7 +123,10 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(steps["launched app ready"]["pid"], 200)
                 self.assertEqual(steps["selected backend active and signed in"]["backend"], origin)
                 self.assertTrue(steps["selected backend active and signed in"]["signed_in"])
-                self.assertGreater(steps["selected backend active and signed in"]["elapsed_ms"], 0)
+                # The step records how long the wait took, a measurement and not a budget: this mocked
+                # run rounds it to 0 ms, so the proof asserts that it was recorded, never that it is
+                # above a threshold.
+                self.assertIsInstance(steps["selected backend active and signed in"]["elapsed_ms"], int)
                 self.assertEqual(steps["cloud start-chat"]["reply"], "CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain")
                 self.assertEqual(steps["cloud start-chat"]["guest_host"], "guest.example.test")
                 self.assertEqual(steps["cloud start-chat"]["machine_id"], "machine-proof")

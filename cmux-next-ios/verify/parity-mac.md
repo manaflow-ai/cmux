@@ -721,6 +721,7 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Customize Right-Click Menus… | the Mac's menu editor | Settings → **Long-Press Menus**: each item of the workspace row and Home row menus on or off | partial | Hiding only; the Mac also reorders. Close Workspace always stays. |
 | DEV build signs in as the NIGHTLY account (`CMUX_NEXT_DEV_ACCOUNT=nightly`) | control socket `auth.session.handoff` from a signed DEV build to the running cmux NIGHTLY, same user and cmux team signature both ways | — | not from a phone | Mac-only: two apps on one Mac hand a session over their local socket, checked by uid and code signature. A paired phone signs in on its own and may not read the Mac's session (SECURITY.md). |
 | Gallery Stage (`gallery.openStage`, NIGHTLY and DEV) | none: a gallery stage from the Mac's loopback gallery dev server in a tab of the Mac's window | — | not from a phone | Mac-only chrome and a developer tool: the stage comes from a dev server on the Mac's loopback and shows in the Mac's own window backdrop, which a phone cannot reach or draw. |
+| Update in One Click (`updates.oneClickInstall`, off by default) | none: the Mac's own updater; Update on a found update downloads, installs and relaunches the Mac app | — | not from a phone | Mac-only chrome: it changes how the Mac app installs its own update (Sparkle) and relaunches. The phone updates through the App Store; the key stays settable over `cmux settings` on the Mac. |
 
 ## Terminal tools batch (`feat-cmux-next-ios-terminal-tools-parity`)
 

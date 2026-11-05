@@ -409,10 +409,6 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
-    /// Whether another agent's message, or acpmux's notice or digest of them, started it: the
-    /// person's own prompt queues behind it as a turn of its own instead of steering into it,
-    /// where the turn's reply would answer only the agent (`turns.rs`).
-    pub from_agents: bool,
 }
 
 /// Options for `Hub::prompt_with`.
