@@ -20,10 +20,11 @@ const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
 /// Handles `cmux remote-host` before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
-    if command_args.first().map(String::as_str) != Some("remote-host") {
+    let (first, rest) = command_args.split_first()?;
+    if first != "remote-host" {
         return None;
     }
-    Some(run(global, &command_args[1..]))
+    Some(run(global, rest))
 }
 
 fn run(global: GlobalArgs, args: &[String]) -> i32 {
@@ -77,7 +78,9 @@ fn permission_name(word: &str) -> Option<&'static str> {
 }
 
 fn daemon(global: &GlobalArgs, mut request: Value) -> i32 {
-    request["id"] = json!(1);
+    if let Some(fields) = request.as_object_mut() {
+        fields.insert("id".into(), json!(1));
+    }
     raw::run(global.clone(), raw::RawCommandPlan { request, stream: false })
 }
 
@@ -114,10 +117,10 @@ pub(super) fn daemon_value(global: &GlobalArgs, request: &Value) -> Result<Value
             Err(error) => return Err(failure("transport.failed", format!("{error}"))),
         }
         let Ok(response) = serde_json::from_str::<Value>(&line) else { continue };
-        if response.get("event").is_some() || response["id"] != request["id"] {
+        if response.get("event").is_some() || response.get("id") != request.get("id") {
             continue;
         }
-        if response["ok"] == true {
+        if response.get("ok").and_then(Value::as_bool) == Some(true) {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         let code = response.get("error_code").and_then(Value::as_str).unwrap_or("request.rejected");

@@ -226,21 +226,23 @@ impl RemoteHostSupervisor {
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
         });
+        let Some(fields) = status.as_object_mut() else { return status };
         match &*lock(&self.inner.state) {
             State::Running(connection) => {
-                status["state"] = json!("running");
-                status["adopted"] = json!(connection.adopted);
-                status["host"] = lock(&connection.status).clone();
+                fields.insert("state".into(), json!("running"));
+                fields.insert("adopted".into(), json!(connection.adopted));
+                fields.insert("host".into(), lock(&connection.status).clone());
             }
             State::Idle => {
                 let reason = lock(&self.inner.unavailable).clone();
-                status["state"] = json!(match (&reason, config.wanted()) {
+                let state = match (&reason, config.wanted()) {
                     (Some(_), true) => "unavailable",
                     (_, true) => "starting",
                     _ => "off",
-                });
+                };
+                fields.insert("state".into(), json!(state));
                 if let Some(reason) = reason {
-                    status["reason"] = json!(reason);
+                    fields.insert("reason".into(), json!(reason));
                 }
             }
         }

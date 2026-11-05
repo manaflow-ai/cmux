@@ -132,7 +132,7 @@ impl RemoteTool {
                 };
                 match backend.daemon(call("screen.access", json!({"device": device, "scope": scope}))) {
                     Ok(value) => return success(value, true),
-                    Err(failure) if failure.error["code"] == "origin.forbidden" => {
+                    Err(failure) if failure.error.get("code").and_then(Value::as_str) == Some("origin.forbidden") => {
                         return confirm(backend, json!({"action": "access", "device": device, "scope": scope}));
                     }
                     Err(failure) => return failure_result(failure),
@@ -161,8 +161,8 @@ fn confirm(backend: &impl Backend, params: Value) -> Value {
 
 /// A daemon command's failure in the tools' shape.
 pub(super) fn daemon_failure(error: Value) -> CallFailure {
-    let code = error["code"].as_str().unwrap_or("request.rejected").to_string();
-    let message = error["message"].as_str().unwrap_or("request rejected").to_string();
+    let code = error.get("code").and_then(Value::as_str).unwrap_or("request.rejected").to_string();
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("request rejected").to_string();
     let kind = if code.starts_with("transport.") { FailureKind::NotRun } else { FailureKind::Rejected };
     CallFailure::local(kind, &code, message)
 }
