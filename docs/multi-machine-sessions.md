@@ -1,381 +1,289 @@
-# Working across your own machines
+# Your machines and phones, connected
 
-Status: Draft design, October 2026. Nothing here is implemented yet; the
-[next PRs](#next-prs) section lists the order.
+Status: design, 2026-11-05. Replaces the October draft of this file. The
+[PRs](#prs-in-order) section lists the order; each PR updates the
+[status table](#status).
 
-A user with a personal Mac, a Linux dev VM and a second build box should be
-able to say "start Claude in `~/src/api` on cosmic-gray" from any of them and
-have it happen. Today that takes Remote Login, hand-copied SSH keys, a
-tailnet policy edit the user may not be allowed to make, a per-app SSH
-connection entry, and, when the policy can't change, a hand-run reverse
-tunnel. This doc proposes one machine list, one way to ask a machine to start
-a session, a cmux-owned path back to the user's own machine that opens no
-ports, and per-host trust that keeps a less trusted host from gaining the
-user's reach.
+Leo, 2026-11-05:
 
-## What happened on 2026-10-18
+> can you potentially propagate the app and the daemon onto a computer you
+> already own? Or does the user have to have necessarily installed it on both
+> previously? Like, can you SSH into it and then do it? Like, is there a
+> formalized way where you can just say, like, okay, it's not even SSH, like
+> it's an officially supported way to do this?
 
-The motivating setup, kept here because each step is a design input:
+> if you own both machines, you can have one go to the other? ... you can send
+> the app over and stuff, right? And then do stuff there.
 
-| Machine | What it is | Tailnet identity |
-| --- | --- | --- |
-| cosmic-gray | Personal Mac, Tailscale GUI app, user `leoli` | Owned by the user's personal login |
-| Huge Blue | Freestyle VM (KVM guest, Ubuntu 24.04), user `leo` | Tagged device `tag:huge-blue` |
-| cmux16 | Linux build host | Saved SSH connection |
+> Carry the remote connectivity bit forward more like connecting to and from
+> machines and controlling/being controlled by machines and phones too
 
-1. Both machines were on the team tailnet and `tailscale ping
-   cosmic-gray` worked over DERP.
-2. SSH failed: port 22 on the Mac was closed. The GUI Tailscale app can't
-   run Tailscale SSH on macOS, so Remote Login had to be turned on by hand
-   and Huge Blue's ed25519 key added to `authorized_keys`.
-3. It still failed. TSMP ping worked but ICMP and TCP:22 to the Mac's
-   100.x address timed out: the tailnet policy gives `tag:huge-blue` no
-   access to the user's devices. The user can't edit that policy.
-4. What worked was a reverse tunnel from the Mac over the direction that
-   already works (Mac → Huge Blue):
-   `ssh -N -R 2222:localhost:22 leo@huge-blue`, then `ssh -p 2222
-   leoli@localhost` on Huge Blue, narrowed with `authorized_keys` options.
-   That port is open to every local user on Huge Blue.
-5. The agent app still needed cosmic-gray added as an SSH connection by hand
-   before a session on Huge Blue could start work there.
+> We need to have it end to end be as easy and ergonomic as ChatGPT
+> desktop/ios
 
-Steps 3 and 4 are the general case, not an accident: the user's own machine
-is usually the one that can dial out but can't be dialed.
+> Since we have our own rolled wireguard situation and some amount of prior
+> art… we can prob get things very fast and reliable
 
-## What cmux already has
+## The experience
 
-Most of the pieces exist; they aren't joined up.
+The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
 
-- **Device registry.** `devices` / `device_app_instances` in PlanetScale
-  ([migration](../web/db/migrations/20260608055850_device_registry/migration.sql)),
-  read and written by `RemotesClient` (`GET/POST/DELETE /api/devices`,
-  `Packages/macOS/CmuxCloud/Sources/CmuxCloud/Network/RemotesClient.swift`)
-  behind `remotes.list/add/remove` and `cmux remotes`. Today it registers
-  remote Macs for the iOS device list; routes can come from
-  `SystemTailscaleStatusProvider` (`tailscale status --json`).
-- **Presence.** [Presence service](presence-service.md): live online/offline
-  per `(deviceId, tag)`, team scoped and owner bound. A hint, not authority.
-- **cmux-tui remote runtime.** `cmux-tui/crates/cmux-remote`: a daemon with
-  its own identity, five-minute enrollment invitations, approval, revocation,
-  `known-daemons`, and iroh / relay / WebSocket / SSH / Unix providers
-  ([remote.md](../cmux-tui/docs/remote.md)). `machine-agent` already shares a
-  machine through Cloud with an outbound-only connection
-  ([machines.md](../cmux-tui/docs/machines.md#share-a-local-machine-through-cloud)).
-  The native relay (`cmux-relay`, slot tickets for register and connect) and
-  the Cloudflare Durable Object relay carry a session between two machines
-  that both dial out. One gap: "every enrolled device has full daemon
-  authority, including all workspaces".
-- **`cmux ssh` and the CLI relay.** [Remote SSH spec](remote-daemon-spec.md):
-  `cmuxd-remote`, a reverse-forwarded, HMAC-authenticated relay so `cmux` on
-  the remote can call the Mac app, and a default-deny method allowlist in
-  `RemoteRelayCommandPolicy` / `RemoteRelayAuthorizationPolicy`
-  (`Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/`).
-- **Moving sessions.** `cmux session move <id> --to <ssh-destination|local>`
-  and acpmux host-qualified session receipts.
-- **Routing.** [Machine router](internal/machine-router.md) and the
-  [handoff and routing RFC](rfcs/agent-runtime-handoff-and-routing.md),
-  whose Phase 4 is cross-machine and presence integration.
+1. **A new Mac.** Install cmux and sign in with the same account (or, from a
+   Mac that already has cmux, **Set Up cmux on Another Mac…** over SSH you
+   already have). It appears in **My Machines** on every Mac and phone of that
+   account within a second of signing in.
+2. **First contact asks once, on the machine being used.** The first time
+   cosmic-gray reaches Air Blue, Air Blue shows "cosmic-gray wants to use this
+   Mac" with what it asks for, and the same card reaches the person's phone
+   (a signed approval, as phone pairing already does). Allow pins
+   cosmic-gray's identity key with the chosen grants. No code, no SSH, no
+   Tailscale policy, no port.
+3. **Then it just works, both ways.** From any Mac: the sidebar machine picker,
+   **New Workspace on Air Blue**, **Continue on Air Blue** (moves the
+   workspace with its chats and terminals), **Send This Build to Air Blue**.
+   From the phone: the same machines, the same actions, and every approval
+   card. From the CLI: `cmux machine air-blue send|run|move`.
+4. **Approvals go where the person is.** A grant set to Ask shows its card on
+   that Mac and on the person's phone, whichever answers first.
+5. **What only a person at that Mac can do is said, never attempted.** Screen
+   Recording and Accessibility, and a logged-in desktop to launch an app, are
+   shown as one line with a button that opens the right Settings pane there.
+6. **Everything is in Activity, on both ends.** Each machine lists what other
+   devices did on it and what it did on them; **Remove** on either end ends it.
 
-The missing parts: Linux hosts aren't in the device list as first-class
-targets, nothing asks a machine to start an agent session by name, nothing
-carries a request from a host back to the user's machine, and nothing scopes
-what one machine may do on another.
+## One link for every device
 
-## Naming and discovering machines
+The mobile link (`cmux-next-ios/rust/crates/cmux-mobile-link`, PROTOCOL.md) is
+the transport for every pair of the person's devices, phone to Mac and Mac to
+Mac (and Linux, when hostd runs there). It is the fastest and most tested path
+cmux has:
 
-**One list: "My machines".** It comes from the device registry, scoped to the
-signed-in user's personal account, not the selected team. A machine's
-identity is its `cmux-remote` daemon key, the key `remote enroll` already
-binds and `known-daemons` already pins, on the Mac and on Linux alike. The
-display name ("cosmic-gray", "Huge Blue") is a label on that record.
-Hostnames, Tailscale names, 100.x addresses, relay slots and
-`~/.ssh/config` aliases are reachability hints attached to it; none of them
-authorizes anything.
+- WireGuard (`cmux-wg`, userspace, a fresh key per session) with hole
+  punching from host and STUN-reflexive endpoints, then TURN over UDP, then
+  TURN over TLS on 443 when UDP is blocked; roaming keeps every byte
+  (`tests/roaming.rs`); no backend relay ever carries data.
+- Priority lanes (control, input, bulk) so a 2 GB build upload never delays a
+  keystroke or an approval (`class_queue.rs`, the input lane).
+- Signaling is the person's own hub (`team-hub.ts`, one Durable Object per
+  user). It already admits a dial from any of the user's devices to any of
+  their Macs (`admit`), and stamps the sender's device and user; no backend
+  change is needed for Mac to Mac.
+- Every signed-in Mac already runs `cmux-mobile-host` (hostd) with a warm
+  signaling socket. A Mac dials through **its own** hostd (a new `dial`
+  control request), so it never opens a second socket under its device id and
+  every dial reuses warm signaling and cached ICE.
 
-**Discovery sources only suggest; enrollment adds.** During setup cmux reads
-three sources and offers what it finds:
+What this replaces as the way between the person's machines: SSH as the
+default route, the `cmux link` overlay's "direct paths only, no relay" slice,
+and iroh. SSH stays as a first-contact route and a fallback; see
+[What changes](#what-changes-in-existing-code).
 
-1. Registry machines the user already enrolled from another device.
-2. `tailscale status --json` peers. Show the user's own devices first, then
-   tagged devices; label which is which, since that decides reachability
-   (below).
-3. Concrete `Host` entries from `~/.ssh/config` (the cmux-tui picker already
-   parses these, including `Include`).
+Speed targets, measured by `cmux-mobile-dial` and the demo below: link up
+under 300 ms warm on the same LAN, under 1 s across networks; ping p50 under
+5 ms on a LAN; bulk at the path's line rate (the WireGuard path is a smoltcp
+TCP stream with 256 KiB buffers; raise the window for bulk channels if the
+demo shows it bound).
 
-A suggestion becomes a machine only after enrollment (`remote enroll` and
-approval on the other machine) binds its key. A matching Tailscale name or a
-registry row never grants access by itself.
+## One identity and one list
 
-**Linux joins the same list.** The cmux-tui daemon registers a device row with
-its daemon key and `tag` = session name, and heartbeats presence. Huge Blue
-and cmux16 then show up beside cosmic-gray everywhere: the Mac sidebar, the
-TUI machine rail, and the iOS device list.
+- **A device is its hostd identity key**: a Secure Enclave P-256 key on a Mac
+  that has one (as the phone's), a 0600 file key elsewhere. The device id,
+  name, machine id, Tailscale name and SSH alias are labels and hints; none
+  authorizes anything.
+- **My Machines** is one list: the hub's `GET /v1/me/devices` (every Mac and
+  phone of the account, with live presence) merged with what `cmux device
+  list` already merges locally (acpmux peers, SSH config hosts, Cloud
+  machines). One row per machine id; a machine reachable several ways shows
+  once, with its best route.
 
-**Per-machine facts live on the record**, learned once at setup and
-refreshed on connect: login user (`leo` vs `leoli`), home path, OS, which
-transports worked last, and whether the machine is a VM. No more
-user-maintained mapping.
+## Pairing: first contact, then per-peer grants
 
-## First-run setup: "Add a machine"
+Phone pairing already works this way (`pairing.rs`): the first channel of a
+link is `auth`, the caller signs a fresh challenge with its identity key, and
+hostd asks the app "Allow <device>?" unless the key is already approved.
+Machines use the same `auth`, with `kind: "mac"` (or `"linux"`) and the
+grants it asks for. Unchanged: the rate limits per device and per account,
+the deny cooldown, and "a token alone reaches nothing".
 
-One flow in Settings › Devices and `cmux machine add`, run from either side.
-Every probe is non-destructive, and every step that changes the system is
-shown before it runs.
+Each machine keeps, for every peer, a local record (`DeviceTrust`, extended):
 
-### Steps
-
-| Step | What cmux does | Needs the user? |
-| --- | --- | --- |
-| 1. Pick | List suggestions from the three sources; the user picks a machine or pastes a pairing code. | Picks. |
-| 2. Pair | Exchange cmux endpoint keys: a QR or one-time code shown on the other machine (existing enrollment invitation), approved there. | Approves on the other machine. |
-| 3. Probe routes | From each side, try each transport toward the other (table below) and record what worked. | No. |
-| 4. Fix or route around | If a direct path is blocked, explain why and offer the fix *or* use the reverse/relay path, which needs no change. | Only to apply a fix. |
-| 5. Map identity | Read login user, home and OS over the paired channel; store them on the record. | No. |
-| 6. Set trust | Choose what each machine may do on the other ([trust tiers](#per-host-trust)). Default: nothing back toward the user's personal machine. | Chooses. |
-| 7. Register | Write the registry row; optionally export a `Host` alias to a cmux-owned `~/.ssh/config.d/cmux` include that the user wires up once. | Confirms the include. |
-
-A paired connection through the cmux relay works without SSH, Remote Login or a
-tailnet policy change. SSH setup (keys, Remote Login) is offered only when the
-user wants a plain SSH login as well, for example for tools outside cmux.
-
-### Reachability probe and diagnosis
-
-The probe distinguishes the failures that look the same from a terminal:
-
-| TSMP `tailscale ping` | TCP to :22 | SSH auth (`BatchMode=yes`) | Diagnosis shown |
+| Grant | The peer may | Phone default | Machine default |
 | --- | --- | --- | --- |
-| fails | – | – | Not on the same tailnet, or the peer is offline. Use the cmux relay path. |
-| works | refused (RST) | – | The tailnet allows it; SSH is off on the target. On macOS: turn on Remote Login. |
-| works | times out | – | **The tailnet access policy blocks this direction.** Show the rule that would allow it, and use the reverse or relay path now. |
-| works | connects | rejected | The key isn't authorized for that user. Offer the key step. |
-| works | connects | works | Direct SSH OK. |
+| `view` | See this machine, its workspaces and chats, read files in chat roots | on (today's phone lanes) | on |
+| `control` | Type into terminals, answer agents, open and close tabs and workspaces (today's phone lanes) | on (today) | Ask |
+| `run` | Start agents and workspaces in listed folders (typed request; no command strings) | off | Ask |
+| `install` | Install a cmux build it sends, signed by the cmux release key or by a build key enrolled here | never | Ask |
+| `move` | Move a workspace in or out, with its chats, terminals' state and folder | off | Ask |
 
-"TSMP works, TCP times out" is the case from 2026-10-18. cmux never edits a
-tailnet policy. It shows the change for whoever can make it, for example:
+Ask means each request shows the approval card (here and on the phone);
+**Always** on the card turns the grant on for that peer. Grants are set only
+on the machine they protect, never by the peer, the hub or the registry. A
+phone gets no `install` at all: a phone has no build to send, and installing
+from a phone is not a lane a paired phone may have
+([SECURITY.md](../cmux-next-ios/SECURITY.md)).
 
-```jsonc
-// grants (preferred): let this tagged host reach one user's devices on 22
-{ "src": ["tag:huge-blue"], "dst": ["user@example.com"], "ip": ["tcp:22"] }
+## Actions
+
+All three are typed services on the link, refused unless the grant allows
+them, and logged on both ends.
+
+### Send a build (`install`)
+
+`cmux machine air-blue send [--app PATH | --tag TAG]`, **Send This Build to
+Air Blue**, or the sidebar row's menu.
+
+1. The sender packs the `.app` (and its bundled `cmux` and hostd) as a
+   deterministic tar (`--zstd`), and a manifest: bundle id, version, tag,
+   arch, sha256 and size of the archive.
+2. Signed by either:
+   - **the cmux release key**: the build's codesign is Developer ID
+     Manaflow, Inc. (7WLXT3NR37) and notarized; the receiver checks
+     `codesign --verify --deep --strict`, the team id and `spctl -a` after
+     unpacking; or
+   - **a build key the person enrolled here**: an Ed25519 key the sender
+     made for its own tagged builds (`~/.config/cmux/build-key`, 0600). The
+     receiver checks the signature over the manifest and the archive's
+     sha256. A build key is enrolled only through an approval card on the
+     receiving machine ("cosmic-gray wants to install its own builds here"),
+     never by the peer.
+3. The receiver streams it to a staging folder on the bulk lane (resumable by
+   offset), verifies size and sha256, then the signature, then unpacks.
+4. **It never replaces anything it did not install.** A build-key build
+   installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
+   into `~/Applications/cmux DEV <tag>.app`. A release build installs beside
+   the others under its own name. The running app and Leo's nightly are never
+   quit or replaced (the nightly has its own updater).
+5. If a person is logged in at the desktop, it opens the build when asked
+   (`--open`); if not, it says "Air Blue has no one logged in; the build is
+   installed and opens at the next login" and stops. Privacy permissions the
+   build will need are listed with a button for the person there.
+
+### Run there (`run`)
+
+`cmux machine air-blue run [--cwd DIR] [--agent claude|codex|...]`, **New
+Workspace on Air Blue**. A typed `machine.session.request` (the October
+draft's schema): agent from a closed list, `cwd` inside the folders the
+grant lists (realpath, no symlink escape), prompt as data delivered through
+hooks. No `command`, `argv`, `env` or launcher field exists in the schema.
+Answer: the host-qualified receipt `{machine, workspace_id, surface_id,
+session_id}`; the caller's sidebar shows it under that machine and opens it
+over the same link (the phone's `daemon` and `acpmux` lanes).
+
+### Move (`move`)
+
+`cmux machine air-blue move [WORKSPACE]`, **Continue on Air Blue**, and back
+with **Continue on cosmic-gray**. Built from what Cloud move already does,
+with the link in place of the Cloud socket:
+
+- chats move with their history, queue and draft (`agent-transfer-v1`,
+  `cmux link agent move`, the pump CloudMove uses);
+- the folder goes over `fs-v1` (`cmux link seed|sync`), or as a git worktree
+  of the same branch when both machines have the repo (`acpmux session move`);
+- terminals reopen in the same folders; the workspace layout is recreated;
+- the source keeps a "Moved to Air Blue" ledger row (as `CloudMovedChats`)
+  so **Continue on cosmic-gray** brings it back.
+
+## Audit and revoke
+
+One format on every machine: `~/Library/Application Support/cmux/machine-activity.jsonl`
+(Linux: `~/.local/state/cmux/`), 0600, append only, one line per request:
+time, peer device id and name, direction (in or out), service, target
+(build bundle id and sha256, workspace id, folder), decision (allowed,
+asked/approved, asked/denied, refused and why), and duration. Never prompt
+text, file contents or tokens. It extends the formats of acpmux
+`cross-host-audit.jsonl` and remote hosting `audit.jsonl`.
+
+**Remove** in Activity or My Machines (either end) drops the peer's record,
+closes its live links at once, and tells the other end over the link so it
+forgets too; a removed peer's next dial is a first contact again.
+
+## Security analysis
+
+The link is a relay path into the app, so each new service answers the
+[relay authorization](../skills/cmux-socket-policy/references/remote-relay-authorization.md)
+questions.
+
+**Who the peer is.** The hub stamps the sender's device and user; hostd
+refuses another user (`not_admitted`, unchanged) and then requires `auth`
+with an identity key the person approved on this machine. A stolen Stack
+token gives a device id, never an approved key. Machines are refused every
+service until `auth` passes, exactly as phones are.
+
+| Service | Runs commands or opens content locally? | Touches objects it does not own? | Reads state it should not? |
+| --- | --- | --- | --- |
+| `machine.describe` | No. | No. | Name, OS, arch, cmux version, logged-in desktop yes/no, the grants this peer has. No paths, sessions or windows. |
+| `install` | Unpacks and, with `--open`, launches an app: allowed only for a signature the receiver verifies itself (release key, or a build key the person enrolled here by card), into a tagged path that never replaces an existing app. Nothing of the sender's choosing runs before verification. | Writes only `~/Applications/cmux DEV <tag>.app` (refuses a tag whose app it did not install) and its staging folder. | No. |
+| `run` | Starts an agent: the launcher is the receiver's own, the agent an enum, the cwd in the grant's folder list; the request has no command-bearing field. | Creates a new workspace owned by this request; names no existing object. | Answers only the receipt. |
+| `move` (in) | Starts terminals in the moved workspace's folders with the receiver's own shell; recreates chats through acpmux's transfer, which carries history, not commands. | Creates new objects; a move out takes only a workspace the person picked on the source. | The source sends only that workspace. |
+| `control` (today's phone lanes) | Unchanged: `policy.rs` allowlists, command params denied. | Unchanged ID scoping (`owned_check`). | Unchanged. |
+
+Command-bearing params (`command`, `initial_command`, `tmux_start_command`,
+`pane_start_command`, `argv`, `env`) stay denied on every method.
+
+**Residual risks.** A peer with `run` can start agents in the listed folders
+with prompts it writes; a peer with `install` and an enrolled build key can
+install a tagged app the person may then open. That is why both default to
+Ask and both are logged. The hub operator sees which devices talk and when,
+never content (WireGuard end to end; TURN sees ciphertext).
+
+**Trust policy.** The new policy (machines as link peers with per-peer grants,
+`install` with an enrolled build key) goes to cmux#13742 with a
+recommendation before the code that enforces it merges.
+
+## What changes in existing code
+
+| Today | Becomes |
+| --- | --- |
+| hostd admits phones only (`kind: phone` callers; `cmux-mobile-dial` registers a throwaway phone) | admits any of the person's devices; `auth` carries `kind` and the requested grants |
+| `DeviceTrust` (approved phone keys) | per-peer record with `kind` and grants; phones migrate with today's lanes as `view` + `control` |
+| "Allow iPhone Connections" (Settings > Mobile) | **Let My Other Devices Use This Mac** (phones and machines; same default as today) |
+| `cmux link` overlay, slice 1 (direct only, no relay) | dials with the mobile link's dialer (hole punch, TURN, roaming) |
+| Server pairing, joined machines, acpmux peers, cmux-remote enrollment, remote hosting: five pairing records | one list (My Machines) over them; new pairing is the link's `auth`; the old records stay readable and are retired one by one as their users move |
+| `acpmux host update`, `cmux link machine update` (SSH or Cloud only, sha256 pins) | `install` over the link for the person's own machines; Cloud keeps the signed channel (#36185) |
+| CloudMove / CloudBringBack (Cloud links only) | `move` uses the same pump over any link |
+| `cmux remote doctor` (classic, not on NEXT) | `cmux machine NAME doctor`: the link's own path report (direct, TURN, TURN over TLS) and timings |
+
+## CLI
+
+Selector first, so machine names never collide with the Cloud verbs
+(`cmux machine run` stays the Cloud "run on a fresh machine" verb):
+
+```text
+cmux machine ls                         # My Machines, with route and presence
+cmux machine NAME show                  # one machine, its grants both ways
+cmux machine NAME send [--app PATH|--tag TAG] [--open]
+cmux machine NAME run [--cwd DIR] [--agent A] [--prompt -]
+cmux machine NAME move [WORKSPACE]
+cmux machine NAME doctor
+cmux machine NAME activity
+cmux machine NAME remove
 ```
 
-and says the reverse/relay path is already working without it.
+## PRs in order
 
-### Steps that need the user
+1. **This design** and the #13742 recommendation.
+2. **Machines on the link.** hostd: a `dial` control request (dial a peer
+   through the warm signaling socket), `auth` for `kind: mac|linux` with
+   grants, the per-peer record, `machine.describe`, Activity log. CLI `cmux
+   machine NAME show|doctor|activity|remove`. Tests: a Mac dialing a Mac over
+   loopback with the fake backend, refused without `auth`, refused for
+   another user, grant checks.
+3. **Send a build.** `install` service with release-key and build-key
+   verification, tagged install path, `--open`, "needs a person" answers. CLI
+   `send`, palette **Send This Build to…**, sidebar row menu. Tests: tampered
+   archive, wrong signature, unenrolled key, existing non-tagged app,
+   resumable upload.
+4. **Run there.** `machine.session.request` with folder allowlist; **New
+   Workspace on…** picks link machines.
+5. **Move.** The Cloud move pump over the link; **Continue on…** both ways.
+6. **Phones as controllers of every machine.** The phone's machine list shows
+   every Mac with **Continue on**, **New Workspace on**, and approval cards
+   for machine requests; iOS parity rows.
+7. **Consolidation.** `cmux link` on the mobile dialer; Settings > Devices
+   shows one list; retire the duplicate pairing records as their callers move.
 
-- **macOS Remote Login** (only for plain SSH): System Settings › General ›
-  Sharing › Remote Login. The command-line form (`sudo systemsetup
-  -setremotelogin on`) needs sudo and Full Disk Access for the terminal, so
-  cmux links to the pane; it doesn't run it.
-- **Tailscale SSH**: not available with the macOS GUI app. On Linux,
-  `sudo tailscale set --ssh` needs sudo plus an `ssh` rule in the tailnet
-  policy. cmux suggests it on Linux targets and never on the Mac app variant.
-- **`authorized_keys`**: cmux generates a dedicated per-pair key
-  (`~/.ssh/cmux_<machine>_ed25519`) and shows the exact line it will append,
-  with `from=` and `no-agent-forwarding,no-port-forwarding,no-X11-forwarding`
-  options; the user confirms.
-- **Tailnet policy edits**: shown, never applied.
+## Status
 
-### Tagged vs user-owned joins for personal dev hosts
-
-A tagged device (Huge Blue's `tag:huge-blue`) has no owner after
-registration. Default policies give tags less access, and the key doesn't
-expire with the user's login. That's right for shared or CI hosts and is why
-it couldn't reach the Mac. A user-owned join gets the user's own-device
-access, but the VM can then reach every device the user owns on the tailnet
-at the network level. For a personal but less trusted VM, cmux recommends
-staying tagged and using cmux's paired channel for the specific things it
-needs, rather than widening network access. The setup screen says which kind
-of join each machine has, and why it matters.
-
-## Asking a machine to start a session
-
-```sh
-cmux machine run cosmic-gray --agent claude --cwd ~/src/api [--prompt -]
-```
-
-and the same action from the sidebar's "New session on…" menu and from an
-agent's own `cmux` call.
-
-1. **Resolve** the name to a registry record and endpoint key. Ambiguous
-   names fail; nothing falls back to DNS.
-2. **Pick a route** in order: an already-open cmux connection to that machine
-   (including the reverse channel below), SSH if the record says it works,
-   then the cmux relay. Presence is only used to
-   say "offline" early.
-3. **Send a typed request**, never a command string:
-
-   ```text
-   machine.session.request {
-     request_id      // UUID, idempotent
-     agent           // closed enum: claude | codex | opencode | pi
-     cwd             // must match one of the target's allowed folders
-     prompt?         // data, delivered through agent hooks, never as keystrokes
-     model?, effort? // validated against the target's own options
-   }
-   ```
-
-   The target's cmux chooses the launcher from its own configuration. Command
-   fields (`command`, `initial_command`, `initial_input`, launcher overrides,
-   env) don't exist in the schema, so nothing can sneak one through.
-4. **The target admits or refuses**, using its own trust record for the
-   caller ([below](#per-host-trust)). If the grant says "ask", the target shows
-   a prompt to the user there, or on a device the user is using, and the
-   request waits with a bounded deadline.
-5. **Reply with a receipt**: `{ machine, workspace_id, surface_id, session_id,
-   state }`, the host-qualified receipt acpmux already uses. The caller's
-   sidebar shows the session under that machine, and `cmux session move`
-   can move it later.
-
-Starting a session on Huge Blue from cosmic-gray is the easy direction: the
-Mac already trusts the host it SSHes into. The request still goes through the
-same typed method so there's one path.
-
-## Reaching the user's machine from a host
-
-Use what already works: the connection the user's machine opened. When
-cosmic-gray runs `cmux ssh huge-blue` or opens Huge Blue in the machine rail,
-that connection already carries the HMAC-authenticated CLI relay back to the
-Mac. The **back channel** is a new, narrow method family on that relay.
-
-- **On the host**, cmux creates a per-connection Unix socket in an owner-only
-  directory (`$XDG_RUNTIME_DIR/cmux/back/<slot>.sock`, dir `0700`, socket
-  `0600`), checks the peer's uid with `SO_PEERCRED` / `getpeereid`, and
-  still requires the relay's per-slot HMAC credential. That replaces the
-  shared loopback TCP port that `ssh -R 2222:localhost:22` exposes to every
-  local user. It's torn down when the connection drops or the workspace
-  closes, and a reconnect makes a new slot and credential.
-- **Over the wire**, back-channel requests ride the existing relay stream, so
-  there's no second SSH process, no `-R`, and no dependence on
-  `AllowStreamLocalForwarding`.
-- **On the Mac**, the relay server dispatches only `machine.session.request`
-  and read-only `machine.self.describe`, and only for a host whose trust tier
-  allows them. Everything else stays denied.
-
-**When no connection is open** (Huge Blue wants to start work on the Mac
-while the user is away from it), the host connects through the cmux relay.
-The Mac keeps an outbound registration there, the same outbound-only shape as
-`cmux machine-agent`, so no port opens and no tailnet change is needed. The
-relay only forwards bytes: the host still authenticates to the Mac's pinned
-daemon key, and the same enrollment and trust tier apply. Iroh could later
-add a direct path for latency (`cmux-remote` already has an Iroh provider),
-but nothing here depends on it. If the Mac is asleep or offline, the
-request fails with "cosmic-gray is offline". Waking it is out of scope.
-
-**Plain SSH back to the Mac** (the 2026-10-18 workaround) stays a
-user-configured option for tools outside cmux, not the built-in path. If cmux
-manages it at all, it tunnels to a `0600` Unix socket on the host, not a TCP
-port, and only at the "shell" tier below.
-
-## Per-host trust
-
-Reach is not symmetric. The user can do anything on Huge Blue. Huge Blue, a
-VM the user doesn't control end to end, shouldn't be able to do the same on
-the user's Mac. Each machine keeps its own trust record for every peer, set
-only locally on that machine (never from the peer, never from the registry):
-
-| Tier | The peer may | Default for |
-| --- | --- | --- |
-| **None** | See that this machine exists. | A personal Mac, toward any host. |
-| **Ask** | Send `machine.session.request`; each one waits for the user's approval on this machine. | Offered first when enabling back-reach. |
-| **Folders** | Start sessions without asking, but only for listed agents in listed folders (`~/src/api`, not `~`). | Hosts the user trusts for specific projects. |
-| **Shell** | Open a terminal on this machine. | Never by default. Needs a separate security review before it ships (see below). |
-
-The trust record holds the tier, the folder allowlist (realpath-resolved, no
-symlink escape), allowed agents, an optional expiry, and whether the peer is
-a VM. The setup flow asks about trust in the direction the user is setting up,
-and defaults to None toward the user's personal machine.
-
-**Audit trail on the target.** Every back-channel request, admitted or not,
-is logged locally with time, peer, method, folder, agent and decision, and
-shown under the machine in Settings › Devices. A session started by a peer is
-labelled "Started by Huge Blue" in the sidebar. Revoking a peer, or dropping
-its tier, closes its live back-channel slots right away.
-
-## Security model
-
-**Identity.** Machines are endpoint keys bound in the device registry to the
-user's personal account. Names, IPs, Tailscale identities, presence rows and
-SSH aliases are hints and never authorize. A peer is admitted only by key
-possession (the `cmux-remote` Noise handshake against a pinned daemon key)
-plus an enrollment the target approved.
-
-**Authority is local and narrow.** An enrollment says two machines belong to
-the same user. It doesn't say what they may do. The target's local trust
-record decides that, and a peer can't change it. The cmux-tui daemon's
-current "every enrolled device has full authority" becomes the Shell tier,
-and paired machines start at None.
-
-**Relay authorization rules** ([remote relay authorization](../skills/cmux-socket-policy/references/remote-relay-authorization.md)).
-The back channel is a relay path, so the PR that adds it must answer the
-three questions:
-
-- *Does it execute commands or open content locally?* `machine.session.request`
-  starts a local agent process, so the method is reshaped rather than
-  allowlisted as-is. Its schema has no command-bearing params at all: the
-  agent is an enum, the launcher is the target's own, the prompt is data
-  delivered through hooks, and the cwd must be in an allowlist the user set
-  on this machine. At the Ask tier, a local user action launches it, not the
-  remote request. The general rule stays: `command`, `initial_command`,
-  `tmux_start_command` and `pane_start_command` stay denied on every method.
-- *Does it touch objects the remote doesn't own?* Requests can't name
-  existing workspaces or surfaces. The created session is owned by this
-  back-channel slot, and later calls are scoped to that ID set, using the
-  same scoping as `RemoteRelayAuthorizationPolicy`.
-- *Does it expose local state?* `machine.self.describe` returns only display
-  name, OS and the allowed folder list for that peer. It doesn't list
-  workspaces, sessions, windows or paths outside the allowlist.
-
-The Shell tier is a terminal spawn on the Mac driven by a remote, which the
-rules forbid allowlisting. It ships only after its own design and review, and
-isn't part of the first PRs.
-
-**Credentials never cross.** Stack bearer and refresh tokens, SSH keys and
-agent sockets don't travel over the back channel. Agent forwarding stays
-opt-in, as it is for `cmux ssh` today.
-
-**Bounds.** Back-channel requests reuse the relay's connection cap, handshake
-deadline and response bounds. Ask prompts expire after five minutes, and
-admitted requests are idempotent by `request_id`.
-
-**Residual risks.** A compromised host at the Folders tier can start agents in
-the allowed folders with prompts it writes. That's the reason for the tier,
-the folder scope, the audit trail and the default of None. The relay
-operator sees connection metadata (which machines talk, when, how much) but
-not content.
-
-## Next PRs
-
-Each is independently reviewable. Relay-touching PRs carry the full
-authorization analysis and policy tests.
-
-1. **Reachability doctor.** `cmux remote doctor HOST` runs the TSMP, TCP and
-   `BatchMode` SSH probes and prints the diagnosis table above. No state
-   changes. In review as manaflow-ai/cmux#21831.
-2. **Linux in the device registry.** The cmux-tui daemon registers a device
-   row keyed by its daemon key and heartbeats presence; `RemotesClient`
-   lists Linux rows. Touches `web/` (BSL, CLA rules apply).
-3. **Trust records and audit log** (`cmux-remote`, surfaced in the Mac app).
-   Local-only per-peer tier, folder and agent allowlist, expiry, and an
-   append-only audit log with a Settings › Devices view. Paired peers
-   default to None. No new remote method yet.
-4. **`machine.session.request` on a live connection.** The typed schema, the
-   admission path through the trust record, and the receipt, behind a
-   PostHog flag. First direction: client → host it's connected to.
-5. **Back channel on the CLI relay.** Per-slot `0700`/`0600` Unix socket with
-   a peer-uid check on the host; `machine.session.request` (Ask and Folders
-   only) and `machine.self.describe` added to the relay policy with
-   deny-case tests (unmapped IDs, command params, tier None, folder outside
-   the allowlist, symlink escape). Includes live verification that a request
-   from Huge Blue starts on the Mac only after approval.
-6. **"Add a machine" flow.** Settings › Devices and `cmux machine add`:
-   suggestions from registry, Tailscale and ssh_config; pairing; probe;
-   identity mapping; trust; optional `~/.ssh/config.d/cmux` export and
-   restricted `authorized_keys` line.
-7. **Offline-of-connection route.** Host → Mac through the cmux relay, with
-   the Mac registered outbound, when no cmux connection is open.
-8. **`cmux machine run` and "New session on…"** in the sidebar and TUI rail,
-   picking the route automatically, plus `session move --to <machine name>`.
-
-Out of scope here: an Iroh direct path (an optional latency improvement
-later), waking a sleeping Mac, the Shell tier, and team-shared
-machines (this doc covers one user's own machines).
+| PR | State |
+| --- | --- |
+| 1 | this PR |
