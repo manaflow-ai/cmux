@@ -258,5 +258,31 @@ class Arms(unittest.TestCase):
         self.assertEqual((found["off"]["rounds"], found["off"]["main_ms"]["p50"], found["off"]["presses_over_one_grid"]), (2, 1.0, 0))
 
 
+class MissedSplit(unittest.TestCase):
+    def test_each_arm_counts_its_missed_refreshes_per_cause(self):
+        # frame-owner-s4, 2026-11-05: Instruments' Animation Hitches records nothing on the virtual display, so
+        # debug.frames splits each missed refresh by cause from cmux's own stamps; each arm sums the causes.
+        import terminal_resize_arms as arms
+        def entry(arm, split):
+            return {"arm": arm, "frames": {"frames": 10, "missed": sum(split.values()), "missed_split": split}, "raw": {}}
+        rounds = [entry(False, {"main_late": 2, "commit_late": 1, "presented_late": 0}),
+                  entry(False, {"main_late": 1, "commit_late": 0, "presented_late": 3}),
+                  entry(True, {"main_late": 0, "commit_late": 0, "presented_late": 1})]
+        found = arms.summaries(rounds)
+        self.assertEqual(found["off"]["missed_split"], {"main_late": 3, "commit_late": 1, "presented_late": 3})
+        self.assertEqual(found["on"]["missed_split"], {"main_late": 0, "commit_late": 0, "presented_late": 1})
+
+    def test_the_round_keeps_the_split_from_debug_frames(self):
+        frames = {"frames": 10, "missed": 1, "missed_split": {"main_late": 1, "commit_late": 0, "presented_late": 0},
+                  "missed_frames": [{"at_ms": 40.0, "interval_ms": 16.7, "next_tick_after_target_ms": 8.3, "cause": "main_late"}]}
+        source = (HERE / "bench-terminal-resize.py").read_text()
+        keys = source[source.index("FRAME_KEYS = "):source.index("\n\n", source.index("FRAME_KEYS = "))]
+        namespace = {}
+        exec(keys, namespace)
+        self.assertIn("missed_split", namespace["FRAME_KEYS"])
+        self.assertIn("missed_frames", namespace["FRAME_KEYS"])
+        self.assertEqual({k: frames.get(k) for k in namespace["FRAME_KEYS"]}["missed_split"]["main_late"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
