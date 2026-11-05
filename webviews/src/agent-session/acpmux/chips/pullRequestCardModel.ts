@@ -1,5 +1,3 @@
-
-
 // The host's own rule (AgentPaneReplyRequest.pullRequestURL): owner/repo, `pull`, the number, and
 // at most one tab of it (`/files`); a query or a fragment is dropped before asking.
 const PULL_REQUEST =

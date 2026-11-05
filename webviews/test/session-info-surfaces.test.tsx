@@ -17,7 +17,15 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { SessionInfoPanel } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { FLOAT_MARGIN, pushedWidth, pushedRoom, sessionInfoFits, sessionInfoShown, sessionInfoStage, paneRoom } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import {
+  FLOAT_MARGIN,
+  pushedWidth,
+  pushedRoom,
+  sessionInfoFits,
+  sessionInfoShown,
+  sessionInfoStage,
+  paneRoom,
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
 import {
@@ -26,7 +34,10 @@ import {
   setSessionInfoOpen,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
-import { ARTIFACT_COVERS_PANE, useArtifactCoversPane } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
+import {
+  ARTIFACT_COVERS_PANE,
+  useArtifactCoversPane,
+} from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;

@@ -111,7 +111,13 @@ import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import { appendAttachments, attachmentErrorText, useAttachmentIntake, useSendWhenAttached, useSendWhenOriginals } from "./composer/attachmentIntakeModel";
+import {
+  appendAttachments,
+  attachmentErrorText,
+  useAttachmentIntake,
+  useSendWhenAttached,
+  useSendWhenOriginals,
+} from "./composer/attachmentIntakeModel";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";

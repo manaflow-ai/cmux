@@ -1,5 +1,3 @@
-
-
 export type KaTeX = typeof import("katex").default;
 const CACHE_LIMIT = 500;
 /// Typeset TeX by mode and source. A transcript draws the same expressions again on every

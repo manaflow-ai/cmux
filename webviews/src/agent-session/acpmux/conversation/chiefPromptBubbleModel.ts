@@ -1,5 +1,3 @@
-
-
 /// More than this many lines, or characters, and a Chief prompt opens collapsed.
 const COLLAPSED_LINES = 6;
 const COLLAPSED_CHARS = 600;

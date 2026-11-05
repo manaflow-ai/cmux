@@ -1,7 +1,14 @@
 import { useContext, useMemo, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { SubsessionContext } from "../subagents/subsessions";
 import { useTranscriptReadOnly } from "./readOnly";
-import { agentRef, knownSessionRef, resolveSessionRef, sessionRefsResolve, subscribeSessionRefs, type SessionRefTarget } from "./sessionRefs";
+import {
+  agentRef,
+  knownSessionRef,
+  resolveSessionRef,
+  sessionRefsResolve,
+  subscribeSessionRefs,
+  type SessionRefTarget,
+} from "./sessionRefs";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};

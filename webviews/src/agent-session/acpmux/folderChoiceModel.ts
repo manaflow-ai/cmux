@@ -1,5 +1,3 @@
-
-
 /// Whether the line shows: the host offered it (`chooseFolder`: a new chat that runs in the
 /// workspace's agent-home), the chat is still new (no turn yet), not in the Quick Composer, and the
 /// user picked no project for this draft. The chat's session is no condition: a new chat starts

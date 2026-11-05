@@ -1,5 +1,3 @@
-
-
 type WorkflowCardOpener = (id: string, opener?: HTMLElement) => void;
 export let opener: WorkflowCardOpener | undefined;
 export let sideTabOpener: WorkflowCardOpener | undefined;

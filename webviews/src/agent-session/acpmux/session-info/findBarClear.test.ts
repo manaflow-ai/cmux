@@ -2,7 +2,16 @@
 // overlaps with the session info.."): the bar's right edge, the chat's right edge less the panel's reach
 // (sessionInfoClear) and the bar's inset, is never right of the panel's left edge.
 import { describe, expect, test } from "bun:test";
-import { FIND_BAR_INSET, FIND_BAR_MIN, FLOAT_MARGIN, findBarCramped, pushedRoom, pushedWidth, sessionInfoClear, sessionInfoStage } from "./sessionInfoModel";
+import {
+  FIND_BAR_INSET,
+  FIND_BAR_MIN,
+  FLOAT_MARGIN,
+  findBarCramped,
+  pushedRoom,
+  pushedWidth,
+  sessionInfoClear,
+  sessionInfoStage,
+} from "./sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
 
 const column = { min: 720, max: 800, share: 0.625, prose: Infinity };

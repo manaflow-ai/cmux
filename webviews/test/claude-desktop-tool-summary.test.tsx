@@ -9,7 +9,10 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { BackgroundTaskNote } from "../src/agent-session/acpmux/conversation/BackgroundTaskNote";
-import { backgroundCounts, backgroundStatusParts } from "../src/agent-session/acpmux/conversation/backgroundStatusLineModel";
+import {
+  backgroundCounts,
+  backgroundStatusParts,
+} from "../src/agent-session/acpmux/conversation/backgroundStatusLineModel";
 import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";

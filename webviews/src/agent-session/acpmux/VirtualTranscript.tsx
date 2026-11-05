@@ -140,8 +140,14 @@ import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
-import { defaultRegistry, readOnlyRegistry } from "./rows/registryModel";
-import { NO_ROWS, sameRowFrame, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } from "./virtualTranscriptModel";
+import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
+import {
+  NO_ROWS,
+  sameRowFrame,
+  rowKind,
+  FOLLOW_BOTTOM_DEADBAND_PX,
+  SCROLL_ANCHOR_SETTLE_MS,
+} from "./virtualTranscriptModel";
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };

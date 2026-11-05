@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { VirtualTranscript } from "../agent-session/acpmux/App";
-import { readOnlyRegistry } from "../agent-session/acpmux/rows/registryModel";
+import { readOnlyRegistry } from "../agent-session/acpmux/rows/registry";
 import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/GuestActionsBoundary";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";

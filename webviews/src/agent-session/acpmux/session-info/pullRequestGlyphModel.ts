@@ -1,5 +1,3 @@
-
-
 export type PullRequestGlyphState = "open" | "draft" | "merged" | "closed" | "conflicting";
 
 export const PULL_REQUEST_ICONS: Record<PullRequestGlyphState, string> = {

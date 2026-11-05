@@ -23,8 +23,22 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
-import { subagentBackLabel, subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
-import { bindSessionInfoPane, sessionInfoPaneKey, setSessionInfoOpen, setSessionInfoSection, useSessionInfoOpen, useSessionInfoState, type SessionInfoSectionId } from "./sessionInfoState";
+import {
+  subagentBackLabel,
+  subagentProcesses,
+  subagentSummary,
+  withChatEnds,
+  type SubagentScope,
+} from "./subagentScope";
+import {
+  bindSessionInfoPane,
+  sessionInfoPaneKey,
+  setSessionInfoOpen,
+  setSessionInfoSection,
+  useSessionInfoOpen,
+  useSessionInfoState,
+  type SessionInfoSectionId,
+} from "./sessionInfoState";
 import { outputArtifacts, outputLinks } from "./outputsSectionModel";
 import { type ProcessRegistry } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
@@ -33,7 +47,27 @@ import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
-import { FLOAT_MARGIN, pushes, pushedWidth, sessionInfoFits, sessionInfoPopover, sessionInfoStage, SESSION_INFO_CLEAR, sessionInfoClear, findBarCramped, pushedRoom, chatContentOverflow, sessionInfoShown, SIDE_PANEL, sessionInfoTopOffset, type PaneRoom, paneRoom, DISMISS_KEEPERS, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
+import {
+  FLOAT_MARGIN,
+  pushes,
+  pushedWidth,
+  sessionInfoFits,
+  sessionInfoPopover,
+  sessionInfoStage,
+  SESSION_INFO_CLEAR,
+  sessionInfoClear,
+  findBarCramped,
+  pushedRoom,
+  chatContentOverflow,
+  sessionInfoShown,
+  SIDE_PANEL,
+  sessionInfoTopOffset,
+  type PaneRoom,
+  paneRoom,
+  DISMISS_KEEPERS,
+  SESSION_INFO_TOGGLE,
+  toolCallIds,
+} from "./sessionInfoModel";
 import { MemoSessionInfoSections, SessionInfoPanel } from "./SessionInfo";
 import { subagentsIn } from "../subagents/subagentRows";
 

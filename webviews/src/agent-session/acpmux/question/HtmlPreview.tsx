@@ -14,7 +14,12 @@
 // read the picture's height and grow to it, up to a cap past which it scrolls.
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { renderFrameCSS } from "../conversation/renderBase";
-import { HtmlPreviewLookContext, HTML_PREVIEW_MIN_HEIGHT, HTML_PREVIEW_MAX_HEIGHT, previewDocument } from "./htmlPreviewModel";
+import {
+  HtmlPreviewLookContext,
+  HTML_PREVIEW_MIN_HEIGHT,
+  HTML_PREVIEW_MAX_HEIGHT,
+  previewDocument,
+} from "./htmlPreviewModel";
 /// The picture's height in the frame, clamped to the card's range.
 const clampHeight = (height: number) =>
   Math.min(HTML_PREVIEW_MAX_HEIGHT, Math.max(HTML_PREVIEW_MIN_HEIGHT, Math.ceil(height)));

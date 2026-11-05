@@ -1,5 +1,5 @@
 import { useT } from "./i18n";
-import { type MachineShareProps, useMachineShare } from "./machineShareActionModel";
+import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
 import type { AcpmuxSnapshot } from "./model";
 import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
 

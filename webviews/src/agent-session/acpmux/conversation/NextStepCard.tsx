@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useRef, useState } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
-import { inlineText } from "../question/inlineTextModel";
+import { inlineText } from "../question/inlineText";
 import type { NextStepAsk } from "./nextStepAsk";
 import "./NextStepCard.css";
 

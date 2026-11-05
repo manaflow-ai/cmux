@@ -158,7 +158,7 @@ test("a first page that never answers says it couldn't load past the ceiling, an
   const { jest } = await import("bun:test");
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
-const { CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
+  const { CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   let calls = 0;
   const load = () => {
     calls += 1;

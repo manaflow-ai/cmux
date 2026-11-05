@@ -82,7 +82,21 @@ import {
   highestMode,
   shownModes,
 } from "./harnessModes";
-import { PICKER_LABELS, RECENT_SETTLE_MS, loadRecents, rememberCombo, type Choice, isPlan, unrestricted, RETURN_GLYPH_PATH, LEVEL_KEYS, shortModelName, aliasNamedAsRelease, modelFamily, reasoningChoices } from "./composerPickerModel";
+import {
+  PICKER_LABELS,
+  RECENT_SETTLE_MS,
+  loadRecents,
+  rememberCombo,
+  type Choice,
+  isPlan,
+  unrestricted,
+  RETURN_GLYPH_PATH,
+  LEVEL_KEYS,
+  shortModelName,
+  aliasNamedAsRelease,
+  modelFamily,
+  reasoningChoices,
+} from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
 

@@ -5,7 +5,12 @@ import { linkedText } from "../chips/linkedText";
 import { softBreakNodes } from "./softBreaksModel";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { textLinks } from "../chips/paths";
-import { commitReferences, githubReferences, type CommitReference, type GithubReference } from "../../../githubReferences";
+import {
+  commitReferences,
+  githubReferences,
+  type CommitReference,
+  type GithubReference,
+} from "../../../githubReferences";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { splitSkillText } from "./skillWords";

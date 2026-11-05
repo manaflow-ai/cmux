@@ -13,7 +13,15 @@ import { TonedIcon } from "../subagents/TonedIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { byUsage, type SessionUsageStats, UNKNOWN, type UsageCacheLayout, type UsageSort, usageCost, usageTokens } from "../usageStats";
+import {
+  byUsage,
+  type SessionUsageStats,
+  UNKNOWN,
+  type UsageCacheLayout,
+  type UsageSort,
+  usageCost,
+  usageTokens,
+} from "../usageStats";
 import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";

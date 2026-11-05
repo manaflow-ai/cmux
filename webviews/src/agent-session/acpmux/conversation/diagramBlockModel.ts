@@ -1,5 +1,3 @@
-
-
 const CHART_LANGUAGES = new Set(["vega-lite", "vega"]);
 
 /// Whether a finished fence draws as a chart or diagram: mermaid with source, or a chart language

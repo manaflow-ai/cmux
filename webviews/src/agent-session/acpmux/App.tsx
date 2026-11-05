@@ -242,8 +242,8 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { TrayPullTab } from "./subagents/TrayPullTab";
 import { pullTabCounts, tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
-import { AgentProgressStore } from "./subagents/agentProgressStoreModel";
-import { AgentProgressContext } from "./subagents/agentProgressStoreModel";
+import { AgentProgressStore } from "./subagents/agentProgressStore";
+import { AgentProgressContext } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
@@ -251,7 +251,13 @@ import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.exper
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
-import { type DoneLineCache, finishedTrayItems, trayItems, useSubagentTray, withSubagentLines } from "./subagents/runningTray";
+import {
+  type DoneLineCache,
+  finishedTrayItems,
+  trayItems,
+  useSubagentTray,
+  withSubagentLines,
+} from "./subagents/runningTray";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { setQuoteReplySink } from "./conversation/selectionReplyModel";
@@ -506,7 +512,15 @@ import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import { type SubagentRows, childView, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
-import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext, SubagentClockContext, SubagentStopContext, SubagentViewsContext, running } from "./subagents/subagentGroupModel";
+import {
+  SubagentHarnessContext,
+  SubagentNavContext,
+  SubagentPaneContext,
+  SubagentClockContext,
+  SubagentStopContext,
+  SubagentViewsContext,
+  running,
+} from "./subagents/subagentGroupModel";
 import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, type ShellActions } from "./shell/shellRowModel";
@@ -543,7 +557,7 @@ import {
 } from "./cmuxCommands";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
-import { useCheckpoints } from "./checkpoints/controllerModel";
+import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -594,7 +608,7 @@ import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./r
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
 
-import { defaultRegistry } from "./rows/registryModel";
+import { defaultRegistry } from "./rows/registry";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";

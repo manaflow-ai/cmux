@@ -7,7 +7,15 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
-import { AnotherMachineIcon, EnvironmentIcon, EnvironmentPicker, ServerIcon, type RunRowDetails, type EnvironmentFaceStyle, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import {
+  AnotherMachineIcon,
+  EnvironmentIcon,
+  EnvironmentPicker,
+  ServerIcon,
+  type RunRowDetails,
+  type EnvironmentFaceStyle,
+  type SavedEnvironmentRows,
+} from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {

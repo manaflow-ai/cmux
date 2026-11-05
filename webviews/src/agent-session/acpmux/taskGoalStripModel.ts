@@ -1,5 +1,3 @@
-
-
 /** When a loop next runs, as the pane's language words a short relative time ("in 4 min."); none
  *  once that time has passed (the run is due or running). */
 export function loopNextText(now: number, at: number, lang: string): string | undefined {

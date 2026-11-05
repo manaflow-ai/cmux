@@ -38,7 +38,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
-import { useAgentProgress } from "./agentProgressStoreModel";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);

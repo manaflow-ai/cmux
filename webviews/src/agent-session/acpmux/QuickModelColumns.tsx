@@ -22,7 +22,19 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon } from "./QuickModelMenu";
-import { familyTabs, initialOf, leadRoute, runsOffers, searchGroups, symbolOf, twinRows, useAccountList, type QuickFamily, type QuickMenu, type QuickModel } from "./quickModelMenuModel";
+import {
+  familyTabs,
+  initialOf,
+  leadRoute,
+  runsOffers,
+  searchGroups,
+  symbolOf,
+  twinRows,
+  useAccountList,
+  type QuickFamily,
+  type QuickMenu,
+  type QuickModel,
+} from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;

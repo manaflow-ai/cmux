@@ -7,7 +7,14 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { useEscapeToDismiss } from "./paneSurface";
 import { usageLimitsLabel } from "./usageLimits";
 import { compactingUsage } from "./usageStats";
-import { type Summary, text, info, authSourceLabel, type StatusField, statusCardCopyText } from "./harnessStatusCardModel";
+import {
+  type Summary,
+  text,
+  info,
+  authSourceLabel,
+  type StatusField,
+  statusCardCopyText,
+} from "./harnessStatusCardModel";
 function routeLabel(summary: Summary, t: Translate): string {
   const source = info(summary);
   const route = text(source.routeName) ?? text(source.route) ?? text(summary.route);

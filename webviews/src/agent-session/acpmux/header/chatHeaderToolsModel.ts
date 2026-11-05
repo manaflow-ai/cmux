@@ -1,5 +1,4 @@
 import { type MouseEvent, type PointerEvent } from "react";
-import { HEADER_ACTIONS } from "./headerActions";
 
 /// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
 /// them, the Needs you inbox and Session Info toggle included.
@@ -70,7 +69,7 @@ export function menuItemForShortcut(
 export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
   // The selection event goes through: Fork's Option-click opens its destination chooser (forkMenu.ts).
   const guard =
-    <E,>(run: (event?: E) => void) =>
+    <E>(run: (event?: E) => void) =>
     (event?: E) => {
       if (current()) run(event);
     };

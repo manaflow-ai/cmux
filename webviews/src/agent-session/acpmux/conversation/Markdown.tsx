@@ -35,7 +35,7 @@ import { acpmuxPerf } from "../perf";
 import { useStartedMentions } from "../started/startedSessionCardModel";
 import { entranceAllowed } from "../../shared/pageReveal";
 
-import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget, linkIcon } from "./markdownModel";
+import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
 import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
 
 /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a

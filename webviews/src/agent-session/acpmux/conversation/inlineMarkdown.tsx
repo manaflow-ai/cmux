@@ -17,7 +17,16 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { SessionRefCode } from "./SessionRef";
 import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
-import { INLINE_IMAGE, MAX_DATA_URL_LENGTH, OVERSIZED_DATA_URL, DATA_REF, capDataUrls, linkKind, linkIcon, INLINE_RE } from "./markdownModel";
+import {
+  INLINE_IMAGE,
+  MAX_DATA_URL_LENGTH,
+  OVERSIZED_DATA_URL,
+  DATA_REF,
+  capDataUrls,
+  linkKind,
+  linkIcon,
+  INLINE_RE,
+} from "./markdownModel";
 import { proseText } from "./proseText";
 
 /* ---------------- Inline ---------------- */

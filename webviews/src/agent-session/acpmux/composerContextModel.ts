@@ -1,5 +1,3 @@
-
-
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
   folder: "composer.folder",

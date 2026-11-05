@@ -36,7 +36,7 @@ afterAll(() => {
 test("every header button but ⋯ has a tooltip, with its shortcut when it has one; New tab turns into Hide tabs in place", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
-const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
+  const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { ShortcutsContext } = await import("../src/agent-session/acpmux/shortcuts");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   // [+] New tab folds into "..." by default; shown here to check its button.

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { Quote } from "./icons";
-import { look, current, useSelectionReplyLook, quoteInReply, type SelectionReplyTarget, selectionReplyTarget, PLACE_GAP, transcriptTextRects, selectionReplyPlace } from "./selectionReplyModel";
+import { useSelectionReplyLook, quoteInReply, type SelectionReplyTarget, selectionReplyTarget, PLACE_GAP, transcriptTextRects, selectionReplyPlace } from "./selectionReplyModel";
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
 /// (MessageActions.tsx ROW_ICON).
 export function RowReplyButton({ text }: { text: string }) {

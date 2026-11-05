@@ -1,5 +1,3 @@
-
-
 // A chat that opened before it can resume here (cx-khns1): its folder is gone, or acpmux plans a
 // terminal or a read-only transcript, so the pane holds a fresh chat. The handshake's `pastTurns`
 // (acpmux's `_acpmux/chat_transcript`, read from the chat's own transcript) are drawn read-only

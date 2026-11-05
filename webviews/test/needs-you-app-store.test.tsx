@@ -60,7 +60,7 @@ async function renderHeader(installed: boolean) {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
-const { needsYouMode } = await import("../src/agent-session/acpmux/needsYou/needsYouModel");
+  const { needsYouMode } = await import("../src/agent-session/acpmux/needsYou/needsYouModel");
   const document = scope.document as Document;
   if (!installed) document.documentElement.dataset.needsYou = "off";
   const noop = () => {};

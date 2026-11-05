@@ -8,7 +8,11 @@ import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
-import { useAttachmentIntake, useSendWhenAttached, type AttachmentIntakeOptions } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import {
+  useAttachmentIntake,
+  useSendWhenAttached,
+  type AttachmentIntakeOptions,
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import {
   retryUploadLater,
   UPLOAD_AUTO_RETRIES,

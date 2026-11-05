@@ -1,5 +1,3 @@
-
-
 import { FolderIcon } from "./NewTabPage";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import { useT } from "./i18n";

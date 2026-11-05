@@ -1,5 +1,3 @@
-
-
 const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
 
 /// `owner/repo#N` for a GitHub pull request or issue address, else undefined.

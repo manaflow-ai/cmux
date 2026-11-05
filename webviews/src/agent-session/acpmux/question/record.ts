@@ -3,7 +3,7 @@
 // what was chosen, or that nothing was. The inverse of model.ts `reply`, per harness: Claude Code's
 // answers come keyed by question text, one comma-separated string per question; Codex's by
 // question id, `{answers: [label]}`; an ACP ask's answer is the permission option chosen.
-import { plainText } from "./inlineTextModel";
+import { plainText } from "./inlineText";
 import {
   questionSummary,
   type AgentQuestion,

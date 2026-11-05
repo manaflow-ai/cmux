@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
-import { type HarnessHealth, needsLogin, SKIPPED, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
+import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
 
 type Open = (params: { kind: "terminal"; text: string; cwd?: string; run: true }) => void;
 /// The host's calls (`callNative`): `harness.update {id}` -> `{ok, version?, error?}` (it waits for

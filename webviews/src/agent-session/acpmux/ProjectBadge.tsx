@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import type { Project } from "./ProjectChooser";
-import { GLYPHS } from "./projectGlyphsModel";
+import { GLYPHS } from "./projectGlyphs";
 import { useProjectIcon } from "./projectIcon";
 import { projectKind } from "./projectBadgeModel";
 /// The project's own icon when the host finds one on this Mac (projectIcon.ts: its GitHub owner's

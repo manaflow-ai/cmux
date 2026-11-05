@@ -1,5 +1,3 @@
-
-
 export const MIN_SCALE = 1;
 export const MAX_SCALE = 8;
 export type View = { scale: number; x: number; y: number };

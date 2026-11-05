@@ -1,5 +1,3 @@
-
-
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
 export const ROW_ICON = 16;
 

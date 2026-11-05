@@ -1,5 +1,3 @@
-
-
 /// The card's line for a session not waiting: what it does now, or, failed, why. Only a `doing` line
 /// that repeats the prompt shown under the card is left out; an error always stays, even one that
 /// starts like the prompt (Codex review of #27240), and stands in for a `doing` line left out.

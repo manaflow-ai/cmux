@@ -1,5 +1,3 @@
-
-
 /// 27183 -> "27k", 2470 -> "2.5k"; under a thousand as is.
 export function compactTokens(tokens: number): string {
   if (tokens < 1000) return String(tokens);

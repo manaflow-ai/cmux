@@ -1,5 +1,3 @@
-
-
 /** The daemon's built-in routes (routes.rs `builtin_routes`, accounts.rs): `route/list` leaves them
  * out, and a route file of their id replaces them, so a new account never takes one. */
 const BUILT_IN_IDS = ["cmux", "codex-login", "claude-login"];

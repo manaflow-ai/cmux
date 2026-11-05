@@ -7,7 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ProjectBadge } from "./ProjectBadge";
-import { GLYPHS } from "./projectGlyphsModel";
+import { GLYPHS } from "./projectGlyphs";
 import { setProjectIconHost } from "./projectIcon";
 
 const ICON = "data:image/png;base64,iVBORw0KGgo=";

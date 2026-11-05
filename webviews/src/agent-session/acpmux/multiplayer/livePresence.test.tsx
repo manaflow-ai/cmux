@@ -110,7 +110,7 @@ test("the faces and typing line draw only over the chat the presence is for", as
   const { createRoot } = await import("react-dom/client");
   const { act } = await import("react");
   const { LivePresenceStack, LiveTypingLine } = await import("./LivePresence");
-const { shownPresence } = await import("./livePresenceModel");
+  const { shownPresence } = await import("./livePresenceModel");
   const scopeAct = scope as { IS_REACT_ACT_ENVIRONMENT?: boolean };
   scopeAct.IS_REACT_ACT_ENVIRONMENT = true;
   const host = dom.window.document.createElement("div");
@@ -147,7 +147,7 @@ test("a chat that opens with nobody else draws no faces its snapshot kept from b
   const { createRoot } = await import("react-dom/client");
   const { act } = await import("react");
   const { LivePresenceStack, LiveTypingLine } = await import("./LivePresence");
-const { shownPresence } = await import("./livePresenceModel");
+  const { shownPresence } = await import("./livePresenceModel");
   const { PresenceClient } = await import("./presenceClient");
   const scopeAct = scope as { IS_REACT_ACT_ENVIRONMENT?: boolean };
   scopeAct.IS_REACT_ACT_ENVIRONMENT = true;

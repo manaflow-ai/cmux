@@ -1,6 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { filesFrom, isImageFile, pastedImageFiles, installFileDropLifecycle, sourceOfFile, withSource, type AttachmentError, type AttachmentSource, type ComposerAttachment, type DroppedKind, type LinkItem, type SourceKind } from "../attachments";
+import {
+  filesFrom,
+  isImageFile,
+  pastedImageFiles,
+  installFileDropLifecycle,
+  sourceOfFile,
+  withSource,
+  type AttachmentError,
+  type AttachmentSource,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+  type SourceKind,
+} from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { keptThumb, keepThumb } from "./imagePool";

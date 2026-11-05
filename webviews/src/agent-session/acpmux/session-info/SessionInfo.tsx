@@ -62,7 +62,17 @@ import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionIn
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
-import { claimSessionInfoIMessageReveal, SESSION_INFO_WIDTH, setSessionInfoMore, setSessionInfoSection, setSessionInfoSourcesAll, setSessionInfoWidth, useSessionInfoState, type SessionInfoSectionId, type SessionInfoSections } from "./sessionInfoState";
+import {
+  claimSessionInfoIMessageReveal,
+  SESSION_INFO_WIDTH,
+  setSessionInfoMore,
+  setSessionInfoSection,
+  setSessionInfoSourcesAll,
+  setSessionInfoWidth,
+  useSessionInfoState,
+  type SessionInfoSectionId,
+  type SessionInfoSections,
+} from "./sessionInfoState";
 import { OutputsSection } from "./OutputsSection";
 import { type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess } from "./processes";
@@ -83,7 +93,14 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import "./sessionInfo.css";
-import { type SessionInfoPlacement, type RailLayout, DISMISS_KEEPERS, RAIL_LAYOUT, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
+import {
+  type SessionInfoPlacement,
+  type RailLayout,
+  DISMISS_KEEPERS,
+  RAIL_LAYOUT,
+  SESSION_INFO_TOGGLE,
+  toolCallIds,
+} from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;

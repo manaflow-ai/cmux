@@ -26,7 +26,20 @@ import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { sessionInfoTopOffset, sessionInfoOverChat, sessionInfoPushes, sessionInfoStage, pushedRoom, pushedWidth, pushKeepsColumn, PUSH_PANEL_MIN, PUSH_MIN_CHAT, sessionInfoFits, FLOAT_MARGIN, pushes } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import {
+  sessionInfoTopOffset,
+  sessionInfoOverChat,
+  sessionInfoPushes,
+  sessionInfoStage,
+  pushedRoom,
+  pushedWidth,
+  pushKeepsColumn,
+  PUSH_PANEL_MIN,
+  PUSH_MIN_CHAT,
+  sessionInfoFits,
+  FLOAT_MARGIN,
+  pushes,
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import {
   SESSION_INFO_WIDTH,
   sessionInfoState,

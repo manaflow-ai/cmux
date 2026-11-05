@@ -15,7 +15,19 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentI
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
-import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext, SubagentStopContext, running, STATE_LABEL, elapsed, ticking, groupElapsed, useNow, STACK } from "./subagentGroupModel";
+import {
+  SubagentHarnessContext,
+  SubagentNavContext,
+  SubagentPaneContext,
+  SubagentStopContext,
+  running,
+  STATE_LABEL,
+  elapsed,
+  ticking,
+  groupElapsed,
+  useNow,
+  STACK,
+} from "./subagentGroupModel";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave

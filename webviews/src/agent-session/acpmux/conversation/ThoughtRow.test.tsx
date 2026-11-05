@@ -12,7 +12,13 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { ThoughtRow } from "./ThoughtRow";
 import { thoughtDuration, thoughtParts } from "./thoughtRowModel";
-import { THOUGHT_LIVE_PX, thoughtLayout, thoughtPreview, type ThoughtFoldThreshold, type ThoughtHeader } from "./thoughtRowModel";
+import {
+  THOUGHT_LIVE_PX,
+  thoughtLayout,
+  thoughtPreview,
+  type ThoughtFoldThreshold,
+  type ThoughtHeader,
+} from "./thoughtRowModel";
 import { foldMotion } from "./fold";
 
 let dom: JSDOM | undefined;

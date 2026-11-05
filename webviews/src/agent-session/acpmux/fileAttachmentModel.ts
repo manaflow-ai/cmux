@@ -1,5 +1,3 @@
-
-
 export function attachmentPath(uri: string | undefined): string | undefined {
   if (!uri?.startsWith("file://")) return undefined;
   try {

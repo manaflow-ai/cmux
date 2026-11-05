@@ -1,4 +1,3 @@
-
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { useT, type Translate } from "./i18n";
 import { Icon } from "./icons/Icon";

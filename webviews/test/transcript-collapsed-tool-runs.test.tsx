@@ -121,7 +121,8 @@ test("the line's glyph is the run's main kind of work", () => {
 
 test("opened, the line shows the rows it holds as they draw on their own", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   const root: Root = createRoot(host);

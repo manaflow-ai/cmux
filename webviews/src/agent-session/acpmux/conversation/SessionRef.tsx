@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { SubsessionContext } from "../subagents/subsessions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SoftBroken } from "./softBreaks";
-import { agentRef, resolveSessionRef, sessionRefsResolve, whenIdle, type AgentRef, type SessionRefTarget } from "./sessionRefs";
+import { resolveSessionRef, sessionRefsResolve, whenIdle, type AgentRef, type SessionRefTarget } from "./sessionRefs";
 import { useSessionRef, agentLinkProps } from "./sessionRefModel";
 import { openSessionAttributes } from "./menuParts";
 function useOpenTitle(target: SessionRefTarget | null | undefined, text: string): string | undefined {

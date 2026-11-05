@@ -126,7 +126,7 @@ import {
   type SlashCommand,
   type SlashTrigger,
 } from "../slashCommands";
-import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommandModel";
+import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";

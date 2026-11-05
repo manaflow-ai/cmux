@@ -223,7 +223,8 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
   const { StartedSessionChip } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
-  const { SessionHoverContext, SESSION_HOVER_DELAY } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
+  const { SessionHoverContext, SESSION_HOVER_DELAY } =
+    await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
   const store = new SessionHoverStore();

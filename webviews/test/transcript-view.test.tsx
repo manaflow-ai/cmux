@@ -8,7 +8,12 @@ import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
-import { resetTranscriptDisclosure, useTranscriptDisclosure, useTranscriptViewContext, viewChat } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import {
+  resetTranscriptDisclosure,
+  useTranscriptDisclosure,
+  useTranscriptViewContext,
+  viewChat,
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import {
   makeTranscriptViewDefault,
   resetTranscriptViews,

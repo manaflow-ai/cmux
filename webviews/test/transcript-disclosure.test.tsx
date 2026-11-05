@@ -3,7 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
-import { resetTranscriptDisclosure, useTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import {
+  resetTranscriptDisclosure,
+  useTranscriptDisclosure,
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

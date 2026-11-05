@@ -1,5 +1,3 @@
-
-
 export type FileKind = "doc" | "code" | "log";
 
 const CODE =

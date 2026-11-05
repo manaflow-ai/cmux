@@ -4,12 +4,31 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey } from "./i18n";
-import { type ConnectKind, type Environment, type EnvironmentKind, type OffloadKind, type SavedEnvironment, environmentDigit, environmentForDigit, environmentReady, environmentSections, numberedEnvironments, orderEnvironments, savedEnvironmentIsFolder, savedEnvironmentLabel } from "./environments";
+import {
+  type ConnectKind,
+  type Environment,
+  type EnvironmentKind,
+  type OffloadKind,
+  type SavedEnvironment,
+  environmentDigit,
+  environmentForDigit,
+  environmentReady,
+  environmentSections,
+  numberedEnvironments,
+  orderEnvironments,
+  savedEnvironmentIsFolder,
+  savedEnvironmentLabel,
+} from "./environments";
 import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import type { RunModeRows } from "./sandboxRun";
-import { SECTION_LABELS, environmentStateLabel, ENVIRONMENT_SEARCH_MIN, useMachineRefresh } from "./environmentPickerModel";
+import {
+  SECTION_LABELS,
+  environmentStateLabel,
+  ENVIRONMENT_SEARCH_MIN,
+  useMachineRefresh,
+} from "./environmentPickerModel";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";

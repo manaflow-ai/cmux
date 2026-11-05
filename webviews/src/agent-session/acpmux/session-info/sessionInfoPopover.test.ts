@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { transcriptColumn } from "../model";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
-import { FLOAT_MARGIN, POPOVER_BELOW_HEIGHT, pushedRoom, pushedWidth, sessionInfoPopover, sessionInfoPushes, sessionInfoStage } from "./sessionInfoModel";
+import {
+  FLOAT_MARGIN,
+  POPOVER_BELOW_HEIGHT,
+  pushedRoom,
+  pushedWidth,
+  sessionInfoPopover,
+  sessionInfoPushes,
+  sessionInfoStage,
+} from "./sessionInfoModel";
 
 describe("sessionInfoPopover", () => {
   test("only over the chat in a short pane", () => {

@@ -1,6 +1,5 @@
 import { type Translate } from "../i18n";
 import type { StartedSession } from "../started/startedSessions";
-import { running } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { sessionStatus } from "./childSessionRowsModel";

@@ -29,7 +29,19 @@ import {
   MenuSeparator,
   Submenu,
 } from "../../ui/Menu";
-import { type QuickMenu, symbolOf, initialOf, type QuickModel, groupKey, familyTabs, leadRoute, searchGroups, twinRows, runsOffers, useAccountList } from "./quickModelMenuModel";
+import {
+  type QuickMenu,
+  symbolOf,
+  initialOf,
+  type QuickModel,
+  groupKey,
+  familyTabs,
+  leadRoute,
+  searchGroups,
+  twinRows,
+  runsOffers,
+  useAccountList,
+} from "./quickModelMenuModel";
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
 /// version's search field.
 const LONG_LIST = 8;

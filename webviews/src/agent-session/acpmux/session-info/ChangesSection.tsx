@@ -23,7 +23,18 @@ import type { SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph } from "./PullRequestGlyph";
 import { type PullRequestGlyphState } from "./pullRequestGlyphModel";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
-import { CHANGES_SHOWN, type LineCounts, type ChangeKind, KINDS, type SessionInfoPullRequestStatus, ABBREVIATE_FROM, formatCount, glyphState, ended, changesOrder } from "./changesSectionModel";
+import {
+  CHANGES_SHOWN,
+  type LineCounts,
+  type ChangeKind,
+  KINDS,
+  type SessionInfoPullRequestStatus,
+  ABBREVIATE_FROM,
+  formatCount,
+  glyphState,
+  ended,
+  changesOrder,
+} from "./changesSectionModel";
 
 const ROW_ICON = rowIconSize(12);
 const KIND_LABELS: Record<ChangeKind, StringKey> = {

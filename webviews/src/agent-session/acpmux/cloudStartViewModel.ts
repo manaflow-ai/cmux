@@ -1,4 +1,9 @@
-import { CLOUD_START_STEPS, type CloudStartProgress, type CloudStartupOperation, type CloudStartupSetup } from "./cloudStartProgress";
+import {
+  CLOUD_START_STEPS,
+  type CloudStartProgress,
+  type CloudStartupOperation,
+  type CloudStartupSetup,
+} from "./cloudStartProgress";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 

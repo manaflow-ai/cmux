@@ -36,7 +36,7 @@ afterAll(() => {
 test("Preview shows with the chat's local page or its open preview, and lights while it is open", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
-const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
+  const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   // Preview shown as a button (it is in the chat menu by default), and nothing open yet (other files in

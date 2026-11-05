@@ -1,5 +1,3 @@
-
-
 /// The app a watched chat's conversation runs in, by acpmux harness family. Product names, never
 /// translated.
 export function watchedApp(family: string): string {

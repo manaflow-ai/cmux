@@ -37,7 +37,15 @@ import { turnCopyText } from "./turnCopy";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { hasTokens, tokensText } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton, ReplyTime } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";

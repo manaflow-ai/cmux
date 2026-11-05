@@ -1,8 +1,14 @@
 import { seedLastPicks } from "./lastPick";
 import type { AcpmuxSnapshot } from "./model";
-import type { Project } from "./ProjectChooser";
 import { MAX_NEW_TAB_ENTRIES, omnibarContext, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { activityTime, folded, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  activityTime,
+  folded,
+  listed,
+  normalizedSessionEntry,
+  sessionMark,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseWeather, type NewTabWeather } from "./newtab/ambient";

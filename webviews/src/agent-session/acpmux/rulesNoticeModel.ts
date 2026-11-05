@@ -1,5 +1,3 @@
-
-
 /// One current rule of this Mac's acpmux forum (`_acpmux/forum/rules`, hq#2570): the newest
 /// announcement of its key. A person's rule is an instruction to every agent; an agent's is
 /// information.

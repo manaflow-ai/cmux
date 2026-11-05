@@ -10,7 +10,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChangesSection } from "../src/agent-session/acpmux/session-info/ChangesSection";
-import { CHANGES_SHOWN, changesOrder, glyphState, visibleChanges, type SessionInfoPullRequestStatus } from "../src/agent-session/acpmux/session-info/changesSectionModel";
+import {
+  CHANGES_SHOWN,
+  changesOrder,
+  glyphState,
+  visibleChanges,
+  type SessionInfoPullRequestStatus,
+} from "../src/agent-session/acpmux/session-info/changesSectionModel";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 

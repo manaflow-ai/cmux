@@ -10,7 +10,13 @@ import {
   type RunAttempt,
   type RunBoardSnapshot,
 } from "./model";
-import { RunApiHttpError, RunBoardApiSession, type AttachTicketIntent, type RunAttachTicket, type RunApiClient } from "./runApi";
+import {
+  RunApiHttpError,
+  RunBoardApiSession,
+  type AttachTicketIntent,
+  type RunAttachTicket,
+  type RunApiClient,
+} from "./runApi";
 import { attachRunTerminal } from "./runAttach";
 import { type RunBoardAttachState, attachFailureState, attachTicketExpired } from "./runBoardModel";
 

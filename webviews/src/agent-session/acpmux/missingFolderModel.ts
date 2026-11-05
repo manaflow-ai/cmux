@@ -1,5 +1,3 @@
-
-
 // A chat whose folder is missing (cx-nn3e.1): acpmux's `_acpmux/chat_open` said the person must
 // pick a folder (the recorded one was deleted or moved, or the chat recorded none). The chat opens
 // in its pane with this line above the composer; Choose Folder asks the host (`chat.folder.choose`:

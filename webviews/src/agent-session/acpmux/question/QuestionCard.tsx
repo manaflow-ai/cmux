@@ -24,7 +24,7 @@ import {
   type CardState,
 } from "./cardState";
 import { HtmlPreview } from "./HtmlPreview";
-import { inlineText, plainText } from "./inlineTextModel";
+import { inlineText, plainText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,

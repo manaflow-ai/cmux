@@ -13,12 +13,17 @@ import { AgentLine } from "../subagents/AgentLine";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
+import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
-import { SUBSESSION_STATE_LABEL, subsessionDisplayName, type SubsessionRow, waitingLine } from "../subagents/subsessions";
+import {
+  SUBSESSION_STATE_LABEL,
+  subsessionDisplayName,
+  type SubsessionRow,
+  waitingLine,
+} from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows } from "../session-info/ChildSessionRows";
 import { sessionStatus } from "../session-info/childSessionRowsModel";

@@ -1,4 +1,14 @@
-import { type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
+import {
+  type FocusEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../../ui/hoverIntent";
 import { type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";

@@ -4,7 +4,6 @@ import type { AcpmuxRow } from "../model";
 import { Clock } from "./icons";
 import { ROW_ICON } from "./messageActionsModel";
 import { isEmptyFooter } from "./turns";
-import { waterfall } from "./waterfallSpans";
 import { type WaterfallLook, TurnWaterfall } from "./TurnWaterfall";
 
 /// The footer's Timeline toggle and, while it is open, the waterfall under the footer row. Null for
