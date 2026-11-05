@@ -380,6 +380,33 @@ mod tests {
         assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
     }
 
+    /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
+    /// that only waits must not read as a harness that does nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_launchers_harness_state_counts_the_work_of_the_agent_it_started() {
+        use std::io::BufRead;
+        // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
+        // spends CPU, says so, then waits on its input.
+        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; exec cat";
+        let mut launcher = std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn the launcher");
+        let mut said = String::new();
+        let stdout = launcher.stdout.take().expect("its stdout");
+        std::io::BufReader::new(stdout).read_line(&mut said).expect("the agent's line");
+        assert_eq!(said.trim(), "worked");
+        let state = harness_state(launcher.id()).expect("read the launcher");
+        drop(launcher.stdin.take());
+        let _ = launcher.kill();
+        let _ = launcher.wait();
+        // The launcher alone used a few ms; its agent's loop took far more.
+        assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_harness_cpu_ticks_reads_one_process_record() {
