@@ -32,6 +32,7 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
+use super::relay::{Relay, Runner};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::trajectory::Layout;
@@ -487,6 +488,8 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
+    /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
+    relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -535,6 +538,7 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             trajectories,
+            relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -935,6 +939,16 @@ impl Worker {
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
         }
+        // A rebind replaces the relay: dropping the old one closes its socket and ends its chats at once.
+        self.relay = None;
+        match (github_client(&bound, &key), relay_runner()) {
+            (Ok(client), Ok(runner)) => {
+                self.relay = Relay::spawn(client, runner, wall_ms, log)
+                    .map_err(|e| log(&format!("relay: {e}")))
+                    .ok();
+            }
+            (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
+        }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
@@ -1129,6 +1143,23 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     };
     let identity = Some((user.uid, user.gid));
     Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
+}
+
+/// Who runs relay chats: the machine's acpmux as the work user (the
+/// trajectory mirror's layout), or root's on an image without that user.
+fn relay_runner() -> Result<Runner, String> {
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| "no work user and no root user".to_owned())?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    Ok(Runner {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        groups: crate::linux::spawn::group_list(&user.name, user.gid),
+        home,
+    })
 }
 
 /// The harness-login sync (removed) kept its state here on machines that ran

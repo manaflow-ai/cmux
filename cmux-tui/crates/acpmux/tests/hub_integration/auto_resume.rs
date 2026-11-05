@@ -189,18 +189,16 @@ async fn a_turn_stopped_mid_stream_is_not_continued_when_it_ends_in_a_connection
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "stopped").await;
+    // Attached here, so the agent's stream reaches `c`: the Stop must come mid-stream, after
+    // the agent has the prompt. A turn that only started (`session.turn()`) may not have
+    // written its prompt yet; a Stop then ends it before the agent sees it ("stopped before
+    // this prompt reached the agent"), with no connection error at all.
+    c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
     let mut other = connect(&hub).await;
     let params =
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-on-cancel"}]});
     let turn = tokio::spawn(async move { other.request(method::SESSION_PROMPT, params).await });
-    let session = hub.resolve(&id).unwrap();
-    for _ in 0..400 {
-        if session.turn().is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(session.turn().is_some(), "the turn never started");
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
     c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let r = turn.await.unwrap();
     assert!(r.unwrap_err().contains("stream disconnected"));

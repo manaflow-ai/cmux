@@ -959,6 +959,7 @@ pub mod group_hover_summary;
 #[cfg(kani)]
 mod proofs;
 pub mod scroll;
+pub mod shown_resize;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;

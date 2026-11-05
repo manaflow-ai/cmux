@@ -852,12 +852,12 @@ final class CloudService {
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
-    func resumeMachine(_ machineID: String) async throws {
-        try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
+    func resumeMachine(_ machineID: String, origin: AppsRunRequest.Origin = .user) async throws {
+        try await changes.run(.starting, machineID: machineID, origin: origin, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, ops: appOps) : api.resumeMachine(machineID)
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, origin: origin, ops: appOps) : api.resumeMachine(machineID)
         }
-        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
+        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("\(origin == .script ? "passively resumed" : "resumed", privacy: .public) machine \(machineID, privacy: .public)")
     }
 
     /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes

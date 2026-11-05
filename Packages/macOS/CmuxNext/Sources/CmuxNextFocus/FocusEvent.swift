@@ -116,6 +116,18 @@ public extension FocusEvent {
         if case .responder(_, let source) = self { return source == .mouse }
         return isPersonsOwn
     }
+
+    /// A focus choice of a run the person chose from a menu (``FocusMachine/send(_:into:menuPick:)``): any focus or selection
+    /// move, and any responder report no key's dispatch made. AppKit runs a chosen item's action outside an input event's
+    /// dispatch, so its events carry the CLI's or the app's source; a held key run again inside the run's task carries the
+    /// keyboard's, and a key's responder change is no focus choice (round 10 of #35275).
+    var choosesFocusInMenuPick: Bool {
+        switch self {
+        case .responder(_, let source): source != .keyboard
+        case .focusPane, .selectTab, .focusTarget: true
+        default: false
+        }
+    }
 }
 
 public extension FocusEvent.Responder {
