@@ -99,7 +99,7 @@ class FreshState(unittest.TestCase):
 
 
 def followed(held=0, frames=120, lagging=0, key="tab-1", first=None):
-    """One terminal's pane check, as DebugTerminalPaneFollow reports it."""
+    """One terminal's pane check, as TerminalPaneFollowProbe reports it."""
     first = first if first is not None else [{"frame": 3, "area": [590, 400], "asked": [600, 400], "shown": [600, 400]}][:held]
     return {key: {"frames": frames, "held": held, "lagging": lagging, "first_held": first, "first_lagging": []}}
 
@@ -204,11 +204,15 @@ class PaneCheck(unittest.TestCase):
         self.assertIn("1 of 2 terminals", found[0])
 
     def test_follow_takes_the_check_out_of_the_stop_reply(self):
-        display = {"calls": 12, "follow_frames": 90,
-                   "terminals_followed": {**followed(held=2, frames=90, lagging=5, key="a"), **followed(frames=90, lagging=1, key="b")}}
+        a = followed(held=2, frames=90, lagging=5, key="a")
+        a["a"]["in_flight"] = 4
+        presenter = {"presented": 30, "keeps": 7, "group_waits": 1, "fallbacks": 0, "passes": 40}
+        display = {"calls": 12, "follow_frames": 90, "follow_presenter": presenter,
+                   "terminals_followed": {**a, **followed(frames=90, lagging=1, key="b")}}
         checked = verdict.follow(display)
         self.assertEqual(display, {"calls": 12}, "the per-terminal record moves to the round's `follow`")
         self.assertEqual((checked["frames"], checked["held_frames"], checked["held_terminals"], checked["lagging_frames"]), (90, 2, 1, 6))
+        self.assertEqual((checked["in_flight_frames"], checked["presenter"]), (4, presenter))
         self.assertIsNone(verdict.follow({"calls": 3}))
 
     def test_holds_terminals_is_data(self):

@@ -39,12 +39,16 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            S4's A/B.
 
 The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
-`debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
-commit: its pane's size, the size its host asked of it, and the size its layer shows. Each round reports `follow`:
-per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
-(shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
-with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
-data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
+`debug.terminal_display` samples each terminal shown at the round's start once per frame of its window: after the
+Core Animation commit of the run-loop turn in which that window's frame clock ticked, so a sample is what that frame
+committed. It reads its pane's size, the size its host asked of it, and the size its layer shows. Each round reports
+`follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
+frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
+3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
+fallbacks); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
+the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
+Lagging frames are data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by
+design.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
@@ -218,7 +222,8 @@ def pane_check(display):
     if checked is None:
         return {"follow": None}
     return {"follow": checked, "held_frames": checked["held_frames"], "held_terminals": checked["held_terminals"],
-            "lagging_frames": checked["lagging_frames"]}
+            "lagging_frames": checked["lagging_frames"], "in_flight_frames": checked["in_flight_frames"],
+            "presenter": checked["presenter"]}
 
 
 def frame_numbers(frames):
