@@ -193,7 +193,7 @@ fn run_rust(command: &Command) -> i32 {
     let script = match (&tree, verb) {
         (Some(tree), _) => tree.join(RUST_SCRIPT),
         (None, RustVerb::Start) => {
-            eprintln!("{}", messages.no_checkout);
+            eprintln!("{}", messages.rust_no_checkout);
             return 2;
         }
         (None, _) => match recorded_rust_script() {

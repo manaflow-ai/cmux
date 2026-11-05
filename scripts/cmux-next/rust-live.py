@@ -161,7 +161,8 @@ class Graph:
                 if name in seen or name not in packages:
                     continue
                 seen.add(name)
-                todo.extend(d["name"] for d in packages[name]["dependencies"] if d.get("path"))
+                todo.extend(d["name"] for d in packages[name]["dependencies"]
+                            if d.get("path") and d.get("kind") != "dev")
             reaches[daemon] = seen
         return cls(dirs, reaches)
 
@@ -188,7 +189,8 @@ def ssh_options(state: Path) -> list[str]:
     # CMUX_RUST_LIVE_SSH_OPTS: more ssh options (a port, a jump host, a known-hosts file).
     extra = shlex.split(os.environ.get("CMUX_RUST_LIVE_SSH_OPTS", ""))
     return ["-o", "BatchMode=yes", "-o", "ControlMaster=auto",
-            "-o", f"ControlPath={state}/ssh-%C", "-o", "ControlPersist=900", *extra]
+            # %C is 40 characters; a socket path under a deep state folder passes macOS's 104 limit.
+            "-o", f"ControlPath=/tmp/rust-live-{os.getuid()}-%C", "-o", "ControlPersist=900", *extra]
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -245,6 +247,7 @@ class Builder:
         result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", source, dest],
                                 input="\n".join(changed) + "\n", capture_output=True, text=True)
         if result.returncode != 0:
+            self.synced = False  # the next save sends the whole tree, so this edit is not lost
             raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
 
     def build(self, daemons: list[str]) -> tuple[bool, str]:
@@ -288,7 +291,7 @@ class Builder:
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
-                target = Path(os.environ.get("CARGO_TARGET_DIR") or self.tree / "cmux-tui/target")
+                target = self.tree / "cmux-tui" / (os.environ.get("CARGO_TARGET_DIR") or "target")
                 staged = target / self.out_dir() / binary
             dest = generation / shipped
             try:
@@ -311,6 +314,7 @@ class Swapper:
         self.selector = (["--socket", sock] if sock else []) + (["--session", session] if session else [])
         self.sock = sock
         self.env = env
+        self.previous: Path | None = None  # the last cmux-tui this loop swapped in
 
     def cli(self, binary: Path, *words: str, timeout: float = 60) -> subprocess.CompletedProcess:
         return run([str(binary), *self.selector, *words], env=self.env, timeout=timeout)
@@ -330,9 +334,13 @@ class Swapper:
                     raise RuntimeError(f"server stop: {(stop.stderr or stop.stdout).strip()}")
                 ensure = self.cli(new, "server", "ensure")
                 if ensure.returncode != 0:
-                    raise RuntimeError(f"server ensure: {(ensure.stderr or ensure.stdout).strip()}")
+                    # Never leave the session without a daemon: the last build that ran goes back.
+                    back = self.cli(self.previous, "server", "ensure") if self.previous else None
+                    raise RuntimeError(f"server ensure: {(ensure.stderr or ensure.stdout).strip()}"
+                                       + ("; the previous build is back" if back and back.returncode == 0 else ""))
                 steps["cmux-tui"] = "server stop + ensure"
             steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+            self.previous = new
         if "acpmux" in built:
             t0 = time.monotonic()
             result = run([str(built["acpmux"]), "daemon", "restart"], env=self.env, timeout=60)
@@ -353,7 +361,9 @@ class Loop:
     builder: Builder
     swapper: Swapper
     on_swap: object = None  # called with each record (measure)
+    only: tuple = tuple(DAEMONS)  # the daemons this loop may swap (measure: cmux-tui alone)
     stop_event: threading.Event = field(default_factory=threading.Event)
+    watching: threading.Event = field(default_factory=threading.Event)  # set after the first scan
 
     def __post_init__(self):
         self.root = self.tree / "cmux-tui"
@@ -374,7 +384,10 @@ class Loop:
             shutil.rmtree(old, ignore_errors=True)  # only folders this loop made
 
     def once(self, changed: list[str], removed: list[str], saved_at: float, detected_at: float) -> dict:
+        if any(p.endswith("Cargo.toml") for p in changed + removed):
+            self.graph = Graph.load(self.root)  # a new crate or path dependency
         daemons, packages = self.graph.daemons_for(changed + removed)
+        daemons = [d for d in daemons if d in self.only]
         entry: dict = {
             "saved_at": round(saved_at, 3), "files": (changed + removed)[:20], "packages": packages,
             "daemons": daemons, "build_host": self.builder.host or "here",
@@ -399,6 +412,9 @@ class Loop:
         built = self.builder.fetch(daemons, self.state / "builds" / f"{stamp}-{self.generation}")
         entry["transfer_secs"] = round(time.time() - t, 3)
         entry["bytes"] = sum(p.stat().st_size for p in built.values())
+        if self.stop_event.is_set():
+            entry.update(outcome="stopped", reason="the loop was stopped during the build")
+            return entry
         t = time.time()
         entry["swap"] = self.swapper.swap(built)
         swapped_at = time.time()
@@ -414,6 +430,7 @@ class Loop:
         log(f"watching {self.root} (build: {self.builder.host or 'here'})")
         self.builder.sync([], [])
         files = scan(self.root)
+        self.watching.set()
         while not self.stop_event.is_set():
             time.sleep(POLL_SECS)
             now = scan(self.root)
@@ -475,7 +492,8 @@ def command_start(args) -> int:
     state = state_dir()
     state.mkdir(parents=True, exist_ok=True)
     if (pid := running_pid(state)) and not args.foreground:
-        print(f"rust-live: already watching (pid {pid}); `cmux live stop --rust` stops it")
+        watched = pid_file(state).read_text().split(maxsplit=1)[1].strip()
+        print(f"rust-live: already watching {watched} (pid {pid}); `cmux live stop --rust` stops it")
         return 0
     if not args.foreground:
         argv = [sys.executable, str(Path(__file__).resolve()), "start", "--foreground", "--worktree", str(tree)]
@@ -508,6 +526,10 @@ def command_stop(_args) -> int:
         print("rust-live: not watching")
         return 0
     os.kill(pid, signal.SIGTERM)
+    # It ends after the build under way, if any (and swaps nothing more); wait so no second loop starts.
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline and running_pid(state) == pid:
+        time.sleep(0.1)
     pid_file(state).unlink(missing_ok=True)
     print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
     return 0
@@ -606,6 +628,10 @@ def command_measure(args) -> int:
     sock = work / "mux.sock"
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("ACPMUX_", "CMUX_")) and k not in ("ENV", "BASH_ENV")}
+    # Every daemon this run touches is its own: scratch acpmux and config homes too.
+    for folder in ("acpmux", "xdg"):
+        (work / folder).mkdir(mode=0o700)
+    env.update(ACPMUX_HOME=str(work / "acpmux"), XDG_CONFIG_HOME=str(work / "xdg"))
     env.update(CMUX_TUI_STATE_DIR=str(work / "sessions"), CMUX_TUI_HOST_EXE_DIR=str(work / "host-exe"),
                CMUX_TUI_SHELL_INTEGRATION="none", SHELL="/bin/sh")
     report: dict = {"tree": str(tree), "host": socket.gethostname(), "runs": [], "build_host": args.build_host or "here"}
@@ -619,7 +645,11 @@ def command_measure(args) -> int:
             swaps.append(entry)
             swapped.notify_all()
 
-    loop = Loop(tree, state, builder, swapper, on_swap=on_swap)
+    loop = Loop(tree, state, builder, swapper, on_swap=on_swap, only=("cmux-tui",))
+
+    def interrupted(*_):
+        raise KeyboardInterrupt  # a fleet timeout's SIGTERM: the edit is taken back in `finally`
+    signal.signal(signal.SIGTERM, interrupted)
     started_hosts: dict[str, int] = {}
     first = None
     try:
@@ -652,7 +682,7 @@ def command_measure(args) -> int:
 
         watcher = threading.Thread(target=loop.run, daemon=True)
         watcher.start()
-        time.sleep(1.0)  # the loop's first scan
+        loop.watching.wait(timeout=60)  # the loop's first scan, before the first edit
         for run_index in range(args.runs):
             token = f"r{run_index}-{os.getpid()}"
             # A marker per run, written just before the save: the swap must keep the screen it is on
@@ -704,6 +734,8 @@ def command_measure(args) -> int:
                 result["terminals_survived"] = all(c.get("same_shell") and c.get("scrollback_kept") for c in checks)
             report["runs"].append(result)
             print(f"rust-live measure: run {run_index}: {json.dumps(result)}", file=sys.stderr, flush=True)
+    except KeyboardInterrupt:
+        report["error"] = "interrupted (SIGINT or SIGTERM)"
     except Exception as error:  # noqa: BLE001 - the report says what failed
         report["error"] = str(error)
     finally:

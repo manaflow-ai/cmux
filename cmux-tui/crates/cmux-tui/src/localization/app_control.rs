@@ -76,6 +76,7 @@ pub(crate) struct LiveMessages {
     pub started: &'static str,
     pub cannot_run: &'static str,
     pub rust_not_watching: &'static str,
+    pub rust_no_checkout: &'static str,
 }
 
 /// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
@@ -188,6 +189,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         started: "cmux now loads its web UI from this checkout. Save a file under webviews/ and watch it change; `cmux live stop` goes back.",
         cannot_run: "could not run the checkout's web-overlay.sh: {error}",
         rust_not_watching: "Rust live: not watching (`cmux live start --rust` in a cmux checkout starts it)",
+        rust_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/rust-live.py)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
@@ -275,6 +277,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         started: "cmux はこのチェックアウトから Web UI を読み込みます。webviews/ のファイルを保存すると変化が見えます。戻すには `cmux live stop`。",
         cannot_run: "チェックアウトの web-overlay.sh を実行できませんでした: {error}",
         rust_not_watching: "Rust ライブ: 監視していません (cmux のチェックアウトで `cmux live start --rust` を実行すると開始します)",
+        rust_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/rust-live.py が必要です)",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
