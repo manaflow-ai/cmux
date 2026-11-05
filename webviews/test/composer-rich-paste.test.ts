@@ -164,6 +164,9 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
     test(`${engine}: Paste as Plain Text keeps a list's Markdown as typed lines`, async () => {
       const page = await newChat(engine);
       await page.locator(FIELD).press("Meta+Shift+V");
+      // The menu's Paste as Plain Text goes through the host, so its paste can come late: the field
+      // keeps it plain for the composer's whole window (pastedChips.ts PLAIN_PASTE_MS).
+      await page.waitForTimeout(1500);
       await paste(page, { "text/plain": "- one\n- two" });
       await settled(page, "two");
       expect(await page.locator(`${FIELD} li`).count()).toBe(0);

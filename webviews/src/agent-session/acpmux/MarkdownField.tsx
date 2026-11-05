@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
-import { isPasteAsPlainTextKey } from "./composer/pastedChips";
+import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -371,8 +371,6 @@ const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.
 /// How long after a focus with no click the browser's own caret placement is overruled. Its caret
 /// at the field's very start is overruled for as long as no key, click or edit came (see `keepCaret`).
 const KEEP_CARET_MS = 100;
-/// How long after ⌘⇧V (or the menu's Paste as Plain Text) its paste may arrive.
-const PLAIN_PASTE_MS = 1000;
 /// How soon after `compositionend` a keyCode-229 Return is the key that committed the composition
 /// (WebKit sends it after the event). ProseMirror's own Safari guard uses the same window.
 const COMMIT_RETURN_MS = 500;

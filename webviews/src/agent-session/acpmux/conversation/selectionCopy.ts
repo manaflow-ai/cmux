@@ -15,11 +15,12 @@ const KEEP = new Set(["href", "start", "colspan", "rowspan"]);
 /// Elements the transcript draws around the text: buttons, icons, hidden labels.
 const CHROME = "button, svg, [aria-hidden='true'], [hidden], .sr-only";
 
-let installed = false;
+/// The document the listener is on: once per page, and again for a new one (a test's next DOM).
+let installedOn: Document | undefined;
 
 export function installSelectionCopy() {
-  if (installed || typeof document === "undefined") return;
-  installed = true;
+  if (typeof document === "undefined" || installedOn === document) return;
+  installedOn = document;
   document.addEventListener("copy", onCopy);
 }
 
