@@ -8,7 +8,9 @@
 //! only that machine, only as its work user, for 60 to 900 seconds. `create`
 //! prints how to use it (the SSH line, the token as its password) and shows the
 //! token once, on stdout or in a new 0600 `--token-file`. `exec` mints one and
-//! runs one command with it (`exec-await` with the
+//! runs one command with it (or, on a machine whose provider has no client
+//! sessions, runs it through the cmux API's machine exec route,
+//! `POST /v1/cloud/machines/{machine}/exec`) (`exec-await` with the
 //! `x-freestyle-identity-access-token` header), printing the command's stdout and
 //! stderr and exiting with its code; the token is never printed.
 //!
@@ -243,8 +245,38 @@ pub(super) fn run(
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
-    let session = runtime.block_on(mint(&client, command, api, credential))?;
     let io = |e: std::io::Error| e.to_string();
+    let minted = runtime.block_on(mint_session(
+        &client,
+        api,
+        credential,
+        command.team.as_deref(),
+        &command.machine,
+        command.ttl,
+    ));
+    let session = match (minted, &command.verb) {
+        (Ok(session), _) => session,
+        // A provider with no client sessions (a VM API machine): exec runs through the cmux
+        // API's own machine exec route as the work user, with the same answer this command
+        // prints for a direct exec. `new` has no such route: a session is what it makes.
+        (Err(refusal), Verb::Exec { command: line, timeout_ms })
+            if refusal.code == "cloud.provider.unsupported" =>
+        {
+            let mut answer = runtime.block_on(exec_route(
+                &client,
+                api,
+                credential,
+                command.team.as_deref(),
+                &command.machine,
+                line,
+                *timeout_ms,
+            ))?;
+            answer.stdout = redact(&answer.stdout, "", credential);
+            answer.stderr = redact(&answer.stderr, "", credential);
+            return print_exec(&command.machine, &answer, output, out, err).map_err(io);
+        }
+        (Err(refusal), _) => return Err(refusal.message),
+    };
     match &command.verb {
         Verb::Create { token_file } => {
             if let Some(path) = token_file {
@@ -299,20 +331,83 @@ pub(super) fn run(
             if code == session.token || code == credential {
                 return Err("the machine's answer is not readable".into());
             }
-            match output {
-                OutputMode::Json | OutputMode::JsonLines => {
-                    writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
-                }
-                // Quiet drops the command's output; its stderr and exit code still say what failed.
-                OutputMode::Quiet => err.write_all(answer.stderr.as_bytes()).map_err(io)?,
-                OutputMode::Human => {
-                    out.write_all(answer.stdout.as_bytes()).map_err(io)?;
-                    err.write_all(answer.stderr.as_bytes()).map_err(io)?;
-                }
-            }
-            Ok(answer.exit_code)
+            print_exec(&session.machine, &answer, output, out, err).map_err(io)
         }
     }
+}
+
+/// Prints one exec's answer as `output` asks and answers its exit code.
+fn print_exec(
+    machine: &str,
+    answer: &ExecAnswer,
+    output: OutputMode,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> std::io::Result<i32> {
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => {
+            writeln!(
+                out,
+                "{}",
+                json!({ "machine": machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })
+            )?;
+        }
+        // Quiet drops the command's output; its stderr and exit code still say what failed.
+        OutputMode::Quiet => err.write_all(answer.stderr.as_bytes())?,
+        OutputMode::Human => {
+            out.write_all(answer.stdout.as_bytes())?;
+            err.write_all(answer.stderr.as_bytes())?;
+        }
+    }
+    Ok(answer.exit_code)
+}
+
+/// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
+/// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
+/// `{ok: false, error: {code}}`; only a code from [`KNOWN_CODES`] is printed.
+async fn exec_route(
+    client: &reqwest::Client,
+    api: &str,
+    credential: &str,
+    team: Option<&str>,
+    machine: &str,
+    command: &str,
+    timeout_ms: u64,
+) -> Result<ExecAnswer, String> {
+    let mut request = client
+        .post(format!("{api}/v1/cloud/machines/{machine}/exec"))
+        .bearer_auth(credential)
+        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
+        .json(&json!({ "command": command, "timeoutMs": timeout_ms }));
+    if let Some(team) = team {
+        request = request.header(TEAM_HEADER, team);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("the cmux API did not answer: {}", e.without_url()))?;
+    let status = response.status();
+    let body: Option<Value> = response.json().await.ok();
+    let unreadable = || "the machine's answer is not readable".to_owned();
+    let body = body.filter(Value::is_object).ok_or_else(unreadable)?;
+    if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
+        let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
+        let code = known_code(code);
+        let code = if code.contains(credential) { "" } else { code };
+        return Err(format!("the cmux API refused the command: {status} {code}"));
+    }
+    let body = body.get("value").filter(|v| v.is_object()).unwrap_or(&body);
+    let text = |key: &str| match body.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(text)) => Ok(text.clone()),
+        Some(_) => Err(unreadable()),
+    };
+    let exit_code = body
+        .get("exitCode")
+        .and_then(Value::as_i64)
+        .and_then(|c| i32::try_from(c).ok())
+        .ok_or("the machine's answer has no readable exit status")?;
+    Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
 /// A checked `exec-await` answer (Freestyle's `ExecResponse`: every field optional and nullable).
@@ -341,17 +436,6 @@ pub(super) fn exec_answer(body: Option<Value>) -> Result<ExecAnswer, String> {
             .ok_or("the machine's answer has no readable exit status")?,
     };
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
-}
-
-async fn mint(
-    client: &reqwest::Client,
-    command: &Command,
-    api: &str,
-    credential: &str,
-) -> Result<Session, String> {
-    mint_session(client, api, credential, command.team.as_deref(), &command.machine, command.ttl)
-        .await
-        .map_err(|refusal| refusal.message)
 }
 
 /// Why a mint gave no session: the HTTP status (0: no answer, or an answer that is not a
@@ -513,7 +597,14 @@ async fn exec(
 }
 
 /// The cmux API's client-session refusal codes. `known_code` prints only these, from this table.
-const KNOWN_CODES: [&str; 13] = [
+const KNOWN_CODES: [&str; 19] = [
+    // The machine exec route's refusals (cmux-platform MachineGuest.ts GUEST_REFUSAL).
+    "vm_not_found",
+    "vm_forbidden",
+    "vm_not_running",
+    "vm_unavailable",
+    "vm_busy",
+    "vm_output_too_large",
     "auth.unauthenticated",
     "auth.forbidden",
     "owner.unreachable",
