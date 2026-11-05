@@ -191,7 +191,7 @@ class PeakRss:
         self.peak_mb = max(self.peak_mb, blaze_rss_mb())
 
 
-def blaze_reset(log) -> None:
+def blaze_reset(log, env: dict | None = None) -> None:
     """Stop the daemon and remove blaze's build state, keeping its downloaded toolchain, so the
     next blaze build is cold."""
     subprocess.run(["blaze", "stop"], capture_output=True, text=True)
@@ -205,14 +205,14 @@ def blaze_reset(log) -> None:
         size = subprocess.run(["du", "-sk", str(child)], capture_output=True, text=True).stdout.split()[:1]
         log(f"DEVLOOP-BLAZE-RESET rm {child.name} {size[0] if size else '?'}KB")
         shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
-    blaze_start(log)
+    blaze_start(log, env)
 
 
-def blaze_start(log) -> None:
+def blaze_start(log, env: dict | None = None) -> None:
     """Start the daemon before a timed build. A client that starts it itself can find its socket
     not ready ("v2.sock changed and can't be read: No such device or address", Linux, 0.20261105.1)."""
     for attempt in range(10):
-        r = subprocess.run(["blaze", "status"], capture_output=True, text=True)
+        r = subprocess.run(["blaze", "status"], capture_output=True, text=True, env=env)
         if r.returncode == 0:
             log(f"DEVLOOP-BLAZE-START ready after {attempt + 1} status call(s)")
             return
@@ -361,8 +361,9 @@ def main() -> int:
     if "blaze" in chosen:
         # blaze fetches its own toolchain on its first build (v2 has no `blaze toolchain`): a tiny
         # untimed build takes that download out of the timed clean build.
-        blaze_start(log)
-        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True)
+        warm_env = clean_env(Path(a.target_root or out / "target").resolve() / "blaze-warmup")
+        blaze_start(log, warm_env)
+        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True, env=warm_env)
         log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
         v = subprocess.run(["blaze", "--version"], capture_output=True, text=True)
         log(f"DEVLOOP-TOOLCHAIN blaze: {v.stdout.strip() or v.stderr.strip()} (its own pinned nightly)")
@@ -372,9 +373,11 @@ def main() -> int:
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
-            if spec.get("blaze"):
-                blaze_reset(log)
             shutil.rmtree(targets[k], ignore_errors=True)
+            if spec.get("blaze"):
+                # The daemon starts here, untimed and in the variant's clean env: the clean blaze
+                # time is its build, not its startup.
+                blaze_reset(log, clean_env(targets[k]))
             for p in EDITS.values():
                 restore(ws / p)
             dt, rc, comp = cargo(spec, targets[k], BUILD, out / f"{targets[k].name}.log")
@@ -419,22 +422,26 @@ def main() -> int:
     if a.timings and "base" in chosen:
         # Where one edit's time goes: cargo's --timings report for one more edit of each crate,
         # per unit (crate or build script): total seconds and seconds to its metadata (rmeta).
+        env_t = targets["base"]
+        cargo({}, env_t, BUILD, out / "timings.log")  # the restored tree, untimed
         for s_name, rel in EDITS.items():
             edit(ws / rel, 9999)
-            env_t = targets["base"]
             cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
             html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
             restore(ws / rel)
+            cargo({}, env_t, BUILD, out / "timings.log")  # so the next report holds only its own edit
             if not html:
                 log(f"DEVLOOP-UNIT {s_name} no timing report")
                 continue
             m = re.search(r"const UNIT_DATA = (\[.*?\]);", html[-1].read_text(), re.S)
-            units = json.loads(m.group(1)) if m else []
+            try:
+                units = json.loads(m.group(1)) if m else []
+            except ValueError:
+                units = []
             for u in sorted(units, key=lambda u: -u.get("duration", 0))[:8]:
                 log(f"DEVLOOP-UNIT {s_name} {u.get('name')} {u.get('target', '').strip() or 'lib'} "
                     f"total={u.get('duration', 0):.2f}s rmeta={u.get('rmeta_time') or 0:.2f}s "
                     f"mode={u.get('mode')}")
-        cargo({}, targets["base"], BUILD, out / "timings.log")
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"

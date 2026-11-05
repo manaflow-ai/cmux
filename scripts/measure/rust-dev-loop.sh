@@ -35,14 +35,20 @@ done
 if [[ ! -f "$root/ghostty-next/build.zig" ]]; then
   git -C "$root" submodule update --init --depth 1 ghostty-next
 fi
+# Scratch (variant targets, zig packages, blaze) lives outside the checkout: blaze's daemon watches
+# the checkout, .gitignore'd build output included.
+scratch="${CMUX_DEVLOOP_SCRATCH:-${TMPDIR:-/tmp}}/cmux-rust-dev-loop-$$"
+mkdir -p "$scratch"
+# This run's own scratch and blaze home only (named by this shell's pid).
+trap 'rm -rf "$scratch" "${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"' EXIT
 # Ghostty's zig packages download once, with retries, before any clock starts; every variant's
 # cold zig cache links to them (rust-dev-loop.py --zig-packages).
-zig_packages="$root/.build/rust-dev-loop-zig"
+zig_packages="$scratch/zig"
 mkdir -p "$zig_packages"
 ZIG_GLOBAL_CACHE_DIR="$zig_packages" "$root/scripts/ci/fetch-ghostty-zig-packages.sh" "$root/ghostty-next"
 # Linux without mold: mold's release binary, checked against its published sha256.
 if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold >/dev/null; then
-  mold_dir="$root/.build/rust-dev-loop-mold"
+  mold_dir="$scratch/mold"
   mold_tgz="$mold_dir/mold-3.0.0-x86_64-linux.tar.gz"
   mkdir -p "$mold_dir"
   if curl -fsSL --retry 3 -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
@@ -64,7 +70,7 @@ if [[ ",$variants," == *,blaze,* ]]; then
     Darwin-arm64) blaze_target=aarch64-apple-darwin blaze_sha=2c6fb64b14668cb73c1a4531bd4f8b77665d2abe0e365d5ad76aaa77a3001f3e ;;
     *) blaze_target="" ;;
   esac
-  blaze_dir="$root/.build/rust-dev-loop-blaze"
+  blaze_dir="$scratch/blaze"
   # Outside the checkout: blaze's daemon watches the checkout and reads every file in it, its own
   # socket included ("v2.sock changed and can't be read", 0.20261105.1).
   export BLAZE_HOME="${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"
@@ -86,5 +92,5 @@ cd "$root/cmux-tui"
 rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
-exec python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings)
+python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
+  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings)
