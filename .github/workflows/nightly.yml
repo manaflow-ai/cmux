@@ -2496,8 +2496,7 @@ jobs:
             done
           fi
           recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
-          rm -f "$recovery_app_archive"
-          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf "$recovery_app_archive" "$(basename "$CHANNEL_APP_PATH")"
+          ./scripts/ci/archive-recovery-app.sh "$CHANNEL_APP_PATH" "$recovery_app_archive"
           recovery_staging="cmux-nightly-notarization-recovery-staging"
           rm -rf "$recovery_staging"
           mkdir -p "$recovery_staging"
