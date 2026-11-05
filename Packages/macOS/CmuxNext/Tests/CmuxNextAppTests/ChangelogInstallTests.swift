@@ -56,4 +56,16 @@ import Testing
             #expect(error.message == rig.refusal)
         }
     }
+
+    @Test func offTheSettingListsNoInstallAndRunsNone() async throws {
+        var on = false
+        var asked: [String] = []
+        let page = ChangelogInstallProvider(install: { build in asked.append(build); return nil }, enabled: { on })
+        #expect(try await page.call("cmux.changelog.installable", params: [:], context: Self.gesture)["installs"] == .bool(false))
+        #expect(await Self.code { try await page.call("cmux.changelog.install", params: ["build": .string("41")], context: Self.gesture) }
+            == "cmux.protocol.unknown_op")
+        #expect(asked.isEmpty)
+        on = true
+        #expect(try await page.call("cmux.changelog.installable", params: [:], context: Self.gesture)["installs"] == .bool(true))
+    }
 }

@@ -84667,6 +84667,58 @@
         }
       }
     },
+    "settings.updates.whatsNewInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Install Versions from What's New"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تثبيت الإصدارات من «ما الجديد»"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Instaliraj verzije iz Novosti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Installér versioner fra Nyheder"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Versionen aus „Neuigkeiten“ installieren"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Instalar versiones desde Novedades"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Installer des versions depuis Nouveautés"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Installa versioni da Novità"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新機能からバージョンをインストール"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដំឡើងកំណែពី អ្វីដែលថ្មី"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새로운 기능에서 버전 설치"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Installer versjoner fra Nyheter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Instaluj wersje z Nowości"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Instalar versões a partir de Novidades"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Установка версий из раздела «Что нового»"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ติดตั้งเวอร์ชันจาก มีอะไรใหม่"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yenilikler’den sürüm yükle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Встановлення версій із розділу «Що нового»"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cài phiên bản từ Có gì mới"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从“新功能”安装版本"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從「新功能」安裝版本"}}
+      }
+    },
+    "settings.updates.whatsNewInstall.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض كل يوم في «ما الجديد» إصداراته مع زر تثبيت. يتحقق cmux من توقيع التنزيل، ثم يعيد التشغيل على ذلك الإصدار مع الطرفيات والوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Svaki dan u Novostima prikazuje svoje verzije s dugmetom Instaliraj. cmux provjerava potpis preuzimanja, zatim se ponovo pokreće u toj verziji s vašim terminalima i agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hver dag i Nyheder viser sine versioner med en Installér-knap. cmux kontrollerer downloadens signatur og genstarter derefter i den version med dine terminaler og agenter."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Jeder Tag in „Neuigkeiten“ listet seine Versionen mit einer Schaltfläche „Installieren“. cmux prüft die Signatur des Downloads und startet dann mit dieser Version neu, samt Terminals und Agenten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cada día de Novedades muestra sus versiones con un botón Instalar. cmux comprueba la firma de la descarga y reinicia con esa versión, con tus terminales y agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chaque jour de Nouveautés liste ses versions avec un bouton Installer. cmux vérifie la signature du téléchargement, puis redémarre sur cette version avec vos terminaux et agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ogni giorno in Novità elenca le sue versioni con un pulsante Installa. cmux verifica la firma del download, poi si riavvia con quella versione mantenendo terminali e agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新機能の各日にそのバージョンと「インストール」ボタンが表示されます。cmux はダウンロードの署名を確認してから、ターミナルとエージェントを保ったままそのバージョンで再起動します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថ្ងៃនីមួយៗក្នុង អ្វីដែលថ្មី បង្ហាញកំណែរបស់វាជាមួយប៊ូតុងដំឡើង។ cmux ពិនិត្យហត្ថលេខានៃការទាញយក រួចចាប់ផ្ដើមឡើងវិញជាកំណែនោះជាមួយទែមីណាល់ និងភ្នាក់ងាររបស់អ្នក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새로운 기능의 각 날짜에 해당 버전과 설치 버튼이 표시됩니다. cmux가 다운로드의 서명을 확인한 뒤 터미널과 에이전트를 유지한 채 그 버전으로 재시작합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hver dag i Nyheter viser versjonene sine med en Installer-knapp. cmux kontrollerer signaturen til nedlastingen og starter deretter på nytt med den versjonen, med terminaler og agenter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Każdy dzień w Nowościach pokazuje swoje wersje z przyciskiem Zainstaluj. cmux sprawdza podpis pobranego pliku, a potem uruchamia się ponownie w tej wersji z Twoimi terminalami i agentami."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cada dia em Novidades lista suas versões com um botão Instalar. O cmux verifica a assinatura do download e reinicia nessa versão com seus terminais e agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Каждый день в разделе «Что нового» показывает свои версии с кнопкой «Установить». cmux проверяет подпись загрузки и перезапускается в этой версии с вашими терминалами и агентами."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แต่ละวันใน มีอะไรใหม่ จะแสดงเวอร์ชันพร้อมปุ่มติดตั้ง cmux จะตรวจสอบลายเซ็นของไฟล์ที่ดาวน์โหลด แล้วรีสตาร์ตเป็นเวอร์ชันนั้นพร้อมเทอร์มินัลและเอเจนต์ของคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yenilikler’deki her gün, sürümlerini bir Yükle düğmesiyle listeler. cmux indirmenin imzasını denetler, ardından terminalleriniz ve ajanlarınızla o sürümde yeniden başlar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Кожен день у розділі «Що нового» показує свої версії з кнопкою «Встановити». cmux перевіряє підпис завантаження, а потім перезапускається в цій версії з вашими терміналами та агентами."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mỗi ngày trong Có gì mới liệt kê các phiên bản kèm nút Cài đặt. cmux kiểm tra chữ ký của bản tải xuống, rồi khởi động lại vào phiên bản đó cùng các terminal và agent của bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“新功能”中的每一天都会列出其版本并附有“安装”按钮。cmux 会校验下载内容的签名，然后以该版本重启，并保留你的终端和代理。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「新功能」中的每一天都會列出其版本並附有「安裝」按鈕。cmux 會驗證下載的簽章，然後以該版本重新啟動，並保留你的終端機與代理。"}}
+      }
+    },
     "settings.updates.showFeatureTips": {
       "extractionState": "manual",
       "localizations": {

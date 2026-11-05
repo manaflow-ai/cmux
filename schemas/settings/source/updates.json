@@ -145,6 +145,29 @@
           ]
         },
         {
+          "key": "updates.whatsNewInstall",
+          "note": "What's New's Versions list offers Install on each build (Leo 2026-11-05: \"Like literally with a click to a past nightly\", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.",
+          "title": {
+            "key": "settings.updates.whatsNewInstall",
+            "text": "Install Versions from What's New"
+          },
+          "help": {
+            "key": "settings.updates.whatsNewInstall.help",
+            "text": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "version",
+            "rollback",
+            "earlier",
+            "nightly",
+            "what's new"
+          ]
+        },
+        {
           "key": "updates.meteredNetwork",
           "note": "What automatic downloads do on a metered link.",
           "title": {

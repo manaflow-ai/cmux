@@ -14,6 +14,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var downloadAutomatically = UpdatesSettings.downloadAutomaticallyDefault
     /// One click on a found update's Update downloads, installs and restarts (off: the Update Ready card asks first).
     public var oneClickInstall = UpdatesSettings.oneClickInstallDefault
+    /// What's New's Versions list offers Install on each build (off until a nightly proves it).
+    public var whatsNewInstall = UpdatesSettings.whatsNewInstallDefault
     public var installOnQuit = UpdatesSettings.installOnQuitDefault
     public var notify = UpdatesSettings.notifyDefault
     /// Previous builds kept for rollback (`cmux update rollback`).
@@ -42,6 +44,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.number("checkIntervalSeconds", range: checkIntervalRange) { settings.checkIntervalSeconds = value }
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
         if let value = reader.bool("oneClickInstall") { settings.oneClickInstall = value }
+        if let value = reader.bool("whatsNewInstall") { settings.whatsNewInstall = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
         if let legacy = root.value(at: notifyPath)?.stringValue.flatMap({ UpdatesNotifySetting.legacyValues[$0] }) {
             settings.notify = legacy
