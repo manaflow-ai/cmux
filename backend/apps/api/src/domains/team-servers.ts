@@ -78,11 +78,12 @@ const validPairing = (p: unknown): p is { code: string; invite: string | null } 
  */
 export const reduceServerPairingRecorded = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   const v = params as { host?: unknown; install?: unknown; code?: unknown; invite?: unknown }
-  if (typeof v.host !== "string" || typeof v.install !== "string" || !validPairing(v)) return reject("validation.invalid", "invalid server pairing")
-  if (!serverPlacementActive(state, ctx.rows, v.host, v.install)) return { ok: true, state, value: { host: v.host, recorded: false }, changed: false }
+  const { host, install } = v
+  if (typeof host !== "string" || typeof install !== "string" || !validPairing(v)) return reject("validation.invalid", "invalid server pairing")
+  if (!serverPlacementActive(state, ctx.rows, host, install)) return { ok: true, state, value: { host, recorded: false }, changed: false }
   const pairings = livePairings(state, ctx.now)
-  pairings[v.host] = { code: v.code, invite: v.invite, at: ctx.now }
-  return { ok: true, state: { ...state, server_pairings: pairings }, value: { host: v.host, recorded: true } }
+  pairings[host] = { code: v.code, invite: v.invite, at: ctx.now }
+  return { ok: true, state: { ...state, server_pairings: pairings }, value: { host, recorded: true } }
 }
 
 /** UserDO confirmed the revocation: drop it from the retry set. */
