@@ -266,6 +266,7 @@ jobs:
       # its clone. --agent-tools images only, with probes on.
       - name: Agent tools probe
         if: inputs.mode == 'bake' && inputs.agent_tools && inputs.probes
+        id: agent_tools_probe
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
@@ -451,7 +452,7 @@ jobs:
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
-          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot' || '' }}
+          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && (!(inputs.agent_tools && inputs.probes) || steps.agent_tools_probe.outcome == 'success') && '--keep-snapshot' || '' }}
           # The bake step ignores layered for a dev tree (always a full bake), so the GC does too.
           LAYERED: ${{ inputs.layered && !inputs.dev_tree && inputs.mode == 'bake' && 'true' || '' }}
         run: |
