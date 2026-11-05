@@ -147,8 +147,9 @@ TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 # A harness's `--- ` section heading names what follows, never a crash itself: fresh_home_launch_smoke.py prints
 # "--- the app's errors in the system log (an uncaught exception or assertion names itself here)" above every failed
 # launch's log, and a relaunch over its time budget read as "the test process crashed" (cmuxterm-hq#7285, run
-# 42053582212). A crash under the heading still names itself on its own line.
-HEADING = re.compile(r"^--- ")
+# 42053582212). Only that harness's known headings are exempt; any other line, `--- ` or not, still counts.
+HEADING = re.compile(r"^--- (?:the app's errors in the system log \(an uncaught exception or assertion names itself "
+                     r"here\)|app output \(last \d+ lines\))$")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")

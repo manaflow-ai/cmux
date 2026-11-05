@@ -451,6 +451,7 @@ class PerTest(unittest.TestCase):
         self.assertFalse(reds.read(log(over, heading, "--- app output (last 60 lines)")).crashes)
         crash = "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'"
         self.assertTrue(reds.read(log(over, heading, crash)).crashes)
+        self.assertTrue(reds.read(log(over, f"--- {crash}")).crashes)
 
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
