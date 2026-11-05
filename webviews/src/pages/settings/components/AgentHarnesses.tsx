@@ -460,8 +460,8 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
   const [busy, setBusy] = useState(false);
   const added = agent.harnessId !== undefined;
   return (
-    <div className="flex items-center gap-2.5 py-1.5" data-registry-agent={agent.id}>
-      <AgentMark agent={agent.harnessId ?? agent.id} size={18} />
+    <div className="flex items-center gap-2 py-1.5" data-registry-agent={agent.id}>
+      <AgentMark agent={agent.harnessId ?? agent.id} size={20} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-fg">
           {agent.name}

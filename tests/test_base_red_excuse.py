@@ -1,5 +1,4 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
-import base64
 import copy
 import importlib.util
 import json
@@ -14,6 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
 excuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(excuse)
+# Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
+# their fakes only; SourceReads runs the real git reader against a local repository.
+REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+
+
+def setUpModule():
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch.start()
+    unittest.addModuleCleanup(patch.stop)
 
 REPO = "manaflow-ai/cmux"
 HEAD = "a" * 40
@@ -1689,27 +1697,37 @@ jobs:
 SKILL_DOCS = "Skill documentation tests"
 
 
+# What an agent host's gh shim (glaeda-gh's API-source guard) answers a `gh api repos/O/R/contents/...` read with.
+SOURCE_REFUSAL = ("GitHub evidence request failed: glaeda-gh: reading manaflow-ai/cmuxterm-hq source through the "
+                  "GitHub API spends the quota every agent on this account shares")
+
+
 class HQGitHub(FakeGitHub):
-    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main from the contents API."""
+    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main as GraphQL serves a blob.
+    A contents API read is refused, as the gh shim on an agent host refuses it."""
 
     def __init__(self):
         super().__init__()
         self.workflows = {"skills-tests.yml": SKILLS_YML}
+        self.blobs, self.source_routes = [], []
         for job_id in (1, 2):
             self.jobs[job_id]["name"] = "Skill test scope"
         self.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": SKILL_DOCS, "status": "completed",
                         "conclusion": "failure", "steps": [{"name": "All parallel skill shards passed",
                                                             "conclusion": "failure"}]}
 
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        assert (repo, ref) == (HQ, "main"), (repo, ref)
+        file = path.removeprefix(".github/workflows/")
+        if file not in self.workflows:
+            raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        return self.workflows[file]
+
     def json(self, route, *, paginate=False):
-        prefix = f"repos/{HQ}/contents/.github/workflows/"
-        if route.startswith(prefix):
-            self.routes.append(route)
-            file, _, query = route[len(prefix):].partition("?")
-            assert query == "ref=main", route
-            if file not in self.workflows:
-                raise excuse.Refused(f"GitHub evidence request failed: 404 {file}")
-            return {"encoding": "base64", "content": base64.b64encode(self.workflows[file].encode()).decode()}
+        if "/contents/" in route or "/git/blobs/" in route or "/git/trees/" in route:
+            self.source_routes.append(route)
+            raise excuse.Refused(SOURCE_REFUSAL)
         assert route.startswith(f"repos/{HQ}/"), route
         route = route.replace(HQ, REPO).replace("branch=main", "branch=feat-cmux-next")
         route = route.replace("/compare/main...", "/compare/feat-cmux-next...")
@@ -1733,7 +1751,8 @@ class OtherRepoRollups(unittest.TestCase):
         lines = "\n".join(self.judge())
         self.assertIn("'Skill test scope'", lines)
         self.assertNotIn(SKILL_DOCS, lines)
-        self.assertIn(f"repos/{HQ}/contents/.github/workflows/skills-tests.yml?ref=main", self.gh.routes)
+        self.assertIn((HQ, "main", ".github/workflows/skills-tests.yml"), self.gh.blobs)
+        self.assertEqual(self.gh.source_routes, [], "no contents API read: the gh shim refuses it")
         self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
 
     def test_one_unexcused_shard_keeps_the_summary_red(self):
@@ -1774,11 +1793,128 @@ class OtherRepoRollups(unittest.TestCase):
     def test_a_repo_with_no_rollups_named_judges_every_job_as_itself(self):
         self.assertEqual(excuse.rollups("manaflow-ai/other"), excuse.NO_ROLLUPS)
         excuse.load_rollups("manaflow-ai/other", "main", self.gh)
-        self.assertEqual(self.gh.routes, [])
+        self.assertEqual((self.gh.routes, self.gh.source_routes, self.gh.blobs), ([], [], []))
 
     def test_rollups_not_read_are_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
             excuse.rollups(HQ)
+
+
+SOURCE_FAKE_GH = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["SOURCE_GH_LOG"], "a") as log:
+    log.write(json.dumps({"args": args, "override": os.environ.get("GLAEDA_GH_ALLOW_API_SOURCE")}) + "\\n")
+if args[:1] == ["api"] and any("/contents/" in a or "/git/blobs/" in a or "/git/trees/" in a
+                               or "raw.githubusercontent.com" in a for a in args):
+    sys.stderr.write("glaeda-gh: reading source through the GitHub API spends the quota every agent shares\\n")
+    sys.exit(2)
+if args[:2] == ["api", "graphql"]:
+    fields = dict(a.split("=", 1) for a in args[2:] if "=" in a and not a.startswith("-"))
+    ref, _, path = fields["expression"].partition(":")
+    found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
+    blob = None
+    if os.path.isfile(found):
+        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    sys.exit(0)
+sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
+sys.exit(1)
+"""
+
+
+class SourceReads(unittest.TestCase):
+    """Another repo's files (HQ's workflows, OTHER_REPO_ROLLUPS) are read with git or GraphQL, never the REST contents
+    API, which an agent host's gh shim refuses as a source read. Nothing sets the shim's one-call override."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-src-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(SOURCE_FAKE_GH)
+        (bin_dir / "gh").chmod(0o755)
+        self.log = self.tmp / "gh.log"
+        self.tree = self.tmp / "tree"
+        workflow = self.tree / HQ / "main/.github/workflows/skills-tests.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(SKILLS_YML)
+        env = {key: value for key, value in os.environ.items() if key != "GLAEDA_GH_ALLOW_API_SOURCE"}
+        env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}", SOURCE_GH_LOG=str(self.log),
+                   SOURCE_GH_TREE=str(self.tree), BASE_RED_EXCUSE_SOURCE_CACHE=str(self.tmp / "cache"))
+        patch = unittest.mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        rollups = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        rollups.start()
+        self.addCleanup(rollups.stop)
+
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_the_real_client_derives_hq_rollups_with_contents_reads_refused(self):
+        excuse.load_rollups(HQ, "main", excuse.rate_limit_aware(excuse.GitHub()))
+        self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(call["args"][:2] == ["api", "graphql"] for call in calls), calls)
+        self.assertTrue(all(call["override"] is None for call in calls), calls)
+
+    def test_a_missing_file_over_graphql_refuses_every_rollup(self):
+        (self.tree / HQ / "main/.github/workflows/skills-tests.yml").unlink()
+        with self.assertRaisesRegex(excuse.Refused, f"{HQ} rollups at main: .*not a text file.*no rollup red is excused"):
+            excuse.load_rollups(HQ, "main", excuse.GitHub())
+
+    def test_the_classifier_judges_an_hq_red_with_contents_reads_refused(self):
+        gh = HQGitHub()
+        gh.blob = excuse.GitHub().blob  # the real GraphQL read, through the fake gh above
+        lines = "\n".join(excuse.judge(HQ, "main", HEAD, [10], gh))
+        self.assertIn("'Skill test scope'", lines)
+        self.assertEqual(gh.source_routes, [])
+        self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def origin(self) -> Path:
+        work = self.tmp / "origin"
+        (work / ".github/workflows").mkdir(parents=True)
+        (work / ".github/workflows/skills-tests.yml").write_text(SKILLS_YML.replace("Other check", "From git"))
+        self.git("init", "-q", "-b", "main", str(work))
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "workflows", cwd=work)
+        self.git("config", "uploadpack.allowFilter", "true", cwd=work)
+        return work
+
+    def test_git_answers_first_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+            again = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(text, again)
+        self.assertEqual(self.calls(), [])
+        cache = self.tmp / "cache" / "manaflow-ai__cmuxterm-hq.git"
+        self.assertEqual(self.git("--git-dir", str(cache), "for-each-ref"), "", "the run's own fetch ref is removed")
+
+    def test_git_that_cannot_answer_falls_back_to_graphql(self):
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertEqual(text, SKILLS_YML)
+        self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_no_code_path_sets_the_shims_source_override(self):
+        sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
+                                                           "test_reds.py", "gh_pages.py")]
+        sources += sorted((ROOT / ".github/workflows").glob("*.yml"))
+        setting = [str(path.relative_to(ROOT)) for path in sources
+                   if path.is_file() and "GLAEDA_GH_ALLOW_API_SOURCE" in path.read_text()]
+        self.assertEqual(setting, [])
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
@@ -2614,6 +2750,9 @@ class Script(unittest.TestCase):
             def json(self, route, *, paginate=False):
                 raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
 
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
+
             def log(self, repo, job):
                 raise AssertionError("no log is read once a read is rate-limited")
 
@@ -2644,6 +2783,9 @@ class Script(unittest.TestCase):
         class Limited:
             def json(self, route, *, paginate=False):
                 raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
 
         excuse._REPO_ROLLUPS.pop(HQ, None)
         with unittest.mock.patch.object(excuse, "RateLimited", RateLimited):
@@ -2713,6 +2855,257 @@ class LostRunnerIsInfra(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
+
+class WsCheckGitHub:
+    """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
+    for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
+    REPO, HOST = "teamleaderleo/leo-workspace", "manaflow-ai/cmuxterm-hq"
+    TIP, OLDER, MERGE_BASE = "c" * 40, "d" * 40, "e" * 40
+
+    def __init__(self):
+        self.statuses, self.runs, self.jobs, self.logs, self.routes = {}, {}, {}, {}, []
+        self.base_commits = [self.TIP, self.OLDER, self.MERGE_BASE]
+
+    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
+        """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
+        failed = list(red)
+        self.statuses[sha] = [{"context": "ws-check", "state": state, "updated_at": at,
+                               "description": description if description is not None else (
+                                   f"{len(failed)} of {steps} steps failed: {failed[0]}"[:139] if failed else
+                                   f"{steps * 10} tests passed in {steps} steps"),
+                               "target_url": f"https://github.com/{self.HOST}/actions/runs/{run_id}"}]
+        self.runs[run_id] = {"id": run_id, "display_title": "fleet-reconciler ws-check", "head_sha": "f" * 40}
+        self.jobs[run_id] = [{"id": run_id * 10, "run_id": run_id, "name": "plan", "status": "completed",
+                              "conclusion": "success", "run_attempt": 1},
+                             {"id": run_id * 10 + 1, "run_id": run_id, "name": f"check ({sha}) / check",
+                              "status": "completed", "conclusion": "success", "run_attempt": 1}]
+        lines = ["##[group].github/workflows/tools-tests.yml test: passing", "Ran 3 tests in 0.1s", "", "OK",
+                 "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
+                 "skipped 0, gh calls 0)"]
+        for step, printed in red.items():
+            lines += [f"##[group]{step}", *printed, "##[endgroup]",
+                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0)"]
+        lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
+                                                       "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
+        self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
+
+    def json(self, route, *, paginate=False, per_page=100):
+        self.routes.append(route)
+        for sha, statuses in self.statuses.items():
+            if route == f"repos/{self.REPO}/commits/{sha}/status?per_page=100":
+                return {"statuses": copy.deepcopy(statuses)}
+        if route.startswith(f"repos/{self.REPO}/commits/") and route.endswith("/status?per_page=100"):
+            return {"statuses": []}
+        for run_id in self.runs:
+            if route == f"repos/{self.HOST}/actions/runs/{run_id}":
+                return copy.deepcopy(self.runs[run_id])
+            if route == f"repos/{self.HOST}/actions/runs/{run_id}/jobs?filter=all&per_page=100":
+                return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
+        if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
+            return [{"sha": sha} for sha in self.base_commits]
+        if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
+            return {"merge_base_commit": {"sha": self.MERGE_BASE}}
+        if route.startswith(f"repos/{self.REPO}/compare/{self.MERGE_BASE}..."):
+            return {"status": "ahead"}
+        raise AssertionError(f"unexpected route {route}")
+
+    def log(self, repo, job):
+        assert repo == self.HOST, repo
+        return self.logs[job["id"]]
+
+
+class WsCheckPerTest(unittest.TestCase):
+    """2026-11-05: a leo-workspace head's red ws-check status read "no failed job found on the head to compare with
+    the base" (teamleaderleo/leo-workspace#3434 at 790205f3), so no leo-workspace red could be excused. It is judged
+    per test against main's ws-check now (WS_CHECK)."""
+    RELAY = ".github/workflows/leo-relay-lint.yml lint: no untagged calls for Leo in briefs, lanes and the rulebook"
+    DEPLOY = ".github/workflows/tools-tests.yml test: ws-deploy and ws_tree_lock"
+    ROOT = "/home/runner/_work/cmuxterm-hq/cmuxterm-hq/"
+    VIOLATION = ROOT + "machines/claude-rulebook.md:185: - Classic is frozen."
+
+    def relay_lint(self, *violations, root=None):
+        return ["3 line(s) violate the relay rules.",
+                *((root or self.ROOT) + v.removeprefix(self.ROOT) for v in violations or (self.VIOLATION,))]
+
+    def ws_deploy(self, *tests):
+        printed = []
+        for test in tests:
+            printed += ["=" * 70, f"ERROR: {test} (__main__.FastForward.{test})", "-" * 70,
+                        "Traceback (most recent call last):", "subprocess.CalledProcessError: exit status 128."]
+        return printed + ["-" * 70, "Ran 77 tests in 41.360s", "", f"FAILED (errors={len(tests)})"]
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+
+    def judge(self, **kwargs):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh, **kwargs)
+
+    def test_a_lint_red_on_main_too_is_excused(self):
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"excused 'ws-check' step '{self.RELAY}' (no test names: its output): its 2 line(s) are red on "
+                      f"main {self.gh.TIP[:12]} too", audit)
+        # Named as a check, the same.
+        self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_test_failing_on_main_too_is_excused_by_name(self):
+        red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: test_units_that_never_let_go "
+                      f"(__main__.FastForward.test_units_that_never_let_go)': red on main {self.gh.TIP[:12]} too "
+                      f"(https://github.com/{self.gh.HOST}/actions/runs/2)", audit)
+
+    def test_a_test_main_does_not_fail_is_not_excused_and_named(self):
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_ws_deploy")})
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        said = str(caught.exception)
+        self.assertIn("1 failure(s) not on main", said)
+        self.assertIn(f"not excused 'ws-check' test '{self.DEPLOY} :: test_ws_deploy (__main__.FastForward."
+                      "test_ws_deploy)': not red on main", said)
+        self.assertIn(f"excused 'ws-check' step '{self.RELAY}'", said)
+
+    def test_another_test_of_a_step_red_on_main_is_not_excused(self):
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a", "test_b")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_new_lint_violation_in_a_step_red_on_main_is_not_excused(self):
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(self.VIOLATION, self.ROOT + "briefs/new.md:3: call")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 of 3 line\(s\) not on main .*briefs/new\.md:#: call"):
+            self.judge()
+
+    def test_the_same_lint_violation_at_another_line_and_checkout_root_is_excused(self):
+        moved = self.VIOLATION.replace(":185:", ":190:")
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(moved, root="/home/runner/_work/_temp/lw/")})
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_an_unreadable_head_status_is_not_excused(self):
+        # A failure whose description names no failed steps (fleet rule lints, no tests ran, a missing result).
+        self.gh.statuses[HEAD][0]["description"] = "fleet rule lints: tools/x.py: names a host"
+        with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.logs[11] = self.gh.logs[11].replace("WS_CHECK_RESULT=", "WS_CHECK_RESULT=not json ")
+        with self.assertRaisesRegex(excuse.Refused, "no WS_CHECK_RESULT line listing its failed steps"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.statuses[HEAD][0]["target_url"] = "https://example.com/run/1"
+        with self.assertRaisesRegex(excuse.Refused, "not a manaflow-ai/cmuxterm-hq Actions run"):
+            self.judge()
+
+    def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
+        red = {self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, red)
+        red = {self.DEPLOY: self.ws_deploy("test_a")[:-1] + ["FAILED (failures=1, errors=1)"]}
+        self.gh.verdict(HEAD, 1, red)
+        with self.assertRaisesRegex(excuse.Refused, "summaries count 2; its failing tests cannot be listed"):
+            self.judge()
+
+    def test_an_unreadable_main_verdict_is_not_excused(self):
+        self.gh.logs[21] = self.gh.logs[21].replace(f"ws-check step FAILED: {self.RELAY}", "ws-check step ok: x")
+        with self.assertRaisesRegex(excuse.Refused, f"'ws-check' on {self.gh.TIP}: .*has no 'ws-check step FAILED"):
+            self.judge()
+
+    def test_main_green_head_red_is_not_excused(self):
+        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
+        self.assertIn(f"not excused 'ws-check' step '{self.RELAY}' (no test names): passes on main",
+                      str(caught.exception))
+        self.assertIn("fixed on main; merge main", str(caught.exception))
+
+    def test_main_green_before_the_merge_base_waits_for_a_newer_verdict(self):
+        self.gh.statuses.pop(self.gh.TIP)
+        self.gh.base_commits = [self.gh.TIP, self.gh.MERGE_BASE, self.gh.OLDER]
+        self.gh.verdict(self.gh.OLDER, 3, {}, state="success")
+        original = self.gh.json
+
+        def json(route, **kwargs):
+            if route == f"repos/{self.gh.REPO}/compare/{self.gh.MERGE_BASE}...{self.gh.OLDER}?per_page=1":
+                return {"status": "behind"}
+            return original(route, **kwargs)
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "is before the merge-base"):
+            self.judge()
+
+    def test_a_pending_or_error_head_is_no_result(self):
+        for state in ("pending", "error"):
+            self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, state=state, description="running")
+            with self.assertRaisesRegex(excuse.Refused, f"'ws-check' has no result on {HEAD}: ws-check is {state}"):
+                self.judge()
+        self.gh.statuses.pop(HEAD)
+        with self.assertRaisesRegex(excuse.Refused, "has no result on .*: no ws-check status"):
+            self.judge()
+
+    def test_a_job_whose_last_attempt_never_ran_is_no_result(self):
+        self.gh.jobs[1][1]["conclusion"] = "startup_failure"
+        with self.assertRaisesRegex(excuse.Refused, "has no result .*is completed/startup_failure"):
+            self.judge()
+
+    def test_a_crash_after_a_whole_test_summary_is_not_excused(self):
+        red = {self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, red)
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a") + ["Segmentation fault (core dumped)"]})
+        with self.assertRaisesRegex(excuse.Refused, "crashed .Segmentation fault"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.logs[11] = self.gh.logs[11].replace("(exit 1, ran 4", "(exit 139, ran 4")
+        with self.assertRaisesRegex(excuse.Refused, "exited 139 .a signal."):
+            self.judge()
+
+    def test_a_main_job_with_no_verdict_is_skipped(self):
+        self.gh.jobs[2][1]["conclusion"] = "startup_failure"
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        self.assertIn(f"newest main verdict main {self.gh.OLDER[:12]}", self.judge()[0])
+
+    def test_main_commits_with_no_result_are_skipped_and_an_older_red_verdict_counts(self):
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, state="pending", description="running")
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        self.assertIn(f"newest main verdict main {self.gh.OLDER[:12]}", self.judge()[0])
+
+    def test_a_test_red_on_an_older_main_verdict_within_the_window_counts(self):
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_flaky")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_other")})
+        self.gh.verdict(self.gh.OLDER, 3, {self.DEPLOY: self.ws_deploy("test_flaky")})
+        self.assertIn(f"red on main {self.gh.OLDER[:12]} too", "\n".join(self.judge()))
+        # Never past a pass.
+        self.gh.base_commits = [self.gh.TIP, self.gh.MERGE_BASE, self.gh.OLDER]
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {}, state="success")
+        with self.assertRaisesRegex(excuse.Refused, "test_flaky"):
+            self.judge()
+
+    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
+        snapshot = "9" * 40
+        for sha, run_id in ((HEAD, 1), (self.gh.TIP, 2)):
+            self.gh.runs[run_id]["display_title"] = f"Fast checks {snapshot}"
+            self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][1], name="checks", conclusion="failure")]
+            self.gh.logs[run_id * 10 + 1] = (self.gh.logs[run_id * 10 + 1].replace(sha, snapshot)
+                                             + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
+                                             + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
+        self.assertIn("every failure", self.judge()[0])
+        # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
+        self.assertIn("every failure", self.judge()[0])
+        self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
+        with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def test_a_cmux_red_is_still_judged_by_its_actions_job(self):
+        gh = FakeGitHub()
+        audit = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+        self.assertEqual(len(audit), 1)
+        self.assertTrue(audit[0].startswith(f"excused '{SWIFT}'"), audit[0])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found on the head"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh)
+
 
 if __name__ == "__main__":
     unittest.main()

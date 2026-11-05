@@ -1,0 +1,50 @@
+# Classic, frozen: the files classic cmux customers depend on. Don't touch them until Leo decides the migration.
+#
+# Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like "classic, don't touch until we
+# decide to do the migration"" and "for next related paths, only look there / simply skip the old code".
+#
+# A pull request into feat-cmux-next or main that changes a frozen path fails the classic-frozen-guard check
+# (scripts/ci/classic_frozen_guard.py, .github/workflows/classic-frozen-guard.yml) unless it carries the label
+# `classic-migration`, which is Leo's decision to add. NEXT work never reads, greps or builds on these files:
+# NEXT Cloud backend code goes to manaflow-ai/cmux-platform. The same file is on feat-cmux-next and main.
+#
+# One rule per line: GLOB SCOPE REASON. `**` crosses directories, `*` stays within one segment. SCOPE is `all`
+# (frozen into feat-cmux-next and main) or `main` (frozen into main only: on feat-cmux-next the same path is NEXT's,
+# like the NEXT devbox image under web/services/vms that cloud-devbox-image-rebake.yml bakes).
+#
+# Not classic, and not frozen: NEXT code that calls classic (CloudAPIClient.swift's /api/vm routes,
+# CloudClassicPageOps.swift), cmux-api (backend/apps/api) and workers/cmux-vm.
+
+# cmux.com's classic API, served by the Vercel project in web/ (web/vercel.json deploys every push to main).
+web/app/api/**                     all   classic cmux.com /api: /api/vm, /api/runs, account, billing, teams, cron
+web/app/v1/**                      all   classic public /v1 API
+web/app/vm/**                      all   classic VM pages customers open
+web/app/handler/**                 all   classic sign-in handler (Stack)
+web/app/authorize/**               all   classic OAuth authorize flow
+web/services/runs/**               all   classic /api/runs backend
+web/services/billing/**            all   classic billing and Stripe webhooks
+web/services/vm-publications/**    all   classic VM publications backend
+web/db/**                          all   classic Postgres schema and migrations (customers' data)
+web/orpc/**                        all   classic oRPC API
+web/openapi/**                     all   classic OpenAPI contract
+web/proxy.ts                       all   classic request proxy on cmux.com
+web/vercel.json                    all   classic Vercel deploy config (what deploys from main)
+
+# Classic Cloud workflows: they run classic /api/vm and its devbox image, not NEXT.
+# Main only: feat-cmux-next's cloud-vm-dogfood.yml runs NEXT's cmux VM API (#35042), and the other three are not there.
+.github/workflows/cloud-vm-dogfood.yml    main  classic /api/vm dogfood journey (checks out main's web/)
+.github/workflows/cloud-vm-canary.yml     main  classic /api/vm canary every 5 minutes
+.github/workflows/cloud-vm-smoke.yml      main  classic /api/vm smoke
+.github/workflows/cloud-vm-env-audit.yml  main  classic Vercel env audit
+
+# Into main, all of web/ is classic: the Vercel project behind cmux.com and its /api, the classic VM drivers
+# (web/services/vms) and the classic devbox image (web/services/vms/images, web/scripts/build-devbox-freestyle.ts).
+# Every push to main deploys it. On feat-cmux-next, web/services/vms and its image are NEXT's, so these are main only.
+web/**                                       main  classic cmux.com Vercel project, VM drivers and devbox image
+config/iroh/managed-relay-catalog.json       main  ships in classic cmux.com's API (classic-auto-deploy.json)
+workers/presence/src/generated/managedRelayCatalog.ts  main  generated from the classic relay catalog
+
+# The freeze itself: what is frozen is Leo's call, so changing this list needs the label too.
+.github/classic-frozen.txt                   all   the classic-frozen list
+.github/workflows/classic-frozen-guard.yml   all   the check that enforces the list
+scripts/ci/classic_frozen_guard.py           all   the check that enforces the list

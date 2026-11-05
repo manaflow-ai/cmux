@@ -142,7 +142,8 @@ const footerSays = (row: AcpmuxRow) =>
 /// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
 /// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
 /// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons.
+/// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
+/// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
   row.kind === "turnSummary" &&
   row.status !== "failed" &&
@@ -150,6 +151,80 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
   !row.text &&
   !row.resumable &&
   !endsChatOnWork(row);
+
+/// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
+/// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
+/// or a reminder (`retryTarget`). transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
+export const offersRetry = (row: AcpmuxRow) =>
+  row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+
+/// A prompt row that drew its own Retry on base, before Retry moved to the reply footer (cmux#34779),
+/// taken over unchanged: the row UserBubble draws (the person's own prompt: no `incoming`, not a
+/// `received` result; App.tsx's registry draws those as message cards), with its footer (not
+/// `failed`), not `pending` and not still sending, with text to send (`resend`, else `text`). Whether
+/// the chat can send and the reader may act are ``retryPlacement``'s (base: PromptRetry's `retry` and
+/// read-only checks). Only which row draws Retry moved; which prompts can be retried did not.
+export const isRetryablePrompt = (row: AcpmuxRow) =>
+  row.kind === "user" &&
+  !row.incoming &&
+  row.received === undefined &&
+  !row.failed &&
+  !row.pending &&
+  row.delivery?.state !== "sending" &&
+  Boolean(row.resend ?? row.text);
+
+/// The chat's one Retry in the transcript (cmux#34779): the last prompt that would have drawn its
+/// own Retry on base (``isRetryablePrompt``, `promptId`), and its turn's footer when that footer
+/// draws Retry for it (`footerId`). Read by ``retryPlacement``. A steer's turn footer resends the
+/// turn's opener, not the steer, so a steer keeps Retry under its bubble (held while it waits, as
+/// on base).
+export type RetryTarget = { promptId?: string; footerId?: string };
+export const NO_RETRY_TARGET: RetryTarget = {};
+
+export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (!isRetryablePrompt(row)) continue;
+    // Its turn's footer is the first summary after it. A turn with none (history that ended
+    // without a turn result, or one still running) reaches the next turn's summary, which resends
+    // another prompt: then the prompt keeps Retry.
+    for (let next = at + 1; next < rows.length; next += 1) {
+      const footer = rows[next]!;
+      if (footer.kind !== "turnSummary") continue;
+      return offersRetry(footer) && footer.retryRowId === row.id && !isEmptyFooter(footer)
+        ? { promptId: row.id, footerId: footer.id }
+        : { promptId: row.id };
+    }
+    return { promptId: row.id };
+  }
+  return NO_RETRY_TARGET;
+}
+
+/// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
+/// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
+/// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so
+/// Retry never vanishes where it was (a turn of tool calls alone, whose empty footer draws nothing;
+/// history with no turn result; a turn still running). Nowhere when the reader may not act (read
+/// only) or the chat cannot send now (no `retry`, as while disconnected). The Messages view, which
+/// draws no footer for a turn that ended well, keeps Retry under its prompts.
+export type RetryPlace = "footer" | "prompt" | "none";
+export function retryPlacement(
+  target: RetryTarget,
+  ctx: { canRetry: boolean; readOnly: boolean; messages: boolean },
+): RetryPlace {
+  if (!target.promptId || !ctx.canRetry || ctx.readOnly) return "none";
+  if (ctx.messages || !target.footerId) return "prompt";
+  return "footer";
+}
+
+/// The turn whose footer may offer Retry: the last one a prompt opened that would have drawn its own
+/// Retry on base (``isRetryablePrompt``), whatever came after it (a notice's, a reminder's, another
+/// agent's or a task result's turn), as that prompt kept its Retry under it before Retry moved to
+/// the footer (cmux#34779). -1: none.
+function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): number {
+  for (let at = starts.length - 1; at >= 0; at -= 1) if (isRetryablePrompt(rows[starts[at]!]!)) return at;
+  return -1;
+}
 
 /// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
 /// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
@@ -255,6 +330,8 @@ export type TurnView = {
   pending: readonly AcpmuxRow[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
+  /// The turn whose footer offers Retry (`retryTargetAt`), -1 for none.
+  retryAt: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
   /// rows there are up to its end.
   starts: number[];
@@ -422,9 +499,13 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  const retryAt = retryTargetAt(rows, starts);
   // Reused turns were drawn with the previous view's folds. A row after them can change which
-  // background turns fold (cmux#30535), so a different set draws every turn again.
-  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+  // background turns fold (cmux#30535), so a different set draws every turn again. So does a Retry
+  // that moves off or onto a reused turn (`retryTargetAt`).
+  const retryMoved =
+    reuse > 0 && retryAt !== previous!.retryAt && [retryAt, previous!.retryAt].some((at) => at >= 0 && at < first);
+  if (reuse > 0 && (!sameIds(foldedBackground, previous!.foldedBackground) || retryMoved))
     return turnViewFrom(rows, expanded, {
       now,
       working,
@@ -459,6 +540,7 @@ export function turnViewFrom(
       agentFamily,
       foldedBackground,
       live ? trayAgents : 0,
+      at === retryAt,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -497,6 +579,7 @@ export function turnViewFrom(
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
+    retryAt,
     starts,
     times,
     dated,
@@ -522,6 +605,8 @@ type ShapedTurn = {
   /// Which of its background-task runs' lines are open (backgroundRuns.ts `openBackgroundRuns`).
   backgroundRuns: string;
   last: boolean;
+  /// Whether its footer offers Retry (`retryTargetAt`).
+  retryTarget: boolean;
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
@@ -587,6 +672,7 @@ function shapedTurn(
   agentFamily?: string,
   foldedBackground: ReadonlySet<string> = new Set(),
   trayAgents = 0,
+  retryTarget = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -611,6 +697,7 @@ function shapedTurn(
     cached.messageRuns === messageRuns &&
     cached.backgroundRuns === backgroundRuns &&
     cached.last === last &&
+    cached.retryTarget === retryTarget &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
@@ -675,6 +762,7 @@ function shapedTurn(
       live,
       last,
       last && held.length === 0,
+      retryTarget && (!last || held.length === 0),
       clockOffset,
       liveRuns,
       sessionStatus,
@@ -693,7 +781,15 @@ function shapedTurn(
     const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
-    const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    // A prompt sent after the latest turn ended that acpmux has not written yet (its record and the
+    // turn it opens come over the event stream, seconds later on a busy daemon) draws the Thinking
+    // line under it already, as the chat's first prompt does (`waiting`): from the send on the chat
+    // reads as working, never as a finished turn with a bubble under it (Leo, 2026-11-04: "WHY DOES
+    // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
+    // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
+    const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
+    const line = sent ? [sentLine(sent)] : liveLine;
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -723,6 +819,7 @@ function shapedTurn(
       messageRuns,
       backgroundRuns,
       last,
+      retryTarget,
       clockOffset,
       dated,
       liveRuns,
@@ -732,6 +829,24 @@ function shapedTurn(
       rows: shaped,
     });
   return shaped;
+}
+
+/// The person's latest prompt held after a turn that ended, still sending or taken but not yet
+/// written by acpmux (`pending`), or none: a failed one waits for Retry, and another session's
+/// message draws in the group of waiting messages.
+function sentAfterTurn(held: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  const sent = held.at(-1);
+  return sent?.pending && !sent.failed && !sent.incoming && !sent.received ? sent : undefined;
+}
+
+/// The Thinking line under `sent` (``sentAfterTurn``), drawn as the chat's first prompt's is
+/// (`waiting` in ``shapedTurn``): the same id, so the turn that opens goes on with it, and one held
+/// behind its agent's start draws the start look with no time yet (agentStart.experiment.ts,
+/// cmux#30642).
+function sentLine(sent: AcpmuxRow): AcpmuxRow {
+  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: sent.at, kind: THINKING, verbKey: sent.id };
+  if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
+  return line;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
@@ -826,6 +941,7 @@ function shapeTurn(
   live: boolean,
   last: boolean,
   retryable: boolean,
+  retryTarget: boolean,
   clockOffset = 0,
   liveRuns = false,
   sessionStatus = false,
@@ -1018,7 +1134,7 @@ function shapeTurn(
     offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
-  const changedFiles = retryable && !live ? turnChangedFiles(body) : false;
+  const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
   shaped.push({
     ...summary,
     folded,
@@ -1027,12 +1143,15 @@ function shapeTurn(
     turnCopy: turnCopyParts(body),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
+    ...(retryTarget && { retryTarget }),
     ...(continuable && { continuable }),
     ...(changedFiles && { changedFiles: true as const }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
-    ...(retryable &&
+    // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
+    // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged).
+    ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&
       (user.resend ?? user.text) && {
@@ -1041,7 +1160,12 @@ function shapeTurn(
         retryAttachments: user.retryAttachments,
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
-    version: version * 8 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0) + (changedFiles ? 4 : 0),
+    version:
+      version * 16 +
+      (retryable ? 1 : 0) +
+      (resumable || continuable ? 2 : 0) +
+      (retryTarget ? 4 : 0) +
+      (changedFiles ? 8 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

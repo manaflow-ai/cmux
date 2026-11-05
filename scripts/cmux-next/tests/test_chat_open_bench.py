@@ -55,15 +55,20 @@ def open_(first, empty=0.0, **extra):
 
 class SubagentClickTests(unittest.TestCase):
     class Run:
-        """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` names
-        the element; one the page does not show answers "no visible element matches"."""
+        """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` or `selector` names
+        the element; one the page does not show answers "no visible element matches". `hover` answers the same way
+        and `chat_state` with an empty state."""
         def __init__(self, shown):
-            self.shown, self.clicked = shown, []
+            self.shown, self.clicked, self.probed = shown, [], []
 
         def rpc(self, method, params=None, timeout=40):
-            assert method == "debug.agent_pane" and params["action"] == "click" and params.get("text")
-            self.clicked.append(params["text"])
-            if params["text"] not in self.shown:
+            assert method == "debug.agent_pane"
+            if params["action"] == "chat_state":
+                return {"pane": "p"}
+            target = params.get("text") or params.get("selector")
+            assert target and params["action"] in ("click", "hover")
+            (self.clicked if params["action"] == "click" else self.probed).append(target)
+            if target not in self.shown:
                 return {"pane": "p", "error": "no visible element matches"}
             return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
 
@@ -72,7 +77,7 @@ class SubagentClickTests(unittest.TestCase):
         # The chat holds Auditor 0..3; this build renders only 0 and 2.
         run = self.Run({"Auditor 0", "Auditor 2"})
         reply = bench.click_subagent(run)
-        self.assertEqual(run.clicked, ["Auditor 3", "Auditor 2"])
+        self.assertEqual(run.clicked, ["Auditor 3", bench.subagent_task(3), "Auditor 2"])
         self.assertEqual(reply["subagent"], "Auditor 2")
         self.assertIs(reply["clicked"], True, "the app's own clicked flag is kept")
         self.assertNotIn("error", reply)
@@ -82,9 +87,30 @@ class SubagentClickTests(unittest.TestCase):
         run = self.Run({"Auditor 0"})
         self.assertEqual(bench.click_subagent(run)["subagent"], "Auditor 0")
 
-    def test_no_shown_line_keeps_the_error(self):
+    def test_a_line_named_by_its_task_is_clicked_by_its_task(self):
+        # Since 2026-11-04 the tray and a finished line read the task first: no element is the name alone.
         bench = load_bench("--runs=3")
-        self.assertEqual(bench.click_subagent(self.Run(set()))["error"], "no visible element matches")
+        run = self.Run({bench.subagent_task(1)})
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["subagent"], bench.subagent_task(1))
+        self.assertIs(reply["clicked"], True)
+
+    def test_a_line_matched_by_no_text_is_clicked_by_its_selector(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.SUBAGENT_LINES[1]})
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked[-2:], list(bench.SUBAGENT_LINES))
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINES[1])
+
+    def test_no_shown_line_keeps_the_error_and_says_what_the_page_shows(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({".cv-tool"})
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["error"], "no visible element matches")
+        self.assertEqual(run.probed, list(bench.PROBE_SELECTORS))
+        self.assertEqual(reply["probe"][".cv-tool"], "shown")
+        self.assertEqual(reply["probe"]["button.cv-subagent-done"], "no visible element matches")
+        self.assertIn("chat_state", reply["probe"])
 
 
 class SummaryTests(unittest.TestCase):

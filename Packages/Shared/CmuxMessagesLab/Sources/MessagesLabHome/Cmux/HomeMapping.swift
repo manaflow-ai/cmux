@@ -78,6 +78,12 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// A Chief chat draws no row for a retracted message (Delete, #36019); other chats keep
+    /// Messages' "You unsent a message" note.
+    static func hidesRetracted(_ summary: ConversationSummary?, me: ParticipantID) -> Bool {
+        summary?.kind(me: me) == .chief
+    }
+
     /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
     static let welcomeKeyPrefix = "chief-welcome-"
 
@@ -100,11 +106,14 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
-        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
-        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
-        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+        if item.isRetracted, hidesRetracted(summary, me: me) {
+            // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
+            message.deletedAt = message.retractedAt
+            message.replyTo = nil
+            message.parent = nil
+        } else if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
             message.deletedAt = Instant.format(item.createdAt)

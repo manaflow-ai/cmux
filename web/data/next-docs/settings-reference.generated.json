@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 571,
+  "count": 574,
   "sections": [
     {
       "id": "general",
@@ -1797,6 +1797,27 @@
           ]
         },
         {
+          "key": "agentPane.display.statusVerbs.custom",
+          "title": "Custom Working Verbs",
+          "help": "Comma-separated -ing verbs for the live status line.",
+          "kind": "text",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.statusVerbs.mode",
+          "title": "Working Status Verbs",
+          "help": "Choose whether the live status line rotates through verbs or stays on Thinking.",
+          "kind": "choice",
+          "default": "thinking",
+          "group": "Agent Chat",
+          "values": [
+            "thinking",
+            "rotate",
+            "custom"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
@@ -3093,6 +3114,19 @@
           }
         },
         {
+          "key": "layout.cornerPadding",
+          "title": "Corner Padding",
+          "help": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "layout.paneBorder",
           "title": "Border",
           "help": "",
@@ -3128,7 +3162,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "",
+          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",
