@@ -60,8 +60,7 @@ proto.getBoundingClientRect = function (this: HTMLElement) {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UiProvider } = await import("../src/ui/UiProvider");
-const { AgentProgressContext, AgentProgressStore } =
-  await import("../src/agent-session/acpmux/subagents/agentProgressStore");
+const { AgentProgressContext, AgentProgressStore } = await import("../src/agent-session/acpmux/subagents/agentProgressStoreModel");
 const { SubagentsSection } = await import("../src/agent-session/acpmux/session-info/SubagentsSection");
 
 const shown: PopupModel[] = [];

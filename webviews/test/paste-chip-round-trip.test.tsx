@@ -67,10 +67,10 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("../src/agent-session/acpmux/Composer");
 const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { pastedSize } = await import("../src/agent-session/acpmux/composer/TextAttachmentCard");
+const { pastedSize } = await import("../src/agent-session/acpmux/composer/textAttachmentCardModel");
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f5";
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);

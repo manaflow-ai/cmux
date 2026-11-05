@@ -1,7 +1,7 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
-import { useInlineAttachments } from "./composer/inlineAttachmentsModel";
+import { useInlineAttachments } from "./composer/inlineAttachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
 import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";

@@ -13,12 +13,8 @@ import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { resetSessionInfoState, setSessionInfoMore } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import {
-  OUTPUTS_SHOWN,
-  OutputsSection,
-  outputArtifacts,
-  outputLinks,
-} from "../src/agent-session/acpmux/session-info/OutputsSection";
+import { OutputsSection } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import { OUTPUTS_SHOWN, outputArtifacts, outputLinks } from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";

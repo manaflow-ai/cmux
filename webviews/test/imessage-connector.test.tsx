@@ -11,7 +11,7 @@ import {
   type IMessageData,
   type IMessageView,
 } from "../src/agent-session/acpmux/session-info/imessage";
-import { IMessageConnector } from "../src/agent-session/acpmux/session-info/IMessageConnector";
+import { IMessageConnector } from "../src/agent-session/acpmux/session-info/iMessageConnectorModel";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { connectorsSection } from "../src/agent-session/acpmux/session-info/native/connectors";

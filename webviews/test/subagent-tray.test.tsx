@@ -60,9 +60,9 @@ const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray }
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
+const { nestAgents } = await import("../src/agent-session/acpmux/subagents/agentsPillModel");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
@@ -1693,7 +1693,7 @@ describe("the tray lists only the chat's own work", () => {
 // Claude mark on every line; only a subagent of another family (Codex) draws its harness's mark.
 describe("a subagent of the chat's own family draws its toned sparkle, not the chat's mark", () => {
   test("Claude subagents under a Claude chat are toned sparkles; a Codex one keeps its mark", async () => {
-    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const items = trayItems(
       [
         agent("Reviewer", { startedAt: at(10) }),

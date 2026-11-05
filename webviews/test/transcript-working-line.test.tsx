@@ -17,10 +17,8 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
-import {
-  resetTranscriptDisclosure,
-  TranscriptDisclosureProvider,
-} from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

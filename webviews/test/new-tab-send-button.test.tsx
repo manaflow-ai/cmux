@@ -11,7 +11,7 @@ import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesti
 import { CMUX_PASS_THROUGH } from "../src/agent-session/acpmux/cmuxCommands";
 import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
 import { inlineToken, inlineTokenIds, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
+import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommandModel";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

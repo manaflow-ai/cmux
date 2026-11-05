@@ -57,8 +57,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-const { SubagentPaneContext, SubagentStopContext } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentPaneContext, SubagentStopContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 
 afterAll(() => {

@@ -34,7 +34,7 @@ import {
   setSessionInfoOpen,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
-import { ARTIFACT_COVERS_PANE, useArtifactCoversPane } from "../src/agent-session/acpmux/conversation/ArtifactPanel";
+import { ARTIFACT_COVERS_PANE, useArtifactCoversPane } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;

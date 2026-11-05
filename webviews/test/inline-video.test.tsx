@@ -6,13 +6,8 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  formatDuration,
-  isRemoteMedia,
-  mediaKind,
-  mediaOpenRequest,
-  MediaPlayer,
-} from "../src/agent-session/acpmux/chips/ReplyMedia";
+import { MediaPlayer } from "../src/agent-session/acpmux/chips/ReplyMedia";
+import { formatDuration, isRemoteMedia, mediaKind, mediaOpenRequest } from "../src/agent-session/acpmux/chips/replyMediaModel";
 import { MEDIA_PREVIEW_DWELL } from "../src/ui/hoverIntent";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 

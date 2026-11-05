@@ -11,11 +11,8 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { backgroundGroups, type BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
-import {
-  NestedAgents,
-  SubagentTranscript,
-  WINDOW,
-} from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { NestedAgents, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

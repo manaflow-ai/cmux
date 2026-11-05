@@ -56,7 +56,7 @@ import {
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
-import { openSourceFile } from "../src/agent-session/acpmux/session-info/SourcesSection";
+import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";

@@ -1032,7 +1032,7 @@ const familyRail = [
 ];
 
 test("familyTabs: one tab per model family, its routes in rail order", async () => {
-  const { familyTabs } = await import("./QuickModelMenu");
+  const { familyTabs } = await import("./quickModelMenuModel");
   const tabs = familyTabs(familyRail);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
     ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
@@ -1042,7 +1042,7 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
-  const { searchGroups } = await import("./QuickModelMenu");
+  const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [
     { id: "opus", name: "Opus", family: "claude-sr2" },
     { id: "opus", name: "Opus", family: "claude" },

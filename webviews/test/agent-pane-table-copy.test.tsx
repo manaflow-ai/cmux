@@ -3,7 +3,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ArtifactContext } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { parseMarkdown, Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import {
   copyTable,
   tableClipboard,

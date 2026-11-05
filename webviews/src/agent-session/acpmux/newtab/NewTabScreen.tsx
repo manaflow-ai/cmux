@@ -108,7 +108,7 @@ import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
-import { useInlineAttachments } from "../composer/inlineAttachmentsModel";
+import { useInlineAttachments } from "../composer/inlineAttachments";
 import { ComposerFoot } from "../ComposerFoot";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";

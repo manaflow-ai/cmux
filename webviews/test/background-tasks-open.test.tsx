@@ -53,8 +53,8 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { BackgroundTasksPanel, panelSections } =
-  await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { panelSections } = await import("../src/agent-session/acpmux/backgroundTasks/backgroundTasksPanelModel");
 type BackgroundGroup = import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks").BackgroundGroup;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;

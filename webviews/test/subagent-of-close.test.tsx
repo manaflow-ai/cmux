@@ -49,7 +49,7 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { childView } = await import("../src/agent-session/acpmux/subagents/subagentRows");
-const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { escapeClosesSubagent, useEscapeClosesSubagent } =
   await import("../src/agent-session/acpmux/subagents/subagentEscape");
 

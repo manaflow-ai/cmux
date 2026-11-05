@@ -59,7 +59,7 @@ const send = (status: string, output?: string, command = 'tell-coordinator "cg-n
 async function render(row: object) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   act(() => root?.unmount());
   resetTranscriptDisclosure();
   root = createRoot(host);
@@ -206,7 +206,7 @@ async function renderNamed(to: string, names: Map<string, string>) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
   const { AgentNamesContext } = await import("../src/agent-session/acpmux/conversation/agentNames");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   act(() => root?.unmount());
   resetTranscriptDisclosure();
   root = createRoot(host);
@@ -253,7 +253,8 @@ test("a sent message's line has no Copy; the status word, then the chevron, clos
 
 test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { AgentMessageRow, messagePreview } = await import("../src/agent-session/acpmux/conversation/AgentMessageRow");
+  const { AgentMessageRow } = await import("../src/agent-session/acpmux/conversation/AgentMessageRow");
+const { messagePreview } = await import("../src/agent-session/acpmux/conversation/agentMessageRowModel");
   act(() => root?.unmount());
   root = createRoot(host);
   const opened: string[] = [];

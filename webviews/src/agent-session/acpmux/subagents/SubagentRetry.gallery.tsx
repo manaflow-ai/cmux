@@ -89,7 +89,8 @@ export default componentEntry<Props>({
   ],
   experiment: { definition: failedLineLook, script: [{ name: "Leo's three failed lines", run: async () => {} }] },
   load: async () => {
-    const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+const { RetryAffordanceContext } = await import("./subagentDoneLineModel");
     const { TurnActionsContext } = await import("../conversation/turnActions");
     const { SUBAGENT_DONE } = await import("./subagentRows");
     const restartSubagent = () => {};
