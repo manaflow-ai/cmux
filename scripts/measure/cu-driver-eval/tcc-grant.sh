@@ -59,7 +59,9 @@ for path in "$@"; do
 done
 # The system tccd must restart to read the new rows: one that kept running answered a run's checks
 # from its old state ("Query for current DB state returns error: 1") and denied every grant. So
-# restart it until its pid changes, and say so.
+# restart it until its pid changes, and say so. It starts on demand, so gone counts as restarted. A
+# restart that can't be confirmed is only a warning: guest-start.sh runs this under set -e, and the
+# eval checks the grants itself.
 tccd_pid() { sudo -n launchctl print "$1" 2>/dev/null | awk '$1 == "pid" {print $3; exit}'; }
 before=$(tccd_pid system/com.apple.tccd)
 after=$before
@@ -72,11 +74,11 @@ for attempt in 1 2 3; do
   for _ in $(seq 1 20); do
     sleep 0.5
     after=$(tccd_pid system/com.apple.tccd)
-    [[ -n "$after" && "$after" != "$before" ]] && break 2
+    [[ "$after" != "$before" ]] && break 2
   done
 done
 echo "tcc-grant.sh: system tccd pid ${before:-none} -> ${after:-none}"
-[[ -n "$after" && "$after" != "$before" ]] || { echo "tcc-grant.sh: the system tccd did not restart" >&2; status=1; }
+[[ "$after" != "$before" ]] || echo "tcc-grant.sh: warning: the system tccd did not restart" >&2
 # The user's tccd may hold an earlier answer; from inside the login session this restarts it too.
 launchctl kickstart -k "gui/$(id -u)/com.apple.tccd" >/dev/null 2>&1 || true
 sleep 2 # tccd answers once it has reread the databases
