@@ -24,9 +24,13 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`).
     @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind) -> AgentPageEvent? {
-        guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface).payloadJSON.utf8)),
-              let agent = JSONValue(foundation: AgentPaneTheme.values(tokens, surface: surface)) else { return nil }
-        return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent])
+        theme(web: AgentPaneTheme.webTheme(tokens, surface: surface), agent: AgentPaneTheme.values(tokens, surface: surface))
+    }
+
+    /// The `theme` event of a built web theme and the pane's own values (``AgentPaneThemeEvents`` keeps these inputs).
+    @MainActor static func theme(web: WebTheme, agent: [String: any Sendable]) -> AgentPageEvent? {
+        guard let webValue = try? JSONValue.parse(Data(web.payloadJSON.utf8)), let agentValue = JSONValue(foundation: agent) else { return nil }
+        return AgentPageEvent(kind: "theme", value: ["web": webValue, "agent": agentValue])
     }
 
     /// The shortcut labels the page shows.
