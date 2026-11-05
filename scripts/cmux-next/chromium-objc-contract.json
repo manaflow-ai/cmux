@@ -1,5 +1,5 @@
 {
- "reviewed_for": "cef-156.0.15-cmux.44",
+ "reviewed_for": "cef-157.0.0-cmux.46",
  "selectors": [
   {
    "receiver": "NSApp",
@@ -213,6 +213,13 @@
    "chromium_class": "BrowserCrApplication",
    "verdict": "appkit",
    "reason": "NSApplication answers it (macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "updateWindows",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "-[NSApplication updateWindows] is public AppKit API (macOS 10.0+). CEF 157's BrowserCrApplication override (chrome_browser_application_mac.mm:331) only adds a trace event and calls super."
   },
   {
    "receiver": "NSApp",
@@ -824,7 +831,7 @@
   "CrApplication": "NSApp",
   "MockCrApp": "ignored: test-only NSApp class"
  },
- "reviewed_sha256": "2cadcc0a5426124272e806a9dca5273ce19940eafbe3348ef622425e830f4e73",
+ "reviewed_sha256": "3ae4070246c00beb483441119411243beac69425a5cc2d134c9c1a7f0910b889",
  "assumptions": [
   "+[AppController sharedController] never runs in cmux: on its first call it installs Chromium's AppController as NSApp.delegate (cef-154.0.28-cmux.28: setDelegate: at 0x47da1c8) and later calls CHECK that the delegate is unchanged. The not-reachable AppController verdicts rely on that path; it is not checked here."
  ]
