@@ -22,12 +22,7 @@ fn crate_dir() -> PathBuf {
 fn routes() -> Vec<Vec<String>> {
     let text = std::fs::read_to_string(crate_dir().join("openapi.json")).expect("openapi.json");
     let spec: serde_json::Value = serde_json::from_str(&text).expect("openapi.json is JSON");
-    spec["paths"]
-        .as_object()
-        .expect("paths")
-        .keys()
-        .map(|path| segments(path))
-        .collect()
+    spec["paths"].as_object().expect("paths").keys().map(|path| segments(path)).collect()
 }
 
 fn segments(path: &str) -> Vec<String> {
@@ -75,7 +70,10 @@ fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_owned();
         if path.is_dir() {
-            if !matches!(name.as_str(), "tests" | "target" | "vendor" | "benches" | "examples" | "cmux-cloud-client") {
+            if !matches!(
+                name.as_str(),
+                "tests" | "target" | "vendor" | "benches" | "examples" | "cmux-cloud-client"
+            ) {
                 source_files(&path, out);
             }
         } else if name.ends_with(".rs") && !name.contains("test") {
