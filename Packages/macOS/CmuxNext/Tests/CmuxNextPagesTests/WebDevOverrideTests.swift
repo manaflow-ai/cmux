@@ -111,17 +111,23 @@ struct WebDevOverrideTests {
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root, token: "0123456789abcdef0123456789abcdef01234567")) }
 
-        handler.fetchDevServer = { url in
-            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                           headerFields: ["Content-Type": "text/html", PageDevServer.tokenHeader: "0123456789abcdef0123456789abcdef01234567"])
-            return response.map { (Data("served".utf8), $0) }
-        }
+        handler.fetchDevServer = { request in Self.proven(request, token: "0123456789abcdef0123456789abcdef01234567", body: "served") }
         #expect(try await body(handler) == "served")
 
-        // Another process on the port: no token, or the wrong one, serves nothing.
-        for headers in [["Content-Type": "text/html"], ["Content-Type": "text/html", PageDevServer.tokenHeader: "wrong"]] {
-            handler.fetchDevServer = { url in
-                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers).map { (Data("intruder".utf8), $0) }
+        // Another process on the port: no proof, the token itself, a proof for another nonce or
+        // with another token serves nothing.
+        let forged: [@Sendable (URLRequest) -> [String: String]] = [
+            { _ in [:] },
+            { _ in [PageDevServer.proofHeader: "0123456789abcdef0123456789abcdef01234567"] },
+            { _ in [PageDevServer.proofHeader: PageDevServer.proof(token: "0123456789abcdef0123456789abcdef01234567", nonce: "recorded")] },
+            { request in [PageDevServer.proofHeader: PageDevServer.proof(token: String(repeating: "f", count: 40),
+                                                                         nonce: request.value(forHTTPHeaderField: PageDevServer.nonceHeader) ?? "")] },
+        ]
+        for headers in forged {
+            handler.fetchDevServer = { request in
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                headerFields: headers(request).merging(["Content-Type": "text/html"]) { a, _ in a })
+                    .map { (Data("intruder".utf8), $0) }
             }
             #expect(try await body(handler) == "bundled")
         }
@@ -129,9 +135,7 @@ struct WebDevOverrideTests {
         handler.fetchDevServer = { _ in nil }
         #expect(try await body(handler) == "bundled")
 
-        handler.fetchDevServer = { url in
-            HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil).map { (Data("missing".utf8), $0) }
-        }
+        handler.fetchDevServer = { request in Self.proven(request, token: "0123456789abcdef0123456789abcdef01234567", body: "missing", status: 404) }
         #expect(try await body(handler) == "bundled")
     }
 
@@ -145,11 +149,7 @@ struct WebDevOverrideTests {
         let server = PageDevServer(root: root, token: "0123456789abcdef0123456789abcdef01234567")
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(server: server) }
-        handler.fetchDevServer = { url in
-            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                            headerFields: ["Content-Type": "text/html", PageDevServer.tokenHeader: "0123456789abcdef0123456789abcdef01234567"])
-                .map { (Data("served".utf8), $0) }
-        }
+        handler.fetchDevServer = { request in Self.proven(request, token: "0123456789abcdef0123456789abcdef01234567", body: "served") }
         let url = try #require(URL(string: PageDescriptor.markdown.origin + "/"))
         let reply = try #require(await handler.reply(to: url))
         let answer = PageSchemeHandler.chromiumResponse(reply)
@@ -171,6 +171,22 @@ struct WebDevOverrideTests {
         let connect = server.csp(for: .agentPageForTests).connect
         #expect(!connect.contains("'none'"))
         #expect(connect.contains("ws://127.0.0.1:4200"))
+    }
+
+    /// The real server's answer to `request`: the proof of `token` for the request's nonce, which
+    /// the request carries while the token itself does not.
+    private static func proven(_ request: URLRequest, token: String, body: String, status: Int = 200) -> (Data, HTTPURLResponse)? {
+        guard let url = request.url, let nonce = request.value(forHTTPHeaderField: PageDevServer.nonceHeader),
+              nonce.count == 64, !(request.allHTTPHeaderFields ?? [:]).values.contains(token) else { return nil }
+        return HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
+                               headerFields: ["Content-Type": "text/html", PageDevServer.proofHeader: PageDevServer.proof(token: token, nonce: nonce)])
+            .map { (Data(body.utf8), $0) }
+    }
+
+    /// A known HMAC-SHA256 answer, so the app and `webviews/dev-server/plugins.ts` agree.
+    @Test func theProofIsHMACSHA256OfTheNonce() {
+        #expect(PageDevServer.proof(token: "key", nonce: "The quick brown fox jumps over the lazy dog")
+            == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
     }
 
     private func body(_ handler: PageSchemeHandler) async throws -> String {

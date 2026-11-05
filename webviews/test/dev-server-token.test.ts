@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { devServerTokenFrom } from "../dev-server/plugins";
+import { devServerProof, devServerTokenFrom } from "../dev-server/plugins";
 
 // The app loads its pages from this server only when its answers carry web-dev.json's token
 // (PageDevServer.token), so the server has to find the same token the app reads.
@@ -13,6 +13,13 @@ describe("dev server token", () => {
 
   it("prefers CMUX_WEB_DEV_TOKEN", () => {
     expect(devServerTokenFrom({ ...env, CMUX_WEB_DEV_TOKEN: "env" }, file(JSON.stringify({ token: "abc" })))).toBe("env");
+  });
+
+  it("proves the token as HMAC-SHA256 of the nonce, the same answer the app computes", () => {
+    // PageDevServerTests / WebDevOverrideTests.theProofIsHMACSHA256OfTheNonce checks the same pair.
+    expect(devServerProof("key", "The quick brown fox jumps over the lazy dog")).toBe(
+      "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8",
+    );
   });
 
   it("sends nothing without a token or a readable file", () => {

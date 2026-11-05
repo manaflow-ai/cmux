@@ -39,7 +39,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
-    var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
+    var fetchDevServer: @Sendable (URLRequest) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
@@ -114,7 +114,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let live = liveOverride()
         if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.answered(response),
+            let request = devServer.request(for: remote)
+            if let (body, response) = await fetchDevServer(request), devServer.answered(response, to: request),
                self.devServer != nil || response.statusCode < 400 {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)

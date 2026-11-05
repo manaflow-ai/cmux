@@ -250,20 +250,13 @@ start_local() {
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
-# web-dev.json's token, made once: the app loads pages only from answers that carry it
-# (X-Cmux-Dev-Token; webviews/dev-server/plugins.ts reads the same file), so a process that takes
-# the port of a stopped server serves the app nothing. $1, when long enough, replaces it.
+# A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
+# loads only answers proving HMAC-SHA256(token, nonce) (webviews/dev-server/plugins.ts reads the token
+# from the same 0600 file, per request), so a process that takes the port of a stopped server serves
+# the app nothing. $1, when long enough, is used instead (a slot's server's token).
 ensure_token() {
   local token="${1:-}"
-  [[ ${#token} -ge 32 ]] || token="$(python3 - "$web_dev" <<'PY'
-import json, secrets, sys
-try:
-    token = json.load(open(sys.argv[1])).get("token")
-except (OSError, ValueError, AttributeError):
-    token = None
-print(token if isinstance(token, str) and len(token) >= 32 else secrets.token_hex(24))
-PY
-)"
+  [[ ${#token} -ge 32 ]] || token="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
   echo "$token"
 }
 
