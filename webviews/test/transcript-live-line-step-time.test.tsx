@@ -102,3 +102,13 @@ test("thinking that streamed under a second says its time; one dated chunk has n
   expect(single.thoughtMs).toBeUndefined();
   expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");
 });
+
+test("every finished row's own time: milliseconds under a second, none for one stamped at one moment", async () => {
+  const { spanDuration } = await import("../src/agent-session/acpmux/conversation/turns");
+  const t = ((key: string, args: { n: number }) => (key === "duration.ms" ? `${args.n}ms` : key)) as never;
+  // The background launch's call, as the fixture times it, and the Bash step.
+  expect(spanDuration(t, agent!.tool!.endedAt! - agent!.tool!.startedAt!)).toBe("411ms");
+  expect(spanDuration(t, 32_000)).toBe("32s");
+  expect(spanDuration(t, 0)).toBeUndefined();
+  expect(spanDuration(t, -5)).toBeUndefined();
+});
