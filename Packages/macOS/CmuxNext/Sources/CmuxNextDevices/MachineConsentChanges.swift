@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// acpmux's machine consent, one per OS user and shared by every app build:
 /// `<the user's home>/.acpmux/machine-consent/{enrolled.json,consent.json,refusal.json}`. A change there
