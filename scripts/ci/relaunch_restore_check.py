@@ -131,8 +131,13 @@ def process_home(pid: str) -> str | None:
 
 
 def unwrap(answer):
-    """A CLI answer's payload: its `value` when it has one."""
-    return answer.get("value", answer) if isinstance(answer, dict) else answer
+    """A CLI answer's payload: its `value` (daemon verbs) or `result` (agents verbs, e.g. chat.new) when it has one."""
+    if not isinstance(answer, dict):
+        return answer
+    for key in ("value", "result"):
+        if isinstance(answer.get(key), dict):
+            return answer[key]
+    return answer
 
 
 def workspace_named(topo: dict | None, name: str) -> dict | None:
@@ -204,9 +209,7 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
                             "--name", "l5-chat", "--", PROMPT, timeout=90))
     chat_id = None
     if isinstance(chat, dict):
-        chat_id = chat.get("chat") or chat.get("chat_id") or chat.get("session") or chat.get("session_id") or chat.get("id")
-        if isinstance(chat_id, dict):
-            chat_id = chat_id.get("id") or chat_id.get("session_id")
+        chat_id = chat.get("chat")  # chat.new's result names the chat, its acpmux session id
     if not chat_id:
         raise RuntimeError(f"agents chat new made no chat: {json.dumps(chat)[:400]}")
     made["chat"] = str(chat_id)
@@ -247,8 +250,8 @@ def chat_messages(inst: Instance, chat: str) -> int:
     items = read.get("items") if isinstance(read, dict) else read if isinstance(read, list) else None
     if not isinstance(items, list):
         return -1
-    return sum(1 for item in items if isinstance(item, dict) and str(item.get("kind") or item.get("type") or "").lower()
-               in ("user", "user_message", "prompt", "agent", "agent_message", "assistant", "message"))
+    # chat read's items carry a role: user, assistant or tool (cli/agents/chat.rs); the messages are the first two.
+    return sum(1 for item in items if isinstance(item, dict) and item.get("role") in ("user", "assistant"))
 
 
 def chat_tab(topo: dict | None, chat: str) -> bool:
