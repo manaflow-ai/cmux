@@ -83,10 +83,81 @@ struct AgentAutoResumePolicyTests {
         // The agent recovered, so the "Auto-resumed ×N" marker has nothing
         // left to say.
         #expect(tracker.totalResumes(surfaceId: surface) == 0)
+        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
         guard case .schedule(_, 1, _, _) = tracker.observe(
             kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
         ) else {
             Issue.record("a new streak should start at attempt 1")
+            return
+        }
+    }
+
+    /// Claude Code's StopFailure for a dropped connection, as journaled.
+    private static let droppedConnectionDetail =
+        "connection_dropped: API Error: Connection to the API was lost (StreamSuspended)"
+
+    @Test func aLateErrorAfterACompletedTurnDoesNotSchedule() {
+        // The turn ended normally with a question, then a dark wake reported
+        // a dropped connection an hour later with no prompt in between.
+        var tracker = AgentAutoResumeTracker()
+        let session = "c0ffee00-0000-4000-8000-000000000001"
+        #expect(tracker.observe(kind: .sessionStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
+        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
+        #expect(tracker.observe(kind: .idleObserved, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
+        #expect(tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false,
+            detail: Self.droppedConnectionDetail, sessionId: session
+        ) == .none)
+
+        // The next turn can be resumed again.
+        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
+        guard case .schedule(_, 1, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false,
+            detail: Self.droppedConnectionDetail, sessionId: session
+        ) else {
+            Issue.record("an error in a new turn should schedule")
+            return
+        }
+    }
+
+    @Test func aLateErrorAfterTheFirstCompletedTurnTheTrackerSeesDoesNotSchedule() {
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    }
+
+    @Test(arguments: [
+        AgentJournalEventKind.stateChanged,
+        .childSpawned,
+        .childCompleted,
+        .childFailed,
+        .approvalRequested,
+        .questionRequested,
+        .planReviewRequested,
+        .attentionResolved,
+    ])
+    func activityAfterACompletedTurnLetsTheNextErrorSchedule(kind: AgentJournalEventKind) {
+        // A continuation can start without a prompt hook (a background task
+        // finishing, for one); its tool activity shows the agent is working.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        _ = tracker.observe(kind: kind, surfaceId: surface, isSubagent: false, detail: nil)
+        guard case .schedule(_, 1, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("an error after \(kind) should schedule")
+            return
+        }
+    }
+
+    @Test func aSubagentsCompletedTurnDoesNotHoldBackTheParentsError() {
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: true, detail: nil) == .none)
+        guard case .schedule = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("a subagent's completion must not end the parent's turn")
             return
         }
     }
