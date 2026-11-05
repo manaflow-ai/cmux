@@ -73,6 +73,19 @@ public struct WorkspaceSpawn: Sendable {
         opensNewTabPage = invocation.origin == .user && command == nil
     }
 
+    /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or
+    /// folder), which may show the workspace reserved before the key (``DaemonStore/reservedWorkspaceUse(plain:home:)``).
+    public var isPlainNewTabPage: Bool {
+        opensNewTabPage && key == nil && firstChat == nil && firstSession == nil && command == nil && browserProfile == nil && cwd == nil
+    }
+
+    /// The folder the workspace starts in: its own, else (on this Mac) its room's default and then the folder it
+    /// inherited, else the daemon's default.
+    public func startFolder(roomFolder: String?, local: Bool, daemonDefault: String?) -> String? {
+        cwd ?? (local ? roomFolder : nil).flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (local ? inheritedCwd : nil) ?? daemonDefault
+    }
+
     public static func folderName(_ directory: String) -> String? {
         let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)

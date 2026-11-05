@@ -118,6 +118,7 @@ extension AgentTabStore {
             guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
             services.cloud.accessAsks.start(services: services)
         }
+        tabs.onLocalHostSet = { [weak services] in services?.windows.active?.scheduleReservedContent() }
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()

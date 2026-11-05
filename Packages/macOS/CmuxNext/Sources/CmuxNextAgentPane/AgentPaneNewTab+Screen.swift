@@ -10,4 +10,12 @@ extension AgentPaneNewTab {
         mine.omnibar = theirs.omnibar
         return mine == theirs
     }
+
+    /// This context for another opening: the same screen with that opening's key-hold token (a reserved Cmd-N page
+    /// the press gives its token).
+    public func taking(_ token: String?) -> AgentPaneNewTab {
+        var page = self
+        page.inputToken = token
+        return page
+    }
 }

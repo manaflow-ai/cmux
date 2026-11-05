@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -34,6 +35,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// The next Cmd-N's view, built before the key (`WindowController+Parking`); never `parked` or a saved record.
+    private(set) lazy var reservedContent = IdleSpare(owner: "WorkspaceSpare", on: services.mainWork) { [weak self] in self?.makeReservedContent() }
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
     var pendingDocks: [String: DockEdge] = [:]
@@ -163,6 +166,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
+        dropReservedContent()
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
@@ -292,7 +296,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            // Cmd-N's workspace: the view built before the key, else one built now.
+            controller = takeReservedContent(showing: workspace, on: daemon) ?? WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
@@ -333,6 +338,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.windows.contentDidAppear(self)
         DebugWorkspaceSwitch.shown(self, in: window)
         revalidatePagePresentation()
+        scheduleReservedContent()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -351,6 +357,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        scheduleReservedContent() // the next Cmd-N's view follows the key main window, as the New Tab spare does
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))

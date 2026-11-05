@@ -50,9 +50,13 @@ struct WorkspaceSpawner {
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
-        let key = spawn.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        let reserved = reservedKey()
+        let key = spawn.key ?? reserved ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
-        guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
+        guard daemon.connection != nil else {
+            if reserved != nil { services.agentTabs.releaseReservedWorkspace(on: daemon.store, .disconnected) }
+            return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) }
+        }
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
         let rule = spawn.placesBySetting ? row : nil
@@ -68,6 +72,7 @@ struct WorkspaceSpawner {
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
+        if reserved != nil { services.agentTabs.releaseReservedWorkspace(on: daemon.store, .unshown) } // its key names no other workspace
         let windowID = windowID
         return {
             do {
@@ -96,8 +101,7 @@ struct WorkspaceSpawner {
               spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
-        let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
+        let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         // Claimed at the press (`start`), so the reconcile the intent runs places and selects it in this window in
         // this turn; its slot is placed in the turn the daemon's workspace takes the stand-in over.
@@ -130,6 +134,14 @@ struct WorkspaceSpawner {
                 throw windows.createFailed(key.rawValue, error)
             }
         }
+    }
+
+    /// The reserved workspace's key for a plain Cmd-N into a window on its daemon (`AgentTabStore.reserveWorkspace`).
+    private func reservedKey() -> WorkspaceKey? {
+        let plain = windowID != nil && spawn.isPlainNewTabPage && windows.services.agentTabs.showsWorkspaceAtOnce(on: daemon)
+        let use = daemon.store.reservedWorkspaceUse(plain: plain, home: windows.services.daemon.store)
+        if let span = use.span { BenchSpans.mark(span) }
+        return use.key
     }
 
     /// The check that `daemon`'s store has applied every event before now (a
@@ -184,8 +196,7 @@ struct WorkspaceSpawner {
         let env: [String: String]? = daemon.supports(DaemonCapability.terminalEnv.rawValue) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapability.terminalReap.rawValue) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
+        let cwd = spawn.startFolder(roomFolder: defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
