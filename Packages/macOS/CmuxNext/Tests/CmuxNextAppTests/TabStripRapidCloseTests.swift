@@ -205,8 +205,7 @@ import CmuxNextTestSupport
         try #require(abs((plainCell.frame.maxX - plain.midX) - (waitingCell.frame.maxX - waiting.midX)) > 4,
                      "both tabs draw their x at the same offset: \(plain) \(waiting)")
 
-        let plainSlot = try #require(TabClosingModeHit.laidOut(strip).first { $0.id == TabID("plain") }).frame
-        strip.closingHit.closePressed(at: CGPoint(x: plain.midX, y: plain.midY), on: plainSlot)
+        strip.closingHit.closePressed(at: CGPoint(x: plain.midX, y: plain.midY))
         // Where the waiting tab's x really is: a press there closes it.
         #expect(strip.closingHit.tab(at: CGPoint(x: waiting.midX, y: waiting.midY), in: strip) == TabID("waiting"))
         // The plain tab's trailing offset, carried onto the waiting tab: no x is there.

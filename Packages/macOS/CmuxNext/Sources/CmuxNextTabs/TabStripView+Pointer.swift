@@ -399,9 +399,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }
