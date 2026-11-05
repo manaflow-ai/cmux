@@ -19,20 +19,39 @@ import Testing
         #expect(mapping.abbreviate("/tmp/x") == "/tmp/x")
     }
 
-    /// 20,000 abbreviations (a full remap of a large sidebar) stay well under one frame budget per 1,000:
-    /// before the fix, about 40 ms in a debug test build; after, about 5 ms.
+    /// 20,000 abbreviations (a full remap of a large sidebar) cost a fraction of what the pre-fix shape did (`preFix`:
+    /// `NSHomeDirectory()` read and "/" appended on every call): before the fix about 40 ms in a debug test build,
+    /// after about 5 ms. The two loops run interleaved in this process and each keeps its fastest pass, so a busy
+    /// runner slows both alike: a fixed 15 ms budget on the median failed at 17.7 ms on a loaded CI runner
+    /// (cmux#36302) while the same Mac measured 4.8 ms quiet at that commit and its parent.
     @Test func twentyThousandAbbreviationsStayCheap() {
         let mapping = SidebarMapping.shared
-        var samples: [Duration] = []
         var total = 0
-        for _ in 0..<7 {
+        func pass(_ abbreviate: (String) -> String) -> Duration {
             let started = ContinuousClock.now
-            for path in Self.paths { total &+= mapping.abbreviate(path).utf8.count }
-            samples.append(ContinuousClock.now - started)
+            for path in Self.paths { total &+= abbreviate(path).utf8.count }
+            return ContinuousClock.now - started
         }
-        samples.sort()
-        let median = samples[samples.count / 2]
-        print("abbreviate x20000: p50 \(median), max \(samples.last!), checksum \(total)")
-        #expect(median < .milliseconds(15), "median \(median) for 20,000 abbreviations")
+        _ = pass(mapping.abbreviate)
+        _ = pass(Self.preFix)
+        var fast: [Duration] = []
+        var slow: [Duration] = []
+        for _ in 0..<7 {
+            fast.append(pass(mapping.abbreviate))
+            slow.append(pass(Self.preFix))
+        }
+        let fastest = fast.min()!
+        let preFixFastest = slow.min()!
+        let ratio = preFixFastest / fastest
+        print("abbreviate x20000: min \(fastest), p50 \(fast.sorted()[fast.count / 2]); pre-fix min \(preFixFastest); ratio \(ratio), checksum \(total)")
+        #expect(ratio >= 3, "abbreviate min \(fastest) against pre-fix min \(preFixFastest) (ratio \(ratio)) for 20,000 paths")
+    }
+
+    /// `SidebarMapping.abbreviate` before the fix, the calibration the test measures against.
+    private static func preFix(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
     }
 }
