@@ -279,8 +279,11 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
 }
 
-/// Mach absolute time ticks in µs.
-fn mach_us(ticks: u64) -> u64 {
+/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
+/// defective.
+#[allow(deprecated)]
+fn mach_age_us(then: u64) -> u64 {
     static BASE: OnceLock<(u64, u64)> = OnceLock::new();
     let (numer, denom) = *BASE.get_or_init(|| {
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
@@ -288,6 +291,8 @@ fn mach_us(ticks: u64) -> u64 {
         unsafe { libc::mach_timebase_info(&mut base) };
         (u64::from(base.numer), u64::from(base.denom.max(1)))
     });
+    // SAFETY: mach_absolute_time has no preconditions.
+    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
     (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
 }
 
@@ -352,10 +357,8 @@ extern "C" fn did_output(
         }
         let arrived = crate::clock::now_ns() / 1000;
         // The display time is in mach absolute time: its age now, taken off the protocol clock.
-        let shown = number(info, sck::SCStreamFrameInfoDisplayTime()).map(|display| {
-            let age = mach_us(libc::mach_absolute_time().saturating_sub(display as u64));
-            arrived.saturating_sub(age)
-        });
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
+            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             shared.newest = Some(PixelBuffer(Retained::retain(buffer.cast_const())));
