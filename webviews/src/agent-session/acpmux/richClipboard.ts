@@ -32,10 +32,12 @@ const toHtml = new Marked({
     link(token) {
       const words = this.parser.parseInline(token.tokens);
       const href = copyHref(token.href);
+      // l10n-allow: clipboard HTML markup, not words a person reads
       return href ? `<a href="${escapeHtml(href)}">${words}</a>` : words;
     },
     image({ href, text }) {
       const src = safeHref(href);
+      // l10n-allow: clipboard HTML markup, not words a person reads
       return src ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}">` : escapeHtml(text);
     },
   },

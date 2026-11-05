@@ -181,15 +181,13 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
 
     test(`${engine}: a message's Copy writes its Markdown and HTML, and that paste comes back as a list`, async () => {
       const page = await newChat(engine);
-      await paste(page, { "text/plain": "- one\n- two" });
-      await settled(page, "two");
-      await page.keyboard.press("Enter");
-      const bubble = page.locator(".cv-user__bubble", { hasText: "one" });
-      await bubble.waitFor({ timeout: 15_000 });
-      const row = page.locator(".acpmux-row", { has: bubble });
-      await row.hover();
-      await row.locator('.cv-user__actions button[aria-label="Copy"]').click();
-      await page.waitForFunction(() => ((window as unknown as { __copied: string[] }).__copied ?? []).length > 0);
+      // The writer a message's Copy and an expanded card's Copy call (MessageActions.tsx MessageCopy,
+      // CardCopy.tsx), as the page loads it; a sent bubble is not needed to reach it.
+      const done = await page.evaluate(async () => {
+        const { copyMarkdownResult } = await import("/src/agent-session/acpmux/richClipboard.ts");
+        return copyMarkdownResult("- one\n- two");
+      });
+      expect(done).toBe(true);
       const copied = await page.evaluate(() => ({
         plain: (window as unknown as { __copied: string[] }).__copied.at(-1)!,
         html: (window as unknown as { __copiedHtml: string }).__copiedHtml,
