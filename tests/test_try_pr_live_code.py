@@ -45,7 +45,8 @@ import plistlib, sys
 key = sys.argv[2].split(":", 1)[1]
 data = plistlib.load(open(sys.argv[3], "rb"))
 if key not in data: sys.exit(1)
-print(data[key])
+value = data[key]
+print(str(value).lower() if isinstance(value, bool) else value)
 '''
 
 
@@ -223,10 +224,10 @@ class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
         subprocess.run(["git", "-C", str(self.work), "push", "-q", str(self.origin), "HEAD:refs/pull/1/head"],
                        check=True, capture_output=True)
 
-    def set_app_commit(self, commit):
+    def set_app_commit(self, commit, **more):
         with open(self.app / "Contents/Info.plist", "wb") as f:
             plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.nightly", "CFBundleVersion": "1",
-                           "CMUXCommit": commit[:7]}, f)
+                           "CMUXCommit": commit[:7], **more}, f)
 
     def test_a_web_pr_on_the_apps_own_commit_stays_live(self):
         self.push_web_pr(self.base)
@@ -262,6 +263,15 @@ class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
         out = self.try_pr("--dry-run")
         self.assertIn("is not in this checkout, so whether it has the PR's Swift side is unknown", out.stdout)
         self.assertNotIn("web only: no build", out.stdout)
+
+    def test_a_reload_build_with_local_edits_says_so_and_sorts_from_its_commit(self):
+        # reload.sh stamps the full commit and CMUXCommitDirty.
+        self.push_web_pr(self.base)
+        self.set_app_commit(self.base, CMUXCommit=self.base, CMUXCommitDirty=True)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn(f"built at {self.base[:12]} with local edits; sorting from that commit", out.stdout)
+        self.assertIn("web only: no build", out.stdout)
 
     def checkout_fetch(self):
         git(self.checkout, "fetch", "-q", "origin", "feat-cmux-next:refs/remotes/origin/feat-cmux-next")
