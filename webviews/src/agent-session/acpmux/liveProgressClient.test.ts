@@ -198,6 +198,45 @@ test("an explicitly cleared Progress section stays gone when older history loads
   }
 });
 
+test("an active Progress plan survives an older historical clear", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
+  const daemon = socket as unknown as Daemon;
+  const record = (step: unknown) => daemon.record(mockHost.sessionId!, step);
+  record(prompt("Older plan"));
+  record(started);
+  record(plan(["Old work", "completed"]));
+  record({ update: { sessionUpdate: "plan", entries: [] } });
+  record(ended);
+  for (let index = 0; index < 600; index++) record(prompt(`history filler ${index}`));
+  record(prompt("Current turn"));
+  record(started);
+  record(plan(["Current work", "in_progress"]));
+  record(say("Current."));
+
+  let last: AcpmuxSnapshot | undefined;
+  const wakes: Array<() => void> = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      last = snapshot;
+      for (const wake of wakes.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    while (!last || !said("Current.")(last)) await new Promise<void>((resolve) => wakes.push(resolve));
+    expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
+    await client.loadOlder();
+    expect(last!.rows.some((row) => row.plan?.some((step) => step.content === "Old work"))).toBe(true);
+    expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
+  } finally {
+    client.close?.();
+  }
+});
+
 test("a turn the agent starts on its own leaves the ended plan ended", async () => {
   const snapshot = await snapshotAfter(
     [
