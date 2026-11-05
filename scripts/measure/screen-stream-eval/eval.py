@@ -15,7 +15,10 @@ and each TARGET is
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method"},
              "typing": {"encode_ms", "decode_ms"}},
-   "extra": {...}}
+   "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
+The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
+their numbers is the median of the repeats that measured it, and extra.repeats keeps every repeat's
+own. Latency runs once: its p50 and p95 are already over SAMPLES inputs.
 A number nobody could measure is null, never left out, so two runs always line up key by key.
 New fields may be added; a field is never renamed or given another meaning without a new SCHEMA.
 """
@@ -86,23 +89,55 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if g2g.get("p50") is None:
             errors.append(f"latency {kind}: no samples")
-    window = load(folder / "window.json") or {}
-    phases = {}
-    if (folder / "phases.jsonl").exists():
-        for line in (folder / "phases.jsonl").read_text().splitlines():
-            if line.strip():
-                row = json.loads(line)
-                phases[row["phase"]] = row
-    kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
-    result["kbps"], result["fps"] = kbps, fps
-    result["split"]["typing"] = {"encode_ms": encode.get("typing"), "decode_ms": decode.get("typing")}
-    if None in kbps.values():
-        errors.append(f"window: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
-    ocr = load(folder / "ocr.json")
-    result["ocr"] = {**dict.fromkeys(OCR_FIELDS), **(ocr or {})}
-    if ocr is None:
+    # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
+    # that measured it, and extra.repeats keeps each repeat's own numbers.
+    reps = sorted(int(f.stem.split("-")[1]) for f in folder.glob("window-*.json") if f.stem.split("-")[1].isdigit())
+    reps = sorted(set(reps) | {int(f.stem.split("-")[1]) for f in folder.glob("ocr-*.json") if f.stem.split("-")[1].isdigit()})
+    per_rep, ocrs, extras = [], [], []
+    for rep in reps:
+        window = load(folder / f"window-{rep}.json") or {}
+        phases = {}
+        if (folder / f"phases-{rep}.jsonl").exists():
+            for line in (folder / f"phases-{rep}.jsonl").read_text().splitlines():
+                if line.strip():
+                    row = json.loads(line)
+                    phases[row["phase"]] = row
+        kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
+        ocr = load(folder / f"ocr-{rep}.json")
+        if None in kbps.values():
+            errors.append(f"window {rep}: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
+        if ocr is None:
+            errors.append(f"ocr {rep}: no result")
+        else:
+            ocrs.append(ocr)
+        extras.append(window.get("extra") or {})
+        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
+                        "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
+                        **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
+    if not reps:
+        errors.append("window: no repeat ran")
+
+    def median_of(values):
+        values = [v for v in values if isinstance(v, (int, float))]
+        return round(statistics.median(values), 4) if values else None
+
+    result["kbps"] = {k: median_of(r["kbps"][k] for r in per_rep) for k in WINDOW_PHASES}
+    result["fps"] = {k: median_of(r["fps"][k] for r in per_rep) for k in WINDOW_PHASES}
+    result["split"]["typing"] = {"encode_ms": median_of(r["typing_encode_ms"] for r in per_rep),
+                                 "decode_ms": median_of(r["typing_decode_ms"] for r in per_rep)}
+    # OCR: the numeric fields' medians; the image names are the median-CER repeat's.
+    result["ocr"] = dict.fromkeys(OCR_FIELDS)
+    if ocrs:
+        for k in OCR_FIELDS:
+            if all(isinstance(o.get(k), (int, float)) for o in ocrs):
+                result["ocr"][k] = median_of(o[k] for o in ocrs)
+        middle = sorted(ocrs, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 1e9)[(len(ocrs) - 1) // 2]
+        for k in OCR_FIELDS:
+            if result["ocr"][k] is None:
+                result["ocr"][k] = middle.get(k)
+    else:
         errors.append("ocr: no result")
-    result["extra"] = window.get("extra") or {}
+    result["extra"] = {**(extras[0] if extras else {}), "repeats": per_rep}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -166,6 +201,12 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
                          f"{cell('split', kind, 'transport_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
+        reps = (t.get("extra") or {}).get("repeats") or []
+        if len(reps) > 1:
+            lines += ["", f"Medians of {len(reps)} window and OCR repeats. Each repeat: OCR error "
+                      + " / ".join(fmt(r.get("ocr_cer"), "%", 2) for r in reps)
+                      + "; kbps idle / typing / scroll "
+                      + ", ".join("/".join(fmt((r.get("kbps") or {}).get(k), "", 0) for k in WINDOW_PHASES) for r in reps) + "."]
         method = get(t, "split", "key", "method")
         if method:
             lines += ["", f"Split method ({name}): {method}. Transport is not comparable across targets."]
