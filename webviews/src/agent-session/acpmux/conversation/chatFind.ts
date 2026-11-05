@@ -68,7 +68,8 @@ function drawnText(item: AcpmuxActivity): string {
   const dispatch = dispatchCall(item);
   if (dispatch) return dispatchText(dispatch);
   const message = !tool.command && !acpmuxMcpSends(tool) ? agentMessage(tool) : undefined;
-  if (message) return [message.to, message.text].filter(Boolean).join("\n");
+  // Its text draws as Markdown (AgentMessageBody.tsx), so Find reads its words, not its marks.
+  if (message) return [message.to, message.text && plainText(message.text)].filter(Boolean).join("\n");
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
