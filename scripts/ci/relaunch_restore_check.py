@@ -17,7 +17,10 @@ Two halves, one file:
                                       a profile in the instance's HOME, CMUX_TRY_HOME), one turn answered.
                                       What it made goes to <socket>.l5-seed.json.
     relaunch_restore_check.py state   one JSON line: {"workspaces": N, "terminal_pid": PID,
-                                      "scrollback_sha256": HEX, "chat": "<id>:<messages>:<tab|no-tab>"}
+                                      "scrollback_sha256": HEX, "chat": "<id>:<messages>:<tab|no-tab>"}; a
+                                      field it cannot read is left out, so the compare says "not proven"
+  The instance's HOME is CMUX_TRY_HOME, else the HOME of the app process CMUX_TRY_PID (`ps eww`); never the
+  caller's own HOME, which would put the harness profile in the account's real home.
 
   The check, on a fresh home (fresh_home_launch_smoke.py launches it, as the nightly gate does):
     relaunch_restore_check.py (--app APP | --dmg DMG) [--rounds 3] [--budget-ms 3000] [--out DIR]
@@ -26,7 +29,8 @@ Two halves, one file:
   the process to end, starts the same app with the same environment, and polls every POLL_S until it is
   usable: the control socket answers snapshot.get with the topology loaded, a visible window, both l5
   workspaces and the chat's tab back, and the state probe equal to before. Each round prints
-  `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to usable), and the
+  `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to the end of the
+  poll that found it usable, the budgeted number; ready_ms: to the start of that poll, a lower bound), and the
   run prints `L5 {json}` with the verdict. Exit 0 only when every round restored everything within budget.
 
 A NIGHTLY is a Release build: only release control methods (snapshot.get, action.run, system.ping) and the
@@ -49,6 +53,7 @@ sys.path.insert(0, str(HERE))
 SCROLLBACK_LINES = 2000
 POLL_S = 0.05
 HARNESS = "l5fake"
+KEYS = ("workspaces", "terminal_pid", "scrollback_sha256", "chat")
 PROMPT = "l5 hello"
 DEFAULT_FAKE_AGENT = HERE.parent.parent / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py"
 
@@ -84,9 +89,8 @@ def call(sock: str, method: str, params: dict | None = None, timeout: float = 10
 class Instance:
     """One running app: its control socket, bundle and HOME (the CLI runs in it, so it reaches this app's session)."""
 
-    def __init__(self, sock: str, app: str, home: str | None = None):
-        self.sock, self.app = sock, app
-        self.home = home or os.environ.get("CMUX_TRY_HOME") or os.environ.get("HOME", "")
+    def __init__(self, sock: str, app: str, home: str):
+        self.sock, self.app, self.home = sock, app, home
         self.cli = os.path.join(app, "Contents", "Resources", "bin", "cmux")
         self.record = sock + ".l5-seed.json"
 
@@ -112,6 +116,18 @@ class Instance:
         snap = call(self.sock, "snapshot.get", timeout=5)
         topo = snap.get("topology") if isinstance(snap, dict) else None
         return topo if isinstance(topo, dict) else None
+
+
+def process_home(pid: str) -> str | None:
+    """HOME from a running process's environment (`ps eww`, same user), None when it cannot be read."""
+    try:
+        line = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for word in line.split():
+        if word.startswith("HOME=") and len(word) > 5:
+            return word[5:]
+    return None
 
 
 def unwrap(answer):
@@ -242,7 +258,7 @@ def chat_tab(topo: dict | None, chat: str) -> bool:
 
 
 def state(inst: Instance, topo: dict | None = None) -> dict:
-    """The probe set's JSON. A field that cannot be read is null, which never equals a seeded value."""
+    """The probe set's JSON. A field that cannot be read is left out: a null on both sides would compare equal."""
     try:
         with open(inst.record) as handle:
             made = json.load(handle)
@@ -258,12 +274,14 @@ def state(inst: Instance, topo: dict | None = None) -> dict:
             os.kill(pid, 0)
         except (OSError, ValueError):
             pid = None
-    return {
+    messages = chat_messages(inst, chat) if chat else -1
+    found = {
         "workspaces": workspaces,
         "terminal_pid": pid,
         "scrollback_sha256": scrollback_sha256(inst, term) if term else None,
-        "chat": f"{chat}:{chat_messages(inst, chat)}:{'tab' if chat_tab(topo, chat) else 'no-tab'}" if chat else None,
+        "chat": f"{chat}:{messages}:{'tab' if chat_tab(topo, chat) else 'no-tab'}" if chat and messages >= 0 else None,
     }
+    return {k: v for k, v in found.items() if v is not None}
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -298,7 +316,7 @@ def usable(inst: Instance, before: dict, chat: str) -> tuple[bool, dict | None, 
         tabs = [{k: t.get(k) for k in ("kind", "agent_session", "chat", "session")} for t in tabs_of(workspace_named(topo, "l5-b"))]
         return False, None, f"chat tab not bound (l5-b tabs {json.dumps(tabs)[:300]})"
     now = state(inst, topo)
-    changed = [k for k in before if before[k] != now.get(k)]
+    changed = [k for k in KEYS if before.get(k) != now.get(k)]
     return (not changed), now, ("changed: " + ", ".join(changed)) if changed else ""
 
 
@@ -328,7 +346,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             os.remove(inst.sock)  # the old app's socket file: only the relaunched app's counts
         except OSError:
             pass
-    process, marks_read, _ = launch(app, env, out / "app.log")
+    process, marks_read, _ = launch(app, env, out / "app-relaunched.log")
     row["pid_after"] = process.pid
     launched = time.monotonic()
     row["relaunch_ms"] = round((launched - asked) * 1000)
@@ -336,11 +354,13 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     ok, now, why = False, None, "never polled"
     done = launched
     while time.monotonic() < deadline and process.poll() is None:
-        # Usable counts from the start of the poll that found it so: the probe's own CLI reads are not the app's time.
+        # Usable counts to the end of the poll that found it so: a field may only have matched during the poll's
+        # own reads, so its start would undercount. ready_ms keeps the start as the lower bound.
         polled = time.monotonic()
         ok, now, why = usable(inst, before, made["chat"])
         if ok:
-            done = polled
+            done = time.monotonic()
+            row["ready_ms"] = round((polled - asked) * 1000)
             break
         time.sleep(POLL_S)
     os.close(marks_read)
@@ -376,8 +396,8 @@ def check(args) -> int:
             return [f"seed: {error}"]
         before = state(inst)
         result["before"] = before
-        missing = [k for k, v in before.items() if v is None or (k == "workspaces" and v < 2)
-                   or (k == "chat" and (v.endswith(":no-tab") or ":-1:" in v))]
+        missing = [k for k in KEYS if k not in before or (k == "workspaces" and before[k] < 2)
+                   or (k == "chat" and before[k].endswith(":no-tab"))]
         if missing:
             return [f"seed: the state probe cannot read {', '.join(missing)} before the quit: {before}"]
         failures = []
@@ -393,6 +413,13 @@ def check(args) -> int:
             process.wait(timeout=20)
         except subprocess.TimeoutExpired:
             process.kill()
+            process.wait(timeout=10)
+        # The seeded process, by the pid it wrote: its command line does not name the run's root, so the smoke's
+        # cleanup would not find it if the quit above left it.
+        try:
+            os.kill(made["terminal_pid"], 15)
+        except OSError:
+            pass
         return failures
 
     smoke.AFTER_RENDER = journey
@@ -420,7 +447,11 @@ def main(argv: list[str] | None = None) -> int:
         if not sock or not app:
             log("seed and state read the instance from CMUX_TRY_SOCKET and CMUX_TRY_APP")
             return 2
-        inst = Instance(sock, app)
+        home = os.environ.get("CMUX_TRY_HOME") or (process_home(os.environ["CMUX_TRY_PID"]) if os.environ.get("CMUX_TRY_PID") else None)
+        if not home:
+            log("cannot tell the instance's HOME: set CMUX_TRY_HOME or CMUX_TRY_PID")
+            return 2
+        inst = Instance(sock, app, home)
         if argv[0] == "state":
             print(json.dumps(state(inst)))
             return 0
@@ -440,7 +471,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a relaunch may take to become usable")
     parser.add_argument("--fake-agent", default=str(DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
-    return check(parser.parse_args(argv))
+    args = parser.parse_args(argv)
+    if args.rounds < 1:
+        parser.error("--rounds must be at least 1")
+    return check(args)
 
 
 if __name__ == "__main__":
