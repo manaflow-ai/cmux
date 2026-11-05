@@ -19,11 +19,19 @@ import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
 import { createWorkflowAdapter } from "./foldWorkflows";
 import { realWorkflowFixture } from "../realWorkflowFixture";
+import type { Play } from "../../../gallery/play";
+import "./SummaryCard.gallery.css";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenSessionInfo" | "tools"
-> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; sessionInfoPush?: boolean };
+> & {
+  tabRowHeight?: number;
+  preview?: boolean;
+  popover?: boolean;
+  sessionInfoPush?: boolean;
+  headerLook?: "before" | "regular";
+};
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,12 +46,13 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, sessionInfoPush, headerLook, ...props }: Props) {
   const [shown, setShown] = useState(true);
   const control = popover ? { ...card, column: false, shown, close: () => setShown(false) } : card;
   return (
     <div
       className="acpmux-shell"
+      data-summary-header-look={headerLook}
       data-tab-row={tabRowHeight ? "" : undefined}
       data-session-info-chat-placement={sessionInfoPush ? "push" : undefined}
       style={
@@ -255,6 +264,11 @@ const background = (list: SessionInfoProcess[]) => ({
   onStop: async () => undefined,
 });
 
+const openSubagentsTab: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-summary-title__button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-tab[data-selected]"));
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.summary-card",
   title: "Summary card",
@@ -270,6 +284,46 @@ export default componentEntry<Props>({
   ],
   load: async () => GallerySummaryCard,
   variants: {
+    "header-grid-before": {
+      note: "Before: every tab is regular weight and the inline header has a 2px trailing inset.",
+      props: { rows: liveSubagentRows, headerLook: "before" },
+      play: openSubagentsTab,
+    },
+    "header-grid-regular": {
+      note: "Comparison: header edges align with the body, with regular weight on both tabs.",
+      props: { rows: liveSubagentRows, headerLook: "regular" },
+      play: openSubagentsTab,
+    },
+    "header-grid-emphasis": {
+      note: "Chosen: the selected pill uses the shared Tabs emphasis weight; the inline header shares the body's edges, with one grid step below.",
+      props: { rows: liveSubagentRows },
+      play: async (ctx) => {
+        await openSubagentsTab(ctx);
+        const selected = ctx.find({ selector: ".acpmux-summary-tab[data-selected]" });
+        const head = ctx.find({ selector: ".acpmux-summary-card__head" });
+        const view = ctx.document.defaultView!;
+        if (view.getComputedStyle(selected).fontWeight !== "600") throw new Error("Selected tab lacks emphasis");
+        const padding = view.getComputedStyle(head);
+        if (padding.paddingLeft !== "0px" || padding.paddingRight !== "0px")
+          throw new Error("Inline head has a second horizontal inset");
+        const boxes = () =>
+          Array.from(
+            head.querySelectorAll(".acpmux-summary-tab, .acpmux-summary-tab__label, .acpmux-summary-tab__close"),
+          ).flatMap((element) => {
+            const rect = element.getBoundingClientRect();
+            return [rect.x, rect.y, rect.width, rect.height];
+          });
+        const before = boxes();
+        const assertStable = () => {
+          if (boxes().some((value, index) => Math.abs(value - before[index]!) > 0.1))
+            throw new Error("Selecting a summary tab moved or resized a tab or its close control");
+        };
+        await ctx.click({ selector: "button.acpmux-summary-tab" });
+        assertStable();
+        await ctx.click({ selector: ".acpmux-summary-tab__label" });
+        assertStable();
+      },
+    },
     "nested-sources-menu": {
       note: "Sources opens inside the floating Summary card. Dismissing or picking in the menu leaves the card open.",
       props: {

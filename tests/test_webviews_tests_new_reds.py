@@ -521,19 +521,23 @@ class Workflow(unittest.TestCase):
             self.assertEqual(done.returncode, 1, out)
             self.assertIn(f"::error title=Webview test red on this change::{red} > received preview opens", out)
 
-    def run_verdict(self, change_breaks_it):
+    def run_verdict(self, change_breaks_it, files=1):
         """The base job's steps on a real merge commit: a head shard red the base replay passes is re-run
-        alone on the head, and is the change's only if it fails there again."""
+        alone on the head, and is the change's only if it fails there again. FILES head-red files: the
+        first is the one the change may break, the rest pass everywhere but ran out of the head shard's budget."""
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo, runner_temp, bins = tmp / "repo", tmp / "temp", tmp / "bin"
         git = lambda *args: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                             *args], check=True, capture_output=True, text=True).stdout.strip()
         red = "test/reasoning-own-control.test.ts"
+        others = [f"test/budget-gone-{i:02d}.test.ts" for i in range(1, files)]
         (repo / "webviews/test").mkdir(parents=True)
         (repo / "scripts/ci").mkdir(parents=True)
         for source in (COLLECT, COMPARE):
             shutil.copy(source, repo / "scripts/ci" / source.name)
         (repo / "webviews" / red).write_text(body([]))
+        for other in others:
+            (repo / "webviews" / other).write_text(body([]))
         git("init", "-q", "-b", "base")
         git("add", "-A")
         git("commit", "-qm", "base: the file passes")
@@ -555,7 +559,10 @@ class Workflow(unittest.TestCase):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.
-        head_results.write_text(json.dumps({red: False}))
+        # #35163 (run 41890002293, shard 8): a shard out of budget keeps 13 files red at once, some
+        # file-level and some `> (unnamed)`.
+        head_results.write_text(json.dumps({red: False, **{f"{o} > (unnamed)": False for o in others[::2]},
+                                            **{o: False for o in others[1::2]}}))
         output = runner_temp / "github-output"
         output.touch()
         env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
@@ -571,7 +578,7 @@ class Workflow(unittest.TestCase):
         base = run("Run base reds and compare", repo / "webviews")
         self.assertEqual(base.returncode, 1, base.stdout + base.stderr)
         self.assertIn("rerun=true", output.read_text())
-        self.assertEqual((runner_temp / "head-rerun-files").read_text(), f"{red}\n")
+        self.assertEqual((runner_temp / "head-rerun-files").read_text(), "".join(f"{f}\n" for f in sorted([red, *others])))
         self.assertEqual(run("Check out the head again", repo).returncode, 0)
         self.assertEqual(git("rev-parse", "HEAD"), merge)
         return run("Re-run the change's reds alone on the head", repo / "webviews")
@@ -581,6 +588,16 @@ class Workflow(unittest.TestCase):
         out = done.stdout + done.stderr
         self.assertEqual(done.returncode, 0, out)
         self.assertIn("passed again alone on the head::test/reasoning-own-control.test.ts", out)
+        self.assertNotIn("red on this change::", out)
+
+    def test_a_shard_out_of_budget_with_many_file_reds_is_still_rerun_on_the_head(self):
+        # #35163: 13 files red at the end of an out-of-budget head shard all passed on the base; the head re-run
+        # was skipped for having more than 10, so all 13 were charged to the change.
+        done = self.run_verdict(change_breaks_it=False, files=13)
+        out = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 0, out)
+        self.assertIn("passed again alone on the head::test/budget-gone-01.test.ts > (unnamed)", out)
+        self.assertIn("passed again alone on the head::test/budget-gone-02.test.ts", out)
         self.assertNotIn("red on this change::", out)
 
     def test_a_head_red_the_change_causes_stays_red_after_the_head_rerun(self):

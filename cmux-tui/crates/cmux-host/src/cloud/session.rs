@@ -41,6 +41,9 @@ struct AcpActivity {
     /// hosts may still run those turns, so the count stays unknown until each reports again.
     lapsed_busy: std::collections::BTreeSet<String>,
     last_action_at: Option<u64>,
+    /// The newest `last_person_prompt_at` any daemon sent (a person's prompt into a chat). Like
+    /// `last_action_at`, it outlives a daemon's count and never moves backwards.
+    last_person_prompt_at: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -179,6 +182,8 @@ impl Session {
         let sessions = line.field("turns").as_u64().unwrap_or(0);
         let at = line.field("last_agent_action_at").as_u64().filter(|ms| *ms > 0);
         self.acp.last_action_at = self.acp.last_action_at.max(at);
+        let prompt = line.field("last_person_prompt_at").as_u64().filter(|ms| *ms > 0);
+        self.acp.last_person_prompt_at = self.acp.last_person_prompt_at.max(prompt);
         self.acp.lapsed_busy.remove(&id);
         let phases = read_phases(line, sessions);
         let expires_at = now + ACP_ACTIVITY_TTL_MS;
@@ -208,19 +213,26 @@ impl Session {
     /// changed (its phase or since; the Cloud sleeps a machine inside a turn from the last
     /// report), or, with none open, when a time changed (the idle period counts from it). While
     /// a session is open the machine is not idle, so a newer action only rides along with the
-    /// next report.
+    /// next report. A person's new prompt is always reported: it opens the Cloud's post-chat warm
+    /// window, as a person's terminal input does.
     fn acp_changed(&mut self, now: u64) -> Vec<OpRequest> {
         let activity = self.activity();
         let reported = self.reporter.activity();
         let report = activity.active_sessions != reported.active_sessions
             || phase_key(&activity.phases) != phase_key(&reported.phases)
+            || activity.last_person_prompt_at != reported.last_person_prompt_at
             || (activity.active_sessions == 0 && activity != *reported);
         self.reporter.set_activity(activity, report, now).into_iter().collect()
     }
 
     /// The activity a report carries: the daemon's plus acpmux's.
     fn activity(&self) -> Activity {
-        self.own.with_acp(self.acp.sessions(), self.acp.last_action_at, self.acp.phases())
+        self.own.with_acp(
+            self.acp.sessions(),
+            self.acp.last_action_at,
+            self.acp.phases(),
+            self.acp.last_person_prompt_at,
+        )
     }
 
     /// The activity stream connected or dropped: `activity` is advertised
@@ -664,6 +676,50 @@ mod tests {
         s.line(&acp_from("/b.sock", 0), 70_000);
         assert!(!phases_cap(&s));
         assert!(s.reporter.activity().phases.is_none());
+    }
+
+    /// acpmux's person's prompt time reaches the report's `activity.last_person_prompt_at` (what
+    /// cmux-platform's post-chat warm window reads), a new one is reported at once even while a
+    /// turn runs, and an older one or another daemon's line never moves it back.
+    #[test]
+    fn a_persons_prompt_time_reaches_the_report() {
+        let mut s = session();
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
+        let start = s.start(0);
+        send(&mut s, start, 0);
+        let prompted = |turns: u64, at: u64| {
+            json!({"acp_activity": {"turns": turns, "daemon": "/a.sock",
+                "last_person_prompt_at": at}})
+            .to_string()
+        };
+        let r = s.line(&acp_from("/a.sock", 1), 20_000).0;
+        let r = send(&mut s, r, 20_000);
+        assert!(r[0].params["activity"].get("last_person_prompt_at").is_none(), "none yet");
+
+        // A person's prompt while a turn runs: the same count, still a report.
+        let at = 1_790_000_000_000u64;
+        let r = s.line(&prompted(1, at), 40_000).0;
+        let r = send(&mut s, r, 40_000);
+        assert_eq!(r.len(), 1, "a person's prompt is reported at once");
+        assert_eq!(r[0].params["activity"]["last_person_prompt_at"], at);
+
+        // An older time, or a line with none (another daemon), leaves it where it was.
+        let r = s.line(&prompted(1, at - 5_000), 60_000).0;
+        assert!(send(&mut s, r, 60_000).is_empty(), "an older time changes nothing");
+        s.line(&acp_from("/b.sock", 0), 70_000);
+        assert_eq!(s.reporter.activity().last_person_prompt_at, Some(at));
+
+        // The turn ends: the report still carries the prompt time.
+        let r = s.line(&prompted(0, at), 90_000).0;
+        let r = send(&mut s, r, 90_000);
+        assert_eq!(r[0].params["activity"]["active_sessions"], 0);
+        assert_eq!(r[0].params["activity"]["last_person_prompt_at"], at);
     }
 
     /// A phases block that does not match its line's count, or does not read, is dropped: the

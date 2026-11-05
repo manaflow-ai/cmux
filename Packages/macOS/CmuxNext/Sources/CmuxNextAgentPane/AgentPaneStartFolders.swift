@@ -34,13 +34,15 @@ public final class AgentPaneStartFolders {
         prefetched = Task { @MainActor [weak self] in (proposed, await self?.resolve?(proposed)) }
     }
 
-    /// The store's answer for `proposed`: the prefetched one when it was asked for the same folder,
-    /// else asked now. Nil without the store's rules (compatibility only, cx-6bf9).
+    /// The store's answer for `proposed`: the prefetched one when it was asked for the same folder
+    /// and got an answer, else asked now. An empty prefetch (a transient failure, a cold start before
+    /// the daemon connected) is asked again rather than taken as "no store rules" (#35415). Nil
+    /// without the store's rules (compatibility only, cx-6bf9).
     private func resolved(_ proposed: String?) async -> AgentPaneStartFolder? {
         if let task = prefetched {
             prefetched = nil
             let early = await task.value
-            if early.proposed == proposed { return early.answer }
+            if early.proposed == proposed, let answer = early.answer { return answer }
         }
         guard let resolve else { return nil }
         return await resolve(proposed)

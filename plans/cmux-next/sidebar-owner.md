@@ -1,5 +1,32 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
+  fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
+  sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
+  now fade on `fadeOut` (80 ms at normal speed) from the opacity on screen (`RowMotion.folding`), in both the fold
+  (`foldGroup`) and a reload that folds a group or section, a group nested in the folding one included (`SidebarRowTransition.isFolded`). The slot, the rows below, an expand, movement off and Reduce
+  Motion are unchanged. Regression: `SidebarFoldFadeTests`.
+- 2026-11-05: the session tree's Earlier says "Loading chats…" until acpmux first sends its rows. Leo, verbatim:
+  "something kinda messed up in my latest restart install of latest cmux nightly... i cant see any chats". acpmux took
+  42 s under load to start its chat index after the relaunch and answered `ready: false` until then; the history drew
+  nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
+  Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
+  An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
+- 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
+  radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
+  padding, where padding is configurable too". Rows and rail tiles take the one corner radius
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
+  the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
+  corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.
+  Regression: `ConcentricSurfaceCornerTests`.
+- 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
+  Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
+  restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
+  the found update card's Update download with their progress, then install and relaunch once staged. No look changes:
+  the footer's Update Available button (`SidebarIconButton.ignorePointer`) and a notice card's newly built buttons
+  ignore pointer presses for 1 s after they show (`SidebarUpdateButton.appearGuard`, as the Restart card since #34612);
+  keys and VoiceOver still press them. Regression: `UpdateOneClickInstallTests`.
 - 2026-11-03: a machine's name drawn in its colour reads in every theme. The user, verbatim: "we need to make sure
   every single theme, all the UI elements are colored properly". A priority row's place tag and a workspace hover
   card's host drew the raw machine colour as text: a person's `#FFFF00` read 1.1:1 on a light theme, `#000080` 1.6:1
@@ -44,6 +71,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-05: the Downloading Update card's bytes line stops shifting as it counts. Leo, verbatim: "insane layout
+  shift with the downloading update. Like, why is it that as the left number grows, it just keeps shifting?". Both
+  counts read in the size's unit with one decimal ("115.0 MB of 265.3 MB"), the received count and the percent pad
+  with figure spaces to the total's and 100%'s widths (`UpdateTransfer.bytesText`), and a loading card's detail uses
+  `Typography.captionDigits` (tabular digits). A loading card keeps the cancel's column in every stage, so the bar and
+  text no longer widen when Starting turns into Downloading or narrow again at Preparing. Regression:
+  `UpdateDownloadLineTests`.
 - 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
   is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
   before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
@@ -341,6 +375,18 @@
   and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
   No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
 
+## A group header's bands keep the drop where the pointer is (2026-11-05)
+
+Leo 2026-11-05: "in terms of just the proper, you know, dragging correctness kind of things, I feel like there's
+stuff we can do there." Two jumps while a workspace was dragged over an open group's header. Its bottom quarter
+meant "after the whole group", so the gap leapt below every member; it sits right over the first member, so it now
+drops before that member, first in the group (`SidebarDragGeometry.hit`, `firstMember`). A closed header's bottom
+quarter still drops after the group, also when it keeps its active member shown. And an into-group target closed the gap for one move, so the rows sprang up
+and the same still pointer read a row lower; a held drag over the header's middle now keeps the last gap, as over a
+row's middle (`displayLayout`). A drop into the group still settles into it. A group drawn as its one row has no
+header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with the dragged rows out). Regression:
+`SidebarDragGroupHeaderTargetTests`, `SidebarSingleMemberGroupKeysTests`.
+
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
@@ -377,6 +423,20 @@
   view showed either row's content. `SidebarLayout.make` lists a repeated id once, in the first section that lists it
   (this Mac's first), and the list's row content comes from that same section. Leo: "why is there all this weird
   stuff at the bottom of the sidebar", "the rendering gets borked there too :(". Regression: `SidebarOneRowPerWorkspaceTests`.
+
+- 2026-10-29: in one list each Cloud machine with workspaces keeps its machine header (name, status dot, fold), as a
+  remote group does (its rows keep the machine and status on their second line); a Cloud machine with no workspace
+  lists nothing, as before. As the only machine it keeps its own name, icon and status, not the "Projects" title.
+  Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
+  bottom of the sidebar", "a whole lot of this cloud stuff ought to get better...". Regression:
+  `SidebarCloudMachineHeaderTests`.
+- 2026-10-30: a Cloud machine's section draws like every other group: its header is the name, chevron and +, with no
+  status dot while connected (a down machine keeps its mark and words: Disconnected, Paused, Failed to start), and its
+  rows are one line, their title, and keep the machine mark where #29833 put it (the trailing status column, Leo
+  2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). An unnamed Cloud workspace whose shell idles at the machine's home
+  reads "Terminal", never "cmux" or the machine's name; a shell whose own title (OSC) reads like the home folder keeps
+  that title. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE".
+  Regression: `SidebarCloudRowLookTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
@@ -446,6 +506,16 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## A dropped card covers no leaving row (2026-11-05)
+
+Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
+recording: claude-sr2-coord, the Coordinators group's one workspace, dropped where the header stood. The emptied
+header faded in place under the landing card, which draws no material in a translucent window (#32330), so
+"Coordinators" read through "claude-sr2-coord" for the fade. A row the drop or the model takes away now goes at
+once when a settling or flying card's path covers it, from where its flight began to its slot (`flightStart`,
+`isUnderCard`, `dropLeavingRows`); rows elsewhere still fade. The lift's see-through look (Leo 2026-10-23) and the held drag are unchanged. Regression:
+`SidebarDropUnderCardTests`.
 
 ## Rename field on a whole pixel (2026-11-02)
 

@@ -65,7 +65,9 @@ outputs = re.search(r"^    outputs:\n((?:^      .*\n)+)", job, re.MULTILINE)
 for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
-timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
+# With one-mini mode off: the smaller limit (one-mini mode adds room for glaeda's capacity wait before
+# the job starts, tests/test_nightly_mini_gate_timeouts.py).
+timeout = re.search(r"^    timeout-minutes: (?:\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| )?(\d+)", job, re.MULTILINE)
 # It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
 # wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
 budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
@@ -103,8 +105,9 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # visual-gate-nightly-verdict only the mode script to read the gate's job; the
 # gate itself checks out the resolved build commit.
 # The advisory attester uses workflow controls and the already-built artifact;
-# its checkout contributes no shipped bytes.
-exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# its checkout contributes no shipped bytes. republish-nightly-next runs this
+# workflow's fetch script against another run's already-verified artifacts.
+exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
@@ -176,6 +179,18 @@ for name in shipping:
     tooling = tooling_checkout(body)
     if tooling and body.count("actions/checkout@") == 1:
         continue
+    if name == "published-in":
+        # It runs in its own dispatched run (nightly_next_post_publish), which has no resolver: the push run's
+        # dispatch-published-in hands it the resolver's build_sha as head_sha, the commit it checks out.
+        dispatch = blocks.get("dispatch-published-in", "")
+        dispatch_needs = re.search(r"^    needs: (.*)$", dispatch, re.MULTILINE)
+        check(bool(dispatch_needs) and RESOLVE in dispatch_needs.group(1), f"dispatch-published-in must need {RESOLVE}")
+        check('"head_sha":"{2}"' in dispatch and BUILD_SHA.removeprefix("${{ ").removesuffix(" }}") in dispatch,
+              "dispatch-published-in must pass the resolved build commit as head_sha")
+        for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
+            check(ref.strip() == "${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}",
+                  f"published-in checks out {ref.strip()}, not the dispatched build commit")
+        continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
     allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
@@ -190,14 +205,23 @@ for name in shipping:
     if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
         # Unsigned recovery restores bytes instead of compiling them, using
         # this workflow's controls. Its separate source checkout stays pinned.
+        # The signer checks its controls out on every run since d5997935ef7: the whole-Mac claim
+        # (scripts/ci/signing-runner-claim.sh) runs from them before any secret. Only the keychain
+        # controls they carry stay for unsigned recovery.
         control_name = ("Checkout trusted unsigned-resume controls" if name == "build-nightly-app"
-                        else "Checkout trusted signing controls for unsigned resume")
+                        else "Checkout trusted signing controls")
         control = re.search(rf"^      - name: {re.escape(control_name)}\n.*?(?=^      - name:|\Z)",
                             body, re.MULTILINE | re.DOTALL)
         check(control is not None, f"{name} must keep its explicit unsigned-recovery controls checkout")
-        if control:
+        if control and name == "build-nightly-app":
             check("if: inputs.nightly_next_unsigned_run != ''" in control.group(0),
                   f"{name} control checkout must run only during unsigned recovery")
+        if control and name == "build-sign-notarize-nightly":
+            keychain = re.search(r"^      - name: Install the current signing keychain controls\n.*?(?=^      - name:|\Z)",
+                                 body, re.MULTILINE | re.DOTALL)
+            check(keychain is not None and "if: inputs.nightly_next_unsigned_run != ''" in keychain.group(0),
+                  f"{name} must install the trusted keychain controls only during unsigned recovery")
+        if control:
             refs = re.findall(r"^\s+ref: (.*)$", control.group(0), re.MULTILINE)
             check(refs == ["${{ github.sha }}"], f"{name} recovery controls must come from this workflow's commit")
             if name == "build-sign-notarize-nightly":
@@ -210,6 +234,11 @@ for name in shipping:
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,
                   f"{name} still uses the tip outside a cache key: {line.strip()}")
+# published-in exists, checks out source, and pins exactly one ref: the commit its dispatch hands it.
+published_refs = re.findall(r"^\s+ref: (.*)$", blocks.get("published-in", ""), re.MULTILINE)
+check([ref.strip() for ref in published_refs] == ["${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}"],
+      f"published-in must check out exactly the dispatched build commit, not {published_refs}")
+check("published-in" in shipping, "published-in must check out the source (guard setup)")
 check(not re.search(r"^    if: .*build_only", blocks.get(RESOLVE, ""), re.MULTILINE),
       "the resolver must run for build_only too, so every app build has a build commit")
 for output in ("build_sha", "build_short_sha", "tip_sha", "behind", "behind_hours"):

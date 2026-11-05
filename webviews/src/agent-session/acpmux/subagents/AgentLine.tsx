@@ -197,7 +197,7 @@ export function AgentLine({
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {latest && latest !== name && latestAt === "inline" && (
-          <span className="acpmux-summary-agent__kind acpmux-agent-line__latest-inline">{latest}</span>
+          <span className="acpmux-agent-line__latest-inline">{latest}</span>
         )}
         {latest && latest !== name && latestAt === "below" && (
           <span className="acpmux-agent-line__latest">{latest}</span>

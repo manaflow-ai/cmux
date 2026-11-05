@@ -26,3 +26,7 @@ df0e90b42c73838e01855a51636b7ed5c47fd918faf76ab815b5ce78aec54e57 glaeda 548d71ae
 524d682ff9f47140f61649264cba73694330af56ff2681b4749f95505083c6f4 glaeda #1779 + #1780, nightly promote and publish jobs take the exclusive claim; promotion lease helper
 fd14548dfbef271dc623a407f85200bbdc0a97141a6e89d499d382c9c0c9cf05 glaeda 9ceec376: runner gate: a disk hold above the floor names the floor (#1808)
 13b23d9179ddec40ac585779750fef97836daa76e393a97a76e1dd2226d2e3cd glaeda 1441782f: runner apply: drain a busy runner it must relabel or retire, instead of waiting for an idle gap (#1826)
+4aff27414c7a5a51735a30d31d41d8a787ac0d2b7fa52dcc2f42a268f0dde1f9 glaeda #1837: runner: cmux15 takes nightly-next signing jobs through the exclusive claim (trustedNextSigning, yieldToExclusive)
+f9666752854e93da642f0e9b517fb8c1a2f5a7fa7a9643f325d96863edf15e1b glaeda 9e654549: runner-hook: a "nightly signing: " reservation keeps a mini for cmux nightly jobs (carries #1769) (#1838)
+aff786ca089a05cef2627a80d7fe4da0393a4814fc9619aca0e7384263d37ad9 glaeda 99d1e407: runner hook: a waiting signing job goes ahead of other nightly jobs (SIGNS_FIRST) (#1847)
+bcdd1aacb203ac7ea9cbc2ecbd82b6bf552b65d99d0a2341609d5c4f281be0a4 glaeda 5ba90d7a: runner gate: an overload hold keeps new jobs off a mini past twice its cores (#1851)

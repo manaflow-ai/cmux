@@ -24,9 +24,12 @@ enum CmuxAppLinks {
             return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
+        // A pull request link clicked in an agent chat: the native GitHub page, not github.com.
+        if !click.otherTarget, !click.background, let tab = click.source, services.agentTabs.isAgentTab(tab),
+           let pane = services.linkOpener.source(tab: tab), let opened = WebPageTab.openGitHub(url, from: pane, services: services) { return opened }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
-        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
+        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)].merging(click.source.map { ["source": .string($0)] } ?? [:]) { $1 }, origin: .user))
     }
 
     /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`, or

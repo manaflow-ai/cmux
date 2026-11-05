@@ -18,24 +18,54 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            line, so every column change reflows real text.
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
-           in those columns resizes each frame.
+           in those columns must change size with its pane in each frame. A build that holds terminals
+           through a drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) fails: they keep their
+           size through the drag (each round reports `holds_terminals` as it ran, as data). Before its timed
+           rounds each drag layout runs a probe (one drag that ends --probe-pt away, then one back) and prints
+           it as its own TERMINAL-RESIZE-PROBE line: the divider moved, a terminal fits a new grid, and its
+           render counters counted it (full_resize or full_swap, terminal_resize_verdict.resized) at the
+           release, or the layout fails at once.
+  keys     4 terminals in a 2x2 grid, each with history: Ctrl-Shift-L then Ctrl-Shift-H on the bottom-left
+           one (`resizePaneRight`, `resizePaneLeft`; --key-repeat presses each, --key-gap-ms apart, the last
+           one --key-settle-s before the next), so the divider between the columns moves and all 4 resize.
+           keys-stress: the same in the STRESS session (its first pane). Per round: display-frame intervals
+           and main-thread ms per frame (all frames, and the frames that laid out a view), missed refreshes,
+           and per press the most grids one terminal got (`debug.terminal_final_grid`: at most one per press).
+
+  --ab KEY runs every round of the drag and key layouts once with the boolean tunable KEY off and once on, in
+           this one launch (`debug.tunables set`), the order alternating per round; each layout then reports
+           `arms` (terminal_resize_arms.summaries: per arm, the rounds' frames pooled into p50/p95/p99/max)
+           and the run resets KEY after each such layout. `--ab motion.frameOwner.terminals` was FRAME OWNER
+           S4's A/B.
+
+The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
+`debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
+commit: its pane's size, the size its host asked of it, and the size its layer shows. Each round reports `follow`:
+per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
+(shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
+with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
+data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
-missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
+missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
+main-thread time in Ghostty's display passes
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
-G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
+G1; absent before), full rebuilds. A terminal resized when its full rebuilds for a new grid grew
+(terminal_resize_verdict.resized: full_resize, or full_swap when the reflow preview drew the new size). After the drag every terminal's drawn, fitted and owner grids must
 agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json; the summary says what to
-compare. Exits non-zero, after writing the report, when a layout measured nothing (terminal_resize_verdict.py:
-a layout error, a drag in which no terminal resized, no frame was counted or no terminal drew, a split action
-that resized no terminal): such zeros are not a result.
+compare. Exits non-zero, after writing the report, when a drag or key round held a terminal at another size than its
+pane's, or a layout measured nothing (terminal_resize_verdict.py: a layout error or a failed probe, a drag or key resize
+in which no terminal resized, no frame was counted, no terminal drew or no terminal was checked against its pane, a
+round whose arm could not be set, a split action that resized no terminal): such zeros are not a result.
 """
 import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_launch  # noqa: E402
+import terminal_resize_arms as arms  # noqa: E402
 import terminal_resize_verdict  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
@@ -50,6 +80,11 @@ parser.add_argument("--rounds", type=int, default=2)
 parser.add_argument("--idle-s", type=float, default=5.0)
 parser.add_argument("--tag", help="the app's tag (split-spring.sh passes it)")
 parser.add_argument("--json", help="also write the report here (split-spring.sh's artifact)")
+parser.add_argument("--ab", help="a boolean tunable: each round of the drag and key layouts runs with it off and on")
+parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the drag layouts' probe moves the divider")
+parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
+parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
+parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -142,8 +177,11 @@ def counter_delta(before, after):
     return total
 
 
-def drag(x0, y0, refresh_s):
-    path = [-opts.step_pt] * opts.steps + [opts.step_pt] * (2 * opts.steps) + [-opts.step_pt] * opts.steps
+def drag(x0, y0, refresh_s, path=None):
+    """Presses at (x0, y0), moves by each of `path` (default: --steps moves left, twice that right, --steps left,
+    so it ends where it began), one move per display frame, and releases where it ends."""
+    if path is None:
+        path = [-opts.step_pt] * opts.steps + [opts.step_pt] * (2 * opts.steps) + [-opts.step_pt] * opts.steps
     rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
     x = x0
     next_at = time.monotonic()
@@ -170,53 +208,257 @@ def column_divider(dividers, middle):
     return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
 
 
+# `missed_split`: each missed refresh's cause from cmux's own stamps (debug.frames, FrameMissSplit): main_late (the main
+# work ran past the frame's target time), commit_late (the Core Animation commit did), presented_late (neither: the main
+# thread was idle at the target and the frame still missed); `missed_frames`: the first misses with their stamps.
+FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed", "main_p50_ms", "main_p95_ms",
+              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max", "missed_split",
+              "missed_frames")
+
+
+def pane_check(display):
+    """The round's pane check (terminal_resize_verdict.follow), taken out of `debug.terminal_display`'s stop reply:
+    `follow` and its totals for the round entry."""
+    checked = terminal_resize_verdict.follow(display)
+    if checked is None:
+        return {"follow": None}
+    return {"follow": checked, "held_frames": checked["held_frames"], "held_terminals": checked["held_terminals"],
+            "lagging_frames": checked["lagging_frames"]}
+
+
+def frame_numbers(frames):
+    """A round's `debug.frames` numbers (with the main-thread p99 the reply lacks), and its raw per-frame arrays for
+    the arms' pooled distributions (kept in the report as the round's `raw`)."""
+    main_ms = frames.get("main_ms") or []
+    raw = {"intervals_ms": frames.get("intervals_ms") or [], "main_ms": main_ms,
+           "motion_main_ms": arms.motion(main_ms, frames.get("view_layouts_per_frame") or [])}
+    numbers = {k: frames.get(k) for k in FRAME_KEYS}
+    numbers["main_p99_ms"] = (arms.distribution(main_ms) or {}).get("p99")
+    return numbers, raw
+
+
+def unsettled(after):
+    return [{"fit": s["fit"], "drawn": s["drawn"], "grid": s["grid"]} for s in after if not (s["fit"] == s["drawn"] == s["grid"])]
+
+
+def drag_holds_terminals():
+    """Whether this build keeps each terminal's size and text through a divider drag (`terminalDrag.holdSurface`, on
+    by default since #32006), as data: such a drag holds its terminals, so its rounds fail the pane check. False for a
+    build without that switch (`debug.tunables` answers an error)."""
+    row = rpc("debug.tunables", {"action": "get", "key": "terminalDrag.holdSurface"}) or {}
+    return row.get("value") is True
+
+
+def set_arm(arm):
+    """Sets --ab's tunable for one arm (None: the build as it is). Returns why it could not, else None."""
+    if arm is None:
+        return None
+    rpc("debug.tunables", {"action": "activate"})  # a bench build's tunable store is off until asked (debug-settings.md)
+    row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}) or {}
+    if row.get("value") is not arm:
+        return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
+    time.sleep(0.5)  # bench script: the arm starts at rest; the switch is read at the next layout
+    return None
+
+
+def reset_arm():
+    """--ab's tunable back to the build's default: the layouts after an A/B layout (idle-cursor, split-resize) and the
+    next run measure the build as it is. A DEBUG build keeps a set value in the tag's Debug Settings file, so a run killed
+    before this leaves it set; a bench build (--config=bench) keeps tunables in memory only."""
+    if opts.ab:
+        rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+
+
+def finish(result):
+    """Pools each arm's rounds (`arms`, with --ab) and resets --ab's tunable. Each round keeps its raw per-frame arrays
+    (`raw`: intervals_ms, main_ms, motion_main_ms), so a reader can place the slow frames in the spring."""
+    if opts.ab:
+        result["ab"] = opts.ab
+        result["arms"] = arms.summaries(result.get("rounds") or [])
+        reset_arm()
+    return result
+
+
+def probe(name, x0, y0, refresh_s, middle):
+    """One untimed drag that ends --probe-pt left of where it began, then one back. It proves that `debug.mouse`
+    reaches the divider (it moved) and that the render counters count a new grid (a terminal beside it resized at
+    the release, held through the drag or not). Printed at once as its own line; a failed probe fails its layout
+    before any timed round."""
+    steps = max(1, round(opts.probe_pt / opts.step_pt))
+    before = surfaces()
+    drag(x0, y0, refresh_s, [-opts.probe_pt / steps] * steps)
+    time.sleep(1.0)  # bench script: the release's grids land
+    after = surfaces()
+    dividers = vertical_dividers()
+    moved_to = column_divider(dividers, middle)[0] if dividers else None
+    if moved_to is not None:
+        drag(moved_to, y0, refresh_s, [(x0 - moved_to) / steps] * steps)
+        time.sleep(1.0)  # bench script: the release's grids land
+    moved = None if moved_to is None else round(moved_to - x0, 1)
+    resized = terminal_resize_verdict.resized(before, after)
+    # The fact the counters must match: a terminal beside the divider fits a new grid after the drag.
+    by_id = {row["id"]: row for row in before}
+    regridded = sum(1 for row in after if row["id"] in by_id and row["fit"] != by_id[row["id"]]["fit"])
+    found = []
+    if moved is None or moved > -opts.probe_pt / 2:
+        found.append(f"the probe drag did not move the divider (moved {moved} pt of -{opts.probe_pt:g})")
+    if not regridded:
+        found.append("no terminal fits a new grid after the probe drag")
+    elif not resized:
+        found.append(f"{regridded} terminal(s) fit a new grid but no render counter counted it "
+                     f"({' and '.join(terminal_resize_verdict.RESIZE_COUNTERS)} unchanged)")
+    result = {"layout": name, "moved_pt": moved, "regridded_terminals": regridded, "resized_terminals": resized,
+              "terminals": len(after), "ok": not found, "problems": found}
+    print(f"TERMINAL-RESIZE-PROBE {json.dumps(result)}", flush=True)
+    return result
+
+
+def refresh_period():
+    rpc("debug.frames", {"action": "start"})
+    time.sleep(1.0)  # bench script: idle frames give the refresh period
+    idle = rpc("debug.frames", {"action": "stop"}) or {}
+    return idle.get("refresh_ms") or 16.67
+
+
 def measure(name):
     dividers = vertical_dividers()
     if not dividers:
         return {"layout": name, "error": "no vertical divider"}
-    x0, y0, height = column_divider(dividers, middle=(name == "stress"))
-    rpc("debug.frames", {"action": "start"})
-    time.sleep(1.0)  # bench script: idle frames give the refresh period
-    idle = rpc("debug.frames", {"action": "stop"}) or {}
-    refresh_ms = idle.get("refresh_ms") or 16.67
+    middle = name == "stress"
+    x0, y0, height = column_divider(dividers, middle)
+    refresh_ms = refresh_period()
+    checked = probe(name, x0, y0, refresh_ms / 1000, middle)
+    if not checked["ok"]:
+        return {"layout": name, "error": "probe: " + "; ".join(checked["problems"]), "probe": checked}
+    x0, y0, height = column_divider(vertical_dividers() or dividers, middle)
     rounds = []
-    for _ in range(opts.rounds):
-        before = surfaces()
-        rpc("debug.terminal_display", {"action": "start"})
-        rpc("debug.frames", {"action": "start"})
-        drag(x0, y0, refresh_ms / 1000)
-        frames = rpc("debug.frames", {"action": "stop"}) or {}
-        display = rpc("debug.terminal_display", {"action": "stop"}) or {}
-        time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
-        after = surfaces()
-        settled = [s for s in after if not (s["fit"] == s["drawn"] == s["grid"])]
-        # Resized in the drag: a full rebuild for a new grid, or a fitted grid that differs midway (the
-        # drag ends where it began, so start and end grids match).
-        by_id = {b["id"]: b for b in before}
-        resized = sum(1 for a in after if a["id"] in by_id and
-                      int(a["counters"].get("full_resize", 0)) > int(by_id[a["id"]]["counters"].get("full_resize", 0)))
-        rounds.append({
-            "terminals": len(after),
-            "resized_terminals": resized,
-            "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed",
-                                                  "main_p50_ms", "main_p95_ms", "main_max_ms", "main_total_ms",
-                                                  "main_over_8_3_ms")},
-            "display": display,
-            "counters": counter_delta(before, after),
-            "unsettled_after": [{"fit": s["fit"], "drawn": s["drawn"], "grid": s["grid"]} for s in settled],
-        })
-    return {"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "rounds": rounds,
-            "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}}
+    for index in range(opts.rounds):
+        for arm in arms.order(index, opts.ab):
+            entry = {"arm": arm} if opts.ab else {}
+            problem = set_arm(arm)
+            if problem:
+                rounds.append({**entry, "error": problem})
+                continue
+            before = surfaces()
+            rpc("debug.terminal_display", {"action": "start"})
+            rpc("debug.frames", {"action": "start"})
+            drag(x0, y0, refresh_ms / 1000)
+            frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+            display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
+            after = surfaces()
+            numbers, raw = frame_numbers(frames)
+            # Resized in the drag: a full rebuild for a new grid, a resize or a reflow preview's swap (the drag ends
+            # where it began, so start and end grids match; a build that holds terminals through the drag resizes none).
+            entry.update(pane_check(display))
+            entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
+                          "main_ms": arms.distribution(raw["main_ms"]), "raw": raw, "display": display,
+                          "counters": counter_delta(before, after), "unsettled_after": unsettled(after),
+                          "holds_terminals": drag_holds_terminals()})
+            rounds.append(entry)
+    return finish({"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "probe": checked,
+                   "drag_holds_terminals": drag_holds_terminals(), "rounds": rounds,
+                   "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
+
+
+def measure_keys(name):
+    """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
+    refresh_ms = refresh_period()
+    plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, opts.key_repeat))]
+    rounds = []
+    for index in range(opts.rounds):
+        for arm in arms.order(index, opts.ab):
+            entry = {"arm": arm} if opts.ab else {}
+            problem = set_arm(arm)
+            if problem:
+                rounds.append({**entry, "error": problem})
+                continue
+            before = surfaces()
+            rpc("debug.terminal_display", {"action": "start"})
+            rpc("debug.frames", {"action": "start"})
+            presses = []
+            for number, action in enumerate(plan):
+                last = number + 1 == len(plan) or plan[number + 1] != action
+                # The grids sent from here to the next press's start count as this press's: each press sends its final
+                # grids by its first frame tick (FRAME OWNER S1B), within --key-gap-ms.
+                traced = rpc("debug.terminal_final_grid", {"action": "start"}) or {}
+                if not traced.get("started"):
+                    entry["error"] = f"the grid trace did not start: {json.dumps(traced)[:200]}"
+                    break
+                reply = rpc("action.run", {"action": action, "focus": True})
+                # bench script: a held key's repeat gap, or the spring lands before the other key
+                time.sleep(opts.key_settle_s if last else opts.key_gap_ms / 1000)
+                traced = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
+                sends = [len(t.get("sends") or []) for t in traced.values()]
+                press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0)}
+                if isinstance(reply, dict) and (reply.get("error") or reply.get("refused")):
+                    press["refused"] = json.dumps(reply)[:200]
+                presses.append(press)
+            frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+            display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            if entry.get("error"):
+                rounds.append(entry)
+                continue
+            time.sleep(1.0)  # bench script: the last press's frames and grids land
+            after = surfaces()
+            numbers, raw = frame_numbers(frames)
+            entry.update(pane_check(display))
+            entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
+                          "interval_ms": arms.distribution(raw["intervals_ms"]), "main_ms": arms.distribution(raw["main_ms"]),
+                          "motion_main_ms": arms.distribution(raw["motion_main_ms"]), "raw": raw, "presses": presses,
+                          "display": display, "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
+            refused = [press["refused"] for press in presses if press.get("refused")]
+            if refused:
+                entry["error"] = f"{len(refused)} of {len(presses)} presses refused: {refused[0]}"
+            rounds.append(entry)
+    return finish({"layout": name, "refresh_ms": refresh_ms, "plan": plan, "key_gap_ms": opts.key_gap_ms,
+                   "key_settle_s": opts.key_settle_s, "rounds": rounds})
+
+
+def history():
+    write(f"clear; seq 1 {opts.scrollback}; seq -s. 900\r")
+
+
+def keys():
+    """4 terminals in a 2x2 grid, each with history, the bottom-left one focused: its Ctrl-Shift-L and Ctrl-Shift-H
+    move the divider between the two columns, so all 4 resize."""
+    rpc("action.run", {"action": "newTab", "focus": True})
+    wait(lambda: surfaces(), 30)
+    history()
+    for action, shown in (("splitRight", 2), ("splitDown", 3)):
+        rpc("action.run", {"action": action, "focus": True})
+        wait(lambda: len(surfaces()) >= shown, 30)
+        history()
+    rpc("action.run", {"action": "focusLeft", "focus": True})
+    time.sleep(0.5)  # bench script: the focus moves before the split
+    rpc("action.run", {"action": "splitDown", "focus": True})
+    if not wait(lambda: len(surfaces()) >= 4, 30):
+        return {"layout": "keys", "error": f"the 2x2 grid did not form ({len(surfaces())} terminals shown)"}
+    history()
+    time.sleep(2.0)  # bench script: the history prints before the presses
+    return measure_keys("keys")
+
+
+def keys_stress():
+    """The STRESS session's measured workspace, its first pane focused (column 1, row 1)."""
+    session, summary = stress_session()
+    panes = Stress.panes(session.workspace(session.measured)) if getattr(session, "measured", None) else []
+    if panes:
+        session.focus_pane(panes[0]["id"])
+        time.sleep(1.0)  # bench script: the focus lands before the presses
+    result = measure_keys("keys-stress")
+    result["session"] = session_fields(summary)
+    return result
 
 
 def light():
     before_ws = (rpc("debug.focus") or {}).get("workspace")
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
-    write(f"clear; seq 1 {opts.scrollback}; seq -s. 900\r")
+    history()
     rpc("action.run", {"action": "splitRight", "focus": True})
     wait(lambda: len(surfaces()) >= 2 and vertical_dividers(), 30)
-    write(f"clear; seq 1 {opts.scrollback}; seq -s. 900\r")
+    history()
     time.sleep(2.0)  # bench script: the history prints before the drag
     return measure("light")
 
@@ -257,16 +499,36 @@ def idle_cursor():
     return result
 
 
-def stress():
-    path = os.path.join(HERE, "perf-stress-session.py")
-    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    summary = module.Stress(rpc).build()
-    time.sleep(3.0)  # bench script: the session's pages and busy terminals start
-    result = measure("stress")
-    result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
+STRESS = {}
+_spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+_stress_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_stress_module)
+Stress = _stress_module.Stress
+
+
+def stress_session():
+    """The STRESS session (perf-stress-session.py), built once per launch and shown: stress, keys-stress and
+    split-resize-stress share it (a second build refuses: the app would have more than STRESS's 60 workspaces)."""
+    if "session" not in STRESS:
+        session = Stress(rpc)
+        STRESS["summary"] = session.build()
+        STRESS["session"] = session
+        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    else:
+        STRESS["session"].show(STRESS["session"].measured)
+        time.sleep(1.0)  # bench script: the measured workspace shows again after another layout's
+    return STRESS["session"], STRESS["summary"]
+
+
+def session_fields(summary):
+    return {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
         if isinstance(summary, dict) else None
+
+
+def stress():
+    _, summary = stress_session()
+    result = measure("stress")
+    result["session"] = session_fields(summary)
     return result
 
 
@@ -310,19 +572,14 @@ def final_grid_round(action):
             "terminals": rows}
 
 
-def split_resize(stress_session=False):
+def split_resize(in_stress=False):
     """Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W on a terminal that shows a full-screen program (less), light or in
     the STRESS session: when the resized terminals' final grids reach the PTY and the screen (Lawrence
     2026-10-23: before the animation ends, not after it)."""
-    name = "split-resize-stress" if stress_session else "split-resize"
+    name = "split-resize-stress" if in_stress else "split-resize"
     summary = None
-    if stress_session:
-        path = os.path.join(HERE, "perf-stress-session.py")
-        spec = importlib.util.spec_from_file_location("perf_stress_session", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        summary = module.Stress(rpc).build()
-        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    if in_stress:
+        _, summary = stress_session()
     else:
         rpc("action.run", {"action": "newTab", "focus": True})
         wait(lambda: surfaces(), 30)
@@ -348,7 +605,7 @@ def split_resize(stress_session=False):
                 "frame: sampled once per display frame, so <= 1 frame late.",
     }, "rounds": rounds}
     if isinstance(summary, dict):
-        result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals")}
+        result["session"] = session_fields(summary)
     return result
 
 
@@ -392,7 +649,7 @@ try:
         sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
     for name in [n for n in opts.layouts.split(",") if n]:
         result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
-                  "split-resize-stress": lambda: split_resize(stress_session=True)}[name]()
+                  "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
         found = terminal_resize_verdict.problems(result)
         if found:
             # A layout that measured nothing fails the run (its zeros are not a result).
@@ -401,6 +658,8 @@ try:
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
+    if app.poll() is None:
+        reset_arm()  # a layout that stopped early (an exception) did not reset it
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
         try:

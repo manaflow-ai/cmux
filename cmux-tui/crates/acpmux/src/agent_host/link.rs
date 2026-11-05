@@ -44,7 +44,8 @@ impl HostLauncher {
 /// host's exit closes before it answers; or when the caller drops it, which
 /// ends the host (it is still this process's child). A busy Mac makes a host
 /// slow, never wrong, so time alone never ends it; a caller with a deadline
-/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
+/// of its own (for example a user-facing agent-start hazard) may drop the
+/// start; pooled starts themselves wait on liveness and report progress.
 #[cfg(unix)]
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
@@ -69,8 +70,17 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
     #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_EXIT_DIR_ENV) {
+        cmd.env(super::host::HELLO_EXIT_DIR_ENV, dir);
+    }
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
+    // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
     }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
@@ -400,41 +410,50 @@ pub struct Link {
 /// Connect as owner and resume after `resume_after` (the last entry already
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
-    // A wedged host must not hold up the daemon: the handshake is bounded.
-    let budget = hello_budget();
-    // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not a sure
-    // miss (its timer fires on the next millisecond tick, after a fast local hello).
-    if budget.is_zero() {
-        return Err(anyhow::Error::new(HelloUnanswered(budget)));
+    match hello_budget() {
+        // Ordinary ownership and reattachment stay live for as long as the host's socket is
+        // open. A busy host is slower, never a failed wake; a closed socket still makes the
+        // handshake fail promptly through `connect_inner`.
+        None => connect_inner(record, resume_after).await,
+        // Adoption is deliberately scoped by the caller: daemon startup must not wait forever
+        // for one already-running host while the rest of the fleet is adopted. Its retry pass
+        // uses `ADOPT_HELLO_BUDGET`, a hazard bound for that startup fan-out rather than a wake
+        // deadline.
+        Some(budget) => {
+            // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not
+            // a sure miss (its timer fires on the next millisecond tick, after a fast local hello).
+            if budget.is_zero() {
+                return Err(anyhow::Error::new(HelloUnanswered(budget)));
+            }
+            tokio::time::timeout(budget, connect_inner(record, resume_after))
+                .await
+                .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+        }
     }
-    tokio::time::timeout(budget, connect_inner(record, resume_after))
-        .await
-        .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
 }
 
-/// How long a host has to answer `Hello` ([`connect`]) outside a [`with_hello_budget`] scope.
-pub const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// The bound of a hello to a host that runs and was adopted before: its adoption at the daemon's
-/// start missed [`HELLO_BUDGET`], or a prompt reaches it again. On a loaded Mac (load 118 on 15
-/// cores, 85 hosts adopted at once, 2026-10-31) a live host answered later than 5 s; ending it
-/// then, or leaving it unowned with its whole agent and MCP servers, is worse than waiting.
+/// The bound of a hello to a host that runs and was adopted before. Adoption at daemon startup is
+/// a fan-out operation, so it gets a hazard bound and a retry; a normal wake or reattachment does
+/// not use a wall-clock hello deadline. On a loaded Mac (load 118 on 15 cores, 85 hosts adopted at
+/// once, 2026-10-31) a live host answered later than 5 s; ending it then, or leaving it unowned
+/// with its whole agent and MCP servers, is worse than waiting.
+// timeout: adoption fan-out must yield to its retry pass; normal wake/reattach uses socket liveness.
 pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 tokio::task_local! {
-    static HELLO_BUDGET_SCOPE: std::time::Duration;
+    static HELLO_BUDGET_SCOPE: Option<std::time::Duration>;
 }
 
-/// Runs `work` with every [`connect`] in it bounded by `budget` instead of [`HELLO_BUDGET`].
+/// Runs `work` with every [`connect`] in it bounded by `budget`.
 pub async fn with_hello_budget<F: std::future::Future>(
     budget: std::time::Duration,
     work: F,
 ) -> F::Output {
-    HELLO_BUDGET_SCOPE.scope(budget, work).await
+    HELLO_BUDGET_SCOPE.scope(Some(budget), work).await
 }
 
-fn hello_budget() -> std::time::Duration {
-    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(HELLO_BUDGET)
+fn hello_budget() -> Option<std::time::Duration> {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(None)
 }
 
 /// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only

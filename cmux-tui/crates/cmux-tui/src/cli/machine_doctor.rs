@@ -202,7 +202,12 @@ pub(super) fn remote_steps(
                     steps.push(JoinStep::fail(
                         "platform",
                         format!("joining is off on {origin}"),
-                        format!("Point at development: --platform {}", machine_join::DEV_ORIGIN),
+                        if origin.trim_end_matches('/') == machine_join::DEFAULT_ORIGIN {
+                            "Joining should be on here; check the platform's deploy, or name another with --platform"
+                                .to_owned()
+                        } else {
+                            format!("Point at production: --platform {}", machine_join::DEFAULT_ORIGIN)
+                        },
                     ));
                     Err(())
                 }
@@ -238,7 +243,7 @@ pub(super) fn remote_steps(
         Err(_) if plain_name(key) => key.to_owned(),
         Err(_) => "NAME".to_owned(),
     };
-    let on_it = format!("Run cmux machine doctor (or acpmux host doctor --here) on {name}");
+    let on_it = format!("Run cmux machine doctor (or acpmux machine doctor --here) on {name}");
     let machine = match found {
         Ok(machine) if !machine.revoked => machine,
         found => {

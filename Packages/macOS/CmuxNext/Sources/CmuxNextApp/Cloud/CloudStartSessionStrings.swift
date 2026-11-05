@@ -12,6 +12,12 @@ enum CloudStartSessionStrings {
         var command: String
     }
 
+    // `cmux cloud relay-chat` (``CloudStartSession/bindRelayChat(into:context:reason:)``).
+    static var relayPromptRequired: String { String(localized: "cloud.relayChat.promptRequired", defaultValue: "Give the chat a prompt with --prompt.", table: "CloudSessions", bundle: .module) }
+    static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
+    static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
+    static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
+
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
 

@@ -39,6 +39,19 @@ pub(crate) fn last() -> Option<i32> {
     }
 }
 
+/// [`last`], once the action that stores it has run. Tokio's own action runs first and may wake
+/// the reader on another thread before ours stored the sender: wait for it, briefly and bounded
+/// (#35147 review F1).
+pub(crate) async fn settled() -> Option<i32> {
+    for _ in 0..20 {
+        if let Some(pid) = last() {
+            return Some(pid);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    last()
+}
+
 /// The text the stop line gives the sender `pid`: its pid, then its parent and command line when
 /// the process table still lists it (`ps`, bounded by the process's own speed).
 pub(crate) fn describe(pid: i32) -> String {

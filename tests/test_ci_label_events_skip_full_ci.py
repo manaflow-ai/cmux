@@ -35,8 +35,9 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
     "merge-freeze.yml": ("freeze-ok",),
-    "pr-capture-check.yml": ("media-tour", "media-tour-mac"),
-    "pr-perf-section-check.yml": ("perf", "performance"),
+    # Its capture step reads the media-tour labels and its perf section step the perf labels
+    # (tests/test_pr_body_checks.py pins which step runs on which label).
+    "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
@@ -52,6 +53,8 @@ UNGUARDED_JOBS: dict[tuple[str, str], str] = {
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
     "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
+    "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
+    "passing, and only the classic-migration label it judges may let a frozen change through",
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
@@ -85,13 +88,30 @@ def evaluate(expr: str, event: dict) -> bool:
 
 
 NOT_ON_PULL_REQUEST = re.compile(r"^(!cancelled\(\) && )?github\.event_name == '(workflow_dispatch|push)' &&")
+# On a pull_request event github.ref is refs/pull/N/merge, never a branch, so a job gated first on a branch ref
+# never runs there. Not so for pull_request_target, whose github.ref is the base branch.
+ON_BRANCH_REF = re.compile(r"^(!cancelled\(\) && )?github\.ref == 'refs/heads/[^']+' &&")
 STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
 
 
-def reachable_by_label_event(body: dict, condition: str) -> bool:
+def top_level_or(condition: str) -> bool:
+    """Whether CONDITION has an || outside parentheses (then its first && term does not gate all of it)."""
+    depth = 0
+    for index, char in enumerate(condition):
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0 and condition.startswith("||", index):
+            return True
+    return False
+
+
+def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
-    status function skips with them, and one gated on push or dispatch never runs on a pull request."""
+    status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
+    does one gated on a branch ref (pull_request only)."""
     if NOT_ON_PULL_REQUEST.match(condition):
+        return False
+    if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False
     return not body.get("needs") or bool(STATUS_FUNCTION.search(condition))
 
@@ -141,7 +161,7 @@ def main() -> int:
                     failures.append(f"{name} job {job} must run on every label event: "
                                     f"{UNGUARDED_JOBS[(name, job)]}")
                 continue
-            if not reachable_by_label_event(body or {}, text):
+            if not reachable_by_label_event(body or {}, text, event_name):
                 continue
             if not (text == expected or text.endswith(f") && {expected}")):
                 failures.append(f"{name} job {job}: its if does not end with the label guard {expected}")

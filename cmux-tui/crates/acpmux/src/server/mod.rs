@@ -17,7 +17,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -162,6 +162,9 @@ pub struct Conn {
     /// it only observes marks it, so it keeps nothing once the owner app exited.
     presence: crate::daemon::unused_exit::Presence,
     out: mpsc::Sender<String>,
+    /// Holds its lines until what they may show is durable (`durable_gate.rs`); None without the
+    /// event journal.
+    gate: Option<Arc<durable_gate::Gate>>,
     /// True once the client stopped sending (its read side ended): it exited or hung up.
     ended: tokio::sync::watch::Sender<bool>,
     /// Per-session preparation cancellation; no capability or owner token is retained.
@@ -471,10 +474,18 @@ impl Conn {
         self.send_replying(msg, None);
     }
 
+    /// The next line may show every change acknowledged so far (`durable_gate.rs`).
+    fn raise_gate(&self) {
+        if let Some(gate) = &self.gate {
+            gate.raise();
+        }
+    }
+
     /// A notification line built for every connection that reads it raw (a shared `session/update`,
     /// `HubEvent::update_line`), as `send` would enqueue it for a local connection.
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
+        self.raise_gate();
         enqueue_outbound(
             &self.out,
             line.to_owned(),
@@ -489,6 +500,7 @@ impl Conn {
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
+        self.raise_gate();
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
@@ -577,6 +589,7 @@ impl Conn {
             let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
             Message::notification("_acpmux/lagged", lag).to_line()
         };
+        self.raise_gate();
         let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
         let stale = self.notices.load(Ordering::SeqCst) != seen;
         if stale && !anyway {
@@ -609,6 +622,7 @@ impl Conn {
     /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
     /// while one of those still waits for room, or when it is larger than a frame.
     fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
+        self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
@@ -679,139 +693,6 @@ impl Conn {
         } else {
             format!("{n}#{}", self.id.get(..6).unwrap_or(self.id.as_str()))
         }
-    }
-}
-
-/// Keep two queue slots available for replies and one for the gap marker that
-/// tells a reader to replay from its last cursor.
-const OUTBOUND_CONTROL_RESERVE: usize = 3;
-
-fn enqueue_outbound(
-    out: &mpsc::Sender<String>,
-    line: String,
-    control: bool,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) {
-    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-    enqueue_outbound_locked(
-        out,
-        line,
-        control,
-        dropped,
-        gap_pending,
-        outbound_lock,
-        pending_controls,
-    );
-}
-
-/// [`enqueue_outbound`] of a control line that must go out after every control queued before
-/// it: queued only if none of those still waits for room in a full queue (each such waits in a
-/// task of its own, which a line queued now would pass). False, with nothing queued, if one does
-/// or the queue's reader is gone.
-fn enqueue_after_controls(
-    out: &mpsc::Sender<String>,
-    line: String,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) -> bool {
-    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-    if out.is_closed() || pending_controls.load(Ordering::Acquire) != 0 {
-        return false;
-    }
-    enqueue_outbound_locked(out, line, true, dropped, gap_pending, outbound_lock, pending_controls);
-    true
-}
-
-/// [`enqueue_outbound`] with `outbound_lock` held.
-fn enqueue_outbound_locked(
-    out: &mpsc::Sender<String>,
-    line: String,
-    control: bool,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-    pending_controls: &Arc<AtomicUsize>,
-) {
-    // Notifications are lossy by design when the reader is too slow, but the
-    // The final three permits are reserved for two response/control messages
-    // and the recovery marker.
-    let reserved = OUTBOUND_CONTROL_RESERVE + pending_controls.load(Ordering::Acquire);
-    if !control && out.capacity() <= reserved {
-        report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock);
-        return;
-    }
-    match out.try_send(line) {
-        Ok(()) => {
-            // Let a later queue-pressure episode produce a fresh marker once
-            // the previous marker and backlog have drained.
-            if gap_pending.load(Ordering::Acquire)
-                && pending_controls.load(Ordering::Acquire) == 0
-                && out.capacity() > OUTBOUND_CONTROL_RESERVE + 1
-            {
-                gap_pending.store(false, Ordering::Release);
-            }
-        }
-        Err(mpsc::error::TrySendError::Full(line)) if control => {
-            let out = out.clone();
-            pending_controls.fetch_add(1, Ordering::AcqRel);
-            let pending_controls = Arc::clone(pending_controls);
-            tokio::spawn(async move {
-                let _ = out.send(line).await;
-                pending_controls.fetch_sub(1, Ordering::AcqRel);
-            });
-        }
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock)
-        }
-        Err(mpsc::error::TrySendError::Closed(_)) => {}
-    }
-}
-
-fn report_outbound_loss_locked(
-    out: &mpsc::Sender<String>,
-    dropped: &Arc<AtomicU64>,
-    gap_pending: &Arc<AtomicBool>,
-    outbound_lock: &Arc<StdMutex<()>>,
-) {
-    let total = dropped.fetch_add(1, Ordering::Relaxed) + 1;
-    if gap_pending.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let marker = Message::notification(
-        "_acpmux/lagged",
-        json!({"dropped": total, "reason": "output_queue_full"}),
-    )
-    .to_line();
-    if out.try_send(marker).is_err() {
-        // Keep the marker pending even when the queue is currently full. The
-        // waiter owns the next available slot, so a quiet connection still
-        // receives the replay signal after its reader catches up.
-        let out = out.clone();
-        let dropped = Arc::clone(dropped);
-        let gap_pending = Arc::clone(gap_pending);
-        let outbound_lock = Arc::clone(outbound_lock);
-        tokio::spawn(async move {
-            let permit = out.reserve().await;
-            let Ok(permit) = permit else {
-                gap_pending.store(false, Ordering::Release);
-                return;
-            };
-            let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-            let total = dropped.load(Ordering::Relaxed);
-            permit.send(
-                Message::notification(
-                    "_acpmux/lagged",
-                    json!({"dropped": total, "reason": "output_queue_full"}),
-                )
-                .to_line(),
-            );
-            gap_pending.store(false, Ordering::Release);
-        });
     }
 }
 
@@ -1144,15 +1025,22 @@ pub async fn serve_ws_until(
         let shutdown = shutdown.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
-            let mut head = [0u8; 4096];
-            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
-            // The peek only routes the request. Each path checks the full head it parses:
-            // serve_http reads it, tungstenite parses the upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
-            if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, peer).await;
+            let mut stream = stream;
+            // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
+            // as it reads, tungstenite as it parses it again for the callback.
+            let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                ws_peek::Request::Head { head, read } => (head, read),
+                ws_peek::Request::TooLarge => {
+                    refuse_http(stream, Refusal::MissingHost).await;
+                    return;
+                }
+                ws_peek::Request::Gone => return,
+            };
+            if !head.to_ascii_lowercase().contains("upgrade: websocket") {
+                serve_http(stream, &head, &policy, peer).await;
                 return;
             }
+            let stream = ws_peek::Replayed::new(read, stream);
             let expected = token.clone();
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
@@ -1443,45 +1331,17 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
     let _ = stream.shutdown().await;
 }
 
-/// The largest request head the dashboard reads.
-const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
-
-/// Read a request head up to its blank line. None when it is larger than
-/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
-/// closes first, or it takes over 2 s.
-async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
-    let read = async {
-        let mut head = Vec::with_capacity(1024);
-        let mut chunk = [0u8; 4096];
-        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
-            if head.len() >= MAX_HTTP_HEAD_BYTES {
-                return None;
-            }
-            let n = stream.read(&mut chunk).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
-        }
-        Some(String::from_utf8_lossy(&head).into_owned())
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
-}
-
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
 /// first; then GET / serves the page, and anything else is 404. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
+    head: &str,
     policy: &ListenerPolicy,
     peer: std::net::SocketAddr,
 ) {
-    let Some(head) = read_http_head(&mut stream).await else {
-        refuse_http(stream, Refusal::MissingHost).await;
-        return;
-    };
-    if let Err(refusal) = check_head(policy, &head) {
+    if let Err(refusal) = check_head(policy, head) {
         tracing::warn!("web request from {peer} refused: {refusal}");
         refuse_http(stream, refusal).await;
         return;
@@ -1605,6 +1465,7 @@ async fn serve_connection_from(
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
     let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
+    let (out, gate) = durable_gate::install(hub.store.durability(), out);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
@@ -1614,6 +1475,7 @@ async fn serve_connection_from(
         name: StdMutex::new(String::new()),
         presence: client.presence(),
         out,
+        gate,
         outbound_lock: Arc::new(StdMutex::new(())),
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
@@ -2087,6 +1949,7 @@ mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
+mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod forum;
@@ -2111,6 +1974,11 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
+mod outbound;
+use outbound::{
+    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
+    report_outbound_loss_locked,
+};
 pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
@@ -2134,6 +2002,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod accounts;
 mod mcp_connect;
 mod routes;
 mod secrets;

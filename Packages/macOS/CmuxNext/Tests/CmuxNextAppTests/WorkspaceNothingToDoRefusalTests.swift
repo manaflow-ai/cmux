@@ -81,7 +81,8 @@ struct WorkspaceNothingToDoRefusalTests {
     @Test func closeWorkspacesAboveBelowAndOthersOnALoneRowSayThereAreNone() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let workspace = try Self.onlyWorkspace(services)
-            for id: ActionID in ["palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "palette.closeOtherWorkspaces"] {
+            for id: ActionID in ["palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "palette.closeOtherWorkspaces",
+                                 "workspace.archiveWorkspacesBelow", "workspace.archiveWorkspacesAbove", "workspace.archiveOtherWorkspaces"] {
                 let (menu, cli) = Self.outcome(id, Self.workspaceTarget(workspace.id), services)
                 #expect(menu != nil, "\(id) on the only row is enabled and closes nothing")
                 #expect(cli != nil && cli == menu, "\(id): a CLI run reports \(cli ?? "success") instead of the row's reason")
@@ -92,9 +93,11 @@ struct WorkspaceNothingToDoRefusalTests {
 
     @Test func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
         try await Self.withGroupedApp { services, workspace, _ in
-            let (menu, cli) = Self.outcome("workspace.closeOthersInGroup", Self.workspaceTarget(workspace.id), services)
-            #expect(menu != nil, "Close Other Workspaces in Group on a one-member group is enabled and closes nothing")
-            #expect(cli != nil && cli == menu, "a CLI run reports \(cli ?? "success") instead of the row's reason")
+            for id: ActionID in ["workspace.closeOthersInGroup", "workspace.archiveOthersInGroup"] {
+                let (menu, cli) = Self.outcome(id, Self.workspaceTarget(workspace.id), services)
+                #expect(menu != nil, "\(id) on a one-member group is enabled and acts on nothing")
+                #expect(cli != nil && cli == menu, "\(id): a CLI run reports \(cli ?? "success") instead of the row's reason")
+            }
             for id: ActionID in ["nextSidebarTabInGroup", "prevSidebarTabInGroup"] {
                 let step = services.registry.capturingRefusal {
                     _ = services.registry.perform(id, invocation: ActionInvocation(target: Self.workspaceTarget(workspace.id), origin: .cli))

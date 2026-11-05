@@ -135,6 +135,8 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 # Every Linux job here, the ~10-second ones included, takes the shared Linux set:
 # Blacksmith 32 vCPU, Blacksmith 16 vCPU while the overflow switch has failed over
@@ -3280,7 +3282,10 @@ jobs:
               echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
             fi
           done
-          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" "${acpmux[@]}"
+          # Bash 3.2 (the macOS system shell) treats an empty array expansion
+          # under set -u as an unset variable. Keep the call argument-free when
+          # this commit's manifest attests no acpmux companions.
+          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" ${acpmux[@]+"${acpmux[@]}"}
           completion_args=()
           if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)
@@ -3641,6 +3646,86 @@ jobs:
         # --tip-branch: the script fetches the tip (the public repository needs
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
+
+  # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
+  # feat-cmux-next build by themselves (the updater role of `cmux host run`,
+  # cmux-tui/crates/cmux-host/src/updater): they read the signed
+  # cmux-tui/channels/cloud-machine.json, the commit-addressed URL, sha256
+  # and size of each Linux binary, and update when idle. This job points it
+  # at every feat-cmux-next push whose commit manifests are published and
+  # read back (verify-publish), with no image bake in the way. The payload
+  # is checked against a download of each binary
+  # (scripts/ci/cmux-machine-channel.py) and signed with the web update
+  # key (scripts/cmux-next/web-ota-pointer.py, the same envelope; the
+  # machine checks the purpose and channel, the app's web updater refuses
+  # any channel but its own). Only this checkout's scripts touch the key.
+  # An older run never moves the channel back (web-ota-pointer.py newer).
+  point-machine-channel:
+    environment: artifacts
+    name: point the Cloud machine channel at this commit
+    needs: [publish, verify-publish]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Sign and upload the channel
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "::error::CMUX_WEB_OTA_SIGNING_KEY is required to sign the Cloud machine channel"
+            exit 1
+          fi
+          ptr=scripts/cmux-next/web-ota-pointer.py
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          dir="$RUNNER_TEMP/machine-channel"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          trap 'rm -f "$dir/key.pem"' EXIT
+          curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?machine-channel=$GITHUB_RUN_ID"
+          python3 scripts/ci/cmux-machine-channel.py payload --manifest "$dir/manifest.json" --commit "$GITHUB_SHA" \
+            --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
+          rm -rf "$dir/binaries"
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
+          python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/cloud-machine.json"
+          rm -f "$dir/key.pem"
+          # A compare-and-swap on the bytes compared (as cmux-tui-point-channel.sh):
+          # a run that finds the channel moved under it reads and compares again.
+          upload=(python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries
+            --cache-control "public, max-age=60, must-revalidate" --file "$dir/cloud-machine.json"
+            --key "cmux-tui/channels/cloud-machine.json" --content-type application/json --conflict-exit-code 9)
+          for attempt in 1 2 3 4 5; do
+            rm -f "$dir/current.json"
+            code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --max-time 60 "https://files.cmux.com/cmux-tui/channels/cloud-machine.json?pointer=$GITHUB_RUN_ID-$attempt" || true)"
+            case "$code" in
+              200) mode=(--replace-sha256 "$(sha256sum "$dir/current.json" | cut -d' ' -f1)") ;;
+              404) rm -f "$dir/current.json"; mode=(--write-once) ;;
+              *) echo "::error::the Cloud machine channel could not be read (HTTP $code)"; exit 1 ;;
+            esac
+            rc=0
+            python3 "$ptr" newer --pointer "$dir/cloud-machine.json" --keys "$keys" --current "$dir/current.json" || rc=$?
+            [[ $rc == 3 ]] && exit 0
+            [[ $rc == 0 ]] || exit "$rc"
+            rc=0
+            "${upload[@]}" "${mode[@]}" || rc=$?
+            [[ $rc == 0 ]] && break
+            [[ $rc == 9 ]] || exit "$rc"
+            echo "Another run moved the Cloud machine channel first; reading it again."
+            [[ $attempt == 5 ]] && { echo "The channel kept changing under this run; the next push moves it."; exit 0; }
+          done
+          curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-tui/channels/cloud-machine.json?check=$GITHUB_RUN_ID"
+          python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel cloud-machine
+          echo "Cloud machine channel -> ${GITHUB_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip

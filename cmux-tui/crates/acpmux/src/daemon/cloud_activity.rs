@@ -31,6 +31,14 @@
 //!   daemon on the machine and adds them instead of letting an idle daemon's renewal replace a
 //!   busy one's.
 //!
+//! Each line also carries `last_person_prompt_at` (Unix ms) once a person prompted one of this
+//! daemon's chats ([`crate::hub::Hub::last_person_prompt_at`]: never an agent's message, a
+//! trigger's delivery or a send from inside a session). The Cloud keeps the machine running for a
+//! while after a person's chat (cmux-platform `IdlePolicy.ts`, the post-chat warm window; off with
+//! `CLOUD_POST_CHAT_WARM_SECONDS=0`), and a chat's prompt is the only input of the person's a
+//! Cloud chat makes. A new prompt time goes at once. It never moves backwards, and like the rest
+//! of this report it lives in memory only.
+//!
 //! Each line also says what every session at work waits on (`"phases"`, capability
 //! `activity-phases`), so the Cloud can tell a turn that only waits on the model from one that
 //! runs a tool in the guest (cmux#34298):
@@ -83,6 +91,10 @@ pub(super) struct Tracker {
     observed: Option<u64>,
     /// When this daemon's agents last acted (Unix ms).
     last_action: Option<u64>,
+    /// When a person last prompted one of this daemon's chats (Unix ms).
+    person_prompt: Option<u64>,
+    /// The person's prompt time the agent last got.
+    sent_person_prompt: Option<u64>,
     /// Each session's open tool calls (`in_progress`, not yet `completed` or `failed`).
     open_tools: BTreeMap<String, BTreeSet<String>>,
     /// Each session's calls named before they run ([`crate::hub::tool_start`]).
@@ -116,6 +128,13 @@ impl Tracker {
     pub(super) fn acted(&mut self, at_ms: u64) {
         if at_ms > 0 {
             self.last_action = Some(self.last_action.map_or(at_ms, |t| t.max(at_ms)));
+        }
+    }
+
+    /// A person prompted one of this daemon's chats at `at_ms`; an older time changes nothing.
+    pub(super) fn person_prompted(&mut self, at_ms: u64) {
+        if at_ms > 0 {
+            self.person_prompt = Some(self.person_prompt.map_or(at_ms, |t| t.max(at_ms)));
         }
     }
 
@@ -228,14 +247,20 @@ impl Tracker {
         // Every phase change goes at once (the Cloud reads the last report on a timer).
         let phases = self.phase_key();
         let phases_changed = phases.is_some() && phases != self.sent_phases;
-        if !(changed || phases_changed || renew) {
+        // A person's prompt goes at once: it opens the Cloud's post-chat warm window.
+        let prompted = self.person_prompt != self.sent_person_prompt;
+        if !(changed || phases_changed || prompted || renew) {
             return None;
         }
         self.sent = Some((turns, self.last_action));
         self.sent_phases = phases;
+        self.sent_person_prompt = self.person_prompt;
         let mut activity = json!({"turns": turns});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
+        }
+        if let Some(at) = self.person_prompt {
+            activity.set("last_person_prompt_at", json!(at));
         }
         if !self.daemon.is_empty() {
             activity.set("daemon", json!(self.daemon));
@@ -257,6 +282,7 @@ impl Tracker {
     pub(super) fn unsent(&mut self) {
         self.sent = None;
         self.sent_phases = None;
+        self.sent_person_prompt = None;
     }
 }
 
@@ -275,12 +301,56 @@ fn remove(sets: &mut BTreeMap<String, BTreeSet<String>>, sid: &str, id: &str) {
     }
 }
 
+/// Resolves once `path` exists: at once on a Cloud machine. Elsewhere it waits for a file event in
+/// the nearest folder of the path that exists (`/run/cmux-vm-agent`, else `/run`), with no timer,
+/// and looks again on each. A watch that cannot start resolves at once (the loop then runs as
+/// before: it reports nothing while the socket is absent).
+async fn agent_socket_appears(path: &Path) {
+    use notify::Watcher as _;
+    if path.exists() {
+        return;
+    }
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let Ok(mut watcher) =
+        notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            if !matches!(&event, Ok(e) if e.kind.is_access()) {
+                let _ = tx.send(());
+            }
+        })
+    else {
+        return;
+    };
+    let mut watched: Option<std::path::PathBuf> = None;
+    loop {
+        // Watch before checking, so a socket made in between is seen by the check or wakes the wait.
+        let Some(dir) = path.ancestors().skip(1).find(|d| d.is_dir()).map(Path::to_path_buf) else {
+            return;
+        };
+        if watched.as_ref() != Some(&dir) {
+            if let Some(old) = watched.take() {
+                let _ = watcher.unwatch(&old);
+            }
+            if watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_err() {
+                return;
+            }
+            watched = Some(dir);
+        }
+        if path.exists() || rx.recv().await.is_none() {
+            return;
+        }
+    }
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
     let path = super::cloud_handoff::agent_socket();
+    // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
+    // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
+    agent_socket_appears(&path).await;
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
+    let mut person_prompts = hub.subscribe_person_prompts();
     let mut tracker = Tracker::new(crate::config::socket_path().to_string_lossy().into_owned());
     let mut tick = tokio::time::interval(RENEW);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -318,6 +388,8 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
             _ = tick.tick() => true,
             // After a pause the agent's count may have run out: a line goes at once.
             Ok(()) = resumes.changed() => true,
+            // A person's prompt: its time goes at once (the line sees it changed).
+            Ok(()) = person_prompts.changed() => false,
         };
         if !path.exists() {
             continue;
@@ -336,6 +408,9 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
             None => 1,
         };
         let at_work = reported_at_work(at_work, hub.startup_settled());
+        if let Some(at) = hub.last_person_prompt_at() {
+            tracker.person_prompted(at);
+        }
         let Some(line) = tracker.line(at_work as u64, renew, now) else { continue };
         if !send(&path, &line).await {
             tracker.unsent();
