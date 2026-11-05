@@ -1,5 +1,7 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+import contextlib
 import copy
+import io
 import importlib.util
 import json
 import os
@@ -270,6 +272,34 @@ class LastRealAttempt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
         self.assertEqual(excuse.last_real_jobs(REPO, 10, github), [])
+
+
+class NoFailureExitsZero(unittest.TestCase):
+    """2026-11-05: asked about a head with no red (no --run, no --check), the classifier exited 1 with "no failed job
+    found on the head to compare with the base" (cmuxterm-hq#7234 at ce69ab6d, 16/16 green), so a merge check that
+    ran it on every head refused every green PR. No failure is exit 0; a red run or check that was named and shows
+    no failed job is still refused (LastRealAttempt)."""
+
+    def test_no_run_or_check_named_is_no_failure(self):
+        github = FakeGitHub()
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], github),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
+        self.assertEqual(github.routes, [])  # nothing to read
+
+    def test_main_exits_0_on_no_failure(self):
+        out = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stdout(out):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
+        self.assertEqual(code, 0)
+        self.assertIn("no failure to excuse", out.getvalue())
+
+    def test_a_named_run_with_no_failed_job_is_still_refused(self):
+        github = FakeGitHub()
+        github.jobs = {}
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 class JobLogEndpoint(unittest.TestCase):
@@ -1441,6 +1471,58 @@ class JoblessStatusChecks(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no job 'Vercel' in run 10"):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
+
+    IGNORED = "Canceled by Ignored Build Step"
+
+    def pr_files(self, *paths, number=7192, changed=None):
+        """The one GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
+        self.graphql: list[list[str]] = []
+        pr = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD,
+              "changedFiles": len(paths) if changed is None else changed,
+              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
+
+        def run(args):
+            self.graphql.append(args)
+            assert args[:2] == ["api", "graphql"] and f"oid={HEAD}" in args, args
+            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
+
+        self.gh.run = run
+
+    def test_rate_limited_vercel_is_no_result_when_the_base_skipped_its_build_and_web_is_untouched(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/fleet-reconcilers/probes.py")
+        self.assertEqual(self.judge(), [
+            f"excused 'Vercel': no result: \"{self.LIMITED}\" (Vercel built nothing), base status success "
+            f"\"{self.IGNORED}\" (a skipped build), and #7192 changes no web/ files"])
+        self.assertEqual(len(self.graphql), 1)
+        self.assertFalse(any("/compare/" in route for route in self.gh.routes))  # no REST diff read
+
+    def test_rate_limited_vercel_on_a_pr_that_touches_web_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", "web/app/page.tsx")
+        with self.assertRaisesRegex(excuse.Refused, r"#7192 changes web/ \(web/app/page.tsx\)"):
+            self.judge()
+
+    def test_rate_limited_vercel_is_refused_when_the_base_really_built(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description="Deployment has completed")]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, "has it success: Deployment has completed"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_another_vercel_failure_is_refused_even_when_the_base_skipped_its_build(self):
+        self.head["description"] = "Deployment has failed"
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, f"has it success: {self.IGNORED}"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_rate_limited_vercel_is_refused_when_github_lists_too_few_files(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", changed=150)
+        with self.assertRaisesRegex(excuse.Refused, "listed 1 of its 150 changed files"):
+            self.judge()
 
     def test_another_red_still_needs_its_own_excuse(self):
         self.gh.jobs[1]["name"] = "brand new red"
@@ -2855,6 +2937,266 @@ class LostRunnerIsInfra(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
+
+class WsCheckGitHub:
+    """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
+    for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
+    REPO, HOST = "teamleaderleo/leo-workspace", "manaflow-ai/cmuxterm-hq"
+    TIP, OLDER, MERGE_BASE = "c" * 40, "d" * 40, "e" * 40
+
+    def __init__(self):
+        self.statuses, self.runs, self.jobs, self.logs, self.routes = {}, {}, {}, {}, []
+        self.base_commits = [self.TIP, self.OLDER, self.MERGE_BASE]
+
+    def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
+        """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
+        failed = list(red)
+        self.statuses[sha] = [{"context": "ws-check", "state": state, "updated_at": at,
+                               "description": description if description is not None else (
+                                   f"{len(failed)} of {steps} steps failed: {failed[0]}"[:139] if failed else
+                                   f"{steps * 10} tests passed in {steps} steps"),
+                               "target_url": f"https://github.com/{self.HOST}/actions/runs/{run_id}"}]
+        self.runs[run_id] = {"id": run_id, "display_title": "fleet-reconciler ws-check", "head_sha": "f" * 40}
+        self.jobs[run_id] = [{"id": run_id * 10, "run_id": run_id, "name": "plan", "status": "completed",
+                              "conclusion": "success", "run_attempt": 1},
+                             {"id": run_id * 10 + 1, "run_id": run_id, "name": f"check ({sha}) / check",
+                              "status": "completed", "conclusion": "success", "run_attempt": 1}]
+        lines = ["##[group].github/workflows/tools-tests.yml test: passing", "Ran 3 tests in 0.1s", "", "OK",
+                 "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
+                 "skipped 0, gh calls 0)"]
+        for step, printed in red.items():
+            lines += [f"##[group]{step}", *printed, "##[endgroup]",
+                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0)"]
+        lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
+                                                       "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
+        self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
+
+    def json(self, route, *, paginate=False, per_page=100):
+        self.routes.append(route)
+        for sha, statuses in self.statuses.items():
+            if route == f"repos/{self.REPO}/commits/{sha}/status?per_page=100":
+                return {"statuses": copy.deepcopy(statuses)}
+        if route.startswith(f"repos/{self.REPO}/commits/") and route.endswith("/status?per_page=100"):
+            return {"statuses": []}
+        for run_id in self.runs:
+            if route == f"repos/{self.HOST}/actions/runs/{run_id}":
+                return copy.deepcopy(self.runs[run_id])
+            if route == f"repos/{self.HOST}/actions/runs/{run_id}/jobs?filter=all&per_page=100":
+                return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
+        if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
+            return [{"sha": sha} for sha in self.base_commits]
+        if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
+            return {"merge_base_commit": {"sha": self.MERGE_BASE}}
+        if route.startswith(f"repos/{self.REPO}/compare/{self.MERGE_BASE}..."):
+            return {"status": "ahead"}
+        raise AssertionError(f"unexpected route {route}")
+
+    def log(self, repo, job):
+        assert repo == self.HOST, repo
+        return self.logs[job["id"]]
+
+
+class WsCheckPerTest(unittest.TestCase):
+    """2026-11-05: a leo-workspace head's red ws-check status read "no failed job found on the head to compare with
+    the base" (teamleaderleo/leo-workspace#3434 at 790205f3), so no leo-workspace red could be excused. It is judged
+    per test against main's ws-check now (WS_CHECK)."""
+    RELAY = ".github/workflows/leo-relay-lint.yml lint: no untagged calls for Leo in briefs, lanes and the rulebook"
+    DEPLOY = ".github/workflows/tools-tests.yml test: ws-deploy and ws_tree_lock"
+    ROOT = "/home/runner/_work/cmuxterm-hq/cmuxterm-hq/"
+    VIOLATION = ROOT + "machines/claude-rulebook.md:185: - Classic is frozen."
+
+    def relay_lint(self, *violations, root=None):
+        return ["3 line(s) violate the relay rules.",
+                *((root or self.ROOT) + v.removeprefix(self.ROOT) for v in violations or (self.VIOLATION,))]
+
+    def ws_deploy(self, *tests):
+        printed = []
+        for test in tests:
+            printed += ["=" * 70, f"ERROR: {test} (__main__.FastForward.{test})", "-" * 70,
+                        "Traceback (most recent call last):", "subprocess.CalledProcessError: exit status 128."]
+        return printed + ["-" * 70, "Ran 77 tests in 41.360s", "", f"FAILED (errors={len(tests)})"]
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+
+    def judge(self, **kwargs):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh, **kwargs)
+
+    def test_a_lint_red_on_main_too_is_excused(self):
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"excused 'ws-check' step '{self.RELAY}' (no test names: its output): its 2 line(s) are red on "
+                      f"main {self.gh.TIP[:12]} too", audit)
+        # Named as a check, the same.
+        self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_test_failing_on_main_too_is_excused_by_name(self):
+        red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: test_units_that_never_let_go "
+                      f"(__main__.FastForward.test_units_that_never_let_go)': red on main {self.gh.TIP[:12]} too "
+                      f"(https://github.com/{self.gh.HOST}/actions/runs/2)", audit)
+
+    def test_a_test_main_does_not_fail_is_not_excused_and_named(self):
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_ws_deploy")})
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        said = str(caught.exception)
+        self.assertIn("1 failure(s) not on main", said)
+        self.assertIn(f"not excused 'ws-check' test '{self.DEPLOY} :: test_ws_deploy (__main__.FastForward."
+                      "test_ws_deploy)': not red on main", said)
+        self.assertIn(f"excused 'ws-check' step '{self.RELAY}'", said)
+
+    def test_another_test_of_a_step_red_on_main_is_not_excused(self):
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a", "test_b")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_new_lint_violation_in_a_step_red_on_main_is_not_excused(self):
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(self.VIOLATION, self.ROOT + "briefs/new.md:3: call")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 of 3 line\(s\) not on main .*briefs/new\.md:#: call"):
+            self.judge()
+
+    def test_the_same_lint_violation_at_another_line_and_checkout_root_is_excused(self):
+        moved = self.VIOLATION.replace(":185:", ":190:")
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint(moved, root="/home/runner/_work/_temp/lw/")})
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_an_unreadable_head_status_is_not_excused(self):
+        # A failure whose description names no failed steps (fleet rule lints, no tests ran, a missing result).
+        self.gh.statuses[HEAD][0]["description"] = "fleet rule lints: tools/x.py: names a host"
+        with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.logs[11] = self.gh.logs[11].replace("WS_CHECK_RESULT=", "WS_CHECK_RESULT=not json ")
+        with self.assertRaisesRegex(excuse.Refused, "no WS_CHECK_RESULT line listing its failed steps"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.statuses[HEAD][0]["target_url"] = "https://example.com/run/1"
+        with self.assertRaisesRegex(excuse.Refused, "not a manaflow-ai/cmuxterm-hq Actions run"):
+            self.judge()
+
+    def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
+        red = {self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, red)
+        red = {self.DEPLOY: self.ws_deploy("test_a")[:-1] + ["FAILED (failures=1, errors=1)"]}
+        self.gh.verdict(HEAD, 1, red)
+        with self.assertRaisesRegex(excuse.Refused, "summaries count 2; its failing tests cannot be listed"):
+            self.judge()
+
+    def test_an_unreadable_main_verdict_is_not_excused(self):
+        self.gh.logs[21] = self.gh.logs[21].replace(f"ws-check step FAILED: {self.RELAY}", "ws-check step ok: x")
+        with self.assertRaisesRegex(excuse.Refused, f"'ws-check' on {self.gh.TIP}: .*has no 'ws-check step FAILED"):
+            self.judge()
+
+    def test_main_green_head_red_is_not_excused(self):
+        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
+        self.assertIn(f"not excused 'ws-check' step '{self.RELAY}' (no test names): passes on main",
+                      str(caught.exception))
+        self.assertIn("fixed on main; merge main", str(caught.exception))
+
+    def test_main_green_before_the_merge_base_waits_for_a_newer_verdict(self):
+        self.gh.statuses.pop(self.gh.TIP)
+        self.gh.base_commits = [self.gh.TIP, self.gh.MERGE_BASE, self.gh.OLDER]
+        self.gh.verdict(self.gh.OLDER, 3, {}, state="success")
+        original = self.gh.json
+
+        def json(route, **kwargs):
+            if route == f"repos/{self.gh.REPO}/compare/{self.gh.MERGE_BASE}...{self.gh.OLDER}?per_page=1":
+                return {"status": "behind"}
+            return original(route, **kwargs)
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "is before the merge-base"):
+            self.judge()
+
+    def test_a_green_head_exits_0(self):
+        # 2026-11-05: a green leo-workspace head read "'ws-check' passed: nothing red to excuse" and exited 1, so a
+        # merge check asking about a green head was refused. No failure is exit 0.
+        self.gh.verdict(HEAD, 1, {}, state="success", description="12 steps passed")
+        audit = self.judge()
+        self.assertEqual(audit, [f"'ws-check' passed on {HEAD}: no failure to excuse"])
+        self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_pending_or_error_head_is_no_result(self):
+        for state in ("pending", "error"):
+            self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, state=state, description="running")
+            with self.assertRaisesRegex(excuse.Refused, f"'ws-check' has no result on {HEAD}: ws-check is {state}"):
+                self.judge()
+        self.gh.statuses.pop(HEAD)
+        with self.assertRaisesRegex(excuse.Refused, "has no result on .*: no ws-check status"):
+            self.judge()
+
+    def test_a_job_whose_last_attempt_never_ran_is_no_result(self):
+        self.gh.jobs[1][1]["conclusion"] = "startup_failure"
+        with self.assertRaisesRegex(excuse.Refused, "has no result .*is completed/startup_failure"):
+            self.judge()
+
+    def test_a_crash_after_a_whole_test_summary_is_not_excused(self):
+        red = {self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, red)
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a") + ["Segmentation fault (core dumped)"]})
+        with self.assertRaisesRegex(excuse.Refused, "crashed .Segmentation fault"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.logs[11] = self.gh.logs[11].replace("(exit 1, ran 4", "(exit 139, ran 4")
+        with self.assertRaisesRegex(excuse.Refused, "exited 139 .a signal."):
+            self.judge()
+
+    def test_a_main_job_with_no_verdict_is_skipped(self):
+        self.gh.jobs[2][1]["conclusion"] = "startup_failure"
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        self.assertIn(f"newest main verdict main {self.gh.OLDER[:12]}", self.judge()[0])
+
+    def test_main_commits_with_no_result_are_skipped_and_an_older_red_verdict_counts(self):
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, state="pending", description="running")
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        self.assertIn(f"newest main verdict main {self.gh.OLDER[:12]}", self.judge()[0])
+
+    def test_a_test_red_on_an_older_main_verdict_within_the_window_counts(self):
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_flaky")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_other")})
+        self.gh.verdict(self.gh.OLDER, 3, {self.DEPLOY: self.ws_deploy("test_flaky")})
+        self.assertIn(f"red on main {self.gh.OLDER[:12]} too", "\n".join(self.judge()))
+        # Never past a pass.
+        self.gh.base_commits = [self.gh.TIP, self.gh.MERGE_BASE, self.gh.OLDER]
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {}, state="success")
+        with self.assertRaisesRegex(excuse.Refused, "test_flaky"):
+            self.judge()
+
+    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
+        snapshot = "9" * 40
+        for sha, run_id in ((HEAD, 1), (self.gh.TIP, 2)):
+            self.gh.runs[run_id]["display_title"] = f"Fast checks {snapshot}"
+            self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][1], name="checks", conclusion="failure")]
+            self.gh.logs[run_id * 10 + 1] = (self.gh.logs[run_id * 10 + 1].replace(sha, snapshot)
+                                             + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
+                                             + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
+        self.assertIn("every failure", self.judge()[0])
+        # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
+        self.assertIn("every failure", self.judge()[0])
+        self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
+        with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def test_a_cmux_red_is_still_judged_by_its_actions_job(self):
+        gh = FakeGitHub()
+        audit = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+        self.assertEqual(len(audit), 1)
+        self.assertTrue(audit[0].startswith(f"excused '{SWIFT}'"), audit[0])
+        # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
+
 
 if __name__ == "__main__":
     unittest.main()

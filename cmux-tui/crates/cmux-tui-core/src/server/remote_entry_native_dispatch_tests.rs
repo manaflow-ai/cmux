@@ -270,7 +270,11 @@ fn native_owner_takes_the_apps_connect_commands() {
     entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
-    let reply = call(&mut stream, &mut reader, json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}));
+    let reply = call(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}),
+    );
     assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
     assert_eq!(reply["ok"], json!(true), "{reply}");
 }

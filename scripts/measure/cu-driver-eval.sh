@@ -95,7 +95,48 @@ for name in ${names[@]+"${names[@]}"}; do
       continue
     fi
     tar -xzf "$file" -C "$dir"
-    binary="$dir/$asset/cmux-cua"
+    # cmux runs it as its helper app, and the binary refuses `serve` from anywhere but
+    # ".../cmux Computer Use.app/Contents/MacOS/cmux-cua": lay it out as scripts/build-cmux-cua.sh
+    # assembles that bundle (id, owner marker, environment, ad-hoc signature with an identifier
+    # requirement), without the icon and strings, which change nothing here.
+    helper="$dir/cmux Computer Use.app"
+    mkdir -p "$helper/Contents/MacOS" "$helper/Contents/Resources"
+    mv "$dir/$asset/cmux-cua" "$helper/Contents/MacOS/cmux-cua"
+    owner_file=$(sed -n 's/^CMUX_CUA_HELPER_OWNER_FILE="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh")
+    sed -n 's/^CMUX_CUA_HELPER_OWNER_VALUE="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh" >"$helper/Contents/Resources/${owner_file:-.cmux-cua-managed-helper}"
+    # Read, not run: the script hashes cmux's patches before it parses arguments, and the VM's copy
+    # of the tree has none.
+    helper_id=$(sed -n '/^helper_bundle_id_for_host()/,/^}/s/^ *echo "\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh" | head -1)
+    [[ "$helper_id" =~ ^[A-Za-z0-9.-]+$ ]] || {
+      echo "CU-DRIVER-EVAL-ERROR $name: no helper id in build-cmux-cua.sh; using com.cmuxterm.cua" | tee -a "$out/input-ab/download-errors.txt"
+      helper_id=com.cmuxterm.cua
+    }
+    cat >"$helper/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>cmux Computer Use</string>
+  <key>CFBundleDisplayName</key><string>cmux Computer Use</string>
+  <key>CFBundleIdentifier</key><string>$helper_id</string>
+  <key>CFBundleExecutable</key><string>cmux-cua</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSEnvironment</key><dict>
+    <key>CMUX_CUA_PERMISSIONS_GATE</key><string>0</string>
+    <key>CMUX_CUA_EXTERNAL_PERMISSION_FLOW</key><string>1</string>
+    <key>CMUX_CUA_TELEMETRY_ENABLED</key><string>false</string>
+    <key>CMUX_CUA_UPDATE_CHECK</key><string>false</string>
+  </dict>
+</dict></plist>
+PLIST
+    codesign --force --sign - --timestamp=none --identifier "$helper_id" \
+      --requirements "=designated => identifier \"$helper_id\"" "$helper" >/dev/null 2>&1 ||
+      echo "CU-DRIVER-EVAL-ERROR $name: could not sign the helper bundle" | tee -a "$out/input-ab/download-errors.txt"
+    binary="$helper/Contents/MacOS/cmux-cua"
     label="cmux-cua-$version"
   else
     url=$(pin drivers "$name" url 2>/dev/null) && sum=$(pin drivers "$name" sha256) && inner=$(pin drivers "$name" binary) || {
@@ -110,8 +151,9 @@ for name in ${names[@]+"${names[@]}"}; do
     binary="$dir/$inner"
     label="$name"
   fi
-  # An unsigned arm64 binary does not run; an ad-hoc signature is enough for a step process.
-  codesign -v "$binary" 2>/dev/null || codesign -s - -f "$binary" >/dev/null 2>&1
+  # An unsigned arm64 binary does not run; an ad-hoc signature is enough for a step process. The
+  # helper bundle carries its own, which signing its executable alone would break.
+  [[ "$name" == cmux-cua ]] || codesign -v "$binary" 2>/dev/null || codesign -s - -f "$binary" >/dev/null 2>&1
   driver_args+=(--driver "$label=$binary")
   driver_bins+=("$binary")
 done
@@ -129,7 +171,11 @@ fi
 if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]]; then
   echo "CU-DRIVER-EVAL-STAGE grant"
   $CU_DRIVER_EVAL_GRANT "$work/bin/cu-eval-inject" "$work/bin/cu-eval-app" \
-    "$(python3 -I -c 'import os, sys; print(os.path.realpath(sys.executable))')" ${driver_bins[@]+"${driver_bins[@]}"} ||
+    $(python3 -I -c 'import os, sys
+# A framework build re-execs into Python.app, so that binary is the one running; grant both.
+exe = os.path.realpath(sys.executable)
+app = os.path.join(sys.base_prefix, "Resources/Python.app/Contents/MacOS/Python")
+print(exe, *([app] if os.path.exists(app) else []))') ${driver_bins[@]+"${driver_bins[@]}"} ||
     echo "CU-DRIVER-EVAL-ERROR the grant command exited $?"
 fi
 grants=$("$work/bin/cu-eval-inject" grants)
@@ -137,6 +183,7 @@ echo "CU-DRIVER-EVAL-GRANTS $grants"
 # Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
 # measured zero instead of a blocked run.
 if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
+  [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
 fi

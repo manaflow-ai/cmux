@@ -8,19 +8,17 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// A person's divider drag keeps each terminal's text where it is until the drag lands (RESIZE VIDEOS A3, film
-/// col-drag-fast frames 124-131: the left column's text wrapped again on every drag frame). The PTY already resizes
-/// once per drag (#31613), but the surface took the pane's size on every drag event and drew its grid reflowed to it
-/// (Ghostty's reflow preview), so the wrap point moved in every frame. Through the drag the surface now keeps its
-/// size (clipped where the pane is narrower, the terminal background beside it where wider), as a Chromium page
-/// keeps its size through a drag; when the drag lands it takes the pane's size and reflows once.
+/// cmux-ad m14/m18 (the drag hold `terminalDrag.holdSurface` is off by default since cmux-ad m19, 2026-11-05): in each
+/// frame of a divider drag each terminal's surface takes its pane's size, so Ghostty's reflow preview re-wraps its text
+/// at that size; its PTY still resizes once, when the drag lands (`DividerDragTerminalResizeCountTests`). Before m19 the
+/// hold kept each surface at its drag-start size until the drag landed (RESIZE VIDEOS A3).
 /// Real terminal sessions behind the app's ResizeCoordinator (`SplitTerminalResizeCountTests`); the test is the clock.
 @MainActor
 @Suite(.closesItsWindows)
 struct DividerDragTerminalSteadyTests {
     typealias Harness = SplitTerminalResizeCountTests
 
-    @Test func aDividerDragKeepsEachTerminalsSurfaceSizeUntilItLands() async throws {
+    @Test func aDividerDragGivesEachTerminalsSurfaceItsPanesSizeInEveryFrame() async throws {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
@@ -43,7 +41,8 @@ struct DividerDragTerminalSteadyTests {
         }
         let hostWidth = try #require(left.superview?.bounds.width)
         #expect(hostWidth < before.width - 100, "the drag narrowed p1's pane (\(before.width) -> \(hostWidth))")
-        #expect(sizes == [before.width], "p1's surface took \(sizes.count) widths during the drag: \(sizes.sorted())")
+        #expect(sizes.count >= 25, "p1's surface took \(sizes.count) widths in 30 drag steps: the drag holds it (\(sizes.sorted()))")
+        #expect(abs(left.bounds.width - hostWidth) < 40, "p1's surface follows its pane in the drag (\(left.bounds.width) in \(hostWidth))")
 
         view.handleDrag(kind: .split("r"), event: .ended(CGPoint(x: start.x - 240, y: start.y), []))
         screen.root.syncWithModel()
@@ -53,12 +52,11 @@ struct DividerDragTerminalSteadyTests {
         await screen.drain()
         let after = try #require(left.superview?.bounds.width)
         #expect(abs(left.bounds.width - after) < 40, "after the drag landed p1's surface fits its pane again (\(left.bounds.width) vs \(after))")
-        #expect(left.bounds.width < before.width - 100, "the surface reflowed to the narrower pane once the drag landed")
+        #expect(left.bounds.width < before.width - 100, "the surface keeps the narrower pane's size after the drag landed")
     }
 
-    /// A surface swapped in mid-drag (a replay puts a fresh surface in the host, `TerminalSession.swapSurface`): the
-    /// old surface's drag hold goes with it, so the fresh surface takes its pane's size, not the drag start's (review of
-    /// the drag hold: the old surface's window-leave ran after it had left the host, and the hold stayed for good).
+    /// A surface swapped in mid-drag (a replay puts a fresh surface in the host, `TerminalSession.swapSurface`) takes its
+    /// pane's size, not the drag start's.
     @Test func aSurfaceSwappedInMidDragTakesItsPanesSize() async throws {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
@@ -79,7 +77,8 @@ struct DividerDragTerminalSteadyTests {
             screen.root.syncWithModel()
             await screen.step()
         }
-        #expect(session.surfaceView.bounds.width == before.width, "the drag holds p1's surface at its drag-start size")
+        #expect(session.surfaceView.bounds.width < before.width - 100,
+                "p1's surface follows its narrower pane in the drag (\(session.surfaceView.bounds.width) pt, \(before.width) at the start)")
 
         let (_, continuation) = AsyncStream<TerminalOutgoing>.makeStream()
         defer { continuation.finish() }

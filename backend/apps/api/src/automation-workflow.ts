@@ -7,6 +7,7 @@ import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import { UNATTRIBUTED_USER } from "./usage-user.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
+import { platformCloud } from "./platform-cloud.ts"
 
 /**
  * One automation run (decision D13: the Workflow owns the run: steps, sleeps,
@@ -126,7 +127,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
 
 /** The run team's CloudDO as the machine port (automationExec). */
 const machineExecFor = (env: Env, team: string, user: string | null): MachineExec => {
-  const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as { automationExec(e: string, u: string | null, m: string, c: string, s: Uint8Array | null, t: number): ReturnType<MachineExec["exec"]> }
+  const stub = platformCloud(env.CLOUD_DO, team)
   return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
 }
 
