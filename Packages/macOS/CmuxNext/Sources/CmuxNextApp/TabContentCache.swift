@@ -360,7 +360,7 @@ final class TabContentCache {
         Task {
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
-            installReplacement(page, for: key)
+            install(page, for: key)
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
         }
@@ -462,7 +462,7 @@ final class TabContentCache {
         let key = tab.id
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        _ = tracked(installReplacement(page, for: key), tab)
+        _ = tracked(install(page, for: key), tab)
         onBrowserReady?(key)
     }
 
@@ -474,7 +474,7 @@ final class TabContentCache {
     func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        installReplacement(page, for: key)
+        install(page, for: key)
         if let asleep { browsers[key]?.state.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)

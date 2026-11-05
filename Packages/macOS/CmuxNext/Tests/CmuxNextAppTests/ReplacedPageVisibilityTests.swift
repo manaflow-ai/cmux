@@ -73,4 +73,42 @@ import Testing
         rig.services.cache.swapPage(key, with: woken)
         #expect(woken.isContentHidden, "the swapped-in page draws under the tab on screen")
     }
+
+    /// A restored tab that waits for the user (`deferred`): a deferred page started in a hidden tab
+    /// (`startDeferred`, e.g. an agent's page asked for while its tab is not on screen) is hidden.
+    @Test func aDeferredPageStartedInAHiddenTabIsHidden() throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let started = try startedDeferredPage(rig, surface: 4, hidden: true)
+        #expect(started.isContentHidden, "the started page draws under the tab on screen")
+    }
+
+    @Test func aDeferredPageStartedInAShownTabShows() throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let started = try startedDeferredPage(rig, surface: 5, hidden: false)
+        #expect(!started.isContentHidden)
+    }
+
+    /// A deferred Chromium tab on `surface`, shown in the rig's pane (then hidden when `hidden`), whose
+    /// page is started: the started page is the one returned.
+    private func startedDeferredPage(_ rig: HiddenPageHibernationTests.Rig, surface: UInt64, hidden: Bool) throws -> MockBrowserTab {
+        let cache = rig.services.cache
+        let url = URL(string: "https://claude.ai/oauth")
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .browser, url: url?.absoluteString,
+                                       browserRenderer: "frontend", browserEngine: "cef"))
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        _ = cache.deferred(tab, url: url)
+        cache.present(tab.id, by: rig.pane, presence: .visible)
+        try #require(cache.phase(of: tab.id) == .mountedVisible)
+        if hidden {
+            cache.withdraw(tab.id, by: rig.pane)
+            try #require(cache.phase(of: tab.id) == .mountedHidden)
+        }
+        let started = page()
+        cache.pageRequests.adopt(started, surface: tab.surface)
+        cache.startDeferred(tab.id, url: nil)
+        try #require(cache.existingBrowser(tab.id)?.tab === started, "the started page is the tab's")
+        return started
+    }
 }

@@ -186,7 +186,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === shown() && shown().stripModel.selectedID?.rawValue == opened },
                                             report: { Self.describe(content, opened) })
             agentPlaced(agents.surface)
-            try await PinnedPageTests.until({ shown().pendingSelectSurface == nil && right.pendingSelectSurface == nil })
+            try await PinnedPageTests.until({ shown().pendingSelect.surface == nil && right.pendingSelect.surface == nil })
             #expect(content.focusedPane === shown(), "the agent's open took the focus from the clicked link")
             #expect(shown().stripModel.selectedID?.rawValue == opened, "the agent's tab replaced the clicked link's tab: \(Self.describe(content, opened))")
         }

@@ -1325,6 +1325,7 @@ function Columns({
         <AddAccountDialog
           add={addAccount}
           family={adding.family}
+          existing={accounts.list?.ids ?? (accounts.list?.accounts ?? []).map((choice) => choice.id)}
           {...(adding.apiKey ? { kinds: ["direct-api-key" as const] } : {})}
           onClose={() => setAddingAccount(false)}
           onAdded={() => {

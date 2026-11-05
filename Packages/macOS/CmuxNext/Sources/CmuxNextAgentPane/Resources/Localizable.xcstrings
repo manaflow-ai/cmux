@@ -3151,127 +3151,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "احتفظ %@ بإصداره السابق"
+            "value": "لا يزال %@ على إصداره السابق"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ je zadržao prethodni build"
+            "value": "%@ je i dalje na prethodnoj verziji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ beholdt sin tidligere build"
+            "value": "%@ kører stadig sin tidligere version"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ behält seinen vorherigen Build"
+            "value": "%@ ist noch auf der vorherigen Version"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ kept its previous build"
+            "value": "%@ is still on its previous version"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ conservó su compilación anterior"
+            "value": "%@ sigue en su versión anterior"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ a conservé sa version précédente"
+            "value": "%@ est toujours sur sa version précédente"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ha mantenuto la build precedente"
+            "value": "%@ è ancora alla versione precedente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ は以前のビルドのままです"
+            "value": "%@ は以前のバージョンのままです"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ បានរក្សាកំណែមុនរបស់វា"
+            "value": "%@ នៅតែប្រើកំណែមុនរបស់វា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@은(는) 이전 빌드를 유지했습니다"
+            "value": "%@은(는) 아직 이전 버전입니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ beholdt det forrige bygget"
+            "value": "%@ er fortsatt på den forrige versjonen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ zachował poprzednią kompilację"
+            "value": "%@ nadal ma poprzednią wersję"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ manteve a versão anterior"
+            "value": "%@ continua na versão anterior"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ остался на прежней сборке"
+            "value": "%@ всё ещё на прежней версии"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ยังใช้บิลด์ก่อนหน้า"
+            "value": "%@ ยังใช้เวอร์ชันก่อนหน้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ önceki derlemesinde kaldı"
+            "value": "%@ hâlâ önceki sürümünde"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ залишився на попередній збірці"
+            "value": "%@ досі на попередній версії"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ vẫn giữ bản dựng trước"
+            "value": "%@ vẫn ở phiên bản trước"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 保留了之前的版本"
+            "value": "%@ 仍是之前的版本"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 保留了先前的版本"
+            "value": "%@ 仍是先前的版本"
           }
         }
       }
@@ -3675,127 +3675,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "احتفظ %1$@ بإصداره السابق: %2$@"
+            "value": "لا يزال %1$@ على إصداره السابق: %2$@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ je zadržao prethodni build: %2$@"
+            "value": "%1$@ je i dalje na prethodnoj verziji: %2$@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ beholdt sin tidligere build: %2$@"
+            "value": "%1$@ kører stadig sin tidligere version: %2$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ behält seinen vorherigen Build: %2$@"
+            "value": "%1$@ ist noch auf der vorherigen Version: %2$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kept its previous build: %2$@"
+            "value": "%1$@ is still on its previous version: %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ conservó su compilación anterior: %2$@"
+            "value": "%1$@ sigue en su versión anterior: %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ a conservé sa version précédente : %2$@"
+            "value": "%1$@ est toujours sur sa version précédente : %2$@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ha mantenuto la build precedente: %2$@"
+            "value": "%1$@ è ancora alla versione precedente: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ は以前のビルドのままです: %2$@"
+            "value": "%1$@ は以前のバージョンのままです: %2$@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ បានរក្សាកំណែមុនរបស់វា៖ %2$@"
+            "value": "%1$@ នៅតែប្រើកំណែមុនរបស់វា៖ %2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@은(는) 이전 빌드를 유지했습니다: %2$@"
+            "value": "%1$@은(는) 아직 이전 버전입니다: %2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ beholdt det forrige bygget: %2$@"
+            "value": "%1$@ er fortsatt på den forrige versjonen: %2$@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ zachował poprzednią kompilację: %2$@"
+            "value": "%1$@ nadal ma poprzednią wersję: %2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ manteve a versão anterior: %2$@"
+            "value": "%1$@ continua na versão anterior: %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ остался на прежней сборке: %2$@"
+            "value": "%1$@ всё ещё на прежней версии: %2$@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ยังใช้บิลด์ก่อนหน้า: %2$@"
+            "value": "%1$@ ยังใช้เวอร์ชันก่อนหน้า: %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ önceki derlemesinde kaldı: %2$@"
+            "value": "%1$@ hâlâ önceki sürümünde: %2$@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ залишився на попередній збірці: %2$@"
+            "value": "%1$@ досі на попередній версії: %2$@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ vẫn giữ bản dựng trước: %2$@"
+            "value": "%1$@ vẫn ở phiên bản trước: %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 保留了之前的版本：%2$@"
+            "value": "%1$@ 仍是之前的版本：%2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 保留了先前的版本：%2$@"
+            "value": "%1$@ 仍是先前的版本：%2$@"
           }
         }
       }
@@ -3812,31 +3812,31 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ažuriranje na build ovog Maca…"
+            "value": "Ažuriranje na verziju ovog Maca…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdaterer til denne Macs build…"
+            "value": "Opdaterer til denne Macs version…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wird auf den Build dieses Macs aktualisiert …"
+            "value": "Wird auf die Version dieses Macs aktualisiert …"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updating to this Mac's build…"
+            "value": "Updating to this Mac's version…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizando a la compilación de este Mac…"
+            "value": "Actualizando a la versión de este Mac…"
           }
         },
         "fr": {
@@ -3848,13 +3848,13 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiornamento alla build di questo Mac…"
+            "value": "Aggiornamento alla versione di questo Mac…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのビルドに更新しています…"
+            "value": "この Mac のバージョンに更新しています…"
           }
         },
         "km": {
@@ -3866,19 +3866,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 빌드로 업데이트하는 중…"
+            "value": "이 Mac의 버전으로 업데이트하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oppdaterer til denne Mac-ens bygg …"
+            "value": "Oppdaterer til denne Mac-ens versjon …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktualizowanie do kompilacji tego Maca…"
+            "value": "Aktualizowanie do wersji tego Maca…"
           }
         },
         "pt-BR": {
@@ -3890,31 +3890,31 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Обновление до сборки этого Mac…"
+            "value": "Обновление до версии этого Mac…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กำลังอัปเดตเป็นบิลด์ของ Mac เครื่องนี้…"
+            "value": "กำลังอัปเดตเป็นเวอร์ชันของ Mac เครื่องนี้…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'in derlemesine güncelleniyor…"
+            "value": "Bu Mac'in sürümüne güncelleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Оновлення до збірки цього Mac…"
+            "value": "Оновлення до версії цього Mac…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đang cập nhật lên bản dựng của máy Mac này…"
+            "value": "Đang cập nhật lên phiên bản của máy Mac này…"
           }
         },
         "zh-Hans": {

@@ -223,7 +223,18 @@ def evaluate(expression: str, values: dict[str, str]) -> bool:
         assert left in values, f"no value for {left}"
         return str((values[left] == right) == (op == "=="))
     expression = expression.replace("!cancelled()", "True")
-    expression = re.sub(r"(needs\.publish-nightly\.outputs\.build) == (needs\.legacy-identity-target\.outputs\.build)",
+    # The decision of whichever job signed (the main job's copy when legacy_ran, else legacy-identity-target);
+    # without a main-job value the case reads the target's.
+    def target(match: re.Match[str]) -> str:
+        field = match.group(1)
+        ran = values.get("needs.build-sign-notarize-nightly.outputs.legacy_ran") == "true"
+        name = f"needs.build-sign-notarize-nightly.outputs.legacy_target_{field}"
+        return name if ran and name in values else f"needs.legacy-identity-target.outputs.{field}"
+    expression = re.sub(r"\(needs\.build-sign-notarize-nightly\.outputs\.legacy_ran == 'true' && "
+                        r"needs\.build-sign-notarize-nightly\.outputs\.legacy_target_([a-z_]+) \|\| "
+                        r"needs\.legacy-identity-target\.outputs\.\1\)", target, expression)
+    expression = re.sub(r"(needs\.publish-nightly\.outputs\.build) == "
+                        r"(needs\.(legacy-identity-target|build-sign-notarize-nightly)\.outputs\.(legacy_target_)?build)",
                         lambda _: str(values["same_build"] == "true"), expression)
     expression = re.sub(r"([a-z][\w.-]*) (==|!=) ('[^']*')", term, expression)
     return eval(expression.replace("&&", " and ").replace("||", " or "), {})  # noqa: S307 - only True/False remain
@@ -279,38 +290,49 @@ def test_the_old_feed_is_signed_in_the_same_job_as_cmux_next():
     steps = main[main.index(FOLDED):main.index("\n      - name: Cleanup keychain\n")]
     assert main.index("        id: notarize-nightly\n") < main.index(FOLDED), "the copy runs after cmux NEXT's DMG is final"
     blocks = steps.split("\n      - name: ")
-    assert len(blocks) == 16, len(blocks)
+    assert len(blocks) == 17, len(blocks)
     for block in blocks:
-        # A failed or slow copy never fails or times out cmux NEXT's job.
+        # A failed or slow copy never fails or times out cmux NEXT's job: an upload too has its own timeout, or a
+        # stalled one runs into the job's (the #35994 review).
         assert "\n        continue-on-error: true\n" in block, block[:80]
-        assert "\n        timeout-minutes: " in block or "uses: actions/upload-artifact@" in block, block[:80]
+        assert "\n        timeout-minutes: " in block, block[:80]
+    # Apple's two waits end as pending well inside the notarize step, so a slow Apple day never kills it.
+    notarize = next(block for block in blocks if "\n        id: legacy-notarize\n" in block)
+    wait = int(re.search(r"\n          LEGACY_NOTARY_WAIT: (\d+)m\n", notarize).group(1))
+    cap = int(re.search(r"\n        timeout-minutes: (\d+)\n", notarize).group(1))
+    assert 2 * wait + 15 <= cap, (wait, cap)
     # The same scripts as the separate job for a new build of this run (no continue, no pending download).
     separate = job_block("sign-nightly-identity-legacy")
     raw_separate = re.search(r"\n  sign-nightly-identity-legacy:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
     used = set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", steps))
     assert used == set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", raw_separate)) - {
-        "legacy-identity-sign-download-pending.sh"}, used
+        "legacy-identity-sign-download-pending.sh"} | {"legacy-identity-compare-feeds.sh"}, used
     assert separate
     # Only this run's own new build, at this commit; everything else stays with the separate job.
     here = re.search(r"\n      LEGACY_HERE: \$\{\{ (.*) && 'true' \|\| 'false' \}\}\n", main).group(1)
+    order = re.search(r"\n        id: legacy-order\n        if: (.*)\n", main).group(1)
     base = {
         "needs.decide.outputs.track": "nightly-next", "matrix.variant": "arm64",
-        "needs.decide.outputs.environment": "release-next", "needs.legacy-identity-target.result": "success",
-        "needs.legacy-identity-target.outputs.action": "new", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
+        "needs.decide.outputs.environment": "release-next", "needs.decide.outputs.notary_probe": "false",
+        "needs.decide.outputs.build_only": "false", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
+        "steps.legacy-target.outcome": "success", "steps.legacy-target.outputs.decided": "true",
+        "steps.legacy-target.outputs.action": "new",
     }
     def run_here(**changes: str) -> bool:
         values = dict(base, **changes)
-        expression = here.replace("needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id)",
-                                  str(values.pop("own_run", "true") == "true"))
-        expression = expression.replace("needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
-                                         str(values.pop("own_build", "true") == "true"))
-        expression = expression.replace("needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha",
-                                        str(values.pop("own_commit", "true") == "true"))
-        return evaluate(expression, values)
+        expression = here.replace("needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha",
+                                  str(values.pop("own_commit", "true") == "true"))
+        decided = order.replace("steps.legacy-target.outputs.source_run == format('{0}', github.run_id)",
+                                str(values.pop("own_run", "true") == "true"))
+        decided = decided.replace("steps.legacy-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
+                                  str(values.pop("own_build", "true") == "true"))
+        return evaluate(expression, values) and evaluate(decided, values)
     assert run_here()
     assert not run_here(own_run="false"), "another run's build (a recovered or source-less target)"
     assert not run_here(own_build="false") and not run_here(own_commit="false")
-    assert not run_here(**{"needs.legacy-identity-target.outputs.action": "continue"})
+    assert not run_here(**{"steps.legacy-target.outputs.action": "continue"})
+    assert not run_here(**{"steps.legacy-target.outcome": "failure"}), "a failed comparison leaves the copy to the separate job"
+    assert not run_here(**{"steps.legacy-target.outputs.decided": ""})
     assert not run_here(**{"needs.decide.outputs.track": "nightly"}) and not run_here(**{"matrix.variant": "x86_64"})
     assert not run_here(**{"vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"})
     # Whichever job signed, verify, publish and the report read its outputs.
@@ -325,8 +347,42 @@ def test_the_old_feed_is_signed_in_the_same_job_as_cmux_next():
                       f"needs.sign-nightly-identity-legacy.outputs.{field})")
             assert block.count(folded) == block.count(f"needs.sign-nightly-identity-legacy.outputs.{field}"), (job, field)
             assert f"legacy_{field}" in outputs, field
+        # legacy-identity-target's decision: the main job's own when it signed (legacy_ran).
+        for field in re.findall(r"needs\.legacy-identity-target\.outputs\.([a-z0-9_]+)", block):
+            if field in ("pending_run", "bundle_run"):
+                # The main job copies only a new build: no pending submission to continue.
+                read = (f"needs.build-sign-notarize-nightly.outputs.legacy_ran != 'true' && "
+                        f"needs.legacy-identity-target.outputs.{field} || ''")
+            else:
+                read = (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+                        f"needs.build-sign-notarize-nightly.outputs.legacy_target_{field} || "
+                        f"needs.legacy-identity-target.outputs.{field})")
+                assert f"legacy_target_{field}" in outputs, field
+            assert block.count(read) == block.count(f"needs.legacy-identity-target.outputs.{field}"), (job, field)
     assert ("SIGN_RESULT: ${{ needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && 'success' || "
             "needs.sign-nightly-identity-legacy.result }}") in job_block("publish-nightly-identity-legacy")
+
+
+def test_cmux_next_never_waits_for_the_old_feeds_target_job():
+    # The Codex review of #35994 (P1, issue #36103): build-sign-notarize-nightly needed legacy-identity-target, whose
+    # feed and API reads may take its full 65 minutes, so a GitHub API outage held cmux NEXT's sign and publication
+    # for up to an hour. The copy now decides in its own first step, bounded by 10 minutes.
+    raw = (ROOT / ".github/workflows/nightly.yml").read_text()
+    main = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
+    needs = re.search(r"\n    needs: \[(.*)\]\n", main).group(1).split(", ")
+    assert "legacy-identity-target" not in needs, "cmux NEXT's sign waits for legacy-identity-target"
+    assert "needs.legacy-identity-target." not in main
+    first = main[main.index(FOLDED):].split("\n      - name: ")[0]
+    assert "\n        id: legacy-target\n" in first, "the copy's first step is not its own feed comparison"
+    minutes = int(re.search(r"\n        timeout-minutes: (\d+)\n", first).group(1))
+    assert minutes <= 10 and "\n        continue-on-error: true\n" in first, minutes
+    assert "bash scripts/ci/nightly-steps/legacy-identity-compare-feeds.sh" in first
+    # legacy-identity-target still records refusals on the failure issue and deletes refused pending artifacts.
+    assert '\n          LEGACY_TARGET_RECORD: "off"\n' in first
+    script = (ROOT / "scripts/ci/nightly-steps/legacy-identity-compare-feeds.sh").read_text()
+    assert 'if [ "$record" = on ] && [ "$action" = continue ]' in script
+    assert 'if [ "$record" = on ] && [ -n "$notes" ]; then' in script
+    assert "gh api -X DELETE" in script.split('if [ "$record" = on ] && [ "$action" = continue ]')[1].split("\ndone\n")[0]
 
 
 def main() -> int:
