@@ -40,19 +40,17 @@ extension ChatController {
         }
     }
 
+    /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``).
     private func presentPictures(_ gallery: HomePictureGallery, load: @escaping HomePictureViewer.Load) {
-        pictureViewer?.close()
-        let viewer = HomePictureViewer(frame: host.bounds, gallery: gallery, load: load)
-        viewer.onClose = { [weak self] in self?.focusCompose() }
-        viewer.onReply = { [weak self] url in
+        _ = HomePictureViewerMount(host: host).open(gallery, load: load, onClose: { [weak self] in
+            self?.focusCompose()
+        }, onReply: { [weak self] url in
             guard let self else { return }
             let board = HomePictureReply.pasteboard(for: url)
             // The intake reads the pasteboard before it returns (HomeAttachmentIntake.inputs).
             if self.intents?.takeAttachments(from: board) != true { NSSound.beep() }
             board.releaseGlobally()
-        }
-        host.addSubview(viewer, positioned: .above, relativeTo: nil)
-        window?.makeFirstResponder(viewer)
+        })
     }
 
     /// The full picture of `item`, decoded off the main thread: the local file, else the web picture (downloaded
