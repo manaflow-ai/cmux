@@ -50,7 +50,7 @@ cargo check --locked -p acpmux --features hot-modules 2>&1 | tail -3
 # `no-offer` one, which proves the daemon asked the module and not its native parser.
 run_login() { # MODULE
   ACPMUX_HOT_MODULE="$live_dir/acpmux_hot.wasm" cargo test --locked -p acpmux --features hot-modules \
-    --test agent_login 2>&1 | tee "$out/daemon-login-$1.log" | grep -E '^test |test result|acpmux-hot:'
+    --test agent_login -- --nocapture 2>&1 | tee "$out/daemon-login-$1.log" | grep -E '^test |test result|acpmux-hot:'
 }
 cp "$here/guest/target/good.wasm" "$live_dir/acpmux_hot.wasm"
 run_login good
