@@ -215,6 +215,7 @@ import {
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { noteTranscriptMount } from "./flickerLog";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
@@ -3206,6 +3207,8 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     transcriptMounted.current = true;
+    // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
+    noteTranscriptMount();
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();

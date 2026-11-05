@@ -268,6 +268,7 @@ public final class AgentPaneView: NSView {
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
+        AgentPageFlickerLog.watchWindows()
         if let page {
             attachPage(page)
         } else {
