@@ -399,7 +399,7 @@ pub fn rank(rows: &mut [Value]) {
             n(r, "lastActiveAt"),
         )
     };
-    rows.sort_by(|a, b| key(b).cmp(&key(a)));
+    rows.sort_by_key(|r| std::cmp::Reverse(key(r)));
 }
 
 /// The one-line text of an answer row: `lane-x (codex on big-red, lane/x, #123): edited
