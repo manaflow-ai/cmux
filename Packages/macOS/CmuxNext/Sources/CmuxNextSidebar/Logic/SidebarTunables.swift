@@ -319,6 +319,8 @@ public nonisolated enum SidebarTunables {
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
+            SidebarNoColorGroupLook.tunable.descriptor,
+            SidebarGroupGlass.tunable.descriptor,
             SidebarLeadingColumnLook.tunable.descriptor,
             SidebarInsertMotion.nudgeDistance.descriptor,
             SidebarInsertMotion.tunable.descriptor,
