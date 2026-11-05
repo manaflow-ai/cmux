@@ -75,7 +75,7 @@ enum DebugInstantCreateBench {
             services.linkOpener.placement = placement
         } else if command == .githubRight, let url = URL(string: params["url"]?.stringValue ?? ""), let pane = controller.content?.focusedPane {
             // As a chat's link card left it: the pull request already in the app's cache, so the page draws it at once.
-            if params["seed"]?.boolValue == true, let fixture = AgentPanePullRequest(ghView: Data(Self.githubFixture(url).utf8)) {
+            if params["seed"]?.boolValue == true, let fixture = AgentPanePullRequest(ghView: Data(GitHubPageProvider.benchFixture(url).utf8)) {
                 AgentReplyPullRequests.shared.seed(fixture, for: url)
             }
             let placement = services.linkOpener.placement
@@ -120,14 +120,6 @@ enum DebugInstantCreateBench {
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
-    }
-
-    /// `github_right`'s pull request as `gh pr view --json` prints one: a typical page of it (checks, files).
-    static func githubFixture(_ url: URL) -> String {
-        let number = Int(url.lastPathComponent) ?? 1
-        let checks = (1...12).map { #"{"__typename":"CheckRun","name":"check \#($0)","status":"COMPLETED","conclusion":"SUCCESS"}"# }
-        let files = (1...24).map { #"{"path":"Sources/Module/File\#($0).swift","additions":\#($0 * 3),"deletions":\#($0)}"# }
-        return #"{"url":"\#(url.absoluteString)","number":\#(number),"title":"Bench pull request","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeable":"MERGEABLE","statusCheckRollup":[\#(checks.joined(separator: ","))],"createdAt":"2026-11-04T18:00:00Z","updatedAt":"2026-11-05T02:40:00Z","mergedAt":"","additions":900,"deletions":300,"changedFiles":24,"files":[\#(files.joined(separator: ","))],"labels":[],"baseRefName":"feat-cmux-next","headRefName":"lane/bench","author":{"login":"bench"}}"#
     }
 
     /// What the window shows, read each frame.

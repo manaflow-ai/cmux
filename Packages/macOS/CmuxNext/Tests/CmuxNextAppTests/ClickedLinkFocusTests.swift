@@ -24,8 +24,9 @@ struct ClickedLinkFocusTests {
 
     /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
     /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
-    /// not the tab after it.
-    @Test func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain() async throws {
+    /// not the tab after it. `native`: the pull request link opens the GitHub page (``WebPageTab/openGitHub(_:from:services:)``)
+    /// instead of its web tab, with the same opener.
+    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain(native: Bool) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -41,7 +42,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane && pane.stripModel.selectedID?.rawValue == source })
 
             services.linkOpener.placement = { .samePane }
-            let opened = try await Self.click(services, from: pane)
+            let opened = try await Self.click(services, from: pane, native: native)
             try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == opened && content.focusedPane === pane },
                                             report: { Self.describe(content, opened) })
 
@@ -350,10 +351,14 @@ struct ClickedLinkFocusTests {
     }
 
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
-    private static func click(_ services: AppServices, from pane: PaneController) async throws -> String {
+    private static func click(_ services: AppServices, from pane: PaneController, native: Bool = false) async throws -> String {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-        services.linkOpener.openWeb(link, from: pane, background: false)
+        if native {
+            #expect(WebPageTab.openGitHub(link, from: pane, services: services) == true)
+        } else {
+            services.linkOpener.openWeb(link, from: pane, background: false)
+        }
         @MainActor func opened() -> String? {
             // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id

@@ -1,6 +1,8 @@
 /* The GitHub page: one pull request on the shared page backdrop (pageBase.css). States draw in
-   GitHub's colours, as on every other pull request surface (prStateColors.test.ts). */
-html[data-cmux-page="github"] {
+   GitHub's colours, as on every other pull request surface (prStateColors.test.ts). Also on the
+   page's own root, so the gallery, which mounts it in its own document, draws them too. */
+html[data-cmux-page="github"],
+.gh {
   --agent-muted: var(--page-text-2);
   --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
   --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));

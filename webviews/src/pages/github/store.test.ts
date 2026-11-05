@@ -120,3 +120,18 @@ test("Open on GitHub and View diff go to the host; a diff failure says the host'
   await store.openDiff();
   expect(store.getSnapshot().failure).toBe("The diff could not be read.");
 });
+
+test("a diff failure for the pull request the page has left is dropped", async () => {
+  const host = new Host();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  let reject: (error: unknown) => void = () => {};
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> =>
+    op === GitHubOps.openDiff ? new Promise<R>((_, fail) => (reject = fail)) : call<R>(op, params);
+  const opening = store.openDiff();
+  await store.route(route("https://github.com/example/app/pull/7"));
+  reject(pageError("cmux.github.diff_unavailable", "The diff could not be read."));
+  await opening;
+  expect(store.getSnapshot().failure).toBeUndefined();
+});

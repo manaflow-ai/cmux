@@ -91,11 +91,12 @@ export class GitHubStore {
     const target = this.snapshot.target;
     if (!target || !this.client) return;
     if (this.snapshot.failure) this.set({ ...this.snapshot, failure: undefined });
+    const generation = this.generation;
     try {
       await this.client.call(GitHubOps.openDiff, file ? { url: target.url, file } : { url: target.url });
     } catch (error) {
-      // A click the host did not count (no gesture) says nothing; a failed read says why.
-      if (isPageError(error) && error.code !== "cmux.github.gesture_required")
+      // A click the host did not count (no gesture) says nothing; a failed read says why, on its own pull request only.
+      if (generation === this.generation && isPageError(error) && error.code !== "cmux.github.gesture_required")
         this.set({ ...this.snapshot, failure: error.message });
     }
   }
