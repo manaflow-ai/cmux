@@ -235,36 +235,42 @@ final class TerminalClipboardRequests {
     /// text/plain representation. Every pointer is borrowed for the call.
     private static func complete(_ surface: ghostty_surface_t, text: String?, available: [String],
                                  state: UncheckedPointer, confirmed: Bool) {
-        let mime = strdup("text/plain")
-        let data = text.map { Array($0.utf8) } ?? []
-        let availablePointers: [UnsafePointer<CChar>?] = available.map { UnsafePointer(strdup($0)) }
-        defer {
-            free(mime)
-            availablePointers.forEach { free(UnsafeMutableRawPointer(mutating: $0)) }
-        }
-        data.withUnsafeBufferPointer { bytes in
-            bytes.withMemoryRebound(to: CChar.self) { chars in
-                var item = ghostty_clipboard_content_s(mime: mime, data: chars.baseAddress, len: chars.count)
-                availablePointers.withUnsafeBufferPointer { list in
-                    withUnsafePointer(to: &item) { itemPointer in
-                        var request = ghostty_clipboard_complete_s(
-                            contents: text == nil ? nil : itemPointer,
-                            contents_len: text == nil ? 0 : 1,
-                            available: list.baseAddress,
-                            available_len: list.count,
-                            confirmed: confirmed,
-                            remember: false)
-                        ghostty_surface_complete_clipboard_request(surface, &request, state.raw)
+        guard let raw = state.raw else { return }
+        // `withCString` lends each string's UTF-8 bytes (`utf8.count` of them)
+        // through a non-null pointer, which the struct needs even for no text.
+        let body = text ?? ""
+        withCStrings(available[...]) { availablePointers in
+            "text/plain".withCString { mime in
+                body.withCString { chars in
+                    var item = ghostty_clipboard_content_s(mime: mime, data: chars, len: body.utf8.count)
+                    availablePointers.withUnsafeBufferPointer { list in
+                        withUnsafePointer(to: &item) { itemPointer in
+                            var request = ghostty_clipboard_complete_s(
+                                contents: text == nil ? nil : itemPointer,
+                                contents_len: text == nil ? 0 : 1,
+                                available: list.baseAddress,
+                                available_len: list.count,
+                                confirmed: confirmed,
+                                remember: false)
+                            ghostty_surface_complete_clipboard_request(surface, &request, raw)
+                        }
                     }
                 }
             }
         }
     }
 
+    /// Runs `body` with a C string for each of `strings`, all valid for the call.
+    private static func withCStrings(_ strings: ArraySlice<String>, _ pointers: [UnsafePointer<CChar>] = [],
+                                     _ body: ([UnsafePointer<CChar>]) -> Void) {
+        guard let first = strings.first else { return body(pointers) }
+        first.withCString { withCStrings(strings.dropFirst(), pointers + [$0], body) }
+    }
+
     /// The text of one clipboard representation (binary-safe, with a length,
     /// not NUL-terminated).
     nonisolated static func string(_ item: ghostty_clipboard_content_s) -> String {
-        guard let data = item.data, item.len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: data, count: item.len), as: UTF8.self)
+        guard item.len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: item.data, count: item.len), as: UTF8.self)
     }
 }

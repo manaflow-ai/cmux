@@ -18,6 +18,15 @@ nonisolated enum ArchiveStrings {
     static var groupSortNeedsDocument: String { text("groupSort.refusal.needsDocument", "this sidebar cannot sort groups yet") }
     static var groupSortBadValue: String { text("groupSort.refusal.badSort", "a group sorts by manual, name or recent") }
 
+    static var noOtherWorkspaces: String {
+        text("archive.refusal.noOtherWorkspaces", "There are no other workspaces to archive. Pinned workspaces stay.")
+    }
+    static var noOtherWorkspacesInGroup: String {
+        text("archive.refusal.noOtherWorkspacesInGroup", "There are no other workspaces in this group to archive. Pinned workspaces stay.")
+    }
+    static var noWorkspacesBelow: String { text("archive.refusal.noWorkspacesBelow", "There are no workspaces below to archive. Pinned workspaces stay.") }
+    static var noWorkspacesAbove: String { text("archive.refusal.noWorkspacesAbove", "There are no workspaces above to archive. Pinned workspaces stay.") }
+
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .module)
     }

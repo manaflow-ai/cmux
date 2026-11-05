@@ -40,6 +40,8 @@ For one surface, events are applied in transport order. `detached` is terminal f
 
 On reconnect, re-attach and rebuild from the fresh `render-state`; discard cached scrollback pages.
 
+A synchronized update (DEC private mode 2026, `CSI ? 2026 h` ... `CSI ? 2026 l`) reaches render attaches as one `render-delta`: while the terminal's program holds the mode, the server sends no live frame of it, and the first frame after the mode ends carries the whole update. A program that does not end the mode within 1 s (Ghostty's bound) is drawn again as if it had. The initial `render-state` of a new attach and frames a client's own action builds (resize, scroll, colors) are sent at once.
+
 Implementation note: ghostty-vt damage is consume-once because `walk_rows` clears the dirty flags. A server driving its local TUI plus any number of render attachments must build each frame once and fan that shared frame out to all consumers. Deltas are per-consumer only in delivery; damage computation is shared, not repeated per consumer.
 
 ## Shared Render Types
