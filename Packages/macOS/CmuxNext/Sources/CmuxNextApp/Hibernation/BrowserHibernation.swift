@@ -115,7 +115,7 @@ final class BrowserHibernation {
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
     /// Pages a hover restored from hibernation: when their grace ends still hidden, or a newer hover
     /// needs their room, they are discarded again.
-    private(set) var hoverRestores = HoverRestores()
+    var hoverRestores = HoverRestores()
     /// The tabs a workspace row's click would show in a window (`WindowController.shownTabsIfSelected`); injected by the App.
     var workspaceTabs: (_ workspace: String, _ window: String) -> [String] = { _, _ in [] }
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
