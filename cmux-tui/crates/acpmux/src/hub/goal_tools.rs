@@ -7,17 +7,38 @@
 
 use super::*;
 use crate::generic_goal::{self, GoalRequest, Reported, Step};
+use cmux_json::JsonSet as _;
 
 /// The continuation's sender, as a background task's notice is.
 const SENDER: &str = "acpmux";
 /// A continuation's refusal when its goal changed while it waited (`check_goal_mark`).
 const MOVED_ON: &str = "goal.moved_on";
 
-/// For a prompt sent as a goal's continuation (`PromptOptions::goal_mark`), once it holds the
-/// turn lock: its goal must still be running and unchanged since it was sent, so one that waited
-/// behind the person's prompt never runs after that turn completed or replaced the goal.
-pub(super) fn check_goal_mark(session: &Session, mark: Option<&str>) -> Result<(), RpcError> {
-    let Some(mark) = mark else { return Ok(()) };
+/// Where a continuation carries its goal's mark ([`generic_goal::mark`]): in its provenance, which
+/// every path a prompt takes keeps with it (its queued record and a restart's restore, Send now and
+/// its fallback, a joined turn), and which the person's edit of it drops, making it theirs.
+const MARK: &str = "goalMark";
+
+/// `provenance`'s goal mark, when it is a goal's continuation's.
+fn mark_of(provenance: Option<&Value>) -> Option<&str> {
+    provenance?.get(MARK)?.as_str()
+}
+
+/// Whether a prompt is a goal's continuation: it runs alone, never folded into another agent's
+/// digest or turn, so its own check decides it (`digest.rs`, `inbox_digest.rs`).
+pub(super) fn is_continuation(provenance: Option<&Value>) -> bool {
+    mark_of(provenance).is_some()
+}
+
+/// For a prompt whose provenance is a goal's continuation's, at its last step before it runs (its
+/// turn lock, or a steer's acceptance): its goal must still be running and unchanged since it was
+/// sent, so one that waited behind the person's prompt never runs after that turn completed or
+/// replaced the goal. Any other prompt passes.
+pub(super) fn check_goal_mark(
+    session: &Session,
+    provenance: Option<&Value>,
+) -> Result<(), RpcError> {
+    let Some(mark) = mark_of(provenance) else { return Ok(()) };
     let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     let current = m.goal.as_ref().is_some_and(|g| {
         generic_goal::is_generic(g) && g.lifecycle() == "running" && generic_goal::mark(g) == mark
@@ -149,14 +170,14 @@ impl Hub {
         let notice =
             json!({"sender": SENDER, "severity": "info", "title": "Keep going toward the goal"});
         let text = crate::prompt_provenance::notice_text(&notice, &text);
-        let provenance = crate::prompt_provenance::notice(&notice, &session.id);
+        let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
+        // Refused if the goal moved on before it ran: reported complete or blocked, replaced, or
+        // stepped again by a later turn (`check_goal_mark`).
+        provenance.set(MARK, json!(mark));
         let opts = PromptOptions {
             provenance: Some(provenance),
             agent: Some(SENDER.to_owned()),
             class: Some(crate::prompt_class::PromptClass::Fyi),
-            // Refused if the goal moved on before it ran: reported complete or blocked, replaced,
-            // or stepped again by a later turn (`check_goal_mark`).
-            goal_mark: Some(mark),
             ..PromptOptions::default()
         };
         let (hub, session) = (Arc::clone(self), Arc::clone(session));
@@ -215,12 +236,12 @@ mod tests {
         }
     }
 
-    /// The mark a continuation is sent with, as `continue_goal` takes it after its step.
-    fn step(session: &Session) -> String {
+    /// The provenance a continuation is sent with, as `continue_goal` makes it after its step.
+    fn step(session: &Session) -> Value {
         let mut m = session.meta.lock().unwrap();
         let goal = m.goal.as_mut().unwrap();
         assert!(matches!(generic_goal::next_step(goal, None, now_ms()), Step::Continue(_)));
-        generic_goal::mark(goal)
+        json!({"kind": "notice", "from": SENDER, MARK: generic_goal::mark(goal)})
     }
 
     fn moved_on(result: Result<(), RpcError>) -> bool {
