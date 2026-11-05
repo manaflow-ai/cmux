@@ -1,0 +1,293 @@
+{
+  "version": 1,
+  "build": "4205667020301",
+  "notes": "notes/4205667020301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36432,
+      "title": "New Tab: Cmd-Return always asks; the palette's pick history ranks the matches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36660,
+      "title": "journeys: an extension's JOURNEY_END hooks run at every journey's end, before its clean-up steps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36638,
+      "title": "ci(base-red): a ws-check red the PR's merge-base shares is not the PR's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36543,
+      "title": "ci(guards): clear the guard steps red at the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36683,
+      "title": "guardrails: read UI targets per target call (main-hop skipped CmuxNextHome, counted CmuxNextMallocZone)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36684,
+      "title": "measure/projection: build ghostty-next with its own Zig",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36576,
+      "title": "screen-stream-eval: repeat the window and OCR rows three times, report their medians",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36673,
+      "title": "journeys: judge_m14's m20 verdict no longer crashes on terminal films; the band test expects the fixture's real band (fixes for #36623)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36663,
+      "title": "live code build: link with -no_deduplicate, and name what shares a missing bind's address",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36654,
+      "title": "Add Device: the pair code is the default way, SSH moves under Advanced",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36656,
+      "title": "acpmux: a start through the hub acks once a heartbeat lists the new session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36668,
+      "title": "GitHubLocalDiff: a path git quotes or a mode-only change reads GitHub's diff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36468,
+      "title": "ci(cmux-next): swift-test runs on a pull request only with full-ci",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36629,
+      "title": "All Themes playground: AppKit instead of SwiftUI (no-swiftui base red, 2 of 25)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36675,
+      "title": "ci(cmux-next): the scheme compile keeps its own SwiftPM download cache, so concurrent builds on a mini stop racing",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36646,
+      "title": "App: a projection window shows its page as the window's top page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36596,
+      "title": "Invite owner: a per-person sequence orders invites begun in the same millisecond",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36530,
+      "title": "fix(next): a stale iPhone host start never ends a newer start's keep-awake hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36632,
+      "title": "perf flags cleanup: the content follows the sidebar slide every frame; delete sidebar.slideHoldsContent and the content hold",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36622,
+      "title": "ci(nightly-next): write the rolling names in the upload job, one whole-Mac claim",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36562,
+      "title": "cmux-next: a pull request's diff from its commits already on this Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36665,
+      "title": "guardrails: main-hop refuses a new direct main-actor hop in a UI target; --main-thread-counts",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36550,
+      "title": "merge_freeze: a broker refusal of the GraphQL fallback says so (still status 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36647,
+      "title": "acpmux: build on macOS again (daemon enroll off Linux answers without the Windows-only module)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36623,
+      "title": "journeys: pixel judge 3e.8, m18, text wrap and m20 (page lag reported; protrude, foreign, frozen and missed refreshes fail)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36641,
+      "title": "acpmux: a goal's continuation stops once its goal moved on, and a goal is saved before it is answered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36486,
+      "title": "debug(sidebar): motion probe row ids + display-link times; sidebar row insert/remove film journey",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36644,
+      "title": "Action argument contract: the app validates the requests the CLI actually encodes; two spellings of one argument are refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36643,
+      "title": "cloud capture provision: a production account for the Cloud journey (journey-production)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36511,
+      "title": "cmux-host: report the machine's workload so a Cloud idle pause never freezes a dev server, build or cron job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36579,
+      "title": "CI: the Swift app's acpmux methods and the agent pane's param keys are checked against acpmux-protocol.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36537,
+      "title": "Live code variant: the nightly's own Release build with every CmuxNext module patchable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36627,
+      "title": "iOS: Pair Another Machine copies the dashed invite code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36365,
+      "title": "bench(next): Cmd-N bench reports committed_ms and key_changes per press",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36645,
+      "title": "test(next): replacing the focused Chromium page drops only the old page's kept focus ask",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36553,
+      "title": "TerminalGridReportCoalescer: PTY grid at most once per 25 ms, the newest (Ghostty's min_ms rule)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36624,
+      "title": "MCP servers end with the agent that started them, also while stdin stays open (ask-25170f5ee5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36302,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-657eaccb9000deb250b05c18987b3449c4a856e3",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36503,
+      "title": "Phone terminal attach: latest screen first, older rows on scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36518,
+      "title": "cloud: a repository off GitHub that does not clone ends failed, not needs_github",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36547,
+      "title": "perf(browser): the browser chrome in a pane takes its pointer from the screen's one tracking area; a moving browser pane costs AppKit no cursor-rect walk",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36567,
+      "title": "ci: build_class.py says which changes need only a blaze build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36564,
+      "title": "acpmux: the provisioning exec keys the running daemon; one owner on Cloud machines (M3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36315,
+      "title": "acpmux: a real sign-in check for Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36605,
+      "title": "Inbox thread: messages fetched when a thread opens leave the broker label out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36371,
+      "title": "cmux NEXT updates: the Downloading Update card says about how long is left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36526,
+      "title": "Chat interface font: cmux Sans, Hanken Grotesk and Atkinson Hyperlegible Next (the font study's picks)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
