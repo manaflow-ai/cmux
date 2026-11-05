@@ -500,3 +500,36 @@ fn session_shutdown_settles_a_live_signal_exit_after_the_lead() {
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Run Last Command Again (`terminal-last-command`): a live shell reports the
+/// newest command it finished, with its exit status, while recording is on,
+/// and nothing once recording is off.
+#[test]
+fn a_live_shell_reports_its_last_command() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-last-command-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "live-last-command";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options, &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (id, incarnation) = (terminal_hex("00", 7), terminal_hex("10", 7));
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            &id,
+            &incarnation,
+            &workspace.key,
+            TerminalOnExit::Close,
+        )
+        .unwrap();
+    mux.set_terminal_last_command(true);
+    assert_eq!(mux.terminal_last_command(&id), None, "no command finished yet");
+    mux.surface(surface).unwrap().finish_command_for_test("make test", 2);
+    let last = mux.terminal_last_command(&id).expect("the finished command is reported");
+    assert_eq!((last.command.as_str(), last.exit_code), ("make test", Some(2)));
+    assert_eq!((last.started_at_ms, last.ended_at_ms), (1_000, 3_000));
+    mux.set_terminal_last_command(false);
+    assert_eq!(mux.terminal_last_command(&id), None, "recording off reports nothing");
+}

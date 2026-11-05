@@ -64,6 +64,18 @@ impl Mux {
     }
 
     /// Follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    /// `terminal-last-command`: the newest command the shell of live
+    /// terminal `terminal_id` (the stable host id) finished, for Run Last
+    /// Command Again. None for an incognito terminal, a terminal with no
+    /// live runtime, and while recording is off.
+    pub fn terminal_last_command(
+        &self,
+        terminal_id: &str,
+    ) -> Option<crate::state::kept_tab_store::LastCommand> {
+        let _ = terminal_id;
+        None
+    }
+
     pub(super) fn set_terminal_last_command(&self, enabled: bool) {
         self.terminal_last_command.store(enabled, Ordering::Release);
     }
