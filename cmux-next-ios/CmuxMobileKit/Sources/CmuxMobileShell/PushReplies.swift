@@ -47,7 +47,7 @@ extension LiveCoordinator {
 ///   other's.
 /// - A foreground action (an option, Allow, an answer, the extension's Submit
 ///   and composer) opens the app on the chat; it is sent once the app is
-///   active, unlocked and live, so Face ID can sign it.
+///   active, unlocked and live, so the app signs and sends it.
 /// - A failure that Retry can help posts "Couldn't reach <Mac>" with Retry.
 @MainActor
 @Observable
@@ -382,8 +382,6 @@ public final class PushReplies {
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
-            case .cancelled:
-                break
             }
         } catch {
             guard epoch == accountEpoch else { return }
@@ -409,7 +407,6 @@ public final class PushReplies {
             guard epoch == accountEpoch else { return true }
             switch failure.reason {
             case .unreachable: return false
-            case .cancelled: return true
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
                 return true

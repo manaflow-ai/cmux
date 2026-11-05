@@ -167,7 +167,7 @@ import UserNotifications
         #expect(PushReplies.outcome(response(UNNotificationDismissActionIdentifier, question)) == .nothing)
     }
 
-    @Test func anOptionOpensTheAppAndWaitsForFaceID() {
+    @Test func anOptionOpensTheAppAndSendsFromIt() {
         guard case .foreground(let reply, let open) = PushReplies.outcome(response("cmux.option.1", question)) else {
             Issue.record("not foreground")
             return

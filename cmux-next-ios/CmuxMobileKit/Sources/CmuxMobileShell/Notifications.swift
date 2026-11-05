@@ -81,7 +81,7 @@ public final class NotificationRouter {
     @ObservationIgnored private(set) var routeGeneration: UInt64 = 0
     @ObservationIgnored private var expiryTask: Task<Void, Never>?
     /// Settings → Require Face ID has the app locked (AppLock): replies that
-    /// need Face ID wait, so the two prompts never overlap.
+    /// wait until it is unlocked.
     public internal(set) var appLocked = false {
         didSet { if !appLocked { PushReplies.shared.appStateChanged() } }
     }
