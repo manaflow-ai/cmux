@@ -196,6 +196,31 @@ pub fn error_class(message: &str) -> Option<ErrorClass> {
     })
 }
 
+/// Whether `message` is the API refusing a request as too large for the
+/// model (a 413, or a 400 that says the prompt is too long): the same call
+/// fails so on every try, so the compactor keeps the node's input, cut to
+/// its room, as the line (`build_node`) instead of leaving it unsummarized
+/// (https://github.com/manaflow-ai/cmux/issues/36026). Any other 400 (a bad
+/// marker or parameter) may be fixed by a new build and stays an error.
+pub fn oversized_request(message: &str) -> bool {
+    let Some(class) = error_class(message) else {
+        return false;
+    };
+    let lower = message.to_ascii_lowercase();
+    class.status == 413
+        || (class.status == 400
+            && [
+                "prompt is too long",
+                "input is too long",
+                "too many tokens",
+                "maximum context length",
+                "context window",
+                "request_too_large",
+            ]
+            .iter()
+            .any(|p| lower.contains(p)))
+}
+
 /// How long an exhausted route asks to wait (a 429, 503 or 529, e.g. the
 /// subrouter's "no non-exhausted claude accounts available ... (retry after
 /// 3596s)"): None when `message` is not a capacity error.

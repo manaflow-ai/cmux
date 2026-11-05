@@ -305,7 +305,10 @@ impl<'a> Machine<'a> {
                 .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
         };
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
-            return Err(SeedError::new(machine_gate::OUTDATED, outdated.message()));
+            // `machine_outdated` only for an older build: a current one that does not serve
+            // `fs-v1` on this connection names it instead (an update would change nothing).
+            let outdated = outdated.judged(socket);
+            return Err(SeedError::new(outdated.code(), outdated.message()));
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let id = identity

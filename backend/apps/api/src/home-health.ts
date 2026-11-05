@@ -1,7 +1,8 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
-import type { ReadResult, SubmitResult } from "./owner-do.ts"
+import type { SubmitResult } from "./owner-do.ts"
+import { declared } from "./do-stub.ts"
 
 /**
  * Cloud Home health (plans/cmux-next/home-messaging-invites/DESIGN.md section 3, H1).
@@ -46,13 +47,6 @@ export interface HomeHealthDeps {
   readonly readDeadlineMs?: number
 }
 
-interface ConversationProbeStub {
-  submit(entity: string, principal: Principal, frame: unknown): Promise<SubmitResult>
-}
-interface InboxProbeStub {
-  readInbox(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult>
-}
-
 const sender: Principal = {
   identity: `system:home-health:${PROBE_SENDER}`,
   user: PROBE_SENDER,
@@ -77,7 +71,7 @@ export const probeHome = async (env: Env, readDeadlineMs = READ_DEADLINE_MS): Pr
   let step: ProbeStep = "open"
   try {
     if (fault === step) return done(false, step, "fault")
-    const conversation = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationProbeStub
+    const conversation = declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)))
     const participants = [{ id: PROBE_SENDER, kind: "human" }, { id: PROBE_PEER, kind: "human" }]
     const opened = replyOf(await conversation.submit(id, sender, { t: "op", op: "dm.open", params: { id, participants, retention_days: RETENTION_DAYS }, idempotency_key: `home-health:open:${run}`, origin: "script" }))
     if (opened?.t !== "result") return done(false, step, codeOf(opened))
@@ -89,7 +83,7 @@ export const probeHome = async (env: Env, readDeadlineMs = READ_DEADLINE_MS): Pr
     if (sent?.t !== "result") return done(false, step, codeOf(sent))
     step = "read"
     if (fault === step) return done(false, step, "fault")
-    const inbox = env.USER_DO.get(env.USER_DO.idFromName(PROBE_PEER)) as unknown as InboxProbeStub
+    const inbox = declared(env.USER_DO.get(env.USER_DO.idFromName(PROBE_PEER)))
     const deadline = Date.now() + readDeadlineMs
     for (;;) {
       const read = await inbox.readInbox(PROBE_PEER, peer, "inbox.list", { limit: 10 })

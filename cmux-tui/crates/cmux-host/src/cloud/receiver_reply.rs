@@ -10,9 +10,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    Bound, Env, ReceiverSnapshot, RequiredPolicy, SAFE, UNAVAILABLE, UniqueJson, install_point,
-    validate,
+    Bound, Env, POLICY_UNAVAILABLE, REFUSED, ReceiverSnapshot, RequiredPolicy, SAFE, UNAVAILABLE,
+    UniqueJson, install_point, validate,
 };
+
+/// A reply that is not a policy: the agent's own failure answer says whether
+/// the control plane did not answer (keep) or refused (revoke). Anything else
+/// from the authenticated root agent is malformed, and refuses.
+fn failed_reply(bytes: &[u8]) -> String {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Failed {
+        ok: BoolLit<false>,
+        error: String,
+    }
+    let Ok(failed) = serde_json::from_slice::<Failed>(bytes) else { return REFUSED.into() };
+    let _ = failed.ok;
+    if failed.error == POLICY_UNAVAILABLE { UNAVAILABLE.into() } else { REFUSED.into() }
+}
 
 /// Public self identity from the original protected bootstrap. No bearer,
 /// original grant id, private install key or private WG key is retained here.
@@ -94,10 +109,10 @@ impl ReceiverSnapshot {
         source: Option<Elapsed>,
     ) -> Result<Self, String> {
         if bytes.len() > 1024 * 1024 {
-            return Err(UNAVAILABLE.into());
+            return Err(REFUSED.into());
         }
-        let _: UniqueJson = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
-        let reply: Reply = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
+        let _: UniqueJson = serde_json::from_slice(bytes).map_err(|_| REFUSED)?;
+        let reply: Reply = serde_json::from_slice(bytes).map_err(|_| failed_reply(bytes))?;
         let _ = reply.ok;
         let PublicValue {
             policy: RequiredPolicy(policy),
@@ -106,12 +121,12 @@ impl ReceiverSnapshot {
             issuer_time_ms,
             remaining_ms,
         } = reply.value;
-        validate(&policy, binding)?;
+        validate(&policy, binding).map_err(|_| REFUSED)?;
         if issuer != format!("cmux:cloud:{}", binding.env.auth_environment())
             || issuer_time_ms > SAFE as u64
             || issuer_time_ms < policy.checked_at as u64
         {
-            return Err(UNAVAILABLE.into());
+            return Err(REFUSED.into());
         }
         let active = now.checked_duration_since(started).ok_or(UNAVAILABLE)?;
         let source_elapsed = match &source {
@@ -121,16 +136,20 @@ impl ReceiverSnapshot {
         let elapsed = active.max(source_elapsed.unwrap_or(active));
         let lifetime = (policy.expires_at - policy.checked_at) as u64;
         let lifetime = Duration::from_millis(lifetime);
+        // An answer that arrived after its own lease is late (no answer); a
+        // remaining budget the policy cannot have is malformed (refused).
         if remaining_ms == 0
             || remaining_ms > (policy.expires_at as u64).saturating_sub(issuer_time_ms)
-            || elapsed >= lifetime
         {
+            return Err(REFUSED.into());
+        }
+        if elapsed >= lifetime {
             return Err(UNAVAILABLE.into());
         }
         // The whole socket round trip already includes the root agent's HTTP
         // work. Cap by both observations rather than charging that work twice.
-        let consumed = elapsed
-            .max(lifetime.checked_sub(Duration::from_millis(remaining_ms)).ok_or(UNAVAILABLE)?);
+        let consumed =
+            elapsed.max(lifetime.checked_sub(Duration::from_millis(remaining_ms)).ok_or(REFUSED)?);
         // An earlier effective request start represents the stricter deadline
         // without rewriting authenticated NumericDates. It can only shorten.
         let started = now.checked_sub(consumed).ok_or(UNAVAILABLE)?;
@@ -142,7 +161,7 @@ impl ReceiverSnapshot {
             ),
             None => None,
         };
-        let keys = read_keyset(&keyset).map_err(|_| UNAVAILABLE)?;
+        let keys = read_keyset(&keyset).map_err(|_| REFUSED)?;
         let snapshot = Self { policy, keys, started, issuer, elapsed };
         if snapshot.time(now).ok_or(UNAVAILABLE)?.unix_ms < issuer_time_ms {
             return Err(UNAVAILABLE.into());

@@ -15,6 +15,11 @@ extension Strings {
         String(localized: "sidebar.chatHistory.unpin", defaultValue: "Unpin", bundle: .module)
     }
 
+    /// Earlier's only row while acpmux has not sent the chats yet (connecting, or its index starting after a relaunch).
+    static var chatHistoryLoading: String {
+        String(localized: "sidebar.chatHistory.loading", defaultValue: "Loading chats…", bundle: .module)
+    }
+
     /// The row under Earlier's page that lists the next one.
     static var chatHistoryShowMore: String {
         String(localized: "sidebar.chatHistory.showMore", defaultValue: "Show More", bundle: .module)

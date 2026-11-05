@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
@@ -44,8 +45,8 @@ enum AgentSessionWorkspace {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
-        // The chat's acpmux id, never its name or harness session id (AgentSessionTab.localSession).
-        let session = try AgentSessionTab.localSession(request.session, host: request.host, services: context.services)
+        let session: String // the chat's acpmux id, never its name or harness session id (AgentLaneStore.localSessionID)
+        do { session = try AgentLaneStore.shared.localSessionID(request.session, host: request.host, localHost: context.services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
         let task = try open(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
                             host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent,
                             services: context.services)
@@ -138,9 +139,11 @@ enum AgentSessionWorkspace {
                                            windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
-            PendingWorkspaceRows.shared.groupJoins.hold(id) // listed loose by the daemon, joined a hop later: shown once joined
+            // The daemon lists it loose; the pass that first lists it sends the join (``GroupJoinRows``), or this
+            // placement does when it runs first: one join, and the row draws in its group from its first frame.
+            PendingWorkspaceRows.shared.groupJoins.hold(id, group: group)
             join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge else { return }
+                guard let sidebar = sidebar as? SidebarBridge, PendingWorkspaceRows.shared.groupJoins.claim(id) else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }

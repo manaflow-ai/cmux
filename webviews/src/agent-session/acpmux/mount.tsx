@@ -15,6 +15,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
+import { startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
@@ -72,6 +73,8 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
+  // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
+  if (!pageHostClient()) startFlickerLog();
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>

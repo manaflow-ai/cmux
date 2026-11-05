@@ -20,6 +20,7 @@ import datetime as dt
 import gzip
 import io
 import json
+import re
 import os
 import itertools
 import sys
@@ -826,7 +827,11 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["env"]["DEDICATED_LABEL"], "${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}")
                 # The wait for a busy dedicated builder fits in the step and the job.
                 self.assertGreaterEqual(step["timeout-minutes"] * 60, picker.DEDICATED_WAIT_SECONDS + 120)
-                self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
+                # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py):
+                # the smaller limit, the mode off, is the one that must hold.
+                limit = definition["timeout-minutes"]
+                limit = min(int(n) for n in re.findall(r"\b\d+\b", limit)) if isinstance(limit, str) else limit
+                self.assertGreater(limit, step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
                 self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
                 # The helper's pick stands on the same terms as `owned`.

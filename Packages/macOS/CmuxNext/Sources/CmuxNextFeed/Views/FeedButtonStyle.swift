@@ -39,11 +39,11 @@ private struct FeedButtonBody<Label: View>: View {
             .padding(.horizontal, compact ? 8 : 10)
             .frame(height: compact ? 22 : 26)
             .background(
-                RoundedRectangle(cornerRadius: compact ? 6 : 7, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.controlCornerRadius, style: .continuous)
                     .fill(fill(pressed: isPressed))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: compact ? 6 : 7, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.controlCornerRadius, style: .continuous)
                     .strokeBorder(stroke, lineWidth: 1)
             )
             .opacity(isEnabled ? 1 : 0.45)
@@ -95,6 +95,6 @@ struct FeedTextField: View {
                     onSubmit: onSubmit)
             .padding(.horizontal, 8)
             .frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(colors.hover))
+            .background(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius, style: .continuous).fill(colors.hover))
     }
 }

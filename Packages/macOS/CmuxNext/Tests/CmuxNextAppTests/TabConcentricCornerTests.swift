@@ -145,7 +145,7 @@ import Testing
                   from: scene.strip.hoverCard)
         defer { cards.dismiss(.action) }
         let panel = try #require(cards.panel, "the tab's card did not show")
-        defer { panel.orderOut(nil) }
+        defer { panel.close() } // closed, not ordered out: the suite's window check counts an ordered-out panel as open
         return try #require(panel.host).cornerRadius
     }
 

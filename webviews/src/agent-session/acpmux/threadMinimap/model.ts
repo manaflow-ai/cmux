@@ -84,13 +84,21 @@ export function railPlacement(
 /// 2026-11-04: "the left side session rail should just be having a nicer max height instead of going
 /// all the way up and down. make it look like codex's size." and "the height of the left scroll rail
 /// should never be affected by anything"). Only a view too short to hold it still clips it
-/// (railRoom). `fixed-240` ships; the gallery compares the arms.
+/// (railRoom). `fixed-480` ships at twice the original height and pitch; the gallery compares the arms.
 /// A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04: "the height
 /// of the left scroll rail should never be affected by anything"): only a view too short for it clips it.
-export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number; fixed?: boolean };
+export type RailHeightConfig = {
+  initial: number;
+  maxRows: number;
+  maxShare: number;
+  fixed?: boolean;
+  pitch?: number;
+};
 export const RAIL_HEIGHTS = {
   "fixed-200": { initial: 200, maxRows: 20, maxShare: 1, fixed: true },
   "fixed-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true },
+  "fixed-360": { initial: 360, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 1.5 },
+  "fixed-480": { initial: 480, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 2 },
   "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
@@ -98,7 +106,7 @@ export const RAIL_HEIGHTS = {
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fixed-240";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fixed-480";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -381,11 +389,12 @@ export function railFades(
   count: number,
   height: number,
   top: number,
+  pitch = ROW_PITCH,
 ): { top: boolean; bottom: boolean } {
   const fade = railFade(height);
   return {
-    top: top > 0 && band.first * ROW_PITCH - top >= fade,
-    bottom: count * ROW_PITCH - top - height > 1 && (band.last + 1) * ROW_PITCH - top <= height - fade,
+    top: top > 0 && band.first * pitch - top >= fade,
+    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
   };
 }
 
@@ -402,14 +411,15 @@ export function railScrollTop(
   count: number,
   height: number,
   current: number,
+  pitch = ROW_PITCH,
 ): number {
-  const room = Math.max(0, count * ROW_PITCH - height);
+  const room = Math.max(0, count * pitch - height);
   if (room === 0) return 0;
   const clamp = (value: number) => Math.max(0, Math.min(room, value));
   // The offsets that show the band whole: with the fades clear of it (the inner pair), or at all.
   // An edge row of the list needs no clearance: the list at that end draws no fade there.
-  const highest = band.first * ROW_PITCH;
-  const lowest = (band.last + 1) * ROW_PITCH - height;
+  const highest = band.first * pitch;
+  const lowest = (band.last + 1) * pitch - height;
   if (lowest > highest) return clamp(band.last >= count - 1 ? room : highest);
   if (band.last >= count - 1) return room;
   const fade = railFade(height);
@@ -417,7 +427,7 @@ export function railScrollTop(
   const clearLowest = lowest + fade;
   const [low, high] = clearLowest <= clearHighest ? [clearLowest, clearHighest] : [lowest, highest];
   if (current >= low && current <= high) return clamp(current);
-  return clamp(Math.min(high, Math.max(low, band.first * ROW_PITCH - height / 3)));
+  return clamp(Math.min(high, Math.max(low, band.first * pitch - height / 3)));
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.
