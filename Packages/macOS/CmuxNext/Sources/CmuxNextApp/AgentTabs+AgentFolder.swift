@@ -39,7 +39,7 @@ extension AgentTabStore {
     func terminalFolder(of key: String) -> String? {
         let key = resolve(key)
         guard let folder = views[key]?.model.terminalFolder, daemonForTab(key)?.isLocal == true,
-              let host = lookup(key)?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
+              isLocalHost(lookup(key)?.record.host), WorkingURL.isDirectory(folder) else { return nil }
         return folder
     }
 

@@ -79,7 +79,7 @@ extension PaneController {
     func inheritedHarness() -> String? {
         let tabs = services.agentTabs
         return services.inheritedWork(besides: selectedTab, in: pane, kinds: [.chat]) { tab in
-            guard tabs.lookup(tab.id)?.record.host == tabs.localHost else { return nil }
+            guard tabs.isLocalHost(tabs.lookup(tab.id)?.record.host) else { return nil }
             return tabs.harness(ofTab: tab.id)
         }
     }

@@ -18,9 +18,9 @@ extension SessionTransferService {
     /// This build's chats another build can take, by tab id: chats of this Mac's acpmux (not the
     /// Chief home's, not another machine's) that have a session.
     func localChats() -> [String: (session: String, harness: String?)] {
-        guard let tabs = services?.agentTabs, let localHost = tabs.localHost else { return [:] }
+        guard let tabs = services?.agentTabs else { return [:] }
         var chats: [String: (session: String, harness: String?)] = [:]
-        for (key, record) in tabs.listTabs() where record.host == localHost {
+        for (key, record) in tabs.listTabs() where tabs.isLocalHost(record.host) {
             if let session = tabs.session(of: key) { chats[key] = (session, record.harness) }
         }
         return chats

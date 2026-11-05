@@ -21,8 +21,11 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// `AgentRemoteStartRefusal.folderNeededCode` (AgentTabs+RemoteStart.swift, where the defaults
     /// guard tracks it); AgentRemoteStartRefusalCodeTests keeps the two equal.
     static let appFolderNeeded = "app.folder_needed"
-    /// The tab's host names another machine than the store that lists it (MachineRegistry).
+    /// The tab's host names another machine than the store that lists it (MachineRegistry); `machine`
+    /// is the machine the chat belongs to.
     public static let hostMismatchCode = "app.host_mismatch"
+    /// A tab of this Mac's chat that another machine's store lists; `machine` is that machine.
+    public static let listedElsewhereCode = "app.listed_elsewhere"
 
     public static func folderNeeded(machine: String) -> Self { Self(code: appFolderNeeded, machine: machine) }
     /// The refusal of a start on a teammate's machine (the card's New Cloud Machine, startRefusal.ts).
@@ -76,8 +79,11 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
             RefusalStrings.format("handlers.refusal.agentRemoteStart.folderNeeded",
                                   "%@ has no work folder to start in. Use Choose folder to pick one there.", machine)
         case Self.hostMismatchCode:
-            RefusalStrings.text("handlers.refusal.agentRemoteStart.hostMismatch",
-                                "This chat belongs to another machine, so it does not run here.")
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.belongsTo",
+                                  "This chat belongs to %@, so it does not run on this Mac.", machine)
+        case Self.listedElsewhereCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.listedElsewhere",
+                                  "This chat belongs to this Mac, so it does not run on %@.", machine)
         default:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.refused",
                                   "%1$@ refused to start the agent chat (%2$@).", machine, code)

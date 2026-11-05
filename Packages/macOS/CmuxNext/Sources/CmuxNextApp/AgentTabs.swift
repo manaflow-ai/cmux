@@ -103,6 +103,8 @@ final class AgentTabStore {
     }
     /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
     var resolveLocalHost: @MainActor () -> String? = { nil }
+    /// This Mac's other `install:<id>` hosts (its other Cloud backends' ids, #35284), read on need.
+    var resolveFormerLocalHosts: @MainActor () -> Set<String> = { [] }
     private var resolvedLocalHost: String?
     /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
     /// tabs. Read again while it is nil (the id file could not be read yet).
@@ -359,8 +361,8 @@ final class AgentTabStore {
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
     func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
-        let host = host ?? localHost
-        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
+        let local = host == nil || isLocalHost(host)
+        return listTabs().first { (local ? isLocalHost($0.record.host) : $0.record.host == host) && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -397,14 +399,14 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key) else { return nil }
-        let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: daemonForTab(key)?.isLocal != false)
+        let kind = hostKind(record, listedHere: daemonForTab(key)?.isLocal != false)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
         // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
         // cx-k21v): this Mac's New Tab page or chat there would start in this Mac's acpmux.
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
-            let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
-            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
+            let machine = daemonForTab(key).map { remoteMachineName($0) ?? $0.machineID } ?? ""
+            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.listedElsewhereCode, machine: machine))
             let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)

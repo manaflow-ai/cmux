@@ -11,9 +11,9 @@ public import CmuxNextDaemon
 enum SidebarLocalLanes {
     /// `workspace`'s lanes in tab order; empty when no tab shows a session acpmux knows a lane for.
     static func lanes(_ workspace: WorkspaceModel, lanes: AgentLaneStore, turns: AgentTurnStateStore) -> [AgentActivityLane] {
-        guard let host = turns.localHost else { return [] }
+        guard turns.localHost != nil else { return [] }
         return workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
-            guard let ref = tab.agentSession, let session = ref.session, ref.host == host,
+            guard let ref = tab.agentSession, let session = ref.session, turns.isLocal(ref.host),
                   let lane = lanes.lane(session), lane.peer == nil else { return nil }
             return lane
         }
@@ -27,10 +27,10 @@ public extension AgentLaneStore {
     /// keep rows until the next complete page so a transport gap never hides
     /// live work.
     func keepsWorkspace(_ workspace: WorkspaceModel, turns: AgentTurnStateStore) -> Bool {
-        guard live, let host = turns.localHost else { return true }
+        guard live, turns.localHost != nil else { return true }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let localSessions = tabs.compactMap { tab -> String? in
-            guard let ref = tab.agentSession, ref.host == host else { return nil }
+            guard let ref = tab.agentSession, turns.isLocal(ref.host) else { return nil }
             return ref.session
         }
         guard !localSessions.isEmpty else { return true }
@@ -38,7 +38,7 @@ public extension AgentLaneStore {
         // remote agent tab. Only purge a row when every tab is a local agent ref;
         // otherwise there is still content this row must represent.
         if tabs.contains(where: { tab in
-            guard let ref = tab.agentSession, ref.host == host, ref.session != nil else { return true }
+            guard let ref = tab.agentSession, turns.isLocal(ref.host), ref.session != nil else { return true }
             return false
         }) { return true }
         return localSessions.contains { sessionIsLive($0) }

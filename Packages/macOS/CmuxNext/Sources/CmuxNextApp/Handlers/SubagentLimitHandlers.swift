@@ -25,7 +25,7 @@ enum SubagentLimitHandlers {
         /// The targeted tab's acpmux session, when it is a chat of this Mac's acpmux.
         let chat = { (invocation: ActionInvocation) -> String? in
             guard let ref = context.daemonTab(invocation)?.tab.agentSession, let session = ref.session,
-                  ref.host == services.agentTabs.localHost else { return nil }
+                  services.agentTabs.isLocalHost(ref.host) else { return nil }
             return session
         }
         registry.bind(chatAction, run: { invocation in
