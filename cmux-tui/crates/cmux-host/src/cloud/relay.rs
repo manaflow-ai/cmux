@@ -18,7 +18,11 @@
 //!
 //! The thread reconnects with backoff (1 s doubling to 30 s), minting a fresh
 //! bearer each time, and pings every 20 s; a socket with no answer for 60 s
-//! is dropped and dialed again.
+//! is dropped and dialed again. A wake from a pause ([`Relay::resumed`], or
+//! the wall clock leaping between pings) drops the socket and dials again at
+//! once, on a fresh HTTPS connection: the thread's own clock stood still
+//! through the pause, so the old socket looks alive here while the platform
+//! may send the next chat down it. Running chats carry on to the new socket.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,6 +43,8 @@ pub const PROTOCOL: &str = "cmux.machine-relay/1";
 const PING_EVERY: Duration = Duration::from_secs(20);
 const DEAD_AFTER: Duration = Duration::from_secs(60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Failed dials after a resume that its running chats wait out for the next socket.
+const RESUME_REDIALS: u8 = 3;
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
@@ -367,6 +373,7 @@ impl Runner {
 /// rebind must not leave the old machine's socket taking chats).
 pub struct Relay {
     stop: watch::Sender<bool>,
+    resumed: watch::Sender<u64>,
 }
 
 impl Drop for Relay {
@@ -414,10 +421,17 @@ impl Relay {
         log: fn(&str),
     ) -> std::io::Result<Relay> {
         let (stop, stopping) = watch::channel(false);
+        let (resumed, resumes) = watch::channel(0);
         std::thread::Builder::new()
             .name("cmux-host-relay".to_owned())
-            .spawn(move || run(client, runner, now_wall_ms, log, stopping))?;
-        Ok(Relay { stop })
+            .spawn(move || run(client, runner, now_wall_ms, log, stopping, resumes))?;
+        Ok(Relay { stop, resumed })
+    }
+
+    /// The machine woke from a pause (`HostEvent::Resumed`): the socket is dropped and dialed again at once, its
+    /// chats carried on, and the bearer minted on a fresh HTTPS connection.
+    pub fn resumed(&self) {
+        self.resumed.send_modify(|n| *n = n.wrapping_add(1));
     }
 }
 
@@ -427,6 +441,7 @@ fn run<H: Http>(
     now_wall_ms: fn() -> u64,
     log: fn(&str),
     mut stop: watch::Receiver<bool>,
+    mut resumes: watch::Receiver<u64>,
 ) {
     if !child_waits_work() {
         return log(
@@ -443,17 +458,41 @@ fn run<H: Http>(
     };
     let mut backoff = Duration::from_secs(1);
     let mut last_error = String::new();
+    let mut seen = *resumes.borrow();
+    let mut link = Link::default();
+    // Failed dials a resume's chats may wait out for the next socket; past them, they end as on any drop.
+    let mut carry = 0u8;
     while !*stop.borrow() {
+        // A resume while no socket was up: the pooled HTTPS connection is as stale as the socket was.
+        if *resumes.borrow() != seen {
+            seen = *resumes.borrow();
+            client.reset_transport();
+        }
         let outcome = match client.token(now_wall_ms()) {
-            Ok(token) => match rt.block_on(or_stop(&mut stop, serve(&url, &token, &runner))) {
-                Some(outcome) => outcome,
-                None => break,
-            },
+            Ok(token) => {
+                let serving =
+                    serve(&url, &token, &runner, &mut link, &mut resumes, seen, now_wall_ms);
+                match rt.block_on(or_stop(&mut stop, serving)) {
+                    Some(outcome) => outcome,
+                    None => break,
+                }
+            }
             Err(e) => Err(format!("token: {e}")),
         };
         match outcome {
+            Ok(Ended::Resumed) => {
+                log("relay: the machine resumed; dialing again");
+                seen = *resumes.borrow();
+                client.reset_transport();
+                backoff = Duration::from_secs(1);
+                carry = RESUME_REDIALS;
+                continue;
+            }
             // A socket that was up resets the backoff.
-            Ok(()) => backoff = Duration::from_secs(1),
+            Ok(Ended::Dropped) => {
+                backoff = Duration::from_secs(1);
+                carry = 0;
+            }
             Err(e) => {
                 if e != last_error {
                     log(&format!("relay: {e}"));
@@ -462,20 +501,40 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        pause(&rt, &mut stop, backoff);
+        // Every other end drops the socket's chats: the platform ended their streams with it (host_gone), and a
+        // cancel for them could only come down that socket. A dial that fails just after a resume (the network
+        // may still be waking) keeps them for the next, a few times.
+        if carry > 0 {
+            carry -= 1;
+        } else {
+            link = Link::default();
+        }
+        pause(&rt, &mut stop, &mut resumes, seen, backoff);
     }
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
 
-/// Waits out `backoff` on the relay thread's own runtime, unless `stop` comes first. The timer is made inside the
-/// runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay for good.
-fn pause(rt: &tokio::runtime::Runtime, stop: &mut watch::Receiver<bool>, backoff: Duration) {
+/// Waits out `backoff` on the relay thread's own runtime, unless `stop` or a resume past `seen` comes first. The
+/// timer is made inside the runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay
+/// for good.
+fn pause(
+    rt: &tokio::runtime::Runtime,
+    stop: &mut watch::Receiver<bool>,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    backoff: Duration,
+) {
     rt.block_on(async {
-        or_stop(stop, tokio::time::sleep(backoff)).await;
+        or_stop(stop, async {
+            tokio::select! {
+                () = tokio::time::sleep(backoff) => {}
+                Ok(_) = resumes.wait_for(|n| *n != seen) => {}
+            }
+        })
+        .await;
     });
 }
 
-/// One connection, until it drops. `Ok` once it was up.
 /// The running chats of one socket; dropping it aborts them, which kills their acpmux children (kill_on_drop).
 #[derive(Default)]
 struct Chats(HashMap<String, tokio::task::AbortHandle>);
@@ -488,7 +547,46 @@ impl Drop for Chats {
     }
 }
 
-async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
+/// A socket's chats and the frames they queued for it. Only a resume carries them to the next socket.
+struct Link {
+    chats: Chats,
+    tx: mpsc::Sender<String>,
+    rx: mpsc::Receiver<String>,
+}
+
+impl Default for Link {
+    fn default() -> Link {
+        // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing
+        // without end.
+        let (tx, rx) = up_queue();
+        Link { chats: Chats::default(), tx, rx }
+    }
+}
+
+/// How a socket that was up ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Dropped,
+    /// The machine woke from a pause; its chats go on to the next socket.
+    Resumed,
+}
+
+/// Whether the wall clock leapt past [`DEAD_AFTER`] between two ping ticks: the machine was paused (a missed
+/// `Resumed`), since this thread's own clock does not run through a pause.
+fn slept_through(last_wall_ms: u64, now_wall_ms: u64) -> bool {
+    now_wall_ms.saturating_sub(last_wall_ms) > DEAD_AFTER.as_millis() as u64
+}
+
+/// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends.
+async fn serve(
+    url: &str,
+    token: &str,
+    runner: &Runner,
+    link: &mut Link,
+    resumes: &mut watch::Receiver<u64>,
+    seen: u64,
+    now_wall_ms: fn() -> u64,
+) -> Result<Ended, String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
@@ -503,17 +601,16 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
-    // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing without end.
-    let (tx, mut rx) = up_queue();
-    // Every return ends the chats of this socket: the platform ended their streams with it (host_gone), and a
-    // cancel for them can only come down this socket.
-    let mut chats = Chats::default();
+    let Link { chats, tx, rx } = link;
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
+    let mut ticked_wall = now_wall_ms();
     loop {
         tokio::select! {
+            // Dropping the socket without a close: after a pause it is likely dead, and a close could hang on it.
+            Ok(_) = resumes.wait_for(|n| *n != seen) => return Ok(Ended::Resumed),
             msg = stream.next() => {
-                let Some(Ok(msg)) = msg else { return Ok(()) };
+                let Some(Ok(msg)) = msg else { return Ok(Ended::Dropped) };
                 heard = tokio::time::Instant::now();
                 let Message::Text(text) = msg else { continue };
                 match parse_down(text.as_str()) {
@@ -540,15 +637,20 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
                 }
             }
             Some(frame) = rx.recv() => {
-                if sink.send(Message::text(frame)).await.is_err() { return Ok(()) }
+                if sink.send(Message::text(frame)).await.is_err() { return Ok(Ended::Dropped) }
             }
             _ = ping.tick() => {
+                let wall = now_wall_ms();
+                if slept_through(ticked_wall, wall) {
+                    return Ok(Ended::Resumed);
+                }
+                ticked_wall = wall;
                 if heard.elapsed() > DEAD_AFTER {
                     let _ = sink.close().await;
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
                 if sink.send(Message::text(json!({"v": 1, "t": "ping"}).to_string())).await.is_err() {
-                    return Ok(());
+                    return Ok(Ended::Dropped);
                 }
             }
         }
@@ -707,3 +809,7 @@ const TAIL_GRACE: Duration = Duration::from_millis(300);
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "relay_resume_tests.rs"]
+mod resume_tests;
