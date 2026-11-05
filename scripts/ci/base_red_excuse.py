@@ -69,6 +69,43 @@ Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidenc
 RateLimited = getattr(_evidence, "RateLimited", ())
 
 
+class RateLimitedRead(Exception):
+    """A read GitHub rate-limited, as judge() re-raises it so the comparison cannot swallow it.
+
+    main's RateLimited is a Refused, and the comparison turns a Refused from a read into a refusal of its
+    own ("no rollup red is excused", say) in a dozen places, so a rate limit read as a verdict on the red
+    and main() returned 1 where gh-merge-green expects 3. This is not a Refused, so only main() catches it.
+    """
+
+
+def rate_limited_classes() -> tuple:
+    """What main() reports as a rate limit, as one flat tuple. A reader without RateLimited leaves it the empty
+    tuple, and `except ((), RateLimitedRead)` is a TypeError on every other refusal ("catching classes that do not
+    inherit from BaseException"), which would break the ordinary exit-1 path. Read at call time, so a caller that
+    loads a reader with RateLimited (main's) is honoured."""
+    return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
+
+
+def rate_limit_aware(github):
+    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
+    looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
+    class Aware:
+        def __getattr__(self, name: str):
+            attribute = getattr(github, name)
+            if not callable(attribute):
+                return attribute
+
+            def read(*args, **kwargs):
+                try:
+                    return attribute(*args, **kwargs)
+                except RateLimited as error:
+                    raise RateLimitedRead(str(error)) from None
+
+            return read
+
+    return Aware()
+
+
 ESCAPE_FLAG = "--allow-escape-sequences"
 UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
 REQUEST_FAILED = "GitHub evidence request failed: "
@@ -1290,7 +1327,9 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
-    """Audit lines for every excused failure; raises Refused on the first that is not."""
+    """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
+    when a read was rate-limited (no verdict on any red, so nothing below may excuse or charge one)."""
+    github = rate_limit_aware(github)
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
@@ -1413,7 +1452,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
-    except RateLimited as error:
+    except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
     except Infra as error:
