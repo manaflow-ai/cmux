@@ -61,6 +61,13 @@ function installDom(options: { reduced?: boolean } = {}): HTMLElement {
       toJSON() {},
     } as DOMRect;
   };
+  // Each label's left edge (data-left): a mark before it moves it.
+  Object.defineProperty(win.HTMLElement.prototype, "offsetLeft", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return Number(this.dataset.left ?? 0);
+    },
+  });
   // A ResizeObserver that reports the laid-out width when it starts observing and on `resized()`.
   const observed = new Set<{ element: Element; callback: ResizeObserverCallback }>();
   (win as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -136,6 +143,7 @@ afterEach(async () => {
 });
 
 let say: (text: string) => void = () => {};
+let mark: (on: boolean) => void = () => {};
 let tick: () => void = () => {};
 /// Each label's width: its length at 7 px a character.
 const px = (text: string) => String(text.length * 7);
@@ -144,14 +152,17 @@ const px = (text: string) => String(text.length * 7);
 function Line() {
   const [text, setText] = useState("Reading daemon log");
   const [seconds, setSeconds] = useState(4);
+  const [glyph, setGlyph] = useState(false);
   say = setText;
+  mark = setGlyph;
   tick = () => setSeconds((value) => value + 1);
   const words = useTextSwap<HTMLSpanElement>(text);
   return (
     <div className="line" {...{ [TEXT_SWAP_ROOT]: "" }}>
       <span className="row">
+        {glyph && <span className="glyph" />}
         <output>
-          <span ref={words} className="words" data-width={px(text)}>
+          <span ref={words} className="words" data-width={px(text)} data-left={glyph ? 22 : 0}>
             {text}
           </span>
           <span className="band" style={{ position: "absolute" }} {...{ [TEXT_SWAP_FADE]: "" }} />
@@ -259,6 +270,19 @@ test("longer words push the clock out of their way as they rise in", async () =>
   expect(ghosts(mount)).toHaveLength(1);
 });
 
+test("a mark that comes with the new call moves the clock by where the words end, not their width alone", async () => {
+  const mount = await mountLine();
+  // One character longer, and a 22 px command glyph now stands before the words.
+  await act(async () => {
+    mark(true);
+    say("Running bun tests a");
+  });
+  const [time] = on(".time");
+  expect(time!.frames[0]).toEqual({ transform: `translateX(${-22 + -7}px)` });
+  // The old words leave from where they stood, left of the glyph's new place.
+  expect(ghosts(mount)[0]!.style.left).toBe("0px");
+});
+
 test("the old copy goes when its fade ends, and every copy goes on unmount", async () => {
   const mount = await mountLine();
   await act(async () => say("Running a command"));
@@ -278,6 +302,10 @@ test("calls that change faster than the motion cancel it and keep at most two ol
     resized();
   }
   expect(ghosts(mount).length).toBeLessThanOrEqual(TEXT_SWAP_MAX_GHOSTS);
+  // A copy dropped early stops its fade too: no animation runs on a detached copy.
+  for (const entry of on(".ui-text-swap__ghost"))
+    if (!entry.element.isConnected) expect(entry.animation.cancelled).toBe(true);
+  expect(on(".ui-text-swap__ghost").filter((entry) => entry.animation.cancelled)).toHaveLength(2);
   expect(
     ghosts(mount)
       .map((ghost) => ghost.textContent)

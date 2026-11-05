@@ -48,9 +48,13 @@ type SwapState = {
   text: string | undefined;
   /// The words' laid-out width before this commit (ResizeObserver), or -1 while unknown.
   width: number;
+  /// Where the words started at the last change (offsetLeft), or -1 while unknown: a mark before
+  /// them (the Working line's command glyph) comes and goes with the call.
+  left: number;
   /// A copy of the words as they stand, the next change's old words.
   copy: HTMLElement | null;
-  ghosts: HTMLElement[];
+  /// The old copies on the line, each with its fade, cancelled when the copy goes early.
+  ghosts: { element: HTMLElement; leaving?: Animation }[];
   /// The incoming words', the followers' and the fading layers' animations of the last change.
   playing: Animation[];
   observer: ResizeObserver | null;
@@ -92,10 +96,17 @@ function stopPlaying(state: SwapState) {
   state.playing = [];
 }
 
+function dropGhosts(state: SwapState, keep = 0) {
+  while (state.ghosts.length > keep) {
+    const ghost = state.ghosts.shift()!;
+    ghost.leaving?.cancel();
+    ghost.element.remove();
+  }
+}
+
 function clear(state: SwapState) {
   stopPlaying(state);
-  for (const ghost of state.ghosts) ghost.remove();
-  state.ghosts = [];
+  dropGhosts(state);
   state.observer?.disconnect();
   state.observer = null;
 }
@@ -107,6 +118,7 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
     element: null,
     text: undefined,
     width: -1,
+    left: -1,
     copy: null,
     ghosts: [],
     playing: [],
@@ -120,8 +132,9 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
     const element = ref.current;
     if (element !== swap.element) {
       clear(swap);
-      Object.assign(swap, { element, text, width: -1, copy: element ? copyOf(element) : null });
+      Object.assign(swap, { element, text, width: -1, left: -1, copy: element ? copyOf(element) : null });
       if (!element) return;
+      swap.left = element.offsetLeft;
       const view = element.ownerDocument.defaultView;
       if (view && "ResizeObserver" in view) {
         swap.observer = new view.ResizeObserver((entries) => {
@@ -144,8 +157,8 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
     if (!view || !old || mode === "none" || typeof element.animate !== "function") {
       // An earlier change's old words go too: their fade is not in `playing`.
       stopPlaying(swap);
-      for (const ghost of swap.ghosts) ghost.remove();
-      swap.ghosts = [];
+      dropGhosts(swap);
+      swap.left = element.offsetLeft;
       return;
     }
     const stop = element.closest(`[${TEXT_SWAP_ROOT}]`) ?? element.parentElement ?? element;
@@ -163,18 +176,24 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
     stopPlaying(swap);
 
     const width = element.getBoundingClientRect().width;
-    const shift = mode === "full" && oldWidth >= 0 ? oldWidth - width + fromX : 0;
+    const left = element.offsetLeft;
+    const oldLeft = swap.left >= 0 ? swap.left : left;
+    swap.left = left;
+    // The clock moves by where the words end, so a mark that comes or goes before them moves it too.
+    const shift = mode === "full" && oldWidth >= 0 ? oldLeft + oldWidth - (left + width) + fromX : 0;
 
-    while (swap.ghosts.length >= TEXT_SWAP_MAX_GHOSTS) swap.ghosts.shift()?.remove();
+    dropGhosts(swap, TEXT_SWAP_MAX_GHOSTS - 1);
     const ghost = old;
     Object.assign(ghost.style, {
       position: "absolute",
-      left: `${element.offsetLeft}px`,
+      // The old words leave from where they stood.
+      left: `${oldLeft}px`,
       top: `${element.offsetTop}px`,
       ...(oldWidth >= 0 && { width: `${oldWidth}px` }),
     });
     element.parentElement?.insertBefore(ghost, element.nextSibling);
-    swap.ghosts.push(ghost);
+    const entry: SwapState["ghosts"][number] = { element: ghost };
+    swap.ghosts.push(entry);
     // Faded out halfway: the old words are gone before the clock, sliding left, crosses them.
     const out =
       mode === "full"
@@ -189,9 +208,10 @@ export function useTextSwap<T extends HTMLElement>(text: string | undefined): Re
       easing: MOTION_EASE_OUT,
       fill: "forwards",
     });
+    entry.leaving = leaving;
     const gone = () => {
       ghost.remove();
-      swap.ghosts = swap.ghosts.filter((other) => other !== ghost);
+      swap.ghosts = swap.ghosts.filter((other) => other !== entry);
     };
     leaving.onfinish = gone;
     leaving.oncancel = gone;
