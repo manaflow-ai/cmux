@@ -417,6 +417,8 @@ def declarations(lines):
     stack = [{}]
     scopes = FileScopes(local_types)
     pending = []  # bindings for the next `{`: func parameters, for/if-let variables
+    paren = 0  # "(" depth since the first pending binding: a `{` inside it is a closure's
+    signature_params = []  # a func/init's parameters, pended once its list closes
     type_pending = False  # a type header with its `{` on a later line
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for index, line in enumerate(lines):
@@ -457,9 +459,15 @@ def declarations(lines):
             found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
             if head:
                 events.append((head.start(), 0, "new-signature", None))
-            for m in ANY_PARAMETER.finditer(params):
-                events.append((offset + stop - 1, 1, "pend", (m.group(1), written_type(params[m.end():], True))))
+                signature_params = []
+            signature_params += [(m.group(1), written_type(params[m.end():], True))
+                                 for m in ANY_PARAMETER.finditer(params)]
             signature_depth = max(depth, 0) if stop == len(text) else 0
+            if signature_depth == 0:
+                # The list closed: its parameters bind in the body, not in a `= { }` default
+                # inside the list (that `{` comes first, at a lower position).
+                events += [(offset + stop, 1, "pend", entry) for entry in signature_params]
+                signature_params = []
         closures = {}
         for match in CLOSURE_PARAMETERS.finditer(code):
             group, bound = match.group(1), []
@@ -487,7 +495,7 @@ def declarations(lines):
             for name in PARAMETER_NAME.findall(match.group(1)):
                 events.append((match.start(), 1, "pend", (name, (None, None))))
         for pos, ch in enumerate(code):
-            if ch in "{}":
+            if ch in "{}()":
                 events.append((pos, 2, ch, None))
         points = [(-1, tuple(stack))]
         for pos, _, action, payload in sorted(events, key=lambda e: (e[0], e[1])):
@@ -496,7 +504,15 @@ def declarations(lines):
             elif action == "bind":
                 stack[-1].setdefault(payload[0], []).append(payload[1])
             elif action == "pend":
+                if not pending:
+                    paren = 0
                 pending.append(payload)
+            elif action == "(":
+                paren += 1
+            elif action == ")":
+                paren -= 1
+                if paren < 0:  # the statement left the parentheses it started in
+                    pending, paren = [], 0
             elif action == "{":
                 scope = TypeScope() if (TYPE_HEADER.search(code[:pos]) or type_pending) else {}
                 type_pending = False
@@ -504,13 +520,17 @@ def declarations(lines):
                     if entry[0] == "lock-of":
                         entry = ("lock-of", entry[1], tuple(stack), entry[3])
                     scope.setdefault(name, []).append(entry)
-                for name, entry in pending:
-                    scope.setdefault(name, []).append(entry)
-                pending = []
+                if paren == 0:
+                    # The statement's own body. A `{` inside parentheses (`first(where: { })`,
+                    # `filter({ })`) is a closure in the condition: it keeps the bindings pending.
+                    for name, entry in pending:
+                        scope.setdefault(name, []).append(entry)
+                    pending = []
                 stack.append(scope)
                 points.append((pos, tuple(stack)))
             elif action == "}":
-                pending = []
+                if paren == 0:
+                    pending = []
                 if len(stack) > 1:
                     stack.pop()
                 points.append((pos, tuple(stack)))
