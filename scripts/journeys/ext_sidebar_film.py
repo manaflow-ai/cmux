@@ -311,8 +311,12 @@ def _profile_rows(xml_path):
     for row in rows:
         thread = deref(row.find("thread"))
         weight = deref(row.find("weight"))
-        trace = deref(row.find("backtrace"))
-        frames = [deref(f).get("name") or "?" for f in (trace.findall("frame") if trace is not None else [])]
+        # The backtrace column is `backtrace` or `tagged-backtrace` (which holds a `backtrace`), by reference or inline.
+        trace = next((deref(e) for e in row if "backtrace" in e.tag), None)
+        if trace is not None and trace.tag != "backtrace":
+            inner = next((deref(e) for e in trace.iter() if e.tag == "backtrace" and e is not trace), None)
+            trace = inner if inner is not None else trace
+        frames = [deref(f).get("name") or deref(f).get("fmt") or "?" for f in (trace.iter("frame") if trace is not None else [])]
         try:
             ns = int((weight.text or "0").strip()) if weight is not None else 1000000
         except ValueError:
@@ -356,6 +360,8 @@ def step_film_profile(j, step):
     if done.returncode != 0 or not xml.exists():
         raise D.StepError(f"film_profile: export failed: {(done.stdout + done.stderr)[-400:]}; record: {log}")
     rows = _profile_rows(str(xml))
+    with open(str(xml), errors="replace") as handle:
+        head = handle.read(6000)  # the export's first rows, kept as evidence of its shape
     main = [(ns, frames) for name, ns, frames in rows if "Main Thread" in name]
     inclusive, own, stacks = {}, {}, {}
     for ns, frames in main:
@@ -371,7 +377,7 @@ def step_film_profile(j, step):
     profile = {"scenario": scenario, "kind": kind, "presses": presses, "rows": len(workspace_ids(j)),
                "main_ms": round(total, 2), "main_ms_per_press": round(total / max(1, presses), 2),
                "samples": len(main), "all_samples": len(rows), "inclusive": top(inclusive, 150), "self": top(own, 80),
-               "stacks": top(stacks, 60), "frames": measures,
+               "stacks": top(stacks, 60), "frames": measures, "export_head": head,
                "motion_frames": sum(m.get("motion_frames", 0) for m in measures),
                "main_ms_per_motion_frame": round(total / max(1, sum(m.get("motion_frames", 0) for m in measures)), 2)}
     (j.out / f"profile-{scenario}.json").write_text(json.dumps(profile) + "\n")

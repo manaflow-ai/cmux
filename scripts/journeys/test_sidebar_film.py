@@ -71,7 +71,7 @@ XML = """<?xml version="1.0"?>
 <backtrace id="4"><frame id="5" name="layoutRows"/><frame id="6" name="apply"/></backtrace></row>
 <row><sample-time id="7">2</sample-time><thread ref="2"/><weight ref="3"/><backtrace ref="4"/></row>
 <row><sample-time id="8">3</sample-time><thread id="9" fmt="Thread 0x2 (cmux, pid: 9)"/><weight ref="3"/>
-<backtrace id="10"><frame ref="6"/></backtrace></row>
+<tagged-backtrace id="11"><backtrace id="10"><frame ref="6"/></backtrace></tagged-backtrace></row>
 </node></trace-query-result>"""
 
 
