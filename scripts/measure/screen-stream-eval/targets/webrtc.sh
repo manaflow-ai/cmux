@@ -39,10 +39,10 @@ viewer() {
 watch_encode() {
   python3 -I -u -c '
 import json, os, re, sys, time
-path = sys.argv[1]
+path, parent = sys.argv[1], os.getppid()
 with open(path) as log:
     log.seek(0, os.SEEK_END)
-    while True:
+    while os.getppid() == parent:  # ends with the target script that started it
         line = log.readline()
         if not line:
             time.sleep(0.2)  # follow the host log

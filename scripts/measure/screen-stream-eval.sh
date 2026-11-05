@@ -147,6 +147,7 @@ for name in "${names[@]}"; do
     bash "$script" window "$window_s" "$dir/viewer-frame" "$go" "$dir/window.json" || err "window failed"
   else
     err "host did not start for the window"
+    touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
   fi
   touch "$stop"
   wait "$scene" || err "scene exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
@@ -161,7 +162,7 @@ for name in "${names[@]}"; do
   # The logs, without the WebRTC host's pairing (its link and the QR code of it: the room secret).
   for log in "$EVAL_STATE"/*.log; do
     [[ -f "$log" ]] || continue
-    grep -v -E 'cmux-vnc://|[█▀▄]' "$log" >"$dir/$(basename "$log")" || true
+    LC_ALL=en_US.UTF-8 grep -v -E 'cmux-vnc://|[█▀▄]' "$log" >"$dir/$(basename "$log")" || true
   done
   python3 -I "$here/eval.py" target "$name" "$dir" "$dir/target.json"
   echo "SCREEN-STREAM-EVAL-TARGET $name $(python3 -I -c 'import json,sys; t=json.load(open(sys.argv[1])); print(json.dumps({k: t[k] for k in ("ok", "latency", "kbps", "ocr")}))' "$dir/target.json")"
