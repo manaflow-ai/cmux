@@ -47,7 +47,9 @@ export type CodeBlockProps = {
 /// Loads the highlighted card; the page starts it once it has painted (App.tsx).
 export const loadHighlightedCode = () => import("./HighlightedCode");
 const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ default: module.HighlightedCode })));
-const HighlightedLines = lazy(() => import("./HighlightedLines").then((module) => ({ default: module.HighlightedLines })));
+const HighlightedLines = lazy(() =>
+  import("./HighlightedLines").then((module) => ({ default: module.HighlightedLines })),
+);
 
 /// A file's bare lines (a read's peek, FileResultCard.tsx), highlighted by `path`'s language in the
 /// same chunk as the fenced card; plain while it loads and past the highlight limits.
