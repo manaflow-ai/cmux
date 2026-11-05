@@ -98,7 +98,9 @@ import Testing
     @Test func aNewPageWindowIsHostedInTheWindowsLayers() throws {
         Self.set(pages: true)
         defer { Self.set(pages: nil) }
-        let (hosting, fork, turn) = Self.hosting(intervals: [1.0 / 120])
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        defer { withExtendedLifetime(view) {} }
+        let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         turn.end()
         #expect(fork.calls.map(\.browser) == [3] && fork.calls.map(\.enabled) == [true], "the page window was not hosted")
@@ -115,7 +117,9 @@ import Testing
         func waitIfThePageMisses(_ fork: FakeFork) -> Int32 { fork.syncs.last?.timeoutMs ?? 0 }
         Self.set(pages: true, syncDeadline: 0.05, dragDeadline: 0.05, liveDeadline: 0.05)
         defer { Self.set(pages: nil) }
-        let (hosting, fork, turn) = Self.hosting(intervals: [1.0 / 120])
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        defer { withExtendedLifetime(view) {} }
+        let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         turn.end()
         try #require(hosting.page != nil, "SETUP: the page is not hosted")
@@ -196,13 +200,14 @@ import Testing
         }
     }
 
-    /// A ``CEFLayerHosting`` with its default tunable reads, a fake fork and fixed display rates.
-    private static func hosting(intervals: [Double]) -> (CEFLayerHosting, FakeFork, Turn) {
+    /// A ``CEFLayerHosting`` with its default tunable reads, a fake fork and fixed display rates, over `view` (the hosting
+    /// holds its view weakly: the caller keeps it).
+    private static func hosting(over view: NSView, intervals: [Double]) -> (CEFLayerHosting, FakeFork, Turn) {
         let fork = FakeFork(), turn = Turn()
         let hosting = CEFLayerHosting(schedule: { turn.add($0) },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
                                       refreshIntervals: { intervals })
-        hosting.view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        hosting.view = view
         return (hosting, fork, turn)
     }
 
