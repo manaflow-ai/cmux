@@ -127,6 +127,7 @@ pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;
+pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
