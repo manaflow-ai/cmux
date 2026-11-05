@@ -426,7 +426,13 @@ def check(args) -> int:
         return failures
 
     smoke.AFTER_RENDER = journey
-    smoke.PREPARE_HOME = ui.login_keychain
+    def prepare(env):
+        ui.login_keychain(env)
+        # Before the launch: the app's acpmux reads the harness folder when it starts, and on a NIGHTLY
+        # `cmux harness reload` after the launch did not reach it ("unknown harness l5fake", nightly 4191131679101).
+        write_harness(env["HOME"], args.fake_agent)
+
+    smoke.PREPARE_HOME = prepare
     argv = ["--seconds", "1", *(["--dmg", args.dmg] if args.dmg else ["--app", args.app]), *(["--out", args.out] if args.out else [])]
     status = smoke.main(argv)
     times = [r["quit_to_usable_ms"] for r in result["rounds"] if isinstance(r.get("quit_to_usable_ms"), int)]
