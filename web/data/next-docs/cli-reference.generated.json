@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 801,
-    "mcp": 716
+    "verbs": 805,
+    "mcp": 720
   },
   "nouns": [
     {
@@ -5031,11 +5031,39 @@
           "mcpTool": "app_workspace_add_checklist_item"
         },
         {
+          "command": "cmux workspace archive-above",
+          "title": "Archive Workspaces Above",
+          "id": "workspace.archiveWorkspacesAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_above"
+        },
+        {
+          "command": "cmux workspace archive-below",
+          "title": "Archive Workspaces Below",
+          "id": "workspace.archiveWorkspacesBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_below"
+        },
+        {
           "command": "cmux workspace archive-idle",
           "title": "Archive Idle Workspaces",
           "id": "workspace.archiveIdle",
           "mcp": true,
           "mcpTool": "app_workspace_archive_idle"
+        },
+        {
+          "command": "cmux workspace archive-other",
+          "title": "Archive Other Workspaces",
+          "id": "workspace.archiveOtherWorkspaces",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_other"
+        },
+        {
+          "command": "cmux workspace archive-others-in-group",
+          "title": "Archive Other Workspaces in Group",
+          "id": "workspace.archiveOthersInGroup",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_others_in_group"
         },
         {
           "command": "cmux workspace archive-unarchive",

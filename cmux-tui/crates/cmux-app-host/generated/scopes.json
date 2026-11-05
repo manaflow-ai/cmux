@@ -2013,6 +2013,8 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.events",
     "credential.mint",
     "credential.rotate",

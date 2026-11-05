@@ -3,6 +3,9 @@
 // it here and Start; an offer made alone is the same card with one task. A started task becomes
 // one quiet row hung off the card by an elbow, with what its chat is doing now, which opens that
 // chat. The prompt that brings a task's result back draws as one "Received message from" line.
+// A lone offer reads "New session" and its Options open the rows of Claude desktop's
+// suggested-session card (OfferOptions.tsx): Environment, the folder, Worktree, Model, Effort and
+// Permissions, each at the new chat's default until the person picks (offerChoice.ts).
 // Gated by the `sessions.promptSuggestions` setting (or the Debug tunable forcing it on) or the
 // session-offer experiment (offersShown.ts).
 import { useId, useState } from "react";
@@ -12,14 +15,29 @@ import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { Menu, MenuButton, MenuCheckboxItem, MenuItem, MenuPopup } from "../../../ui/Menu";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
+import { OfferOptions } from "./OfferOptions";
+import {
+  initialChoice,
+  pickIntent,
+  useOfferDefaults,
+  withPick,
+  type OfferChoice,
+  type OfferGrant,
+  type OfferDefaults,
+  type OfferPick,
+  type OfferTickets,
+} from "./offerChoice";
 
 /// What a task's buttons do (App.tsx routes them to `chat.offer.*`).
 export type OfferActions = {
-  start(offerId: string, worktree: boolean): Promise<unknown>;
+  /// `tickets`: the gesture tickets of the choice's Effort and Permissions picks.
+  start(offerId: string, choice: OfferChoice, tickets: OfferTickets): Promise<unknown>;
+  /// Reserves the person's current gesture for one grant (`transport.gesture`); unset where the
+  /// page has no host to ask.
+  reserve?(intent: OfferGrant): Promise<string | undefined>;
   here(offerId: string): Promise<unknown>;
   dismiss(offerId: string): Promise<unknown>;
   open(childSessionId: string): void;
@@ -27,13 +45,50 @@ export type OfferActions = {
 
 type Busy = "start" | "here" | "dismiss";
 
+/// A grant's kind: the host keeps one ticket for each, so a new one replaces the last.
+type Grant = "mode" | "effort";
+type Held = Partial<Record<Grant, Promise<string | undefined>>>;
+
+/// `choice` without its `kinds` picks: back at Default, the new chat's own.
+function withoutGrants(choice: OfferChoice | undefined, kinds: readonly Grant[]): OfferChoice | undefined {
+  if (!choice) return choice;
+  const next = { ...choice };
+  for (const kind of kinds) delete next[kind];
+  return next;
+}
+
 export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer[]; actions: OfferActions }) {
   const t = useT();
   const [busy, setBusy] = useState<Record<string, Busy>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Each task's Options > Start in a new worktree, from the agent's ask until the person changes it.
-  const [worktrees, setWorktrees] = useState<Record<string, boolean>>({});
-  const worktree = (offer: AcpmuxSessionOffer) => worktrees[offer.offerId] ?? offer.worktree;
+  const defaults = useOfferDefaults();
+  // Each task's Options, from the agent's ask until the person changes them, and the gesture
+  // tickets of its grants.
+  const [choices, setChoices] = useState<Record<string, OfferChoice>>({});
+  const [held, setHeld] = useState<Record<string, Held>>({});
+  const choice = (offer: AcpmuxSessionOffer) => choices[offer.offerId] ?? initialChoice(offer);
+  // A pick from this chat's lists. An Effort or Permissions pick takes its ticket on this click; the
+  // host keeps one per kind, so another task's pick of that kind loses its ticket and goes back to
+  // Default (Start never sends a ticket the host has dropped). Start's own click stays the prompt's.
+  const pick = (offer: AcpmuxSessionOffer, part: OfferPick) => {
+    if (!defaults) return;
+    const kind: Grant | undefined = part.mode ? "mode" : part.effort ? "effort" : undefined;
+    const intent = part.mode ? pickIntent({ mode: part.mode }) : part.effort && pickIntent({ effort: part.effort });
+    setChoices((current) => {
+      const next: Record<string, OfferChoice> = {};
+      for (const [id, kept] of Object.entries(current)) next[id] = kind ? withoutGrants(kept, [kind])! : kept;
+      next[offer.offerId] = withPick(current[offer.offerId] ?? initialChoice(offer), offer, defaults, part);
+      return next;
+    });
+    if (!kind || !intent) return;
+    const ticket = actions.reserve?.(intent).catch(() => undefined) ?? Promise.resolve(undefined);
+    setHeld((current) => {
+      const next: Record<string, Held> = {};
+      for (const [id, kept] of Object.entries(current)) next[id] = { ...kept, [kind]: undefined };
+      next[offer.offerId] = { ...current[offer.offerId], [kind]: ticket };
+      return next;
+    });
+  };
   const open = offers.filter((offer) => !offer.outcome);
   const started = offers.filter((offer) => offer.outcome === "accepted" && offer.childSessionId);
   const single = offers.length === 1 && !offers[0]!.groupId;
@@ -44,16 +99,35 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
     setErrors((current) => withKey(current, offerId, error));
   };
   // Busy until acpmux's decision record answers the task, so its buttons never come back between.
-  const run = async (offerId: string, which: Busy, action: () => Promise<unknown>) => {
+  const run = async (offerId: string, which: Busy, action: () => Promise<unknown>, failed?: () => void) => {
     mark(offerId, which);
     try {
       await action();
     } catch (failure) {
+      failed?.();
       mark(offerId, undefined, errorMessage(failure) || t("offer.failed"));
     }
   };
-  const start = (offer: AcpmuxSessionOffer) =>
-    run(offer.offerId, "start", () => actions.start(offer.offerId, worktree(offer)));
+  // A ticket redeems once: Start takes the task's. A start that fails puts its granted picks back
+  // to Default, as the Options then show, so trying again never sends a spent ticket.
+  const start = (offer: AcpmuxSessionOffer) => {
+    const picked = choice(offer);
+    const kept = held[offer.offerId];
+    const granted: OfferTickets = {
+      ...(picked.mode && kept?.mode ? { mode: kept.mode } : {}),
+      ...(picked.effort && kept?.effort ? { effort: kept.effort } : {}),
+    };
+    setHeld((current) => withKey(current, offer.offerId, undefined));
+    return run(
+      offer.offerId,
+      "start",
+      () => actions.start(offer.offerId, picked, granted),
+      () =>
+        setChoices((current) =>
+          withKey(current, offer.offerId, withoutGrants(current[offer.offerId], ["mode", "effort"])),
+        ),
+    );
+  };
   const here = (offer: AcpmuxSessionOffer) => void run(offer.offerId, "here", () => actions.here(offer.offerId));
   const dismiss = (offer: AcpmuxSessionOffer) =>
     void run(offer.offerId, "dismiss", () => actions.dismiss(offer.offerId));
@@ -93,8 +167,10 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
             offer={offer}
             busy={busy[offer.offerId]}
             error={errors[offer.offerId]}
-            worktree={worktree(offer)}
-            onWorktree={(on) => setWorktrees((current) => ({ ...current, [offer.offerId]: on }))}
+            defaults={defaults}
+            choice={choice(offer)}
+            onChoice={(next) => setChoices((current) => ({ ...current, [offer.offerId]: next }))}
+            onPick={(part) => pick(offer, part)}
             onStart={() => void start(offer)}
             onHere={() => here(offer)}
             onDismiss={() => dismiss(offer)}
@@ -115,17 +191,19 @@ function withKey<T>(record: Record<string, T>, key: string, value: T | undefined
   return next;
 }
 
-/// "3 suggested tasks", or a lone offer's "Suggested".
+/// "3 suggested tasks", or a lone offer's "New session".
 function heading(t: Translate, offers: AcpmuxSessionOffer[], single: boolean): string {
-  return single ? t("offer.label") : t("offer.tasks.count", { n: offers.length });
+  return single ? t("offer.newSession") : t("offer.tasks.count", { n: offers.length });
 }
 
 function OpenTask({
   offer,
   busy,
   error,
-  worktree,
-  onWorktree,
+  defaults,
+  choice,
+  onChoice,
+  onPick,
   onStart,
   onHere,
   onDismiss,
@@ -133,8 +211,10 @@ function OpenTask({
   offer: AcpmuxSessionOffer;
   busy?: Busy;
   error?: string;
-  worktree: boolean;
-  onWorktree(on: boolean): void;
+  defaults: OfferDefaults | undefined;
+  choice: OfferChoice;
+  onChoice(next: OfferChoice): void;
+  onPick(pick: OfferPick): void;
   onStart(): void;
   onHere(): void;
   onDismiss(): void;
@@ -172,18 +252,16 @@ function OpenTask({
           </span>
         )}
         <div className="acpmux-task-actions" aria-live="polite">
-          <Menu>
-            <MenuButton className="acpmux-task-action" aria-haspopup="menu" disabled={off}>
-              {t("offer.options")}
-            </MenuButton>
-            <MenuPopup className="ui-context-menu acpmux-task-menu" label={t("offer.options")} align="start">
-              <MenuCheckboxItem checked={worktree} onCheckedChange={onWorktree}>
-                {t("offer.newWorktree")}
-              </MenuCheckboxItem>
-              <MenuItem onSelect={onDismiss}>{t("offer.dismiss")}</MenuItem>
-            </MenuPopup>
-          </Menu>
-          {worktree && <span className="acpmux-task-note">{t("offer.worktree")}</span>}
+          <OfferOptions
+            offer={offer}
+            defaults={defaults}
+            choice={choice}
+            disabled={off}
+            onChoice={onChoice}
+            onPick={onPick}
+            onDismiss={onDismiss}
+          />
+          {choice.worktree && <span className="acpmux-task-note">{t("offer.worktree")}</span>}
           <span className="acpmux-task-spacer" />
           {busy === "start" ? (
             <span className="acpmux-task-note">{t("offer.starting")}</span>

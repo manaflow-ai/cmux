@@ -56,6 +56,12 @@ import Testing
         }
     }
 
+    @Test func copiesTheDashedCodeAsTheMacDoes() throws {
+        let read = try #require(MachineInvite(code: "abcde12345"))
+        #expect(read.copyableCode == "ABCDE-12345")
+        #expect(read.copyableCode == read.display)
+    }
+
     @Test func neverShowsTheCodeInLogs() throws {
         let read = try #require(MachineInvite(code: "ABCDE12345"))
         #expect(!String(describing: read).contains("ABCDE"))

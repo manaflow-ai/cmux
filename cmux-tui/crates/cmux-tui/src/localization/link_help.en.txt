@@ -22,7 +22,7 @@ port for every paired machine. Same network only: no relay yet.
   status                            print whether the link runs, and its pid, socket and build
   archive                           after a sign-out: keep the install's key and peers under
                                     its name and remove the config (the link must be stopped)
-  dial --host ID [--service daemon|ssh|owner_session] [--socket ABSOLUTE_PATH]
+  dial --host ID [--service daemon|ssh|owner_session|desktop] [--socket ABSOLUTE_PATH]
                                     bridge stdin and stdout to a paired install or Cloud
                                     host; one JSON line on stderr, exit 0 ok, 2 unknown host,
                                     3 not authorized, 4 paused, 5 unreachable, 6 no link,

@@ -94,6 +94,27 @@ export function layerKeys(lockText: string, flags: readonly string[], inputTree:
   return { system, agents: sha("cmux-vm-agents-v1", system, agentProgramsText(lockText)) };
 }
 
+/** Longest snapshot label kept (the provider's display name contract). */
+export const LABEL_MAX = 64;
+
+/**
+ * A layered snapshot's label: its name and, when the parent is one of our layers, that layer's short name
+ * (`<name> ^agt-<key16>`), which fits the label limit where the parent's 35-character id would not. A label that
+ * would not fit, or a parent that is no layer (the provider base), is the bare name: gc-layers.ts then treats the
+ * parent as unknown and keeps every older layer.
+ */
+export function layerLabel(name: string, parentSlug: string | null | undefined): string {
+  const short = (Object.entries(LAYER_PREFIX) as Array<[LayerName, string]>).map(([, prefix]) => (parentSlug?.startsWith(prefix) ? parentSlug.slice("cmuxnp-dev-vmimg-".length) : undefined)).find(Boolean);
+  const label = short ? `${name} ^${short}` : name;
+  return label.length <= LABEL_MAX ? label : name;
+}
+
+/** The parent layer's slug a layered snapshot's label records, or undefined when it records none. */
+export function labelParent(displayName: string | null | undefined): string | undefined {
+  const short = /^\S+ \^((?:sys|agt)-[0-9a-f]{16})$/.exec(displayName ?? "")?.[1];
+  return short ? `cmuxnp-dev-vmimg-${short}` : undefined;
+}
+
 /** A cached layer's snapshot name and slug. Fits the 41-character tag limit of `cmuxnp-dev-vmimg-<tag>`. */
 export const layerName = (layer: LayerName, key: string) => `${LAYER_PREFIX[layer]}${key.slice(0, 16)}`;
 

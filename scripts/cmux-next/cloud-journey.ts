@@ -496,7 +496,10 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
-  `pkill -u "$(id -u)" -f '[j]ourney-model-stub.py' || true; rm -f /home/cmux/.cmux/journey-model-stub.*; ` +
+  // Only the stub an earlier run recorded (its launch writes journey-model-stub.pid), and only while that pid still runs it.
+  `p=$(cat /home/cmux/.cmux/journey-model-stub.pid 2>/dev/null); ` +
+  `[ -n "$p" ] && grep -qa journey-model-stub.py "/proc/$p/cmdline" 2>/dev/null && kill "$p" 2>/dev/null; ` +
+  `rm -f /home/cmux/.cmux/journey-model-stub.*; ` +
   `python3 - <<'PY'\nimport json, pathlib\np = pathlib.Path('/home/cmux/.claude/settings.json')\nif p.exists() and not p.is_symlink():\n    c = json.loads(p.read_text())\n    if c.get('env', {}).pop('ANTHROPIC_BASE_URL', None) is not None:\n        p.write_text(json.dumps(c)); print('dropped the stub endpoint')\nPY`;
 
 /** How long --keyed-start waits after the start before it reads the daemon again (over acpmux.service's RestartSec=3). */
@@ -933,6 +936,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
         const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+        const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
         for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
           const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
           if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
@@ -942,7 +946,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
           : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
+          `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
             `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
             `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
             `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +

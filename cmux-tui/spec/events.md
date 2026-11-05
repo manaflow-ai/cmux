@@ -1532,6 +1532,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | `colors` field | protocol 6 additive extension |
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
+| `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
 
 Payload:
 
@@ -1565,7 +1566,8 @@ object{
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
   },
-  pending?:Base64
+  pending?:Base64,
+  history_rows_omitted?:uint64
 }
 ```
 
@@ -1598,6 +1600,12 @@ same bytes appended to `data`, which suits clients that write nothing between
 the replay and the live stream. The one exception is a control string longer
 than 1 MiB that is not a direct Kitty upload: a replay taken inside it omits the
 string, and a resize there drops byte attachments so they reattach.
+
+`history_rows_omitted` is present only when the attach carried
+`replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
+`data` then holds the active area and at most that many of the newest history
+rows, and the field counts the older history rows it left out (0 when the
+whole history fit).
 
 Example:
 

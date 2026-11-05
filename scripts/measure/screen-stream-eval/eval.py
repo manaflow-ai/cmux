@@ -13,9 +13,13 @@ and each TARGET is
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
    "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
-   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method"},
+   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
+                                [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
-   "extra": {...}}
+   "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
+The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
+their numbers is the median of the repeats that measured it, and extra.repeats keeps every repeat's
+own. Latency runs once: its p50 and p95 are already over SAMPLES inputs.
 A number nobody could measure is null, never left out, so two runs always line up key by key.
 New fields may be added; a field is never renamed or given another meaning without a new SCHEMA.
 """
@@ -84,25 +88,63 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["latency"][kind] = {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": lat.get("lost")}
         split = lat.get("split") or {}
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
+        if split.get("input_to_capture_parts"):
+            result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
         if g2g.get("p50") is None:
             errors.append(f"latency {kind}: no samples")
-    window = load(folder / "window.json") or {}
-    phases = {}
-    if (folder / "phases.jsonl").exists():
-        for line in (folder / "phases.jsonl").read_text().splitlines():
-            if line.strip():
-                row = json.loads(line)
-                phases[row["phase"]] = row
-    kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
-    result["kbps"], result["fps"] = kbps, fps
-    result["split"]["typing"] = {"encode_ms": encode.get("typing"), "decode_ms": decode.get("typing")}
-    if None in kbps.values():
-        errors.append(f"window: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
-    ocr = load(folder / "ocr.json")
-    result["ocr"] = {**dict.fromkeys(OCR_FIELDS), **(ocr or {})}
-    if ocr is None:
+    # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
+    # that measured it, and extra.repeats keeps each repeat's own numbers.
+    reps = sorted(int(f.stem.split("-")[1]) for f in folder.glob("window-*.json") if f.stem.split("-")[1].isdigit())
+    reps = sorted(set(reps) | {int(f.stem.split("-")[1]) for f in folder.glob("ocr-*.json") if f.stem.split("-")[1].isdigit()})
+    per_rep, ocrs, extras = [], [], []
+    for rep in reps:
+        window = load(folder / f"window-{rep}.json") or {}
+        phases = {}
+        if (folder / f"phases-{rep}.jsonl").exists():
+            for line in (folder / f"phases-{rep}.jsonl").read_text().splitlines():
+                if line.strip():
+                    row = json.loads(line)
+                    phases[row["phase"]] = row
+        kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
+        ocr = load(folder / f"ocr-{rep}.json")
+        if None in kbps.values():
+            errors.append(f"window {rep}: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
+        if ocr is None:
+            errors.append(f"ocr {rep}: no result")
+        else:
+            ocrs.append(ocr)
+        extras.append(window.get("extra") or {})
+        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
+                        "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
+                        "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
+                        **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
+    if not reps:
+        errors.append("window: no repeat ran")
+
+    def median_of(values):
+        values = [v for v in values if isinstance(v, (int, float))]
+        return round(statistics.median(values), 4) if values else None
+
+    result["kbps"] = {k: median_of(r["kbps"][k] for r in per_rep) for k in WINDOW_PHASES}
+    result["fps"] = {k: median_of(r["fps"][k] for r in per_rep) for k in WINDOW_PHASES}
+    result["split"]["typing"] = {"encode_ms": median_of(r["typing_encode_ms"] for r in per_rep),
+                                 "decode_ms": median_of(r["typing_decode_ms"] for r in per_rep)}
+    # OCR: each numeric field's median over the repeats that measured it (extra.repeats keeps each
+    # repeat's); the image names, which have no median, are the median-CER repeat's.
+    result["ocr"] = dict.fromkeys(OCR_FIELDS)
+    if ocrs:
+        # Among the repeats that measured a CER (any repeat when none did), so the images never
+        # come from a repeat with no measurement while others have one.
+        measured = [o for o in ocrs if isinstance(o.get("cer"), (int, float))] or ocrs
+        middle = sorted(measured, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 0)[(len(measured) - 1) // 2]
+        for k in OCR_FIELDS:
+            if any(isinstance(o.get(k), (int, float)) for o in ocrs):
+                result["ocr"][k] = median_of(o.get(k) for o in ocrs)
+            else:
+                result["ocr"][k] = middle.get(k)
+    else:
         errors.append("ocr: no result")
-    result["extra"] = window.get("extra") or {}
+    result["extra"] = {**(extras[0] if extras else {}), "repeats": per_rep}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -132,7 +174,8 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
     run = results.get("run", {})
     lines = [f"# Screen stream eval, {run.get('at', '?')}", ""]
     lines.append(f"Host {run.get('host', '?')} ({run.get('cpu', '?')}, macOS {run.get('macos', '?')}), display {run.get('display', '?')}, "
-                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`.")
+                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`"
+                 + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "") + ".")
     if previous:
         prev_run = previous.get("run", {})
         lines.append(f"Changes in brackets are against {prev_run.get('at', '?')} (rev `{str(prev_run.get('rev', '?'))[:12]}`).")
@@ -165,7 +208,18 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
                          f"{cell('split', kind, 'transport_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
+        for kind in ("key", "pointer"):
+            parts = get(t, "split", kind, "input_to_capture_parts") or {}
+            if parts:
+                lines.append(f"| {kind.capitalize()} input→capture parts (p50): render / SCK / pickup / gate | "
+                             + " / ".join(fmt((parts.get(k) or {}).get("p50"), " ms", 2) for k in ("render_ms", "sck_ms", "pickup_ms", "gate_ms")) + " |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
+        reps = (t.get("extra") or {}).get("repeats") or []
+        if len(reps) > 1:
+            lines += ["", f"Medians of {len(reps)} window and OCR repeats. Each repeat: OCR error "
+                      + " / ".join(fmt(r.get("ocr_cer"), "%", 2) for r in reps)
+                      + "; kbps idle / typing / scroll "
+                      + ", ".join("/".join(fmt((r.get("kbps") or {}).get(k), "", 0) for k in WINDOW_PHASES) for r in reps) + "."]
         method = get(t, "split", "key", "method")
         if method:
             lines += ["", f"Split method ({name}): {method}. Transport is not comparable across targets."]

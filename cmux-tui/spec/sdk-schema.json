@@ -16717,6 +16717,16 @@
       "default": null,
       "capability": "attach-identity-v1"
      },
+     "replay_history_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-replay-history-rows-v1"
+     },
      "snapshot": {
       "type": {
        "kind": "scalar",
@@ -16827,7 +16837,9 @@
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
     "terminal_event": "detached"
    },
-   "constraints": []
+   "constraints": [
+    "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+   ]
   },
   "register-browser-provider": {
    "authority": "local-admin",
@@ -29398,6 +29410,15 @@
       "presence": "optional",
       "nullable": false,
       "since": 6
+     },
+     "history_rows_omitted": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "attach-replay-history-rows-v1"
      }
     },
     "additional_properties": false

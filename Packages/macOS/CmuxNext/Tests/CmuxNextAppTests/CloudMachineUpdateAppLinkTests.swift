@@ -31,7 +31,6 @@ struct CloudMachineUpdateAppLinkTests {
 
         try await fixture.waitUntil { machines.compatibility(of: session.daemon)?.level == .incompatible }
         #expect(session.daemon.connection == nil, "the refused daemon left no connection")
-        #expect(session.appLink != nil && session.link == nil)
         #expect(CloudMachineUpdates.daemon(of: session, machines: machines) == CloudMachineUpdateTarget.Daemon(build: nil, level: .incompatible))
         #expect(await resolver.opens == 1)
 

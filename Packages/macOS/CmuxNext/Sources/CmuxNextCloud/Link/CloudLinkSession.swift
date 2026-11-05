@@ -110,7 +110,6 @@ public actor CloudLinkSession {
     /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
     /// it before it connects and again as it sends: a different answer means the link ended or a
     /// new connect asked the Cloud API again, so an owner answer never carries over to another link
-    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
     public var ownerLink: Int? {
         switch state {
         case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil

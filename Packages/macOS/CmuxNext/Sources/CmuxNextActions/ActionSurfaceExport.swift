@@ -69,7 +69,12 @@ public nonisolated enum ActionSurfaceExport {
         var wire: [String: Any] = ["name": argument.name, "required": argument.isRequired]
         switch argument.kind {
         case .string: wire["kind"] = "string"
-        case .int: wire["kind"] = "int"
+        case .int(let range):
+            wire["kind"] = "int"
+            if let range {
+                wire["min"] = range.lowerBound
+                wire["max"] = range.upperBound
+            }
         case .bool: wire["kind"] = "bool"
         case .enumeration(let cases):
             wire["kind"] = "enum"

@@ -45,26 +45,35 @@ private struct ComposerGlass: ViewModifier {
     }
 }
 
-/// Code entry boxes driven by one hidden `TextField` (SPEC 5.4, 5.6). Six digits
-/// for email codes; `groups: [4, 4]` with a dash for Mac pairing.
+/// Code entry boxes driven by one hidden `TextField` (SPEC 5.4, 5.6). Six
+/// letters and digits for email codes; `groups: [4, 4]` with a dash for Mac
+/// pairing. The keyboard follows ``CodeEntryCharacters/keyboard``, and typed,
+/// pasted or autofilled text goes through
+/// ``CodeEntryCharacters/normalized(_:length:)``.
 public struct CodeBoxes: View {
     @Binding var text: String
     let groups: [Int]
-    let allowed: CharacterSet
+    let characters: CodeEntryCharacters
     let contentType: UITextContentType?
-    let keyboard: UIKeyboardType
     var boxSize: CGSize
     @FocusState private var isFocused: Bool
     /// The boxes grow with the digits' text style.
     @ScaledMetric(relativeTo: .title2) private var scale: CGFloat = 1
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    public init(text: Binding<String>, groups: [Int] = [6], allowed: CharacterSet = .decimalDigits, contentType: UITextContentType? = .oneTimeCode, keyboard: UIKeyboardType = .numberPad, boxSize: CGSize = CmuxMobileTheme.standard.metrics.codeBoxSize) {
+    /// Creates code boxes.
+    /// - Parameters:
+    ///   - text: The code, normalized by `characters`.
+    ///   - groups: Box counts per group, joined by a dash.
+    ///   - characters: The accepted characters; also picks the keyboard. No
+    ///     default, so each caller states what its code holds.
+    ///   - contentType: `.oneTimeCode` so iOS offers the code from Mail or Messages.
+    ///   - boxSize: The box size at the default text size.
+    public init(text: Binding<String>, groups: [Int] = [6], characters: CodeEntryCharacters, contentType: UITextContentType? = .oneTimeCode, boxSize: CGSize = CmuxMobileTheme.standard.metrics.codeBoxSize) {
         _text = text
         self.groups = groups
-        self.allowed = allowed
+        self.characters = characters
         self.contentType = contentType
-        self.keyboard = keyboard
         self.boxSize = boxSize
     }
 
@@ -81,17 +90,18 @@ public struct CodeBoxes: View {
     public var body: some View {
         ZStack {
             TextField("", text: Binding(get: { text }, set: { newValue in
-                let filtered = String(newValue.uppercased().unicodeScalars.filter { allowed.contains($0) }.map(Character.init)).prefix(length)
-                text = String(filtered)
+                text = characters.normalized(newValue, length: length)
             }))
             .textContentType(contentType)
-            .keyboardType(keyboard)
+            .keyboardType(characters.keyboard)
             .textInputAutocapitalization(.characters)
             .autocorrectionDisabled()
             .focused($isFocused)
             .frame(width: 1, height: 1)
             .opacity(0.02)
             .accessibilityLabel(Text("Code"))
+            // The normalized code (what the boxes show), not the raw field text.
+            .accessibilityValue(Text(verbatim: text))
 
             Group {
                 if dynamicTypeSize.isAccessibilitySize, groups.count == 1, length.isMultiple(of: 2) {

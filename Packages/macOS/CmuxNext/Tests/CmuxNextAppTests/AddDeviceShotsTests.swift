@@ -71,7 +71,7 @@ import Testing
         print("add-device-shots: wrote \(out.path)")
     }
 
-    /// The gallery of the "Any machine: one line" way (Labs labs.machineJoin): every look
+    /// The gallery of the "Any machine: one line" way (signed out): every look
     /// (``JoinLineLayout``) in every state, one contact sheet:
     /// `Packages/macOS/CmuxNext/.build/add-device-join-line-shots.png`. The app uses ``JoinLineLayout/card``.
     @Test func everyJoinLineLayoutAndStateRendersToTheGallery() async throws {
@@ -101,6 +101,58 @@ import Testing
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try AddServerShotsTests.png(sheet).write(to: out)
         print("add-device-join-line-shots: wrote \(out.path)")
+    }
+
+    /// The default card (the pair code, no ssh) signed in and signed out, and Advanced open on the ssh
+    /// way: `Packages/macOS/CmuxNext/.build/add-device-default-shots.png`. When run with
+    /// `FAST_CHECKS_OUT` set, the sheet is copied there too, so a fleet run returns it.
+    @Test func theDefaultCardAndAdvancedRenderToTheContactSheet() async throws {
+        _ = NSApplication.shared
+        var shots: [(String, NSImage)] = []
+        for state in ["signed in: pair code", "signed out: one line", "Advanced: add over SSH"] {
+            let fake = MachineJoinLineFlowTests.Fake()
+            let devices = AddDeviceFlowTests.Fake()
+            var services = MachineJoinLineFlowTests.services(devices, fake)
+            services.pairAnotherMachine = state.hasPrefix("signed out") ? { nil } : { {} }
+            let model = fake.deviceModel(services)
+            await model.begin()
+            #expect(model.way == .joinLine, "\(state): opens on the no-ssh way")
+            if state.hasPrefix("Advanced") { model.toggleAdvanced() }
+            let view = AddDeviceView(model: model)
+            #expect(!Self.hostsSwiftUI(view), "\(state) hosts SwiftUI")
+            #expect(Self.identifiers(view).contains("cmux.addDevice.advanced"), "\(state): Advanced is in reach")
+            let image = try AddMachineShotsTests.render(view)
+            #expect(image.size.width >= 400, "\(state) is \(image.size.width) pt wide")
+            shots.append((state, image))
+            model.closeCard()
+        }
+        let sheet = AddServerShotsTests.contactSheet(shots)
+        let data = try AddServerShotsTests.png(sheet)
+        let out = AddServerShotsTests.packageRoot.appending(path: ".build/add-device-default-shots.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: out)
+        if let dir = ProcessInfo.processInfo.environment["FAST_CHECKS_OUT"], !dir.isEmpty {
+            try data.write(to: URL(fileURLWithPath: dir).appending(path: "add-device-default-shots.png"))
+        }
+        print("add-device-default-shots: wrote \(out.path)")
+    }
+
+    /// The Advanced triangle is one control: a click on it opens the ssh way, another closes it.
+    @Test func theAdvancedDisclosureOpensTheSSHWay() async throws {
+        let fake = MachineJoinLineFlowTests.Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        let model = fake.deviceModel(MachineJoinLineFlowTests.services(devices, fake))
+        await model.begin()
+        let toggle = try #require(Self.find(AddDeviceView(model: model), id: "cmux.addDevice.advanced") as? NSButton)
+        toggle.performClick(nil)
+        #expect(model.way == .network)
+        let open = AddDeviceView(model: model)
+        #expect(Self.identifiers(open).contains("cmux.addDevice.add.studio"), "the ssh way lists the network's computers")
+        let again = try #require(Self.find(open, id: "cmux.addDevice.advanced") as? NSButton)
+        #expect(again.state == .on)
+        again.performClick(nil)
+        #expect(model.way == .joinLine)
+        model.closeCard()
     }
 
     @Test func theJoinLineControlsAreReachableByAccessibility() async throws {

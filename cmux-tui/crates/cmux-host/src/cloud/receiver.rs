@@ -181,6 +181,7 @@ impl ReceiverSnapshot {
                         .filter_map(|s| match s {
                             CloudVmReceiverPeerServicesItem::Daemon => Some(Service::Daemon),
                             CloudVmReceiverPeerServicesItem::Ssh => Some(Service::Ssh),
+                            CloudVmReceiverPeerServicesItem::Desktop => Some(Service::Desktop),
                             // Validation rejects unknown services. Keep this conversion
                             // non-panicking and never grant authority for an unknown value.
                             _ => None,
@@ -347,6 +348,10 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), Str
             .map(|s| match s {
                 CloudVmReceiverPeerServicesItem::Daemon => 1,
                 CloudVmReceiverPeerServicesItem::Ssh => 2,
+                // A receiver before this one refuses the whole policy on it,
+                // so the platform lists it only for a machine whose daemon
+                // block advertises `link-desktop-v1` (wire.rs DESKTOP_CAPABILITY).
+                CloudVmReceiverPeerServicesItem::Desktop => 3,
                 _ => 0,
             })
             .collect();

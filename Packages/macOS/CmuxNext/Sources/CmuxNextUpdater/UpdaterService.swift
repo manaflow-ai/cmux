@@ -203,6 +203,9 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    /// The running download's speed and time left (``syncFlowPhase()`` records each byte count). Read
+    /// only when the card's phase changes, so it needs no observation of its own.
+    @ObservationIgnored var transferRate = UpdateTransferRate()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?

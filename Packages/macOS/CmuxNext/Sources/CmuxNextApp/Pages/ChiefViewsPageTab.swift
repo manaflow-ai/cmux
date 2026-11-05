@@ -53,11 +53,11 @@ enum ChiefViewsPageTab {
                                                  test: invocation["test"]?.stringValue)
                 var spawn = WorkspaceSpawn(cwd: opened.worktree, name: WebProjection.workspaceName(opened.worktree))
                 spawn.opensNewTabPage = true
-                // A web page to project (`page`, an internal page id such as settings or history), shown in the
-                // window once the daemon lists its workspace there; the New Tab page is native.
                 if let page = invocation["page"]?.stringValue, !page.isEmpty {
                     spawn.onListed = { [weak services] _, _ in
-                        _ = services?.pages.show(InternalPageID(rawValue: page), in: services?.windows.controller(for: opened.windowID), focus: true)
+                        guard let services, let state = services.windows.controller(for: opened.windowID)?.state else { return }
+                        TopPages.show(.page(InternalPageID(rawValue: page)), services: services, in: state)
+                        projection.reloadStale() // `page` is the window's top page; a kept view (Settings) may hold the shipped files
                     }
                 }
                 services?.windows.startDetached(spawn, into: opened.windowID)

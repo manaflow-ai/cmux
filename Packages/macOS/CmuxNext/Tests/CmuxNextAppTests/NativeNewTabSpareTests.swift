@@ -84,8 +84,8 @@ struct NativeNewTabSpareTests {
         #expect(pool.nativeSpare != nil && pool.nativeSpare !== spare, "no new spare after the adoption")
     }
 
-    /// The spare is laid out at the pane size it was made at, and the parked spare follows a pane resize
-    /// only after ``NewTabSparePool/fitSettle``. A Cmd-T right after a resize adopts it at the old size:
+    /// The spare is laid out at the pane size it was made at, and the parked spare keeps that size during a pane resize's
+    /// motion; it takes the new size once the layout is still (`NewTabSpareHiddenFitTests`). A Cmd-T during the motion adopts it at the old size:
     /// the first frame's layout pass must still show it at the pane's new size with its field inside it
     /// (the page's wrapper sizes it by constraints in that pass). Before that pass it is the old size,
     /// which no frame draws.

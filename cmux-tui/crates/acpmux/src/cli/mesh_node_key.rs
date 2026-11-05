@@ -76,6 +76,23 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
     Ok(NodeKeypair { private_key: private, public_key: public })
 }
 
+/// A fresh node key in `state_dir`, in place of the one there: what a box whose home was copied
+/// from another gets, so the two never answer with one WireGuard identity. Only the public half
+/// of the new key is returned; the old key's bytes are not read.
+pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
+    crate::config::private_state_dir(state_dir)?;
+    let path = state_dir.join(KEY_FILE);
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) => {
+            anyhow::ensure!(meta.file_type().is_file(), "node key is not a regular file");
+            std::fs::remove_file(&path).context("remove the copied node key")?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    load_or_create_at(state_dir)
+}
+
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let mut file = crate::config::private_state_file(path)?;
     let mut key = Zeroizing::new([0u8; 32]);
@@ -149,6 +166,19 @@ mod tests {
             base64::engine::general_purpose::STANDARD.decode(first.public_key_base64()).unwrap();
         assert_eq!(bytes.len(), 32);
         assert!(!format!("{first:?}").contains("private"));
+    }
+
+    #[test]
+    fn replacing_a_key_gives_a_new_identity_that_then_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let copied = load_or_create_at(dir.path()).unwrap();
+        let fresh = replace_at(dir.path()).unwrap();
+        assert_ne!(copied.public_key, fresh.public_key);
+        assert_eq!(load_or_create_at(dir.path()).unwrap().public_key, fresh.public_key);
+        // With no key yet, a replacement is a first key.
+        let empty = tempfile::tempdir().unwrap();
+        let first = replace_at(empty.path()).unwrap();
+        assert_eq!(load_or_create_at(empty.path()).unwrap().public_key, first.public_key);
     }
 
     #[test]

@@ -248,15 +248,16 @@ pub fn attach(spawner: &FakeSpawner, transport: &FakeTransport) -> Attach {
 #[derive(Clone, Default)]
 pub struct ManualClock(Arc<Mutex<Vec<ManualTimer>>>);
 
-/// A recorded timer: still live (not cancelled), and its callback.
-type ManualTimer = (Arc<std::sync::atomic::AtomicBool>, Option<Box<dyn FnOnce() + Send>>);
+/// A recorded timer: still live (not cancelled), its delay, and its callback.
+type ManualTimer =
+    (Arc<std::sync::atomic::AtomicBool>, std::time::Duration, Option<Box<dyn FnOnce() + Send>>);
 
 impl ManualClock {
     /// Fires every timer that was not cancelled; returns how many fired.
     pub fn fire_all(&self) -> usize {
         let timers: Vec<_> = std::mem::take(&mut *self.0.lock().unwrap());
         let mut fired = 0;
-        for (live, fire) in timers {
+        for (live, _delay, fire) in timers {
             if live.load(std::sync::atomic::Ordering::SeqCst)
                 && let Some(fire) = fire
             {
@@ -266,16 +267,26 @@ impl ManualClock {
         }
         fired
     }
+
+    /// The delays of the timers still live, in the order they were set.
+    pub fn pending_delays(&self) -> Vec<std::time::Duration> {
+        let timers = self.0.lock().unwrap();
+        timers
+            .iter()
+            .filter(|(live, _, _)| live.load(std::sync::atomic::Ordering::SeqCst))
+            .map(|(_, delay, _)| *delay)
+            .collect()
+    }
 }
 
 impl cmux_cloud::clock::Clock for ManualClock {
     fn after(
         &self,
-        _delay: std::time::Duration,
+        delay: std::time::Duration,
         fire: Box<dyn FnOnce() + Send>,
     ) -> cmux_cloud::clock::Timer {
         let live = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        self.0.lock().unwrap().push((Arc::clone(&live), Some(fire)));
+        self.0.lock().unwrap().push((Arc::clone(&live), delay, Some(fire)));
         cmux_cloud::clock::Timer::new(Box::new(move || {
             live.store(false, std::sync::atomic::Ordering::SeqCst);
         }))

@@ -73,18 +73,6 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Machines
 
-    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
-        var body: [String: any Sendable] = ["transport": "cmux-remote"]
-        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
-        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
-                       as: CloudAttachEndpoint.self)
-    }
-
-    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
-        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
-                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
-    }
-
     /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
     /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
     public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
@@ -126,42 +114,6 @@ public struct CloudAPIClient: Sendable {
 
     public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
         try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
-    // MARK: Remote approvals (cx-psxg)
-
-    /// `POST /api/vm/{id}/acpmux/keyed-start`: restarts the machine's acpmux with this app's
-    /// person key. `writeKey` writes the key line (``keyLineLength`` bytes) into the request
-    /// body from the caller's own zeroed buffer: the body is a stream, so this code makes no
-    /// `Data` or `String` copy of the key, and URLSession cannot send it a second time (a stream
-    /// body is never resent). Copies that nobody zeroes still exist in the bound stream pair's
-    /// buffer and in URLSession's and TLS's buffers; they stay on this Mac, inside the trusted
-    /// delivery boundary (#13742 D16 update 4). No Idempotency-Key and no retry: a request that
-    /// did not answer is the person's to send again, with a new key. Answers the new daemon run
-    /// (`personInstance`).
-    public func acpmuxKeyedStart(_ id: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
-        var input: InputStream?
-        var output: OutputStream?
-        Stream.getBoundStreams(withBufferSize: keyLineLength * 2, inputStream: &input, outputStream: &output)
-        guard let input, let output else { throw CloudAPIError.transport("no request body stream") }
-        output.open()
-        let wrote = writeKey(output)
-        output.close()
-        guard wrote else { throw CloudAPIError.transport("the key did not reach the request body") }
-        struct Started: Decodable { var personInstance: String }
-        let started = try await send("POST", "/api/vm/\(id)/acpmux/keyed-start",
-                                     bodyStream: (input, keyLineLength, "application/octet-stream"),
-                                     timeout: .seconds(100), as: Started.self)
-        return started.personInstance
-    }
-
-    /// `POST /api/vm/{id}/acpmux/person-holds {nonce}`: what the machine's acpmux answers to
-    /// `_acpmux/person_holds`. The caller checks the proof against its own key.
-    public func acpmuxPersonHolds(_ id: String, nonce: String) async throws -> (instance: String, proof: String) {
-        struct Holds: Decodable { var instance: String; var proof: String }
-        let holds = try await send("POST", "/api/vm/\(id)/acpmux/person-holds", body: ["nonce": nonce],
-                                   timeout: .seconds(40), as: Holds.self)
-        return (holds.instance, holds.proof)
     }
 
     // MARK: Files and SCP

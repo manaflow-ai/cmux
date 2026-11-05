@@ -1,4 +1,5 @@
 {
-  "cloud-platform-dev": ["acl:read", "acl:write"],
-  "cloud-platform-staging": ["acl:read", "acl:write"]
+  "cloud-platform-dev": ["acl:read", "acl:write", "snapshot:read", "snapshot:write"],
+  "cloud-platform-staging": ["acl:read", "acl:write", "snapshot:read", "snapshot:write"],
+  "cloud-platform-production": ["acl:read", "acl:write", "snapshot:read", "snapshot:write"]
 }

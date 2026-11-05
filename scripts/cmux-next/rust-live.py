@@ -41,6 +41,7 @@ swapped and every terminal survived.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -254,6 +255,26 @@ class Builder:
         self.incoming = state / "incoming"
         self.incoming.mkdir(parents=True, exist_ok=True)
         self.synced = False
+        self.current: subprocess.Popen | None = None  # the build running now, if any
+
+    def cancel(self) -> None:
+        """End the running build (its own process group: cargo or the ssh that runs it)."""
+        proc = self.current
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=True, **kwargs)
+        self.current = proc
+        try:
+            out, err = proc.communicate()
+        finally:
+            self.current = None
+        return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
     def sync(self, changed: list[str], removed: list[str]) -> None:
         """Bring the build host's tree up to the checkout (nothing to do here)."""
@@ -297,12 +318,12 @@ class Builder:
             script = (f"cd {self.remote}/cmux-tui && export CARGO_TARGET_DIR=$HOME/{self.remote}/target; "
                       "[ -z \"$RUSTC_WRAPPER\" ] && command -v sccache >/dev/null && export RUSTC_WRAPPER=sccache; "
                       f"exec {cargo}")
-            result = run(["ssh", *ssh_options(self.state), self.host, f"bash -lc {shlex.quote(script)}"])
+            result = self.run_build(["ssh", *ssh_options(self.state), self.host, f"bash -lc {shlex.quote(script)}"])
         else:
             env = dict(os.environ)
             if not env.get("RUSTC_WRAPPER") and shutil.which("sccache"):
                 env["RUSTC_WRAPPER"] = "sccache"
-            result = run(cargo_args(daemons, self.target), cwd=self.tree / "cmux-tui", env=env)
+            result = self.run_build(cargo_args(daemons, self.target), cwd=self.tree / "cmux-tui", env=env)
         output = (result.stderr or "") + (result.stdout or "")
         return result.returncode == 0, output
 
@@ -555,6 +576,15 @@ def command_start(args) -> int:
     tree = checkout(args.worktree)
     state = state_dir()
     state.mkdir(parents=True, exist_ok=True)
+    if args.foreground:
+        return run_watcher(args, tree, state)
+    # One `start` at a time: the check, the spawn and the wait for the watcher are one step.
+    with open(state / "start.lock", "w") as start_lock:
+        fcntl.flock(start_lock, fcntl.LOCK_EX)
+        return spawn_watcher(args, tree, state)
+
+
+def spawn_watcher(args, tree: Path, state: Path) -> int:
     if (pid := running_pid(state)) and not args.foreground:
         watched = pid_file(state).read_text().split(maxsplit=1)[1].strip()
         print(f"rust-live: already watching {watched} (pid {pid}); `cmux live stop --rust` stops it")
@@ -570,7 +600,6 @@ def command_start(args) -> int:
             log_start = out.tell()
             proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                     start_new_session=True)
-        pid_file(state).write_text(f"{proc.pid} {tree}\n")
         # Say "watching" only once it is: the crate graph read and the first sync to a build host done.
         deadline = time.monotonic() + START_TIMEOUT_SECS
         while proc.poll() is None and time.monotonic() < deadline:
@@ -578,7 +607,6 @@ def command_start(args) -> int:
                 break
             time.sleep(0.1)
         if proc.poll() is not None:
-            pid_file(state).unlink(missing_ok=True)
             with open(state / "watch.log", "rb") as log_file:
                 log_file.seek(log_start)
                 tail = log_file.read().decode(errors="replace").strip().splitlines()[-10:]
@@ -592,6 +620,18 @@ def command_start(args) -> int:
         print(f"rust-live: watching {tree}/cmux-tui; a saved .rs swaps the running daemon "
               f"(builds on {where}; log {state / 'watch.log'}). `cmux live status` shows the last swap.")
         return 0
+    return run_watcher(args, tree, state)
+
+
+def run_watcher(args, tree: Path, state: Path) -> int:
+    # The watcher holds watch.lock while it lives, so a second one (a racing `start`, or a
+    # `--foreground` run by hand) exits instead of building and swapping on the same saves.
+    lock = open(state / "watch.lock", "w")  # noqa: SIM115 - held until the process ends
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("rust-live: another watcher already runs for this state folder; `cmux live stop --rust` stops it")
+        return 1
     pid_file(state).write_text(f"{os.getpid()} {tree}\n")
     builder = Builder(tree, state, args.build_host, args.target)
     loop = Loop(tree, state, builder, Swapper(args.session, args.socket))
@@ -747,6 +787,7 @@ def command_measure(args) -> int:
     signal.signal(signal.SIGTERM, interrupted)
     started_hosts: dict[str, int] = {}
     first = None
+    watcher: threading.Thread | None = None
     try:
         # Warm build (the first build of a fresh checkout is a full one), then the old daemon.
         t = time.time()
@@ -775,7 +816,7 @@ def command_measure(args) -> int:
             t_["shell_pid"] = shell_pid(screen, "PID0")
         started_hosts.update(host_pids(work))
 
-        watcher = threading.Thread(target=loop.run, daemon=True)
+        watcher = threading.Thread(target=loop.run, daemon=True, name="rust-live-watcher")
         watcher.start()
         loop.watching.wait(timeout=60)  # the loop's first scan, before the first edit
         for run_index in range(args.runs):
@@ -835,6 +876,9 @@ def command_measure(args) -> int:
         report["error"] = str(error)
     finally:
         loop.stop_event.set()
+        loop.builder.cancel()
+        if watcher is not None:
+            watcher.join(timeout=60)  # never restore the file or remove state under a live watcher
         edit_path.write_text(original)
         try:
             ident = request(sock, {"cmd": "identify"})

@@ -414,8 +414,8 @@ extension AgentTabStore {
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
-            // it is sent, through any daemon (the legacy link's or the app link's own answer).
-            let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
+            // it is sent, through any daemon (the app link's own answer).
+            let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
             // A start its older daemon refused updates the machine to this app's build and tries
             // once more, only on the caller's own machine (the link's owner answer, read then).
@@ -454,9 +454,8 @@ extension AgentTabStore {
                     guard let services, let link else { return false }
                     return await services.ssh.restartWithApprovalsIfIdle(link, preparation)
                 })
-            } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
-                // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
-                // one on the Cloud app server link, through the API Worker with the person's session.
+            } else if let cloud = services.machines.session(daemon.machineID), cloud.appLink != nil {
+                // cx-kvmz: a Cloud machine on the Cloud app server link, through the API Worker with the person's session.
                 host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title, restart: { [weak services, weak cloud] in guard let services, let cloud else { return .failed("") }; return await services.cloud.restartWithApprovals(cloud) }, prepare: { [weak services, weak cloud] preparation in guard let services, let cloud else { return false }; return await services.cloud.restartWithApprovalsIfIdle(cloud, preparation) })
             }
             return host

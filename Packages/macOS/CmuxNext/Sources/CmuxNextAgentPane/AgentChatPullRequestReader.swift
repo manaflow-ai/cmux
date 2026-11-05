@@ -139,7 +139,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             """
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
-            changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
+            changedFiles baseRefName headRefName baseRefOid headRefOid author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
             baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
@@ -303,6 +303,13 @@ public final class AgentReplyPullRequests {
     private let retry: Duration
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
+    /// This Mac's chat folders by the GitHub repository their `origin` names (lowercased
+    /// `owner/name`), most recent first: where a pull request's commits may already be, so its diff
+    /// is read from them before GitHub (``folders(of:)``).
+    private var folders: [String: [String]] = [:]
+    /// The most folders kept per repository, and repositories kept.
+    static let maximumFolders = 8
+    static let maximumRepositories = 32
 
     public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
                 freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
@@ -412,6 +419,18 @@ public final class AgentReplyPullRequests {
         record(pullRequest, for: url, began: Date())
     }
     #endif
+
+    /// Records that `folder`, a chat's folder on this Mac, is a checkout of `repository`
+    /// (`owner/name`, as ``AgentPaneGitHubRepository`` reads its `origin`).
+    public func noteFolder(_ folder: String, of repository: String) {
+        guard folder.hasPrefix("/"), !folder.contains("\0") else { return }
+        let key = repository.lowercased()
+        folders[key] = Array(([folder] + (folders[key] ?? []).filter { $0 != folder }).prefix(Self.maximumFolders))
+        while folders.count > Self.maximumRepositories, let other = folders.keys.first(where: { $0 != key }) { folders[other] = nil }
+    }
+
+    /// The chat folders on this Mac that are checkouts of `repository`, most recent first.
+    public func folders(of repository: String) -> [String] { folders[repository.lowercased()] ?? [] }
 
     /// How many links the cache holds, for the test of its bound.
     var kept: Int { entries.count }

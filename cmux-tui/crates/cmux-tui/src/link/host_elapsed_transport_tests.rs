@@ -60,6 +60,7 @@ async fn ssh(outgoing: bool) {
             epoch: 4,
             session_socket: &session,
             sshd: target,
+            desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
         };
         serve_host_inbound(inbound, [b'a'; 32], address(), &*verifier, &me).await
     });
@@ -119,6 +120,7 @@ async fn receiver_elapsed_transport_partial_hello_expires_before_parsing_ready_i
             epoch: 4,
             session_socket: &session,
             sshd: "127.0.0.1:1".parse().unwrap(),
+            desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
         };
         serve_host_inbound(inbound, [b'a'; 32], address(), &*verifier, &me).await
     });

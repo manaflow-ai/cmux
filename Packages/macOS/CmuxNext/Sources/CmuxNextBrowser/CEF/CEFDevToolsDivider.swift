@@ -65,9 +65,13 @@ final class CEFDevToolsDivider: NSView {
         glow.applyTheme(self)
     }
 
+    /// Its own tracking area and cursor rect only where no layout screen serves it (``PanePointerFollowing``): in a pane
+    /// the screen's one area gives its hover and resize cursor (RESIZE MAIN BUDGET).
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
+        trackingArea = nil
+        guard !isServedByPanePointerArea else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
@@ -89,8 +93,10 @@ final class CEFDevToolsDivider: NSView {
         glow.set(dragging ? .dragging : hovered ? .hovered : .rest)
     }
 
+    private var resizeCursor: NSCursor { devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown }
+
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown)
+        if !isServedByPanePointerArea { addCursorRect(bounds, cursor: resizeCursor) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -136,4 +142,11 @@ final class CEFDevToolsDivider: NSView {
     @objc private func closeItem(_ sender: NSMenuItem) {
         devTools?.perform(.close)
     }
+}
+
+extension CEFDevToolsDivider: PanePointerFollowing {
+    func panePointerCursor(at point: NSPoint) -> NSCursor? { resizeCursor }
+    func panePointerEntered(with event: NSEvent) { hovered = true }
+    func panePointerMoved(with event: NSEvent) {}
+    func panePointerExited(with event: NSEvent) { hovered = false }
 }

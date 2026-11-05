@@ -492,7 +492,9 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
                 return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
             }
         };
-        if !resolved.info.allows(service) {
+        // connect_info never lists `desktop` (clients before it read that list
+        // strictly); the platform's link_token mint is its only authority.
+        if service != Service::Desktop && !resolved.info.allows(service) {
             let detail = format!("the machine's connect_info does not allow {service:?}");
             return refuse(&mut caller, host, service, DialError::NotAuthorized, &detail).await;
         }

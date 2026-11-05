@@ -60,6 +60,10 @@ parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
+parser.add_argument("--empty-workspaces", action="store_true",
+                    help="seed additional workspaces without terminals (safe for 1000-workspace scaling runs)")
+parser.add_argument("--exact-workspaces", action="store_true",
+                    help="close restored workspaces before each count so the topology is exactly the requested size")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
@@ -344,15 +348,27 @@ def workspace_count():
 
 
 def grow_workspaces(count):
-    """At least `count` terminal workspaces, the bench's still shown (scripts make them unfocused)."""
+    """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
     for index in range(have, count):
-        rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+        if opts.empty_workspaces:
+            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+        else:
+            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
     now = workspace_count()
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
         sys.exit(f"could not reach {count} workspaces (have {now})")
     return now
+
+
+def reset_workspaces():
+    """Drop restored rows in this isolated bench profile before an exact topology run."""
+    if workspace_count() == 0:
+        return
+    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
+        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
 
 
 def frame_of(row, key="visible_ms"):
@@ -380,7 +396,7 @@ def summary(rows):
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
-                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
+                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_p99": pct(vis, .99), "visible_max": pct(vis, 1),
                 "frames_p50": pct([frame_of(r) for r in sel], .5),
                 "frames_p95": pct([frame_of(r) for r in sel], .95),
                 "frames_max": pct([frame_of(r) for r in sel], 1),
@@ -457,8 +473,12 @@ def main():
     for count in counts:
         suffix = ""
         if count is not None:
+            if opts.exact_workspaces:
+                reset_workspaces()
             ensure_terminal()
             suffix = f"@{grow_workspaces(count)}ws"
+            if opts.exact_workspaces and workspace_count() != count:
+                sys.exit(f"exact workspace count failed: requested {count}, have {workspace_count()}")
         for phase in opts.phases.split(","):
             if phase == "load":
                 start_load()

@@ -37,6 +37,7 @@ async fn ssh(case: &str) {
         epoch: 4,
         session_socket: &session,
         sshd: sshd.local_addr().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut caller, inbound) = tokio::io::duplex(65536);
     caller
@@ -129,6 +130,7 @@ async fn daemon(readiness: bool) {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut caller, inbound) = tokio::io::duplex(65536);
     caller
@@ -212,6 +214,7 @@ async fn a_revocation_during_entry_verification_closes_the_entry_at_once() {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let (mut caller, inbound) = tokio::io::duplex(65536);
     caller

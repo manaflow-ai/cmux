@@ -50,6 +50,11 @@
       "key": "sidebar.showWorkspaceTabs",
       "reason": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
       "why": "No tabs inside the sidebar (Lawrence 2026-10-30: \"i dont want to see tabs expanded inside of sidebar\")."
+    },
+    {
+      "key": "labs.classicHome",
+      "reason": "Home is the workspace with the Chief docked on the left",
+      "why": "Kept for one release after the docked Home (hq-6d cx-ebm.59.5); retired with the stale Labs flags (Leo 2026-11-05: \"i ok them i know most are super stale/superseded/obsolete\")."
     }
   ]
 }

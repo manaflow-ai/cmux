@@ -21,7 +21,9 @@
 //! fromName, to}` on a prompt another session sent with none (`session_message` below), and
 //! `{kind: "task_result", from, fromName, to, taskId, state}` on the prompt that brings a task's
 //! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
-//! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
+//! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`), and `{kind:
+//! "who_else", ...}` with a tool notice's fields on the one notice that another live session
+//! edits the same files (`hub/touched.rs`).
 //!
 //! A tool's or reconciler's notice (`_meta.acpmux.notice`, [`notice_of`]: `acpmux send --notice`,
 //! the MCP `send` tool's `notice`) is stamped `{kind: "notice", from: "fromAgent", fromName:

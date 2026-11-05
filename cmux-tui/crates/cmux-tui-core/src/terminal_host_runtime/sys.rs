@@ -138,4 +138,12 @@ mod windows_stubs {
 
     /// Windows hosts write no signal breadcrumbs yet.
     pub(crate) fn remove_terminal_loss_signals(_record_path: &Path) {}
+
+    /// Windows hosts do not watch their record directory yet (#36625).
+    pub(crate) fn follow_record_root_removal(
+        _dir: &Path,
+        _on_removed: impl FnOnce() + Send + 'static,
+    ) -> io::Result<()> {
+        Ok(())
+    }
 }

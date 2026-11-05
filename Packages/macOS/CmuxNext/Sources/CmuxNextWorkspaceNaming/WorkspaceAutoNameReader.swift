@@ -27,6 +27,9 @@ public struct WorkspaceAutoNameReader {
     let hold: WorkspaceAutoNameHold
     /// Whether an old daemon's missing provenance may use `~` or an empty name as automatic.
     let allowsLegacyDefaults: @MainActor (WorkspaceModel) -> Bool
+    /// The title an unnamed workspace whose shell idles at its home reads (a Cloud machine's "Terminal",
+    /// `SidebarMapping.homeShellName`); nil for a machine whose home folder names its rows.
+    let homeShellTitle: @MainActor (WorkspaceModel) -> String?
 
     /// - Parameters:
     ///   - enabled: `workspaces.autoName`.
@@ -37,10 +40,12 @@ public struct WorkspaceAutoNameReader {
     ///   - turns: the chat titles (`AgentTurnStateStore.shared`).
     ///   - hold: the names rows keep while their front tab's is unknown; the
     ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
+    ///   - homeShellTitle: what an unnamed workspace whose shell idles at its home reads, by its machine.
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
-                hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true }) {
+                hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true },
+                homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil }) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
@@ -49,6 +54,7 @@ public struct WorkspaceAutoNameReader {
         self.turns = turns
         self.hold = hold
         self.allowsLegacyDefaults = allowsLegacyDefaults
+        self.homeShellTitle = homeShellTitle
     }
 
     /// The rule as `workspaces.autoName` and `workspaces.autoName.variant` set it now.
@@ -155,12 +161,14 @@ public struct WorkspaceAutoNameReader {
 
     /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
     /// (the window's selection): `displayName` for the one tab its sidebar row reads
-    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`).
+    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`). An unnamed
+    /// workspace whose shell idles at its home reads as its row does (`SidebarMapping.homeShellName`, #36283).
     public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
-        return displayName(workspace, front: SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab,
-                                                                          newTabPages: newTabPages))
+        let face = SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
+        let name = displayName(workspace, front: face)
+        return SidebarMapping.homeShellName(homeShellTitle(workspace), workspace: workspace, label: name, face: face) ?? name
     }
 
     /// A browser tab's title as a workspace name: the tab's user name, else

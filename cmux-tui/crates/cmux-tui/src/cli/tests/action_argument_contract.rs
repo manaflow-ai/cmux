@@ -287,13 +287,17 @@ fn drop_test_items(tokens: Vec<(Token, usize)>) -> Vec<(Token, usize)> {
     out
 }
 
-fn is_flag(text: &str) -> bool {
-    text.strip_prefix("--").is_some_and(|name| {
-        name.chars().next().is_some_and(|first| first.is_ascii_lowercase())
-            && name.chars().all(|character| {
-                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-            })
-    })
+/// The flag a literal names, in any spelling `run_action` takes: `--name`, `--snake_name`,
+/// `--camelName` or `--name=value` (only the part before `=`); None for anything else, a
+/// `format!` template (`--{name}`) among them.
+fn flag_name(text: &str) -> Option<&str> {
+    let name = text.strip_prefix("--")?;
+    let name = name.split_once('=').map_or(name, |(name, _)| name);
+    let ok = name.chars().next().is_some_and(|first| first.is_ascii_lowercase())
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
+    ok.then_some(name)
 }
 
 /// One hand-named argument the CLI sends that its action does not take.
@@ -330,6 +334,16 @@ fn source_files() -> Vec<PathBuf> {
     }
     files.sort();
     files
+}
+
+/// The token after `index`'s `,` (and any `.to_owned()` before it): the next literal of a list.
+fn skip_conversion_ref(tokens: &[(Token, usize)], index: usize) -> Option<&(Token, usize)> {
+    let index = skip_conversion(tokens, index);
+    if matches!(tokens.get(index), Some((Token::Punct(','), _))) {
+        tokens.get(index + 1)
+    } else {
+        None
+    }
 }
 
 /// Past a `.to_owned()`, `.into()` or `.to_string()` at `index`.
@@ -480,9 +494,18 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                     }
                 }
             }
-            Token::Str(text) if is_flag(text) => {
-                if let Some((action, _)) = current {
-                    let flag = &text[2..];
+            // `"--arg", "key=value"`: the key is sent as written.
+            Token::Str(text) if text == "--arg" => {
+                if let (Some((action, _)), Some((Token::Str(pair), line))) =
+                    (current, skip_conversion_ref(&tokens, index + 1))
+                    && let Some((key, _)) = pair.split_once('=')
+                    && !key.contains('{')
+                {
+                    report(*line, action, key.to_owned(), &mut drift);
+                }
+            }
+            Token::Str(text) if flag_name(text).is_some() => {
+                if let (Some((action, _)), Some(flag)) = (current, flag_name(text)) {
                     let scope_flag = SCOPE_FLAGS.iter().any(|(name, flags)| {
                         *name == actions[action].cli_name && flags.contains(&flag)
                     });
@@ -563,6 +586,9 @@ fn the_scanner_finds_a_drifted_argument_in_every_call_shape() {
             args.extend(["--agent".to_owned(), agent]);
             args.extend(["--prompt-ident".to_owned(), id]); // drift 1
             args.push("--json".to_owned());
+            args.push("--prompt_ident=x".to_owned()); // drift 4
+            args.extend(["--arg".to_owned(), "prompt-id=x".to_owned()]); // drift 5
+            args.extend(["--prompt_id".to_owned(), "--cwd=/x".to_owned(), format!("--{name}={value}")]);
         }
         fn params_call() {
             let mut params = action_run_params("cloudRelayChat", ActionName::Any, "script");
@@ -584,5 +610,125 @@ fn the_scanner_finds_a_drifted_argument_in_every_call_shape() {
         .map(|drift| drift.sent)
         .collect::<Vec<_>>();
     std::fs::remove_dir_all(&dir).ok();
-    assert_eq!(found, ["promptIdent", "prompt_id", "promptID"]);
+    assert_eq!(found, ["promptIdent", "promptIdent", "prompt-id", "prompt_id", "promptID"]);
+}
+
+/// `promptId` as the CLI's flag: `--prompt-id`.
+fn kebab(name: &str) -> String {
+    let mut flag = String::with_capacity(name.len() + 4);
+    for character in name.chars() {
+        if character.is_ascii_uppercase() {
+            flag.push('-');
+            flag.push(character.to_ascii_lowercase());
+        } else {
+            flag.push(character);
+        }
+    }
+    flag
+}
+
+/// The `action.run` params the CLI's own encoder (`app::run_action`, `app::parse`) builds from `words`,
+/// without `origin` (a terminal's `cli`, a script's `script`).
+fn encoded(words: &[String]) -> Value {
+    let words = words.iter().filter(|word| *word != "--json").cloned().collect::<Vec<_>>();
+    let command = super::super::app::parse(&words)
+        .ok()
+        .flatten()
+        .filter(|command| {
+            matches!(command, super::super::app::AppCommand::Call { method: "action.run", .. })
+        })
+        .or_else(|| {
+            // The app fallback: the leading words are the CLI name, the rest its flags.
+            let split = words.iter().take_while(|word| !word.starts_with('-')).count();
+            super::super::app::run_action(
+                &words[..split].join(" "),
+                &words[split..],
+                super::super::app::ActionName::Cli,
+            )
+            .ok()
+        });
+    let Some(super::super::app::AppCommand::Call { method: "action.run", mut params, .. }) =
+        command
+    else {
+        panic!("the CLI builds no action.run for {words:?}")
+    };
+    params.as_object_mut().expect("params object").remove("origin");
+    params
+}
+
+/// The requests the CLI's encoder builds, which the app's `ArgumentActionContractTests` validate against
+/// its catalog: `cmux cloud start-chat`'s relay request as `cloud_start_chat` builds it, and, for each
+/// action the CLI offers, its CLI name with every argument given as its `--flag`.
+fn cli_requests() -> Value {
+    let path = repo_root().join("plans/cmux-next/action-surfaces.json");
+    let root: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
+            .unwrap();
+    let mut requests = Vec::new();
+    let relay = super::super::cloud_start_chat::tests::contract_relay_words();
+    requests.push(
+        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
+    );
+    for action in root["actions"].as_array().expect("actions") {
+        let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
+        else {
+            continue;
+        };
+        let args = action["args"].as_array().cloned().unwrap_or_default();
+        if args.is_empty() {
+            continue;
+        }
+        let mut words = cli_name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+        // `cmux` takes these words as its own grammar first, never as this action's flags.
+        if !reaches_app(cli_name) {
+            continue;
+        }
+        for arg in &args {
+            let name = arg["name"].as_str().expect("an argument name");
+            let value = match arg["kind"].as_str() {
+                Some("bool") => None,
+                Some("int") => Some(arg["min"].as_i64().unwrap_or(1).to_string()),
+                Some("enum") => arg["values"][0].as_str().map(str::to_owned),
+                Some("target") => {
+                    Some(format!("{}:contract-1", arg["target_kind"].as_str().unwrap_or("tab")))
+                }
+                _ => Some("/tmp/contract".to_owned()),
+            };
+            let flag = kebab(name);
+            // A name `run_action` takes for itself (`--target`, `--focus`) goes as `--arg name=value`.
+            if CLI_FLAGS.contains(&flag.as_str()) {
+                words.extend([
+                    "--arg".to_owned(),
+                    format!("{name}={}", value.as_deref().unwrap_or("true")),
+                ]);
+                continue;
+            }
+            words.push(format!("--{flag}"));
+            words.extend(value);
+        }
+        requests.push(serde_json::json!({"source": format!("cmux {}", words.join(" ")), "params": encoded(&words)}));
+    }
+    serde_json::json!({
+        "about": "action.run requests as the cmux CLI's own encoder builds them (cmux-tui cli/tests/action_argument_contract.rs \
+                  writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract \
+                  rewrites it). The app's ArgumentActionContractTests validate each against its catalog.",
+        "requests": requests,
+    })
+}
+
+/// The checked-in requests are the ones the CLI builds now; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 rewrites them.
+#[test]
+fn the_cli_request_fixture_is_what_the_cli_encodes() {
+    let path = repo_root().join("cmux-tui/spec/fixtures/cli-action-requests.json");
+    let want = serde_json::to_string_pretty(&cli_requests()).unwrap() + "\n";
+    if std::env::var("CMUX_UPDATE_CLI_ACTION_REQUESTS").as_deref() == Ok("1") {
+        std::fs::write(&path, &want).unwrap();
+        return;
+    }
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        have == want,
+        "{} is stale: CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract",
+        path.display()
+    );
 }

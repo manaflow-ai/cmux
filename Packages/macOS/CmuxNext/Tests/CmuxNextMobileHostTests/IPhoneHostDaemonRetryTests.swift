@@ -132,4 +132,59 @@ import Testing
         toggle.on = true
         await Self.until { socket.asks == 2 }
     }
+
+    /// The first socket ask waits on the clock and then finds the endpoint blocked; later asks find it.
+    nonisolated final class SlowBlockedSocket: Sendable {
+        private let count = Mutex(0)
+        let clock: ManualClock
+        init(clock: ManualClock) { self.clock = clock }
+        var asks: Int { count.withLock { $0 } }
+        func ask() async throws -> String {
+            let first = count.withLock { count in
+                count += 1
+                return count == 1
+            }
+            guard first else { return "/nonexistent/daemon.sock" }
+            try await clock.sleep(for: .seconds(1))
+            throw IPhoneHostService.DaemonSocketBlocked(reason: "turned off by your organization")
+        }
+    }
+
+    /// Off and on again while an older start still waits on a blocked socket: when that start
+    /// finishes it must not let the Mac sleep, since the newer start (same account key) holds it
+    /// (review of #36149: the release was guarded by the key alone).
+    @Test func aStaleBlockedStartDoesNotReleaseANewerHold() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = ManualClock(), socket = SlowBlockedSocket(clock: clock), reads = Reads(), toggle = Toggle()
+        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
+        var holds: [Bool] = []
+        host.setKeepAwake = { holds.append($0) }
+        host.identityRetryClock = clock
+        host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
+                                  stateDirectory: directory, accessToken: { _ in throw CancellationError() },
+                                  daemonSocket: { try await socket.ask() }, acpmux: { nil }, fileRoots: { [] },
+                                  computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
+        defer { host.stop() }
+        host.follow(allowed: { toggle.on })
+        host.accountChanged(Self.account)
+        // The first start waits on the socket.
+        try await clock.waitForSleeper()
+        #expect(socket.asks == 1)
+        #expect(holds.last == true)
+        // Off, then on again with the same account: the newer reconcile holds the Mac awake.
+        toggle.on = false
+        await Self.until { holds.last == false }
+        toggle.on = true
+        await Self.until { holds.last == true }
+        let newerHold = holds.count
+        // The older start now finds the endpoint blocked; the newer one goes on to the identity read.
+        clock.advance(by: .seconds(1))
+        await Self.until { reads.reads == 1 }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(socket.asks == 2)
+        #expect(!holds.dropFirst(newerHold).contains(false))
+        #expect(holds.last == true)
+    }
 }

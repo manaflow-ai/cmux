@@ -27,6 +27,8 @@ public nonisolated struct SidebarNeedsYouItem: Hashable, Sendable, Identifiable 
 /// the path to each, and a count of finished sessions you have not read. Running, idle and merely
 /// unread sessions never enter the list; a folded parent never hides an item. Empty without the tree.
 public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
+    public typealias RowPatch = (before: SidebarWorkspace, after: SidebarWorkspace)
+
     public var items: [SidebarNeedsYouItem] = []
     /// Finished sessions with output you have not read: a count, never an item.
     public var unread = 0
@@ -36,6 +38,32 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
     public init() {}
 
     public var isEmpty: Bool { items.isEmpty && unread == 0 }
+
+    /// Whether a row patch can change the tray's blocked, failed or finished-unread projection.
+    /// Lane transitions arrive through `SidebarSessionTreeState` itself; row patches still carry
+    /// unread changes and hook-reported waiting or failure for workspaces without a lane.
+    public static func shouldRefresh(for changes: [RowPatch], tree: SidebarSessionTreeState?) -> Bool {
+        guard let tree else { return false }
+        func trayState(_ state: SidebarAgentState) -> SidebarAgentState? {
+            switch state {
+            case .blocked, .failed, .finishedUnread: state
+            case .running, .idle: nil
+            }
+        }
+        return changes.contains { change in
+            // The unread mark can arrive before a lane settles from running to idle. Keep the
+            // projection in sync with that edge even though the row is not yet a finished item.
+            guard change.before.unread.isUnread == change.after.unread.isUnread else { return true }
+            let before = trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
+            let after = trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
+            guard before == after else { return true }
+            // An ancestor's title appears in a blocked child's path, even while that ancestor is
+            // idle. Keep the path current without walking the tree for every status tick.
+            guard after != nil else { return change.before.title != change.after.title }
+            return change.before.title != change.after.title
+                || change.before.activity.blockedKind != change.after.activity.blockedKind
+        }
+    }
 
     public static func make(_ sections: [SidebarSection], tree: SidebarSessionTreeState?) -> SidebarNeedsYou {
         var result = SidebarNeedsYou()

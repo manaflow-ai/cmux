@@ -282,11 +282,7 @@ struct UnopenedCloudMachinesTests {
     /// A running Cloud machine whose tree lists `workspaces` (keys), loaded.
     @discardableResult
     static func machine(_ services: AppServices, id: String, workspaces: [String]) -> CloudMachineSession {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-unopened-\(UUID().uuidString.prefix(8))")
-        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-unopened-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-unopened-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: id), link: link, mainWork: services.mainWork)
+        let session = CloudTestLink.session(id: id, status: .running, name: id, mainWork: services.mainWork)
         services.machines.add(session)
         session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: workspaces.enumerated().map { index, key in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: "workspace-\(index + 1)")

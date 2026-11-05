@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWorkspaceNaming
 import CmuxNextSettings
+import CmuxNextControl
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
 struct CaptureSceneDefinition: Sendable {
@@ -446,14 +447,13 @@ extension CaptureSceneRegistry {
     /// The three running, connected machines, each with one workspace: the person's my-project, and
     /// the image's own workspace-1 on each machine an agent made.
     func addAgentCloudMachines() {
-        let api = services.cloud.api, binary = URL(fileURLWithPath: "/usr/bin/false")
-        let paths = CloudPaths(root: FileManager.default.temporaryDirectory.appendingPathComponent("cn-capture-cloud-machines"))
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "capture")
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
-            let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "capture")
-            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name), link: link,
-                                              mainWork: services.mainWork)
+            // Never connected: the scene sets the tree itself, and no connect runs its op.
+            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: "capture", message: "capture") })
+            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
+                                              appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                              localIdentity: { nil }, mainWork: services.mainWork)
             services.machines.add(session)
             // Connected, as the account's list leaves a running machine: a connecting one draws no rows.
             _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(id)", generation: "capture"),

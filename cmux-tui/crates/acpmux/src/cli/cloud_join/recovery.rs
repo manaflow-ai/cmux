@@ -18,6 +18,28 @@ struct Pending {
     platform: String,
     wg_public_key: String,
     prior: Option<MachineCredential>,
+    /// The box this proposal was made on (`host_fingerprint`). A pending join copied to
+    /// another box is set aside unsent: its proposed credential is the original box's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_fingerprint: Option<String>,
+}
+
+/// The pending file of a join made on another box, kept beside unread.
+const COPIED: &str = "machine-join.pending.copied.json";
+
+/// Sets aside a pending join proposed on another box, before anything could send its
+/// credential. A pending file with no fingerprint (an older build's) cannot be told apart and
+/// is kept and resumed as before; the daemon-start check covers the record it completes. The caller
+/// holds the join lock.
+fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
+    let Some(p) = read()? else { return Ok(false) };
+    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    if copied {
+        std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
+            .map_err(|_| store_error())?;
+        sync_ancestors(&state_dir()).map_err(|_| store_error())?;
+    }
+    Ok(copied)
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -209,6 +231,9 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Optional until every hub names it: a missing or malformed one only means no
         // automatic same-person control, never a failed join.
         user_id: body.user_id.as_ref().and_then(|user| safe_id(&user.to_string())),
+        // Joined on this box: a later start on another box finds the copy.
+        host_fingerprint: host_fingerprint::current(),
+        cloned: false,
     })))
 }
 
@@ -288,6 +313,7 @@ fn new_pending(
             .map_err(|_| store_error())?
             .public_key_b64(),
         prior,
+        host_fingerprint: host_fingerprint::current(),
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
     write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
@@ -301,6 +327,11 @@ pub(super) async fn join(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
+    if set_aside_copied_pending(host_fingerprint::current().as_deref())? {
+        eprintln!(
+            "a join begun on another machine was set aside; this join makes this machine's own"
+        );
+    }
     let existing = read()?;
     let pending = if let Some(p) = existing {
         // Retry a failed directory fsync before any request can redeem this
@@ -329,6 +360,10 @@ pub(super) async fn join(
             Probe::Unknown => p,
         }
     } else {
+        // A home copied from another box: mark it and give this box its own node key before
+        // anything proposes one (the caller holds the join lock).
+        settle_clone_at(&state_dir(), host_fingerprint::current().as_deref())
+            .map_err(|_| store_error())?;
         if already_joined(replace, json_out)? {
             return Ok(());
         }
@@ -342,8 +377,14 @@ pub(super) async fn join(
         }
         let prior = if replace {
             match load().map_err(|_| store_error())? {
-                Some(old) => replacement_proof(old).await?,
-                None => None,
+                // A copy never proves a replacement with the original box's credential: that
+                // would retire the original's enrollment from here.
+                Some(old)
+                    if !copied_here(&state_dir(), &old, host_fingerprint::current().as_deref()) =>
+                {
+                    replacement_proof(old).await?
+                }
+                _ => None,
             }
         } else {
             None

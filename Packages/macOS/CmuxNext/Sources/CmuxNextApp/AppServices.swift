@@ -158,9 +158,9 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
+    /// The Machines section's machines joined through the hub (`cmux machine list`), with no Labs switch.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
-        guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
+        guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif

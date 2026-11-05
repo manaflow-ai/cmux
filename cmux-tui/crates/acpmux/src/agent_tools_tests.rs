@@ -335,3 +335,14 @@ fn the_github_status_server_reaches_every_harness_kind() {
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
+    let state = tempfile::tempdir().unwrap();
+    let on = super::materialize(state.path(), true).unwrap();
+    let off = super::materialize(state.path(), false).unwrap();
+    assert_ne!(on, off, "each set of skills gets its own folder");
+    assert!(on.join("skills/cmux-chat/SKILL.md").is_file());
+    assert!(!off.join("skills/cmux-chat").exists());
+    assert!(off.join("skills/cmux-browser/SKILL.md").is_file(), "other skills stay");
+}

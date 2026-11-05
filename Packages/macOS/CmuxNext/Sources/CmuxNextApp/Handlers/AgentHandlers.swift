@@ -244,7 +244,6 @@ enum AgentHandlers {
                 run(view)
             })
         }
-        registry.publishSideSessions()
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)

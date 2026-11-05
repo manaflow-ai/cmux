@@ -31,8 +31,8 @@ public struct CloudOwnerAPIClient: Sendable {
 
     /// `POST /v1/cloud/machines/{machine}/acpmux/keyed-start`: restarts the machine's acpmux with
     /// this app's person key. `writeKey` writes the key line (`keyLineLength` bytes) into the body
-    /// stream from the caller's own zeroed buffer, as ``CloudAPIClient/acpmuxKeyedStart(_:keyLineLength:writeKey:)``
-    /// does: no `Data` or `String` copy here, and a stream body is never resent. Answers the new
+    /// stream from the caller's own zeroed buffer: no `Data` or `String` copy here, and a stream
+    /// body is never resent. Answers the new
     /// daemon run (`personInstance`).
     public func acpmuxKeyedStart(_ machine: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
         var input: InputStream?

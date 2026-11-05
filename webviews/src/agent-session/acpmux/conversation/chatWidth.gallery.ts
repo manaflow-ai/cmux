@@ -63,7 +63,7 @@ export default agentPaneEntry({
   title: "Chat column width",
   area: "Agent pane",
   height: 900,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   variants: {
     standard: variant("standard", "Today: 720px, widening to an 800px cap, for everything."),
     wide: variant("wide", 'Debug Settings chat width "wide": a 960px cap for everything.'),

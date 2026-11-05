@@ -55,6 +55,11 @@ pub enum Command {
         /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
         query: String,
     },
+    /// Who else works on these files: the other live and recent sessions, here and on peers, that
+    /// read or edited them, share this worktree or branch, or work on the same topic. With no
+    /// files, what the session this shell runs in edited lately.
+    #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
+    WhoElse(crate::cli::who_else::WhoElseArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -581,6 +586,9 @@ pub enum Command {
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    /// `daemon enroll`: give the running daemon the person key (the VM provisioning exec).
+    #[command(hide = true)]
+    DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
     #[command(hide = true)]
@@ -1231,6 +1239,16 @@ pub enum DaemonCmd {
         #[arg(long)]
         show_token: bool,
     },
+    /// Give the daemon that runs the person key (64 hex characters, one line) from this
+    /// descriptor, and print its status. Only the VM provisioning exec runs it, as root: the
+    /// daemon takes the key only from a root peer, and only when it is not root itself
+    /// (`daemon/provision.rs`). It never starts a daemon.
+    #[command(hide = true)]
+    Enroll {
+        /// The descriptor to read the key from (0: stdin).
+        #[arg(long)]
+        person_key_fd: i32,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
@@ -1422,6 +1440,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
+            DaemonCmd::Enroll { person_key_fd } => Command::DaemonEnroll { person_key_fd },
             DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }

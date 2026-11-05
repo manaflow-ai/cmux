@@ -68,6 +68,55 @@ import Testing
         #expect(tray.unread == 1)
     }
 
+    @Test func aRowPatchOnlyRefreshesTheTrayWhenItsNeedsYouStateChanges() {
+        let tree = SidebarSessionTreeState()
+        var idle = SidebarWorkspace(id: WorkspaceID("agent"), title: "agent")
+        var changed: [(before: SidebarWorkspace, after: SidebarWorkspace)] = []
+        let model = SidebarModel(sections: Self.section([idle]))
+        model.onRowsPatchedWithPrevious = { changed.append(contentsOf: $0) }
+
+        var spinner = idle
+        spinner.activity = .working
+        #expect(model.patchWorkspaces([spinner]))
+        #expect(changed.count == 1)
+        #expect(!SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var unread = spinner
+        unread.unread = .dot
+        #expect(model.patchWorkspaces([unread]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var read = unread
+        read.unread = .none
+        #expect(model.patchWorkspaces([read]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var blocked = read
+        blocked.activity = .waiting
+        #expect(model.patchWorkspaces([blocked]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var ready = blocked
+        ready.activity = .idle
+        #expect(model.patchWorkspaces([ready]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        let parent = WorkspaceID("parent"), child = WorkspaceID("child")
+        let oldParent = SidebarWorkspace(id: parent, title: "old parent")
+        var newParent = oldParent
+        newParent.title = "new parent"
+        let lineage = SidebarSessionTreeState(parents: [child: parent], states: [child: .blocked])
+        #expect(SidebarNeedsYou.shouldRefresh(for: [(before: oldParent, after: newParent)], tree: lineage))
+    }
+
     @Test func withoutTheTreeTheTrayIsEmpty() {
         var waiting = SidebarWorkspace(id: WorkspaceID("w"), title: "w")
         waiting.activity = .waiting

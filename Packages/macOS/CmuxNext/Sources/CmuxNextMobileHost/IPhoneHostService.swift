@@ -191,6 +191,13 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
+    /// Counts the starts ``reconcile()`` makes: a start lets the Mac sleep only while no newer one has
+    /// begun since. The account key alone cannot tell (off and on again, or A to B to A, gives the
+    /// same key back), so an older start that finishes late would end the hold a newer one set
+    /// (review of #36149).
+    @ObservationIgnored private var reconcileGeneration = 0
+    /// Where this host holds off idle sleep while phones can reach it; tests record it instead.
+    @ObservationIgnored var setKeepAwake: @MainActor (Bool) -> Void = { KeepAwakeService.shared.setIPhoneServing($0) }
     /// The next try at this Mac's identity key after the Keychain refused the read, and how many
     /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``).
     @ObservationIgnored private var identityRetry: Task<Void, Never>?
@@ -416,7 +423,7 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
-        KeepAwakeService.shared.setIPhoneServing(false)
+        setKeepAwake(false)
         pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
@@ -463,7 +470,7 @@ public final class IPhoneHostService {
     /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained()``).
     public func stop() {
         wakeObserver = nil
-        KeepAwakeService.shared.setIPhoneServing(false)
+        setKeepAwake(false)
         running = nil
         following?.cancel()
         followingAccount?.cancel()
@@ -530,7 +537,7 @@ public final class IPhoneHostService {
     }
 
     private func reconcile() {
-        KeepAwakeService.shared.setIPhoneServing(allowed && account != nil && !removed)
+        setKeepAwake(allowed && account != nil && !removed)
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
         // A Keychain wait leaves `running` nil with a retry pending: turning connections off or
@@ -540,6 +547,10 @@ public final class IPhoneHostService {
         identityRetry?.cancel()
         identityRetry = nil
         running = key
+        // A reconcile that changes nothing (same key) leaves the generation alone, so an in-flight
+        // start for that key still releases the hold when its endpoint turns out blocked.
+        reconcileGeneration += 1
+        let generation = reconcileGeneration
         let previous = applying
         let dependencies = dependencies
         let supervisor = supervisor
@@ -559,7 +570,7 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
-                KeepAwakeService.shared.setIPhoneServing(false)
+                self?.setKeepAwake(false)
                 self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
@@ -576,9 +587,10 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host not started: \(blocked.reason, privacy: .public)")
                 await supervisor.stop(phase: .unavailable(blocked.reason))
-                // Nothing to serve: the Mac may sleep (a later reconcile sets it again).
-                guard !Task.isCancelled, self?.running == key else { return }
-                KeepAwakeService.shared.setIPhoneServing(false)
+                // Nothing to serve: the Mac may sleep (a later reconcile sets it again). Only while no
+                // newer reconcile ran: one that started meanwhile set the hold for its own start.
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                self?.setKeepAwake(false)
                 return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
@@ -624,9 +636,11 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
                 await supervisor.stop(phase: .waiting(IPhoneHostStrings.keychainLocked))
-                guard !Task.isCancelled, self?.running == key else { return }
+                // A newer reconcile (same key after off and on, or A to B to A) owns the state now:
+                // this stale start neither ends its hold nor clears its key for a retry of its own.
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
                 // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
-                KeepAwakeService.shared.setIPhoneServing(false)
+                self?.setKeepAwake(false)
                 self?.running = nil
                 self?.retryIdentity(for: key)
             } catch {

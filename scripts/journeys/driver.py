@@ -75,6 +75,11 @@ EXT_CONDITIONS = {}
 # The extension conditions that are negative (an extension's NEGATIVE): a live one is read again every poll, never
 # latched; a frame one fails at once on a frame whose detail says seen (step_expect), else it is tried again.
 EXT_NEGATIVE = set()
+# Journey-end hooks an extension adds (its JOURNEY_END): fn(journey, status, reason), run first in every journey's
+# `finally`, whatever ended it (a pass, a failed step, a NotRun, the lease deadline). A hook returns None when it had
+# nothing to do and then adds no step. A kit's recorder extension stops a recording a failed step left running, so its
+# movie is written before run.py fetches it and the lease ends the app (cmux-ad m29 item 3: 23 films had no moov atom).
+EXT_JOURNEY_END = []
 # `relaunch` kinds that quit through the app's own quit actions, with no dialog (QuitOrigin.explicit).
 QUIT_ACTIONS = {"quit-keep": "quitKeepSessions", "quit-end-sessions": "quitEndSessions",
                 "quit-end-everything": "quitEndEverything"}
@@ -1648,6 +1653,18 @@ class Journey:
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:
+            # Extension hooks first (EXT_JOURNEY_END), before the clean-up steps change what the app shows; their
+            # errors are recorded and never change the status, as the clean-up's.
+            for hook in EXT_JOURNEY_END:
+                record = {"do": getattr(hook, "__name__", "journey_end"), "title": "journey end", "finally": True}
+                try:
+                    out = hook(self, status, reason)
+                    if out is None:
+                        continue
+                    record["result"], record["ok"] = out, True
+                except Exception as error:  # noqa: BLE001 (clean-up: record any error, keep going)
+                    record["ok"], record["error"] = False, str(error)[-300:]
+                self.steps.append(record)
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
             for step in self.spec.get("finally") or []:
@@ -1699,7 +1716,8 @@ class Journey:
 def load_extensions(module):
     """Step and condition groups beside this file (`ext_*.py`): each has `install(driver)`, `STEPS`
     ({name: fn(journey, step)}, played as `do: name`) and `CONDITIONS` ({name: (evidence kind, fn(journey,
-    want, cache) -> (holds, detail))}). They must not import this file (it runs as __main__ on the mini)."""
+    want, cache) -> (holds, detail))}), and may have `JOURNEY_END` (fn(journey, status, reason), run at every journey's
+    end). They must not import this file (it runs as __main__ on the mini)."""
     import importlib
     for path in sorted(Path(os.path.dirname(os.path.abspath(__file__))).glob("ext_*.py")):
         ext = importlib.import_module(path.stem)
@@ -1715,6 +1733,8 @@ def load_extensions(module):
         # `NEGATIVE`: the group's conditions that claim something did NOT happen (a live one is read every poll and
         # through `settle`; a frame one stops its tries on a frame whose detail says seen).
         EXT_NEGATIVE.update(n for n in getattr(ext, "NEGATIVE", ()) if n in EXT_CONDITIONS)
+        # `JOURNEY_END`: functions run at every journey's end, before its `finally` steps (EXT_JOURNEY_END).
+        EXT_JOURNEY_END.extend(getattr(ext, "JOURNEY_END", ()))
 
 
 load_extensions(sys.modules[__name__])

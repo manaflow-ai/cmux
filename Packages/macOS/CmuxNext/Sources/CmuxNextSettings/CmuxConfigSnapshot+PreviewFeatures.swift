@@ -13,7 +13,7 @@ extension CmuxConfigSnapshot {
         return (on, nil)
     }
 
-    /// Another Labs toggle (`labs.classicHome`): absent is `fallback`; a value that is not a bool
+    /// Another Labs toggle (`labs.voiceRoom`): absent is `fallback`; a value that is not a bool
     /// is `fallback` plus a diagnostic.
     static func parseLabsToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {
         guard let value = root.value(at: path) else { return (fallback, nil) }

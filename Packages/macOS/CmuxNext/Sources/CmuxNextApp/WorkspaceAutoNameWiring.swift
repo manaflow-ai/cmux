@@ -22,9 +22,9 @@ struct WorkspaceAutoNameWiring {
             terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             hold: services.autoNameHold,
             allowsLegacyDefaults: { [weak services] workspace in
-                guard let services, let daemon = services.machines.daemon(holding: workspace) else { return true }
-                return !daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
-            })
+                services?.machines.daemon(holding: workspace).map { !$0.supports(DaemonCapability.workspaceNameSource.rawValue) } ?? true
+            },
+            homeShellTitle: { [weak services] in services?.machines.daemon(holding: $0).flatMap { MachineRegistry.isCloudMachineID($0.machineID) ? Strings.untitledTerminal : nil } })
     }
 
     /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that

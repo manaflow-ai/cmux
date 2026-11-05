@@ -130,6 +130,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update(&session, params.as_ref(), replayed);
+                        self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
                     {
@@ -349,6 +350,7 @@ impl Hub {
             }
             "tool_call" | "tool_call_update" => {
                 super::pull_requests::absorb(session, update, &mut m);
+                super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),

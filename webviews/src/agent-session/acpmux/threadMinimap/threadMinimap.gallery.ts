@@ -146,7 +146,7 @@ export default agentPaneEntry({
   widths: { narrow: 880, normal: 1040, wide: 1240 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
     "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",

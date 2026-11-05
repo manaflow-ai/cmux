@@ -123,7 +123,10 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectUpdate
         | Op::ProjectRemove
         | Op::ProjectSync
-        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSourceUpdate
+        // Conductor's database and worktrees, read by the app's Import from Conductor.
+        | Op::ConductorImportPlan
+        | Op::ConductorImportRecord => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove

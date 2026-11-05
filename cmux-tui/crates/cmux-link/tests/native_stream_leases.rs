@@ -377,3 +377,46 @@ fn native_receiver_dropped_handshakes_do_not_exhaust_stream_capacity() {
     verifier.clear_authority();
     assert!(authenticated.deadline().is_none(), "cleanup must preserve revocation");
 }
+
+/// The fixture token re-signed with `svc` and `vmk` (the shared test key).
+fn signed_token(svc: Value, vmk: &str) -> String {
+    let vectors: Value =
+        serde_json::from_str(include_str!("../../../../schemas/link-token/vectors.json")).unwrap();
+    let key = &vectors["test_keys"]["test-k1"];
+    let signer = ring::signature::Ed25519KeyPair::from_seed_and_public_key(
+        &URL_SAFE_NO_PAD.decode(key["d"].as_str().unwrap()).unwrap(),
+        &URL_SAFE_NO_PAD.decode(key["x"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let mut claims = fixture()["claims"].clone();
+    claims["svc"] = svc;
+    claims["vmk"] = vmk.into();
+    let header = r#"{"alg":"EdDSA","kid":"test-k1","typ":"cmux-link+jwt"}"#;
+    let message = format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(header),
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+    );
+    format!("{message}.{}", URL_SAFE_NO_PAD.encode(signer.sign(message.as_bytes()).as_ref()))
+}
+
+/// A desktop stream keeps its lease only while the current policy still
+/// gives its peer `desktop`: a renewal that drops it (the machine lost its
+/// desktop, or the peer is no longer the creator's) ends that stream at once.
+#[test]
+fn native_receiver_desktop_stream_ends_when_the_policy_drops_desktop() {
+    let (verifier, clock, mut policy) = configured();
+    policy.peers[0].services = vec![Service::Ssh, Service::Desktop];
+    refresh(&clock, &mut policy, 1);
+    verifier.replace_authority(policy.clone()).unwrap();
+    let stream = verifier
+        .verify(&signed_token(serde_json::json!(["desktop"]), "owner"), &expected(Service::Desktop))
+        .unwrap()
+        .lease
+        .unwrap();
+    assert!(stream.deadline().is_some());
+    policy.peers[0].services = vec![Service::Ssh];
+    refresh(&clock, &mut policy, 1);
+    verifier.replace_authority(policy).unwrap();
+    assert!(stream.deadline().is_none(), "desktop authority outlived its policy");
+}

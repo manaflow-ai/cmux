@@ -899,3 +899,16 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     assert_eq!(fake.ran[1][1], "start-session", "{:?}", fake.ran);
     assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
 }
+
+/// The words `cmux cloud start-chat --prompt "What is 2+2?" --cwd /home/cmux/w --wait` hands the app's
+/// `cloud relay-chat` on a new machine, as the CLI's own code builds them (the action argument contract's
+/// cmux-tui/spec/fixtures/cli-action-requests.json carries their `action.run` request, which the app's
+/// ArgumentActionContractTests validate against its catalog).
+pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
+    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let words = fake.ran[2].clone();
+    assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
+    words
+}

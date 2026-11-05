@@ -14,7 +14,7 @@ public final class AddDeviceView: NSView {
     public var onResize: (NSSize) -> Void = { _ in }
 
     static let width: CGFloat = 440
-    /// With Labs `labs.machineJoin` on the card has four ways; it widens so each reads whole.
+    /// With the join offered (the pair code, ssh under Advanced) the card widens so the line and each way read whole.
     static let wideWidth: CGFloat = 540
     static let listMaxHeight: CGFloat = 228
 
@@ -63,30 +63,68 @@ public final class AddDeviceView: NSView {
     private func build() {
         actions.removeAll()
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        // Three ways keep the card's width; the Labs fourth way widens it so every way reads whole.
-        let wide = model.ways.count > 3
+        // The ssh-first card keeps its width; with the join offered it widens so the line and every way read whole.
+        let wide = !model.advancedWays.isEmpty
         let cardWidth = wide ? Self.wideWidth : Self.width
         widthConstraint?.constant = cardWidth
         let width = cardWidth - 2 * Metrics.space6
         stack.addArrangedSubview(label(AddDeviceStrings.title, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis),
                                        color: Palette.textPrimary, width: width, header: true))
         stack.addArrangedSubview(label(AddDeviceStrings.subtitle, font: Typography.body, color: Palette.textSecondary, width: width))
-        let ways = segmented(model.ways.map(AddDeviceStrings.way), selected: model.ways.firstIndex(of: model.way) ?? 0,
+        // On an Advanced way the switch shows no selection: the disclosure below is open instead.
+        let ways = segmented(model.ways.map(AddDeviceStrings.way), selected: model.ways.firstIndex(of: model.way) ?? -1,
                              action: #selector(wayChanged(_:)), id: "cmux.addDevice.way")
         if wide { ways.segmentDistribution = .fit }
         stack.addArrangedSubview(ways)
         ways.widthAnchor.constraint(equalToConstant: width).isActive = true
-        switch model.way {
-        case .network: buildNetwork(width)
-        case .code: stack.addArrangedSubview(label(AddDeviceStrings.codeHelp, font: Typography.body, color: Palette.textPrimary, width: width))
-        case .newDevice: buildNewDevice(width)
-        case .joinLine: buildJoinLine(width)
+        // The chosen way's body; with Advanced open it shows under the disclosure instead.
+        if !model.showsAdvanced { buildWay(width) }
+        if !model.advancedWays.isEmpty {
+            stack.addArrangedSubview(advancedRow())
+            if model.showsAdvanced { buildWay(width) }
         }
         // A joined machine was let in by the person's line, not by an approval: the way says its own note.
         if model.way != .joinLine {
             stack.addArrangedSubview(label(AddDeviceStrings.approvalNote, font: Typography.caption, color: Palette.textTertiary, width: width))
         }
         stack.addArrangedSubview(footer(width))
+    }
+
+    private func buildWay(_ width: CGFloat) {
+        switch model.way {
+        case .network: buildNetwork(width)
+        case .code: stack.addArrangedSubview(label(AddDeviceStrings.codeHelp, font: Typography.body, color: Palette.textPrimary, width: width))
+        case .newDevice: buildNewDevice(width)
+        case .joinLine: buildJoinLine(width)
+        }
+    }
+
+    /// Advanced: a triangle and its title, one control (the title is a larger pointer target only).
+    /// Open, it shows the ssh way, which works as it did when it was the default.
+    private func advancedRow() -> NSView {
+        let toggle = NSButton(title: "", target: self, action: #selector(advancedToggled(_:)))
+        toggle.setButtonType(.pushOnPushOff)
+        toggle.bezelStyle = .disclosure
+        toggle.state = model.showsAdvanced ? .on : .off
+        toggle.setAccessibilityLabel(AddDeviceStrings.advanced)
+        toggle.setAccessibilityIdentifier("cmux.addDevice.advanced")
+        let title = NSButton(title: AddDeviceStrings.advanced, target: self, action: #selector(advancedToggled(_:)))
+        title.isBordered = false
+        title.font = Typography.body
+        title.contentTintColor = Palette.textSecondary
+        title.attributedTitle = NSAttributedString(string: AddDeviceStrings.advanced,
+                                                   attributes: [.font: Typography.body, .foregroundColor: Palette.textSecondary])
+        title.cell?.setAccessibilityElement(false)
+        title.refusesFirstResponder = true
+        let row = NSStackView(views: [toggle, title])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = Metrics.space1
+        return row
+    }
+
+    @objc private func advancedToggled(_ sender: NSButton) {
+        _ = model.perform(.toggleAdvanced)
     }
 
     private func buildNetwork(_ width: CGFloat) {
@@ -256,6 +294,7 @@ public final class AddDeviceView: NSView {
         case .signIn: "signIn"
         case .showMachines: "showMachines"
         case .pairAnotherMachine: "pairAnotherMachine"
+        case .toggleAdvanced: "toggleAdvanced"
         case .done: "done"
         case .cancel: "cancel"
         }

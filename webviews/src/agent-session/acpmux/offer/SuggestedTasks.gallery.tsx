@@ -4,8 +4,34 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { ReceivedResult, SuggestedTasks } from "./SuggestedTasks";
+import { OfferDefaultsContext, type OfferDefaults } from "./offerChoice";
 
 type Props = { initial: AcpmuxSessionOffer[]; received?: AcpmuxOfferResult[]; fails?: boolean };
+
+/// The chat the card is in: a Claude chat on this Mac, and its agent's lists.
+const defaults: OfferDefaults = {
+  harness: "claude",
+  models: [
+    { value: "claude-opus-5-5", name: "Opus 5.5" },
+    { value: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+    { value: "claude-haiku-5-5", name: "Haiku 5.5" },
+  ],
+  effort: {
+    configId: "effort",
+    options: [
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+      { value: "xhigh", name: "Extra high" },
+    ],
+  },
+  modes: [
+    { value: "default", name: "Ask before edits" },
+    { value: "acceptEdits", name: "Accept edits" },
+    { value: "plan", name: "Plan mode" },
+    { value: "bypassPermissions", name: "Bypass permissions" },
+  ],
+};
 
 const task = (n: number, title: string, prompt: string, groupId?: string): AcpmuxSessionOffer => ({
   offerId: `offer-${n}`,
@@ -63,6 +89,8 @@ const live = [
 /// the decision record would; `fails` refuses as a lost offer would.
 function GallerySuggestedTasks({ initial, received = [], fails = false }: Props) {
   const [offers, setOffers] = useState(initial);
+  // What the last Start carried, for the play that checks the Options picks reach it.
+  const [startedWith, setStartedWith] = useState<Record<string, unknown>>();
   const answer = (offerId: string, next: Partial<AcpmuxSessionOffer>) =>
     new Promise<void>((resolve, reject) =>
       setTimeout(() => {
@@ -73,30 +101,45 @@ function GallerySuggestedTasks({ initial, received = [], fails = false }: Props)
     );
   return (
     // The shell carries the pane's tokens; the fixture inside it is a plain column, as the thread is.
-    <div className="acpmux-shell">
-      <div data-tasks-fixture style={{ flex: 1, minWidth: 0, padding: 12 }}>
-        {offers.length > 0 && (
-          <SuggestedTasks
-            offers={offers}
-            actions={{
-              start: (offerId) =>
-                answer(offerId, {
-                  outcome: "accepted",
-                  childSessionId: `child-${offerId}`,
-                  childStatus: "running",
-                  activity: "Reading CartLineItem.tsx",
-                }),
-              here: (offerId) => answer(offerId, { outcome: "here" }),
-              dismiss: (offerId) => answer(offerId, { outcome: "dismissed" }),
-              open: () => undefined,
-            }}
-          />
-        )}
-        {received.map((result) => (
-          <ReceivedResult key={result.offerId} result={result} onOpen={() => undefined} />
-        ))}
+    <OfferDefaultsContext.Provider value={defaults}>
+      <div className="acpmux-shell">
+        <div
+          data-tasks-fixture
+          data-started-with={startedWith ? JSON.stringify(startedWith) : undefined}
+          style={{ flex: 1, minWidth: 0, padding: 12 }}
+        >
+          {offers.length > 0 && (
+            <SuggestedTasks
+              offers={offers}
+              actions={{
+                start: async (offerId, choice, tickets) => {
+                  const [modeTicket, effortTicket] = await Promise.all([tickets.mode, tickets.effort]);
+                  setStartedWith({
+                    ...choice,
+                    ...(modeTicket ? { modeTicket } : {}),
+                    ...(effortTicket ? { effortTicket } : {}),
+                  });
+                  return answer(offerId, {
+                    outcome: "accepted",
+                    childSessionId: `child-${offerId}`,
+                    childStatus: "running",
+                    activity: "Reading CartLineItem.tsx",
+                  });
+                },
+                here: (offerId) => answer(offerId, { outcome: "here" }),
+                dismiss: (offerId) => answer(offerId, { outcome: "dismissed" }),
+                open: () => undefined,
+                // The host's ticket, named for the one pick it grants.
+                reserve: async (intent) => `ticket ${intent.method} ${Object.values(intent.params).join(" ")}`,
+              }}
+            />
+          )}
+          {received.map((result) => (
+            <ReceivedResult key={result.offerId} result={result} onOpen={() => undefined} />
+          ))}
+        </div>
       </div>
-    </div>
+    </OfferDefaultsContext.Provider>
   );
 }
 
@@ -126,6 +169,8 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/offer/SuggestedTasks.tsx#SuggestedTasks",
     "agent-session/acpmux/offer/SuggestedTasks.tsx#ReceivedResult",
+    "agent-session/acpmux/offer/OfferOptions.tsx#OfferOptions",
+    "agent-session/acpmux/offer/OfferOptions.tsx#OfferOptionRows",
     "agent-session/acpmux/conversation/icons.tsx#Bot",
   ],
   styles: () => import("../styles.css"),
@@ -143,18 +188,57 @@ export default componentEntry<Props>({
       play: startAll,
     },
     single: {
-      note: "One task offered mid-turn, untouched: Options, Do it here, Start and dismiss.",
+      note: 'One task offered mid-turn, untouched: "New session", its title over a muted two-line prompt, dismiss, Options, Do it here and Start.',
       props: { initial: single },
       height: 130,
     },
-    "options-menu-hover": {
-      note: "Options stays open with Start in a new worktree checked and Dismiss hovered in neutral ink.",
-      props: { initial: single.map((offer) => ({ ...offer, worktree: true })) },
-      height: 260,
+    "options-popover": {
+      note: "Options open, as Claude desktop's suggested-session card has them: Environment, the folder, Worktree, Model, Effort and Permissions at Default (the new chat's own), Dismiss at the foot.",
+      props: { initial: single },
+      height: 420,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Options" });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemcheckbox"]'));
-        await ctx.hover({ role: "menuitem", name: "Dismiss" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-task-options-body"));
+      },
+    },
+    "options-model-menu": {
+      note: "Options > Model open over the popover, Sonnet 5.5 hovered in the menus' neutral wash, Opus 5.5 checked: the model the agent asked for.",
+      props: { initial: single.map((offer) => ({ ...offer, worktree: true, model: "claude-opus-5-5" })) },
+      height: 420,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Options" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-task-options-body"));
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-task-menu [role='menuitemradio']"));
+        await ctx.hover({ role: "menuitemradio", name: "Sonnet 5.5" });
+      },
+    },
+    "options-start": {
+      note: "Play: Options > Worktree on, Model Sonnet 5.5 and Permissions Ask before edits, then Start: the task starts with those picks on this chat's agent, the permission pick under its own ticket, and effort left at Default.",
+      props: { initial: single },
+      height: 130,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Options" });
+        await ctx.click({ role: "switch", name: "Worktree" });
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.click({ role: "menuitemradio", name: "Sonnet 5.5" });
+        await ctx.click({ role: "button", name: "Permissions" });
+        await ctx.click({ role: "menuitemradio", name: "Ask before edits" });
+        await ctx.press("Escape");
+        await ctx.click({ role: "button", name: "Start" });
+        await ctx.waitFor(() => {
+          const started = ctx.document.querySelector<HTMLElement>("[data-started-with]")?.dataset.startedWith;
+          return (
+            started ===
+            JSON.stringify({
+              worktree: true,
+              harness: "claude",
+              model: "claude-sonnet-5-5",
+              mode: "default",
+              modeTicket: "ticket session/set_mode default",
+            })
+          );
+        });
       },
     },
     "single-started": {

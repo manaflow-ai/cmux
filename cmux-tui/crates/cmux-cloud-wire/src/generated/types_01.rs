@@ -564,6 +564,7 @@ wire_enum! {
     CloudVmReceiverPeerServicesItem {
         Daemon = "daemon",
         Ssh = "ssh",
+        Desktop = "desktop",
     }
 }
 

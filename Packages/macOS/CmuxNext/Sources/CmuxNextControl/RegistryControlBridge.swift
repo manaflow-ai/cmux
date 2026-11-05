@@ -336,6 +336,5 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.webViewFocused, "webViewFocused"),
-        (.sideSessions, "sideSessions"),
     ]
 }

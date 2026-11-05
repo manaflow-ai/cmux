@@ -298,6 +298,8 @@
   "saveFilePreview": "needs context the sweep does not set up: codeEditorFocused",
   "screenGroup.addScreen": "needs a screen-group argument",
   "sidebar.priority.markRead": "needs a agent-chat argument",
+  "sidebar.priority.moveEarlier": "needs a agent-chat argument",
+  "sidebar.priority.moveLater": "needs a agent-chat argument",
   "sidebar.priority.snooze": "needs a agent-chat argument",
   "sidebar.priority.togglePin": "needs a agent-chat argument",
   "space.newWindow": "needs a room argument",

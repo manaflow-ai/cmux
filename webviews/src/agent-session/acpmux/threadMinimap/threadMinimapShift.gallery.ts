@@ -52,7 +52,7 @@ export default agentPaneEntry({
   anchors: [{ selector: "nav.acpmux-minimap__rail" }],
   covers: [
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
   ],
   variants: {
     "open-chat": {

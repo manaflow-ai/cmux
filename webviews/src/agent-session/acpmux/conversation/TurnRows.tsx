@@ -9,6 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
+import { AgentCallCard } from "./AgentCallCard";
 import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -192,6 +193,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "agentCall":
+      return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")

@@ -329,6 +329,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-run",
     "apps-set",
     "apps-store",
+    "apps-team-event",
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",

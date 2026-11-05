@@ -29,6 +29,9 @@ pub(super) struct VtStateMessage {
     pub(super) kitty_state: KittyReplayState,
     pub(super) colors: Value,
     pub(super) pending_sequence: Arc<[u8]>,
+    /// A tail replay's count of older history rows left out
+    /// (`attach-replay-history-rows-v1`); `None`: the field is omitted.
+    pub(super) history_rows_omitted: Option<u64>,
 }
 
 /// Additive attach-event fields captured from the client's advertised

@@ -404,7 +404,8 @@ function promptOf(
   }
   // A tool's or reconciler's notice (agentNotice.ts): its sender, severity, title and links; the
   // body without the head and the Links line the row draws itself.
-  if (provenance?.kind === "notice") {
+  // acpmux's own who-else notice (hub/touched.rs) carries a notice's fields under its own kind.
+  if (provenance?.kind === "notice" || provenance?.kind === "who_else") {
     const notice = provenanceNotice(provenance);
     if (notice)
       return {

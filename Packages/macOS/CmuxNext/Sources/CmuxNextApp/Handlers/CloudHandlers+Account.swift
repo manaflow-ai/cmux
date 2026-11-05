@@ -500,7 +500,7 @@ extension CloudHandlers {
         var rows: [CmuxNextSettings.JSONValue] = []
         for session in machines.cloud {
             var row = AppControl.cloudMachineRow(session, machines)
-            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            row["link_pid"] = .string("app server")
             // The daemon's whole handshake (ghostty commit, capabilities, pid, registry id, generation).
             row.merge(CloudDiagnosticsReport.daemonDetails(session.daemon.store.connectionState, last: session.daemon.store.identity)) { kept, _ in kept }
             rows.append(.object(row))

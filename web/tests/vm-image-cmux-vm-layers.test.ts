@@ -116,3 +116,64 @@ describe("per-user layer inventory", () => {
     expect(userAdditionsCommand()).not.toMatch(/Version|history|argv/);
   });
 });
+
+describe("layer snapshot GC", () => {
+  const at = (h: number) => new Date(Date.UTC(2026, 10, 1) + h * 3600_000).toISOString();
+  const now = Date.UTC(2026, 10, 3);
+  const key = (c: string) => c.repeat(16);
+  const sys = (c: string, h: number) => ({ id: `sh-sys${c}`, slug: `cmuxnp-dev-vmimg-sys-${key(c)}`, displayName: `cmuxnp-dev-vmimg-sys-${key(c)}`, createdAt: at(h) });
+  const agt = (c: string, h: number, sysC?: string) => ({ id: `sh-agt${c}`, slug: `cmuxnp-dev-vmimg-agt-${key(c)}`, displayName: sysC ? `cmuxnp-dev-vmimg-agt-${key(c)} ^sys-${key(sysC)}` : `cmuxnp-dev-vmimg-agt-${key(c)}`, createdAt: at(h) });
+  const app = (n: number, h: number, agtC?: string) => ({ id: `sh-app${n}`, slug: `cmuxnp-dev-vmimg-ci-${n}-1`, displayName: agtC ? `cmuxnp-dev-vmimg-ci-${n}-1 ^agt-${key(agtC)}` : `cmuxnp-dev-vmimg-ci-${n}-1`, createdAt: at(h) });
+
+  test("a label names the parent layer and fits 64 characters; a provider parent gives the bare name", async () => {
+    const { layerLabel, labelParent, LABEL_MAX } = await import("../scripts/cmux-vm-image/layers");
+    const label = layerLabel("cmuxnp-dev-vmimg-ci-team-42014180836-12", `cmuxnp-dev-vmimg-agt-${key("a")}`);
+    expect(label.length).toBeLessThanOrEqual(LABEL_MAX);
+    expect(labelParent(label)).toBe(`cmuxnp-dev-vmimg-agt-${key("a")}`);
+    expect(layerLabel(`cmuxnp-dev-vmimg-agt-${key("a")}`, `cmuxnp-dev-vmimg-sys-${key("b")}`).length).toBeLessThanOrEqual(LABEL_MAX);
+    expect(layerLabel(`cmuxnp-dev-vmimg-sys-${key("b")}`, "sc-provider-base")).toBe(`cmuxnp-dev-vmimg-sys-${key("b")}`);
+    expect(layerLabel(`cmuxnp-dev-vmimg-${"x".repeat(41)}`, `cmuxnp-dev-vmimg-agt-${key("a")}`)).toBe(`cmuxnp-dev-vmimg-${"x".repeat(41)}`);
+  });
+
+  test("keeps the newest per layer and every labeled chain under a live image; deletes the rest of the layers", async () => {
+    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
+    const all = [sys("1", 1), sys("2", 2), sys("3", 3), agt("4", 1, "1"), agt("5", 2, "2"), agt("6", 3, "3"), app(1, 1.5, "4")];
+    const plan = planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now });
+    expect(plan.keep.get("sh-sys3")).toBe("newest 1 of system");
+    expect(plan.keep.has("sh-agt4") && plan.keep.has("sh-sys1")).toBe(true);
+    expect(plan.remove.map((s) => s.id).sort()).toEqual(["sh-agt5", "sh-sys2"]);
+  });
+
+  test("an image or overlay with no recorded parent keeps every layer older than itself", async () => {
+    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
+    const all = [sys("1", 1), sys("2", 2), agt("4", 1.5), agt("5", 2.5, "2"), sys("3", 4), agt("6", 4, "3"), app(1, 3)];
+    const plan = planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now });
+    expect(plan.remove).toEqual([]);
+    const later = planLayerGc([sys("1", 1), sys("2", 2), sys("3", 3), app(2, 0.5)], new Set(), { keep: 1, recentMs: 0, now });
+    expect(later.remove.map((s) => s.id).sort()).toEqual(["sh-sys1", "sh-sys2"]);
+  });
+
+  test("a layer made inside the window stays even without lastUsedAt", async () => {
+    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
+    // The newest is kept as newest; the second newest stays only because it was made inside the window.
+    const fresh = { ...sys("9", 0), createdAt: new Date(now - 120_000).toISOString() };
+    const newest = { ...sys("2", 0), createdAt: new Date(now - 60_000).toISOString() };
+    const all = [sys("1", 1), fresh, newest];
+    expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys1"]);
+  });
+
+  test("a referenced snapshot and a recently booted layer stay", async () => {
+    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
+    const all = [sys("1", 1), { ...sys("2", 2), lastUsedAt: new Date(now - 60_000).toISOString() }, sys("3", 3), sys("4", 4)];
+    expect(planLayerGc(all, new Set([`cmuxnp-dev-vmimg-sys-${key("1")}`]), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys3"]);
+  });
+});
+
+describe("deferred inventory", () => {
+  test("--defer-inventory needs --layered; prod copies drop the build-only flags", async () => {
+    expect(() => bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--defer-inventory"])).toThrow();
+    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--layered", "--defer-inventory"]).deferInventory).toBe(true);
+    const { recordedFlags } = await import("../scripts/cmux-vm-image/prod-copy");
+    expect(recordedFlags("images/cmux-vm/bake.ts --agent-tools --layered --defer-inventory (CI run 7)")).toEqual(["--agent-tools", "--layered", "--defer-inventory"]);
+  });
+});

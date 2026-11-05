@@ -198,9 +198,7 @@ extension CloudHandlers {
             }
         }
         // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
-            (try? machine(invocation, context))?.link == nil
-        }
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { _ in true }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -296,7 +294,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            if session.appLink != nil, cloud.previewAPI != nil {
+            if cloud.previewAPI != nil {
                 return livePreviewPorts(session, invocation, context)
             }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }

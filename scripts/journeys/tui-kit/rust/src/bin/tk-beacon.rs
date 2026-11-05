@@ -58,6 +58,17 @@ fn wait_until(due: f64, mode: Mode, spin: f64) {
     }
 }
 
+/// The parsed command line.
+struct Options {
+    ws: u64,
+    pane: u64,
+    hz: f64,
+    cell_cols: usize,
+    duration: f64,
+    spin_ms: f64,
+    mode: Mode,
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let a = match Args::parse(&argv, FLAGS) {
@@ -71,7 +82,7 @@ fn main() -> ExitCode {
         eprintln!("tk-beacon: unknown option --{unknown}");
         return ExitCode::from(2);
     }
-    let parsed = (|| -> Result<(u64, u64, f64, usize, f64, f64, Mode), String> {
+    let parsed = (|| -> Result<Options, String> {
         let ws: u64 = a.num("ws", u64::MAX)?;
         if ws == u64::MAX {
             return Err("--ws is required".into());
@@ -86,17 +97,25 @@ fn main() -> ExitCode {
         }
         let mode = Mode::parse(a.text("pace").unwrap_or("rt"))
             .ok_or_else(|| "--pace is spin, rt, hybrid or sleep".to_string())?;
-        Ok((
+        Ok(Options {
             ws,
-            a.num("pane", 0)?,
+            pane: a.num("pane", 0)?,
             hz,
-            a.num("cell-cols", 2)?,
+            cell_cols: a.num("cell-cols", 2)?,
             duration,
-            a.num("spin-ms", 1.0)?,
+            spin_ms: a.num("spin-ms", 1.0)?,
             mode,
-        ))
+        })
     })();
-    let (ws, pane, hz, cell_cols, duration, spin_ms, mode) = match parsed {
+    let Options {
+        ws,
+        pane,
+        hz,
+        cell_cols,
+        duration,
+        spin_ms,
+        mode,
+    } = match parsed {
         Ok(p) => p,
         Err(e) => {
             eprintln!("tk-beacon: {e}");
@@ -209,10 +228,12 @@ fn main() -> ExitCode {
         }
         let units = beacon::clock_units((now * 1e9) as u64);
         let text = beacon::frame(
-            ws,
-            pane,
+            beacon::Beacon {
+                ws,
+                pane,
+                cell_cols,
+            },
             units,
-            cell_cols,
             &label,
             k,
             clear,

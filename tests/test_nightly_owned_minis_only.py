@@ -55,8 +55,7 @@ PENDING_GLAEDA = {
     "legacy-identity-target",
 }
 # Secret jobs glaeda's SIGNING_JOBS already gives the whole mini, that hold no signing keychain.
-EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github",
-                        "publish-nightly-next-github-names")
+EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github")
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")

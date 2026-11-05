@@ -7,13 +7,10 @@ area, and each pane resizes what it holds.
 
 Reported, not judged (no threshold fails a run):
 
-- `relayouts`: display frames on which a pane's content view changed width. With
-  `sidebar.slideHoldsContent` on (an opt-in comparison) the content takes its landing width when
-  the slide starts and stays still, pinned to the far edge, so this is about one per toggle; with it
-  off (the default) it is one per frame of the slide.
-- `stalled`: frames on which the sidebar's own width moved and no pane's content width did.
-  With the hold on that is every frame of the slide by design; with it off, a pane that stops
-  following the edge shows up. Counted per frame against the same
+- `relayouts`: display frames on which a pane's content view changed width: one per frame of the
+  slide (the content follows the card's edge; the hold that sized it once was deleted 2026-11-05).
+- `stalled`: frames on which the sidebar's own width moved and no pane's content width did: a pane
+  that stops following the edge shows up. Counted per frame against the same
   sample, not by matching one series against the other: a slide is a change on every frame,
   so "how many frames did the content trail by" has no well-defined answer, while "the edge
   moved and nothing followed" does.

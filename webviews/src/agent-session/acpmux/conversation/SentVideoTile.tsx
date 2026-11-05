@@ -22,8 +22,9 @@ import type { SentVideo } from "./sentVideos";
 /// Where a granted video plays: in place in the bubble, or large over the pane.
 type Shown = { src: string; expanded: boolean };
 
-/// `width`: the tile's at a sent image's height (UserBubble.tsx `sentImageWidth`).
-export function SentVideoTile({ video, width }: { video: SentVideo; width: number }) {
+/// `width` and `height`: the tile's, at a sent image's height (UserBubble.tsx `sentImageWidth`). The
+/// poster fills it, cropped, loaded or still loading.
+export function SentVideoTile({ video, width, height }: { video: SentVideo; width: number; height: number }) {
   const t = useT();
   const [shown, setShown] = useState<Shown>();
   const asked = useRef(0);
@@ -73,9 +74,9 @@ export function SentVideoTile({ video, width }: { video: SentVideo; width: numbe
         onDoubleClick={() => open(true)}
       >
         {video.poster ? (
-          <Poster video={video} width={width} />
+          <Poster video={video} width={width} height={height} />
         ) : (
-          <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />
+          <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
         )}
         <span className="ui-glass cv-user__video-play" aria-hidden="true">
           <PlayTriangle size={16} style={{ color: "inherit" }} />
@@ -101,12 +102,14 @@ export function SentVideoTile({ video, width }: { video: SentVideo; width: numbe
 }
 
 /// The first frame: the pane's own bytes before acpmux's echo, else read by its id (imageEntries.ts).
-function Poster({ video, width }: { video: SentVideo; width: number }) {
+function Poster({ video, width, height }: { video: SentVideo; width: number; height: number }) {
   const { promptImage } = useContext(TurnActionsContext);
   const image = video.poster!;
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, video);
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />;
+    return (
+      <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
+    );
   return (
     <img
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
@@ -115,7 +118,7 @@ function Poster({ video, width }: { video: SentVideo; width: number }) {
       decoding={shown.decoded ? "sync" : "async"}
       width={video.width}
       height={video.height}
-      style={{ width }}
+      style={{ width, height }}
       onLoad={shown.onLoad}
     />
   );

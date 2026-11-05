@@ -195,6 +195,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        // Before anything that reads or writes the home: this runs as root.
+        #[cfg(target_os = "linux")]
+        Some(Command::DaemonEnroll { person_key_fd }) => {
+            let status = crate::daemon::provision::enroll_running(person_key_fd).await?;
+            if json_out {
+                crate::cli::output::print_json(&status);
+            } else {
+                println!(
+                    "enrolled: personKey {} personInstance {}",
+                    status.get("personKey").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    status.get("personInstance").and_then(serde_json::Value::as_str).unwrap_or("")
+                );
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -323,6 +342,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Resolve { query }) => {
             let json_out = cli.json;
             match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::WhoElse(args)) => {
+            let json_out = cli.json;
+            match crate::cli::who_else::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

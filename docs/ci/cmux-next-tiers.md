@@ -48,7 +48,7 @@ is routed.
 | swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next app compile (build fleet)` on a same-repository PR; `cmux-next Release compile (Xcode 26)` with `full-ci`, from a fork, on a push, or when the fleet gives no verdict | Swift and app sources (a fork PR: any `.swift` file under `Packages/macOS/CmuxNext/`, other sources with `full-ci`) | build fleet (Linux); mini for Release |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
-| swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
+| swift | `cmux-next swift test` (a pull request only with `full-ci`; the tip suite dispatch runs it on the `feat-cmux-next` tip) | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
@@ -153,7 +153,11 @@ Every tier runs on:
 - a dispatch on any ref (`gh workflow run cmux-next.yml --ref <branch>`);
 - every `feat-cmux-next` push, except `swift test`: push CI is the app build
   (Release compile and app scheme compile), so a merged PR's Swift suites run
-  on the PR itself or a dispatch. A superseded push skips its other Mac jobs,
+  in main's tip suite dispatch (`cmux-next-tip-swift-suite-dispatch.yml`, on the
+  tip whenever Swift changed), a dispatch, or a PR labeled `full-ci`. A pull
+  request without `full-ci` skips `swift test` (2026-11-05): run on every PR
+  push it was cancelled by a merge, a newer push or a re-run before it
+  finished (37 of 78 check runs cancelled, none passed), so it gave no signal. A superseded push skips its other Mac jobs,
   so a burst of merges is checked once at its newest commit. The Release
   compile still runs on superseded pushes: one runs at a time and only the
   newest waits (a newer push replaces a waiting one), so a base compile break
@@ -226,6 +230,31 @@ No runner waits for the tree. `cmux-next path routing` probes it once
 - **App personality check.** `check-app-personalities.sh` runs with the app
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
+
+## Changes that need only a blaze build
+
+`scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
+changed files alone, which build a change needs:
+
+- `blaze`: only files inside cmux-tui crates that only Cargo builds read. The
+  blaze (or cargo) builds of the Rust workspaces it names are the whole build:
+  the crate's own workspace and every workspace outside cmux-tui with a path
+  dependency on it (optchat-chief on cmux-chief). Skip the Xcode build, the
+  Swift compiles and the app build.
+- `app`: anything else, including any file it cannot place and every file
+  outside cmux-tui crates (docs too: a crate can `include_str!` one).
+
+A crate is `app` when it is in the Cargo dependency closure of a crate another
+language links (any `staticlib`, `cdylib` or `*-ffi` crate in the repo, or a
+crate a `Package.swift` names, such as the cmux-terminal-client xcframework),
+or in the router's CCmuxAppFFI and app scheme build-phase lists (read from
+`cmux.xcodeproj`; the cmux-tui `Cargo.toml` and `Cargo.lock` are among them).
+A change takes its heavier file's class. The class covers builds only: a
+daemon change still runs the daemon tier's live-daemon suites.
+`tests/test_ci_build_class.py` checks it on the real tree; run it yourself.
+On 2026-11-05, 17 of the 93 cmux-tui workspace crates were `blaze` (acpmux and
+cmux-tui among them). In the last 500 `feat-cmux-next` commits, 43 were
+`blaze`: 39% of the 109 that touched cmux-tui.
 
 ## Generated files fix themselves
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -253,7 +254,7 @@ extension AppActions {
                 return hidden
             },
             // A terminal that may run a program (and the warning on): the row stays until the person answers.
-            mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
+            mayAsk: { WorkspaceClose.mayAsk([(workspace, daemon)], warn: warn) },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }

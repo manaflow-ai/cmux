@@ -149,6 +149,8 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(cron.over_target("cmd_t.idle.key_to_visible", row(12.0), 16.67))
         self.assertTrue(cron.over_target("perf_gate.tabs.failed_checks", row(1, "checks"), 16.67))
         self.assertIsNone(cron.target_of("anim.tab.over_8_33", row(3.0), 16.67))
+        self.assertIsNone(cron.target_of("workspace_scaling.type.1000", row(99.0), 16.67),
+                          "workspace scaling is advisory ratio-only")
 
     def test_a_new_perf_gate_failure_regresses(self):
         regs = cron.find_regressions({"perf_gate.tabs.failed_checks": row(1, "checks", 0.5)},

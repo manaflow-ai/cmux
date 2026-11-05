@@ -59,9 +59,16 @@ struct HomeAgentMessages {
         guard !runs.isEmpty else { return items }
         var byKey: [IdempotencyKey: Int] = [:]
         var byMessageID: [MessageID: Int] = [:]
+        // A Chief's `send` posts under `send-<conversation>-<turn>-<16 hex>` (optchat-chief brain/send.rs):
+        // its turn's sends, by that key less its hash, in order.
+        var sends: [String: [Int]] = [:]
         for (index, item) in items.enumerated() {
             byKey[item.key] = index
             if let messageID = item.messageID { byMessageID[messageID] = index }
+            let key = item.key.rawValue
+            if key.hasPrefix("send-"), key.count > Self.sendHashLength {
+                sends[String(key.dropLast(Self.sendHashLength)), default: []].append(index)
+            }
         }
         var after: [Int: [TranscriptItem]] = [:]
         for run in runs.values.sorted(by: { ($0.author.rawValue, $0.id) < ($1.author.rawValue, $1.id) }) {
@@ -69,10 +76,18 @@ struct HomeAgentMessages {
                 items[index].author == run.author ? index : nil
             }
             let answer = run.answers.compactMap { byMessageID[$0] }.max()
-            guard let anchor = answer ?? reply else { continue }
-            // A nested question is the parent, not merely the thread's root. If only
-            // Chief's reply is loaded, inherit its parent rather than replying to Chief.
-            let parent = run.threadRoot.map { root in
+            // A `send` of the run's turn carries its pills (user 2026-11-05, msg 22013: text alongside the
+            // chips): the one on the main line, else the first threaded one. A turn that said nothing by `send`
+            // keeps its pills under the message they answer, else after its reply.
+            let turnSends = run.turn.flatMap { sends["send-\(run.conversation.rawValue)-\($0.rawValue)"] }?
+                .filter { items[$0].author == run.author } ?? []
+            let said = turnSends.first { items[$0].threadRoot == nil } ?? turnSends.first
+            guard let anchor = said ?? answer ?? reply else { continue }
+            // Beside the Chief's words, the pills take their place: the main line or the thread they went in.
+            // Otherwise a nested question is the parent, not merely the thread's root; if only Chief's reply
+            // is loaded, inherit its parent rather than replying to Chief.
+            let threadRoot = said.map { items[$0].threadRoot } ?? run.threadRoot
+            let parent = said.map { items[$0].replyTo } ?? run.threadRoot.map { root in
                 answer.flatMap { items[$0].messageID }.map { PartRef(message: $0, partIndex: 0) }
                     ?? items[anchor].replyTo ?? PartRef(message: root, partIndex: 0)
             }
@@ -83,7 +98,7 @@ struct HomeAgentMessages {
                 var item = TranscriptItem(
                     key: IdempotencyKey("agent-message:\(run.author.rawValue):\(run.id):\(message.id)"), seq: nil,
                     author: run.author, parts: [.text("[\(from) → \(to)]\n\(message.text)")], createdAt: message.date,
-                    delivery: .committed, replyTo: parent, threadRoot: run.threadRoot)
+                    delivery: .committed, replyTo: parent, threadRoot: threadRoot)
                 item.isReadOnly = true
                 item.agentMessage = HomeAgentMessageRow(
                     group: HomeAgentMessageRow.groupID(author: run.author, anchor: items[anchor].key),
@@ -99,6 +114,9 @@ struct HomeAgentMessages {
             return [item] + Self.folded(messages, expanded: expanded, seen: seen, titles: titles)
         }
     }
+
+    /// The characters a `send` key's hash takes at its end: `-` and 16 hex digits.
+    private static let sendHashLength = 17
 
     /// A report that is only a status note (the agent stopped with no report) is a note; every other step a message.
     private static func kind(from: String, to: String, _ message: HomeAgentRun.Message) -> HomeAgentMessageRow.Kind {

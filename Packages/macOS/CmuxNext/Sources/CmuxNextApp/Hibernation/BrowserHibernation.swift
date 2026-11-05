@@ -64,7 +64,7 @@ final class BrowserHibernation {
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, and why the page goes, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?, cause: String)] = [:]
-    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
+    /// Hibernated pages' pictures (`HibernationSnapshots`), and their wakes (`debug.surfaces`).
     let snapshots = HibernationSnapshots()
     var wakeLog = HibernationWakes()
     /// A navigation that woke a hibernated page, applied once it is back; at most one per page.

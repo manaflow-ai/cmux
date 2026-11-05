@@ -13,12 +13,13 @@
 // the setting under which its chip opens without asking: a preview needs no click (Leo,
 // 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW"). A file
 // that is not there has no Open, and a template path (`${variant}-320.png`) is plain text.
-// A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
-// (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
-// opens it whole in the image viewer.
-import { useContext, useEffect, useState, type ReactNode } from "react";
+// A reply's own images (`thumb`) wait in a glass thumbnail of a fixed shape (waiting, Load image,
+// unavailable, and a shown one until it loads); a loaded one is the whole image in its own shape
+// (chips.css .cv-thumb--sized), and a click opens it in the image viewer.
+import { useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
+import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
@@ -147,28 +148,53 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
+  // A thumbnail's frame takes the drawn image's own shape (chips.css .cv-thumb--sized), so a phone shot
+  // is a narrow column, not a centred column in a wide box: from its first paint when its size is known
+  // (its data URL's header, or the size it drew at before), else once it loads. Until then it keeps the
+  // fixed frame, so a slow image holds its place.
+  const [natural, setNatural] = useState(() => (thumb ? knownImageSize(src) : undefined));
   const image = (
     <img
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
+      onLoad={
+        thumb
+          ? (event) => {
+              const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+              if (!(width > 0 && height > 0)) return;
+              rememberImageSize({ src }, { width, height });
+              setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
+            }
+          : undefined
+      }
       // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
       // second, visibly different frame.
       decoding="sync"
     />
   );
-  if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
+  const thumbClass = natural ? "cv-thumb cv-thumb--sized" : "cv-thumb";
+  const shape = natural ? ({ "--thumb-w": natural.width, "--thumb-h": natural.height } as CSSProperties) : undefined;
+  if (!openImage)
+    return thumb ? (
+      <span className={thumbClass} style={shape}>
+        {image}
+      </span>
+    ) : (
+      image
+    );
   return (
     <button
       type="button"
-      className={thumb ? "cv-thumb cv-thumb--open" : "cv-img-open"}
+      className={thumb ? thumbClass : "cv-img-open"}
       data-open-image
       /* The file a reply read the image from: the context menu's Show in Finder selects it. */
       data-image-path={path || undefined}
       /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
       draggable
       title={alt || t("image.view")}
+      style={thumb ? shape : undefined}
       onClick={() => openImage(src, alt, path)}
     >
       {image}

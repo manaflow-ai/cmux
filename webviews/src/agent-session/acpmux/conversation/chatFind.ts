@@ -12,6 +12,7 @@ import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, shellOutput, toolFailure } from "./toolFailure";
+import { agentCall } from "./agentCalls";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
@@ -72,6 +73,13 @@ function drawnText(item: AcpmuxActivity): string {
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
     return [prettyValue(call.args), text].filter(Boolean).join("\n");
   }
+  // A subagent's card draws its report, then its prompt (AgentCallCard.tsx); its line is a summary.
+  const agent = agentCall(tool);
+  if (agent)
+    return [agent.report, agent.prompt]
+      .filter(Boolean)
+      .map((text) => plainText(text!))
+      .join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,

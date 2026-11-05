@@ -322,9 +322,11 @@ struct CloudStartSessionTests {
 
     /// A fresh Cloud machine whose image baked a cmux-tui from before cmux#29107 refuses its creator's
     /// first chat (`team_vm_blocked`): the start updates the machine to the app's build and tries once
-    /// more. With no update (`updateMachine` answers false, or none is wired), or for a refusal an older
-    /// daemon does not explain, the refusal stands and no second start runs.
-    @Test(arguments: [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"])
+    /// more. A chat with no folder on a machine whose cmux-tui predates no-folder starts (`folder_needed`)
+    /// does the same, so it starts in `~/chats/<id>` with nothing to pick (Leo, 2026-11-05: "it should be
+    /// allowed to not pick a folder"). With no update (`updateMachine` answers false, or none is wired), or
+    /// for a refusal an older daemon does not explain, the refusal stands and no second start runs.
+    @Test(arguments: [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", AgentRemoteStartRefusal.folderNeededCode])
     func aStartAnOlderDaemonRefusedUpdatesTheMachineAndStartsOnceMore(code: String) async throws {
         func host(_ steps: StartSteps, refusal: String, updates: Bool?) -> AgentTabRemoteHost {
             var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", hostID: "devbox", endpoint: { throw CancellationError() })

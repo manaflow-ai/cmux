@@ -1409,3 +1409,169 @@ fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() 
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+// ---- attach-replay-history-rows-v1 ------------------------------------
+
+/// The first `vt-state` of a bytes attach with these extra fields.
+fn byte_attach_vt_state(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+    extra: Value,
+) -> Value {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+    for (key, value) in extra.as_object().expect("fields") {
+        request[key] = value.clone();
+    }
+    handle_command(mux, client, command(request), &writer).unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first["event"], "vt-state", "{first}");
+    disconnect_client(mux, client, false);
+    first
+}
+
+#[test]
+fn replay_history_rows_capability_is_advertised() {
+    let mux = Mux::new_for_test("replay-history-rows-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(
+        capabilities.iter().any(|value| value == "attach-replay-history-rows-v1"),
+        "{identity}"
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Latest screen first (cmuxterm-hq#7231): a bytes attach with
+/// `replay_history_rows` gets a `vt-state` that rebuilds the screen and only
+/// that many of the newest history rows, and names how many older rows it
+/// left out; the same terminal attached without the field still gets its
+/// whole history and no new field.
+#[test]
+fn a_byte_attach_with_a_history_allowance_gets_the_latest_screen_first() {
+    let (mux, surface) = quiet_surface_with_scrollback("replay-history-rows", 5_000);
+    let full = byte_attach_vt_state(&mux, &surface, json!({}));
+    assert!(full.get("history_rows_omitted").is_none(), "{}", full["history_rows_omitted"]);
+    let screen = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 0}));
+    let tail = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 100}));
+
+    let screen_omitted = screen["history_rows_omitted"].as_u64().expect("omitted rows");
+    let tail_omitted = tail["history_rows_omitted"].as_u64().expect("omitted rows");
+    assert!(screen_omitted >= 4_900, "only {screen_omitted} rows were left out of 5,000");
+    assert_eq!(screen_omitted - tail_omitted, 100, "the allowance keeps 100 more rows");
+
+    let (full_bytes, screen_bytes, tail_bytes) = (data(&full), data(&screen), data(&tail));
+    assert!(
+        screen_bytes.len() * 50 < full_bytes.len(),
+        "a screen-only replay of {} bytes against the whole history's {}",
+        screen_bytes.len(),
+        full_bytes.len()
+    );
+    assert!(screen_bytes.len() < tail_bytes.len() && tail_bytes.len() < full_bytes.len());
+
+    // Each rebuilds the same screen.
+    let screen_text = |bytes: &[u8]| {
+        let mut term =
+            ghostty_vt::Terminal::new(80, 24, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.vt_write(bytes);
+        term.viewport_text().unwrap()
+    };
+    let expected = screen_text(&full_bytes);
+    assert!(expected.contains("004999"), "{expected}");
+    assert_eq!(screen_text(&screen_bytes), expected);
+    assert_eq!(screen_text(&tail_bytes), expected);
+    mux.shutdown();
+}
+
+/// Bench (off unless CMUX_LATEST_SCREEN_BENCH=<attaches per arm>): a bytes
+/// attach of an 80x24 terminal with 10,000 and 50,000 lines of history, the
+/// whole replay (today) against the latest screen first
+/// (`replay_history_rows: 0`), interleaved. Per arm: the first `vt-state`
+/// line's wire bytes and the time from the request to that line on the
+/// connection's queue (p50/p95). Prints LATEST-SCREEN-BENCH lines and writes
+/// them to $FAST_CHECKS_OUT/latest-screen-bench.txt when that is set.
+#[test]
+fn latest_screen_first_bench() {
+    let Some(runs) = std::env::var("CMUX_LATEST_SCREEN_BENCH")
+        .ok()
+        .and_then(|runs| runs.parse::<usize>().ok())
+        .filter(|runs| *runs > 0)
+    else {
+        return;
+    };
+    let mut lines_out = Vec::new();
+    for history in [10_000, 50_000] {
+        let (mux, surface) =
+            quiet_surface_with_scrollback_limit("latest-screen-bench", history, 50_000_000);
+        let attach = |extra: Value| {
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+            for (key, value) in extra.as_object().expect("fields") {
+                request[key] = value.clone();
+            }
+            let started = Instant::now();
+            handle_command(&mux, client, command(request), &writer).unwrap();
+            let line = loop {
+                if let Some(message) = outbound.try_pop() {
+                    if message.contains("\"event\":\"vt-state\"") {
+                        break message;
+                    }
+                    continue;
+                }
+                assert!(started.elapsed() < Duration::from_secs(30), "no vt-state");
+                std::thread::yield_now();
+            };
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            disconnect_client(&mux, client, false);
+            (line.len(), elapsed)
+        };
+        let (mut whole, mut screen) = (Vec::new(), Vec::new());
+        let (mut whole_bytes, mut screen_bytes) = (0, 0);
+        for round in 0..runs {
+            let arms: [bool; 2] = if round % 2 == 0 { [false, true] } else { [true, false] };
+            for tail in arms {
+                if tail {
+                    let (bytes, ms) = attach(json!({"replay_history_rows": 0}));
+                    screen_bytes = bytes;
+                    screen.push(ms);
+                } else {
+                    let (bytes, ms) = attach(json!({}));
+                    whole_bytes = bytes;
+                    whole.push(ms);
+                }
+            }
+        }
+        let percentiles = |times: &mut Vec<f64>| {
+            times.sort_by(f64::total_cmp);
+            let at = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
+            format!("p50 {:.2} ms p95 {:.2} ms", at(0.5), at(0.95))
+        };
+        let profile = if cfg!(debug_assertions) { "dev-profile" } else { "release" };
+        lines_out.push(format!(
+            "LATEST-SCREEN-BENCH {profile} 80x24 {history} lines, {runs} attaches per arm: \
+             whole replay {whole_bytes} wire bytes, {}; latest screen first {screen_bytes} \
+             wire bytes, {}",
+            percentiles(&mut whole),
+            percentiles(&mut screen)
+        ));
+        mux.shutdown();
+    }
+    for line in &lines_out {
+        eprintln!("{line}");
+    }
+    if let Ok(dir) = std::env::var("FAST_CHECKS_OUT") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            std::path::Path::new(&dir).join("latest-screen-bench.txt"),
+            lines_out.join("\n") + "\n",
+        )
+        .unwrap();
+    }
+}

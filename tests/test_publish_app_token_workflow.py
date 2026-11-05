@@ -22,7 +22,7 @@ APP_JOBS = {
     "recover-nightly-next-notarization": "read", "publish-nightly": "write", "keep-published-dsyms": "read",
     "generate-nightly-deltas": "read",
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
-    "publish-nightly-next-github": "write", "publish-nightly-next-github-names": "write",
+    "publish-nightly-next-github": "write",
 }
 APP_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_app_token\.sh --install")
 BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
@@ -59,8 +59,7 @@ class WorkflowTests(unittest.TestCase):
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:
-        for name in ("publish-nightly", "republish-nightly-deltas", "publish-nightly-next-github",
-                     "publish-nightly-next-github-names"):
+        for name in ("publish-nightly", "republish-nightly-deltas", "publish-nightly-next-github"):
             for step in self.jobs[name]["steps"]:
                 if "publish-release-assets.py" in str(step.get("run", "")):
                     self.assertEqual(step["env"]["GH_APP_TOKEN"], "${{ steps.gh-app-token.outputs.token }}", step["name"])

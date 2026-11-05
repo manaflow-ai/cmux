@@ -121,6 +121,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setFocused(_ focused: Bool) { tab.setFocused(focused) }
 
+    var hasKeys: Bool { NSApp.keyWindow.map(tab.isPageWindow) == true }
+
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }

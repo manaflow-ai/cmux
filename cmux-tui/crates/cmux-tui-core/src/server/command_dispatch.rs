@@ -968,6 +968,7 @@ fn dispatch_command(
             rows,
             expected_generation,
             expected_terminal_id,
+            replay_history_rows,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -985,6 +986,7 @@ fn dispatch_command(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                replay_history_rows,
                 snapshot,
             )
         }

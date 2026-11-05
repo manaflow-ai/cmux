@@ -611,7 +611,10 @@ impl Hub {
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);

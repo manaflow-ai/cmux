@@ -39,8 +39,8 @@ use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
-    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
-    heartbeat_ms_for,
+    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT, DaemonInfo,
+    STATE_DIR, daemon_info_from_identify, heartbeat_ms_for,
 };
 use crate::config::Paths;
 use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
@@ -284,17 +284,28 @@ pub fn daemon_socket(paths: &Paths) -> Option<PathBuf> {
 }
 
 /// Live identify first; the bake-recorded `daemon.json` when the daemon
-/// does not answer. Never an empty list.
+/// does not answer. Never an empty list. Either way the image's own
+/// desktop ([`DESKTOP_CAPABILITY`]) is added when it has one.
 pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     if let Some(socket) = daemon_socket(paths)
         && let Ok(identify) = query_identify(&socket, Duration::from_secs(2))
     {
-        return Ok(daemon_info_from_identify(&identify, false));
+        return Ok(with_desktop(paths, daemon_info_from_identify(&identify, false)));
     }
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false, false))
+    Ok(with_desktop(paths, info.with_activity(false, false, false)))
+}
+
+/// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
+/// desktop's socket unit (a recorded daemon.json never decides it).
+fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
+    info.capabilities.retain(|c| c != DESKTOP_CAPABILITY);
+    if paths.at(DESKTOP_SOCKET_UNIT).is_file() {
+        info.capabilities.push(DESKTOP_CAPABILITY.to_owned());
+    }
+    info
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -492,6 +503,9 @@ struct Worker {
     relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
+    workload: super::workload::Tracker,
+    workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
 }
@@ -541,6 +555,8 @@ impl Worker {
             relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            workload: super::workload::Tracker::default(),
+            workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
         })
@@ -567,6 +583,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.bootstrap_retry_at,
+                self.workload_at,
             ]
             .into_iter()
             .flatten()
@@ -963,6 +980,9 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
+        // A new session knows no workload yet: the first probe now, the first result one interval on.
+        self.workload = super::workload::Tracker::default();
+        self.workload_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1068,11 +1088,35 @@ impl Worker {
         if self.activity.retry_at.is_some_and(|at| at <= now) {
             self.connect_activity();
         }
+        if self.workload_at.is_some_and(|at| at <= self.now()) {
+            self.probe_workload();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
+    /// read makes the workload unknown, and the report then drops `activity-workload`.
+    fn probe_workload(&mut self) {
+        let now = self.now();
+        self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+            // The first probe has no CPU baseline yet: it changes nothing.
+            Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
+                Some(workload) => Some(workload),
+                None => return,
+            },
+            None => {
+                self.workload = super::workload::Tracker::default();
+                None
+            }
+        };
+        let reqs = live.session.workload(seen, now);
+        self.drive(reqs);
     }
 
     /// Sends each request and feeds its answer back until nothing is due.

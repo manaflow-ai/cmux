@@ -27,8 +27,13 @@ pub(super) fn prompt_line(text: &str, client: &str, provenance: Option<&Value>) 
 pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
     kind.is_some_and(|k| {
-        [super::inbox::NOTICE_KIND, super::digest::DIGEST_KIND, super::digest::inbox_digest::KIND]
-            .contains(&k)
+        [
+            super::inbox::NOTICE_KIND,
+            super::digest::DIGEST_KIND,
+            super::digest::inbox_digest::KIND,
+            super::touched::NOTICE_KIND,
+        ]
+        .contains(&k)
     })
 }
 
@@ -58,7 +63,7 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
     match provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) {
         // A tool's notice reads as its sender and its title, not the rendered `[notice from …]`
         // line its agent got (`prompt_provenance::notice_text`).
-        Some(crate::prompt_provenance::NOTICE_KIND) => {
+        Some(crate::prompt_provenance::NOTICE_KIND | super::touched::NOTICE_KIND) => {
             let name = field("fromName")?;
             let title = provenance?.pointer("/notice/title")?.as_str()?.trim().to_owned();
             Some((name, title))

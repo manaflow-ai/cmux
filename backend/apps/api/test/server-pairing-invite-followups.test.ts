@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { ownerSchema } from "../src/pair-invite-owner.ts"
 import { beginPairing, call, inDO, op, read, runAlarm, sessionToken, testEnv, worker } from "./pairing-harness.ts"
 
 /**
@@ -197,5 +198,50 @@ describe("an aborted first box hears invite_voided (F3)", () => {
     // The tombstone ends with the code's alarm.
     await runAlarm(testEnv.PAIRING_DO.get(testEnv.PAIRING_DO.idFromName(first.res.json.code)))
     expect((await waitBox(first.res.json.code, first.res.json.collect_secret)).status).toBe(404)
+  })
+})
+
+describe("the newest-begun invite wins requests begun in the same millisecond", () => {
+  const mintDirect = (invite: string, approver: string, team: string, now: number) =>
+    inviteDo(invite).inviteMint({ invite, approver, team, inviter: null, watch_hash: "h".repeat(64), now })
+
+  it("two keys begun in one millisecond: the earlier one's late commit is voided, not made live", async () => {
+    const me = await signedIn("stack-invite-same-ms")
+    const now = Date.now()
+    const [earlier, later] = ["X5X5X5X5X5", "Y6Y6Y6Y6Y6"]
+    expect(await owner(me.user).inviteOwnerBegin("e".repeat(64), earlier, me.team, now)).toEqual({ state: "fresh" })
+    expect(await owner(me.user).inviteOwnerBegin("f".repeat(64), later, me.team, now)).toEqual({ state: "fresh" })
+    expect((await mintDirect(earlier, me.user, me.team, now)).ok).toBe(true)
+    expect((await mintDirect(later, me.user, me.team, now)).ok).toBe(true)
+    // The later request commits first; the earlier one's commit arrives after it, same timestamp.
+    expect(await owner(me.user).inviteOwnerCommit("f".repeat(64), later, now + 600_000, now)).toEqual({ ok: true })
+    expect(await owner(me.user).inviteOwnerCommit("e".repeat(64), earlier, now + 600_000, now)).toEqual({ ok: true })
+    expect((await beginPairing(Date.now(), false, ip(), undefined, {}, earlier)).res.status).toBe(409)
+    expect((await beginPairing(Date.now(), false, ip(), undefined, {}, later)).res.status).toBe(200)
+  })
+
+  it("an owner the previous build wrote (no sequence) still lets the next mint void its live invite, whatever the clock says", async () => {
+    const me = await signedIn("stack-invite-seq-migrate")
+    const old = (await mint(me.token, me.team)).json.value
+    const watcher = await watch(old.invite, old.watch_secret)
+    await watcher.until(() => watcher.frames.length >= 1)
+    // The previous build's tables, with the live invite stamped a minute ahead (a clock skew), so
+    // ordering by time alone would keep it live.
+    await (inDO as any)(owner(me.user), async (_instance: unknown, state: DurableObjectState) => {
+      const sql = state.storage.sql
+      const ahead = Date.now() + 60_000
+      sql.exec(`DROP TABLE pair_invite_mint`)
+      sql.exec(`DROP TABLE pair_invite_live`)
+      sql.exec(`DROP TABLE pair_invite_seq`)
+      sql.exec(`CREATE TABLE pair_invite_mint (key TEXT PRIMARY KEY, invite TEXT NOT NULL, team TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`)
+      sql.exec(`CREATE TABLE pair_invite_live (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, created_at INTEGER NOT NULL)`)
+      sql.exec(`INSERT INTO pair_invite_mint (key, invite, team, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`, "o".repeat(64), old.invite, me.team, ahead, ahead + 600_000)
+      sql.exec(`INSERT INTO pair_invite_live (id, invite, created_at) VALUES (1, ?, ?)`, old.invite, ahead)
+      ownerSchema(sql)
+    })
+    await mint(me.token, me.team)
+    await watcher.until(() => watcher.closes.length > 0)
+    expect(watcher.frames.at(-1)).toEqual({ t: "voided", reason: "replaced" })
+    expect((await beginPairing(Date.now(), false, ip(), undefined, {}, old.invite)).res.status).toBe(409)
   })
 })

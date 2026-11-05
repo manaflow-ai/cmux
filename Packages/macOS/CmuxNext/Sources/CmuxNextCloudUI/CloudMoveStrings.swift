@@ -54,19 +54,6 @@ public struct CloudMoveStrings {
     public static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .module), machine)
     }
-    /// A legacy link start that stopped at `step` with `reason` (``CloudLinkStartError``).
-    public static func notConnected(_ machine: String, step: CloudLinkStep, reason: String) -> String {
-        String(format: String(localized: "cloud.move.notConnectedAtStep", defaultValue: "%1$@ didn't connect: %2$@ failed (%3$@).", table: "Cloud", bundle: .module),
-               machine, linkStep(step), reason)
-    }
-    public static func linkStep(_ step: CloudLinkStep) -> String {
-        switch step {
-        case .attachEndpoint: String(localized: "cloud.move.linkStep.attachEndpoint", defaultValue: "Asking cmux Cloud for the machine's address", table: "Cloud", bundle: .module)
-        case .hub: String(localized: "cloud.move.linkStep.hub", defaultValue: "Starting this Mac's tunnel to cmux Cloud", table: "Cloud", bundle: .module)
-        case .approve: String(localized: "cloud.move.linkStep.approve", defaultValue: "Approving this Mac on the machine", table: "Cloud", bundle: .module)
-        case .remoteConnect: String(localized: "cloud.move.linkStep.remoteConnect", defaultValue: "Opening the link to the machine", table: "Cloud", bundle: .module)
-        }
-    }
     public static func syncFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.syncFailed", defaultValue: "Couldn't copy the folder to %1$@: %2$@", table: "Cloud", bundle: .module),
                machine, detail)

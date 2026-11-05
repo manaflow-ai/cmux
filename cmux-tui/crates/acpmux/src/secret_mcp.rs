@@ -121,6 +121,8 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
+    // Stdin may stay open after the agent died (`parent_watch.rs`).
+    crate::parent_watch::exit_with_parent();
     let (tx, mut rx) = mpsc::channel::<Value>(64);
     let writer = tokio::spawn(async move {
         let mut out = tokio::io::stdout();

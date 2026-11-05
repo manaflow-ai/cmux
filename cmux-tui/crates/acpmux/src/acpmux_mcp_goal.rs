@@ -131,7 +131,8 @@ mod tests {
         assert_eq!(describe("goal_get", &goal), "Goal running: Ship it. Done when: CI green.");
         let done = json!({"objective": "Ship it", "lifecycle": "done"});
         assert_eq!(describe("goal_update", &done), "Goal complete: Ship it.");
-        let spent = json!({"objective": "Ship it", "lifecycle": "stalled", "stopReason": "timeBudget"});
+        let spent =
+            json!({"objective": "Ship it", "lifecycle": "stalled", "stopReason": "timeBudget"});
         assert_eq!(describe("goal_get", &spent), "Goal stopped (time budget spent): Ship it.");
         assert_eq!(describe("goal_get", &Value::Null), "This chat has no goal.");
     }

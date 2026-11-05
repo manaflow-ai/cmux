@@ -9,7 +9,13 @@ export type NativeDialDeps = Omit<NetworkIdentityDeps, "stream" | "submitSystem"
   readonly allowed: () => ReadonlyArray<string>
   readonly identity: (user: string, install: string, grant: string) => Promise<NetworkIdentity | null>
 }
-export interface NativeDialTarget { readonly vm: string; readonly origin: string; readonly network: typeof CloudVmNetwork.Type }
+/**
+ * `desktop_owner`: CloudDO names the machine's creator here only when the machine advertises its desktop
+ * (CLOUD_DESKTOP_CAPABILITY); `desktop` is then dialable by that user's own install and nobody else's.
+ */
+export interface NativeDialTarget {
+  readonly vm: string; readonly origin: string; readonly network: typeof CloudVmNetwork.Type; readonly desktop_owner?: string
+}
 export interface NativeDialPermit {
   readonly team: string
   readonly user: string
@@ -27,6 +33,8 @@ export interface NativeDialPermit {
   readonly policyDigest: string
   readonly authorityVersion: string
   readonly grantExpiresAt: number | null
+  /** The target's desktop_owner, kept so the recheck after signing applies the same desktop rule. */
+  readonly desktopOwner?: string
 }
 type Failure = { readonly ok: false; readonly code: string; readonly message: string; readonly details?: { readonly reason: NativeDialRefusal } }
 export type NativeDialReply = { readonly ok: true; readonly permit: NativeDialPermit } | Failure
@@ -62,9 +70,15 @@ const bindingOf = (d: NativeDialDeps, p: Principal): Binding => {
 }
 const currentBinding = (d: NativeDialDeps, p: Principal) => bindingOf(d, p).host ?? null
 
-const servicesCurrent = (d: NativeDialDeps, services: ReadonlyArray<string>): boolean => {
+/**
+ * daemon and ssh come from the team policy (daemon only with ssh). desktop is no team policy service: only the
+ * machine's creator (`desktopOwner`, set by CloudDO for a machine that serves it) may dial it, never another member.
+ */
+const servicesCurrent = (d: NativeDialDeps, p: Principal, services: ReadonlyArray<string>, desktopOwner: string | undefined): boolean => {
   const allowed = d.allowed()
-  return services.length > 0 && services.every((service) => ["daemon", "ssh"].includes(service) && allowed.includes(service))
+  return services.length > 0 && services.every((service) => service === "desktop"
+    ? desktopOwner !== undefined && desktopOwner !== "" && desktopOwner === p.user
+    : ["daemon", "ssh"].includes(service) && allowed.includes(service))
     && (!services.includes("daemon") || allowed.includes("ssh"))
 }
 
@@ -79,7 +93,8 @@ const vmServices = (policy: Record<string, unknown>, target: NativeDialTarget, s
   if (vm.address !== target.network.ipv4) return "vm_address"
   const available = vmRuleServices(vm.allow)
   if (available === null) return "vm_policy_invalid"
-  return services.every((service) => available.includes(service)) ? null : "vm_services"
+  // desktop rides the link's own stream to the receiver (no port of its own), so no rule names it.
+  return services.every((service) => service === "desktop" || available.includes(service)) ? null : "vm_services"
 }
 
 /** Service rules shared by the signed dial issuer and VM receiving policy. */
@@ -107,7 +122,7 @@ export const authorizeNativeDial = async (
   const binding = bindingOf(d, p), host = binding.host, origin = networkOrigin(d.origin)
   if (!host?.network) return forbidden(binding.reason ?? "host_unconfirmed")
   if (!origin || target.origin !== origin) return forbidden("origin")
-  if (!servicesCurrent(d, services)) return forbidden("services")
+  if (!servicesCurrent(d, p, services, target.desktop_owner)) return forbidden("services")
   if (!Schema.is(ServerNetworkProof)(proof)) return forbidden(proof === undefined || proof === null ? "proof_missing" : "proof_invalid")
   if (!Schema.is(CloudVmNetwork)(target.network) || !/^vm_[a-z0-9]{26}$/.test(target.vm)) return forbidden("target")
   if (target.network.tenant !== host.network.tenant || target.network.mesh !== host.network.mesh) return forbidden("target_mesh")
@@ -129,7 +144,8 @@ export const authorizeNativeDial = async (
       team: d.team, user: p.user!, install: p.install!, grant: p.grant!, host: host.id,
       tenant: identity.tenant, mesh: identity.mesh, device: identity.device, wg: identity.wg, point, origin,
       services: [...services], aclVersion: read.policy.aclVersion as number, policyDigest: read.policy.policyDigest as string,
-      authorityVersion, grantExpiresAt: own.expires_at
+      authorityVersion, grantExpiresAt: own.expires_at,
+      ...(target.desktop_owner === undefined ? {} : { desktopOwner: target.desktop_owner })
     }
     return await recheckNativeDial(d, p, permit) ? { ok: true, permit } : forbidden("recheck")
   } catch { return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" } }
@@ -145,7 +161,7 @@ export const recheckNativeDial = async (d: NativeDialDeps, p: Principal, permit:
     const current = currentBinding(d, p)
     return !!current && dialIdentity(current, own, p, d.now()) && peerAuthorityVersion(d, current, own) === permit.authorityVersion
       && own.expires_at === permit.grantExpiresAt && pointOf(own) === permit.point && tenant?.team === d.team && tenant.project === d.project && tenant.tenant === permit.tenant
-      && networkOrigin(d.origin) === permit.origin && servicesCurrent(d, permit.services) && current?.id === permit.host
+      && networkOrigin(d.origin) === permit.origin && servicesCurrent(d, p, permit.services, permit.desktopOwner) && current?.id === permit.host
       && current.wg_public_key === permit.wg && current.network?.tenant === permit.tenant && current.network.mesh === permit.mesh && current.network.device === permit.device
   } catch { return false }
 }

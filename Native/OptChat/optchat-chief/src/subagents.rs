@@ -2074,7 +2074,7 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{}{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{}{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Write the user text this turn (your reply or send) that says in a line each what you started: Home shows each one only as a chip beside your words, and a spawn turn with no text gets a [no text] note. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             routed_note.map(|n| format!("{n}\n")).unwrap_or_default(),
             lines.join("\n")
         ))

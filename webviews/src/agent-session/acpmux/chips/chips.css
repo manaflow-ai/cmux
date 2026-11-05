@@ -402,9 +402,9 @@
   white-space: nowrap;
 }
 
-/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape in every state
- * (waiting, Load image, unavailable, shown), so an image that loads never moves the reply. The image
- * fits inside whole; a click opens it in the image viewer. */
+/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape
+ * while it waits (waiting, Load image, unavailable); a shown image takes its own shape (below), and
+ * a click opens it in the image viewer. */
 .cv-thumb {
   box-sizing: border-box;
   display: inline-flex;
@@ -432,6 +432,23 @@
 button.cv-thumb {
   appearance: none;
   cursor: zoom-in;
+}
+/* A shown image is no frame: once it loads (ReplyImage.tsx sets its natural size) the thumbnail is the
+ * whole image in its own shape, as wide as the column, the image, or 360px of height allows, whichever
+ * is least, under a hairline ring. A wide screenshot is a strip, a phone shot a narrow column, never a
+ * thin strip in an empty card (Leo, 2026-11-05: "I don't think we have good enough looking previews for
+ * these"). Until then it keeps the fixed frame, so a slow or lazy image holds its place. */
+.cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  aspect-ratio: var(--thumb-w) / var(--thumb-h);
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.cv-thumb--sized .cv-thumb__img {
+  border-radius: var(--cv-media-radius);
+  outline: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  outline-offset: -1px;
 }
 button.cv-thumb:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
@@ -475,6 +492,12 @@ button.cv-thumb:focus-visible {
 .cv-thumbs.is-row .cv-thumb {
   width: 100%;
   margin: 0;
+}
+/* A shown image in a row keeps its own shape inside its share, centred over its caption: never a
+   frame as wide as the share with the image capped inside it. */
+.cv-thumbs.is-row .cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  align-self: center;
 }
 .cv-thumbs__item {
   display: flex;

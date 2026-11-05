@@ -186,6 +186,15 @@ impl HostShared {
             &self.pty_drained,
             &self.exit_published,
             |exit| {
+                // With its directory gone no daemon reads the exit record,
+                // and writing it would recreate a deleted tree (#36625). The
+                // directory check also covers a removal the watch has not
+                // reported yet; a removal after it is the remaining window.
+                if record_root_removed()
+                    || !self.exit_record_path.parent().is_some_and(Path::is_dir)
+                {
+                    return Ok(());
+                }
                 write_exit_record(
                     &self.exit_record_path,
                     &TerminalHostExitRecord::new(

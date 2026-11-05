@@ -53,7 +53,10 @@ export default componentEntry<Record<string, never>>({
   area: "Agent pane",
   height: 680,
   pane: true,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/conversation/ToolRun.tsx"],
+  covers: [
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
+    "agent-session/acpmux/conversation/ToolRun.tsx",
+  ],
   load: async () => ToolGroupOverlapGallery,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: { mixed: { props: {} } },

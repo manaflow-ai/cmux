@@ -34,7 +34,7 @@ public nonisolated struct AgentPanePullRequestAnswer: Equatable, Sendable {
 /// (`pr.inspect`) also shows its author.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,updatedAt,mergedAt,additions,deletions,changedFiles,files,labels,baseRefName,headRefName,author"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,updatedAt,mergedAt,additions,deletions,changedFiles,files,labels,baseRefName,headRefName,baseRefOid,headRefOid,author"
     /// The most checks the popover lists.
     static let maximumChecks = 50
     /// The most labels the card shows; the rest are a "+N".
@@ -128,6 +128,10 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The branch it merges into and the branch it merges from; empty when gh did not say.
     public var baseRef: String
     public var headRef: String
+    /// The commits of those branches (full ids): what a diff from commits already on this machine
+    /// compares (``AgentChatPullRequestReader/diff(url:)``); empty when gh did not say.
+    public var baseCommit: String
+    public var headCommit: String
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
@@ -137,8 +141,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
                 checks: Checks, checkList: [Check] = [], createdAt: String = "", updatedAt: String = "", mergedAt: String = "",
                 additions: Int = 0, deletions: Int = 0, changedFiles: Int = 0, files: [ChangedFile] = [],
-                labels: [String] = [], baseRef: String = "", headRef: String = "", author: String = "",
-                comments: Int? = nil) {
+                labels: [String] = [], baseRef: String = "", headRef: String = "", baseCommit: String = "",
+                headCommit: String = "", author: String = "", comments: Int? = nil) {
         self.url = url
         self.number = number
         self.title = title
@@ -157,6 +161,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.labels = labels
         self.baseRef = baseRef
         self.headRef = headRef
+        self.baseCommit = baseCommit
+        self.headCommit = headCommit
         self.author = author
         self.comments = comments
     }
@@ -186,6 +192,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   changedFiles: object["changedFiles"] as? Int ?? 0, files: Self.files(object["files"]),
                   labels: Self.labels(object["labels"]),
                   baseRef: Self.branch(object["baseRefName"]), headRef: Self.branch(object["headRefName"]),
+                  baseCommit: Self.commit(object["baseRefOid"]), headCommit: Self.commit(object["headRefOid"]),
                   author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "",
                   comments: (object["totalCommentsCount"] as? Int).map { max(0, $0) })
     }
@@ -211,6 +218,13 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// A branch name as the card prints it.
     static func branch(_ raw: Any?) -> String {
         (raw as? String).map { String($0.prefix(200)) } ?? ""
+    }
+
+    /// A full commit id (40 or 64 lowercase hex digits); empty for anything else.
+    static func commit(_ raw: Any?) -> String {
+        guard let id = raw as? String, id.utf8.count == 40 || id.utf8.count == 64,
+              id.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else { return "" }
+        return id
     }
 
     /// A check's name, whichever kind of context it is.

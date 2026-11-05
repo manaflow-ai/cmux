@@ -168,6 +168,20 @@ public final class AgentPriorityChats {
         return true
     }
 
+    /// Moves the chat one place earlier (`by: -1`) or later (`by: 1`) among the rows the view shows, and keeps it
+    /// there, as a drag to that place does (`AgentPriorityMarks.place`). At the first or last place it stays put.
+    /// False when the view does not list the chat.
+    @discardableResult
+    public func move(_ id: String, by step: Int, now: Date = Date()) -> Bool {
+        var order = entries(now: now).map(\.id)
+        guard let from = order.firstIndex(of: id) else { return false }
+        let to = from + step
+        guard order.indices.contains(to) else { return true }
+        order.swapAt(from, to)
+        marks.place(id, in: order)
+        return true
+    }
+
     @discardableResult
     public func snooze(_ id: String, now: Date = Date()) -> Bool {
         guard let lane = lane(id) else { return false }

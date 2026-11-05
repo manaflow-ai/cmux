@@ -78,7 +78,13 @@ enum AgentPaneHandshakeReply {
             // A peer's folder belongs to that peer. Never resolve it against this Mac's
             // workspace/agent-home or read local Git data at the same path.
             let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
-            if !started, handshake.peer == nil { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
+            if !started, handshake.peer == nil {
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
+                // Its pull requests' diffs are read from this folder before GitHub (GitHubLocalDiff).
+                if let repository = handshake.githubRepository, let cwd = handshake.cwd {
+                    AgentReplyPullRequests.shared.noteFolder(cwd, of: repository)
+                }
+            }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.

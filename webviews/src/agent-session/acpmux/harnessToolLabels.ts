@@ -27,11 +27,29 @@ export const HARNESS_TOOLS = {
 
 export type HarnessToolName = keyof typeof HARNESS_TOOLS;
 
+/// The skill a Claude Code Skill call loads (`rawInput.skill`, "cmux:acpmux" for a plugin's), or
+/// undefined before its input arrives.
+function skillName(tool: Tool): string | undefined {
+  if (!tool.inputSummary?.includes("skill")) return undefined;
+  try {
+    const skill: unknown = (JSON.parse(tool.inputSummary) as { skill?: unknown } | null)?.skill;
+    return typeof skill === "string" && skill.trim() ? skill.trim().replace(/^\//, "") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /// The friendly label of a known harness tool named `name` (its title, or its row's text), or
-/// undefined for any other name.
+/// undefined for any other name. The Skill tool reads with the skill it loads ("Used the
+/// code-review skill"), the row the 11-05 audit found still drawn as a bare "Skill".
 export function harnessToolLabel(t: Translate, tool: Tool, name: string): string | undefined {
+  const running = tool.status === "pending" || tool.status === "in_progress";
+  if (name.trim() === "Skill") {
+    const skill = skillName(tool);
+    if (skill) return t(running ? "tools.skill.running" : "tools.skill.done", { name: skill });
+    return t(running ? "tools.skill.runningUnnamed" : "tools.skill.doneUnnamed");
+  }
   const stem = (HARNESS_TOOLS as Record<string, string>)[name.trim()];
   if (!stem) return undefined;
-  const running = tool.status === "pending" || tool.status === "in_progress";
   return t(`tools.harness.${stem}.${running ? "running" : "done"}` as StringKey);
 }

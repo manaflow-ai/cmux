@@ -2947,6 +2947,8 @@ class WsCheckGitHub:
     def __init__(self):
         self.statuses, self.runs, self.jobs, self.logs, self.routes = {}, {}, {}, {}, []
         self.base_commits = [self.TIP, self.OLDER, self.MERGE_BASE]
+        # Paths each diff changes: the PR's (main...HEAD) and the base's from the merge-base to OLDER (a fix).
+        self.pr_files, self.fix_files, self.fix_status = ["tools/guards.py"], ["tools/test_lane_place.py"], "ahead"
 
     def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
         """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
@@ -2985,8 +2987,12 @@ class WsCheckGitHub:
                 return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
         if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
             return [{"sha": sha} for sha in self.base_commits]
+        if route == f"repos/{self.REPO}/compare/main...{HEAD}":
+            return {"merge_base_commit": {"sha": self.MERGE_BASE}, "files": [{"filename": f} for f in self.pr_files]}
         if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
             return {"merge_base_commit": {"sha": self.MERGE_BASE}}
+        if route == f"repos/{self.REPO}/compare/{self.MERGE_BASE}...{self.OLDER}":
+            return {"status": self.fix_status, "files": [{"filename": f} for f in self.fix_files]}
         if route.startswith(f"repos/{self.REPO}/compare/{self.MERGE_BASE}..."):
             return {"status": "ahead"}
         raise AssertionError(f"unexpected route {route}")
@@ -3186,6 +3192,72 @@ class WsCheckPerTest(unittest.TestCase):
         self.assertIn("every failure", self.judge()[0])
         self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
         with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def merge_base_case(self, merge_base_red, *, tip=None):
+        """LW#3538 at 5e80abcb: main's newest verdict is red on another step, a pass ends the window before the
+        merge-base, and the head fails what the merge-base failed (MERGE_BASE_RED: its red steps, or a state)."""
+        self.gh.base_commits = [self.gh.TIP, self.gh.OLDER]  # the merge-base is past the window and the list
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_lane_place")})
+        self.gh.verdict(self.gh.TIP, 2, tip if tip is not None else {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.OLDER, 3, {}, state="success")
+        if isinstance(merge_base_red, dict):
+            self.gh.verdict(self.gh.MERGE_BASE, 4, merge_base_red)
+        elif merge_base_red is not None:
+            self.gh.verdict(self.gh.MERGE_BASE, 4, {}, state=merge_base_red, description="running")
+
+    def test_a_failure_the_merge_base_shares_is_excused_when_main_is_red(self):
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")})
+        self.gh.base_commits = [self.gh.TIP]  # no pass between: the list ends before the merge-base
+        audit = self.judge(checks=["ws-check"])
+        self.assertIn(f"at this PR's merge-base {self.gh.MERGE_BASE[:12]}", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: test_lane_place (__main__.FastForward.test_lane_place)'"
+                      f": red at this PR's merge-base {self.gh.MERGE_BASE[:12]} too, so not this PR's red "
+                      f"(https://github.com/{self.gh.HOST}/actions/runs/4)", audit)
+
+    def test_another_failure_at_the_merge_base_is_not_excused(self):
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_other")})
+        with self.assertRaisesRegex(excuse.Refused, r"test_lane_place.*not red on main .* or at the merge-base"):
+            self.judge()
+
+    def test_a_green_pending_or_missing_merge_base_verdict_excuses_nothing(self):
+        for state in ("success", "pending", None):
+            self.gh.statuses.pop(self.gh.MERGE_BASE, None)
+            self.merge_base_case(state)
+            with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_lane_place"):
+                self.judge()
+
+    def test_an_unreadable_merge_base_verdict_is_refused(self):
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")})
+        self.gh.statuses[self.gh.MERGE_BASE][0]["target_url"] = "https://example.com/run/4"
+        with self.assertRaisesRegex(excuse.Refused, f"'ws-check' on {self.gh.MERGE_BASE}: .*not a manaflow-ai/"
+                                                    "cmuxterm-hq Actions run"):
+            self.judge()
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place") + ["Segmentation fault (core dumped)"]})
+        with self.assertRaisesRegex(excuse.Refused, "a crash is never a base red"):
+            self.judge()
+
+    def test_a_merge_base_red_past_a_base_pass_needs_the_pr_to_leave_the_fix_alone(self):
+        # LW#3538: main passed at 209e7eb6 (#3524's fix) after the merge-base 187b3ca3, then went red on another step.
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")})
+        audit = "\n".join(self.judge())
+        self.assertIn(f"(fixed on main at {self.gh.OLDER[:12]} after it; this PR changes none of that fix's paths)",
+                      audit)
+        self.gh.pr_files = ["tools/guards.py", "tools/test_lane_place.py"]
+        with self.assertRaisesRegex(excuse.Refused, "this PR changes what that fix changed: tools/test_lane_place.py"):
+            self.judge()
+        self.gh.pr_files = [f"f{n}" for n in range(excuse.COMPARE_FILES_CAP)]
+        with self.assertRaisesRegex(excuse.Refused, "too many or none"):
+            self.judge()
+        self.gh.pr_files, self.gh.fix_status = ["tools/guards.py"], "diverged"
+        with self.assertRaisesRegex(excuse.Refused, "compares them as 'diverged'"):
+            self.judge()
+
+    def test_main_green_still_refuses_though_the_merge_base_shares_the_failure(self):
+        # Main proved the fix: merging main is the way, as before.
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")}, tip={})
+        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
+        with self.assertRaisesRegex(excuse.Refused, "fixed on main; merge main"):
             self.judge()
 
     def test_a_cmux_red_is_still_judged_by_its_actions_job(self):

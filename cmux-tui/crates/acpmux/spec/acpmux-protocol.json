@@ -1000,6 +1000,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/who_else",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/media_open",
       "params": true,
       "result": true

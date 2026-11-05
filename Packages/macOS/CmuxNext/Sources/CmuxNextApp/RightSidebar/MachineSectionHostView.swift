@@ -5,8 +5,8 @@ import CmuxNextServer
 
 /// Hosts the Machines section (``MachineSectionView``, AppKit): follows the machine registry, each
 /// machine's last check and the section's layout tunable, opens a workspace on a machine through
-/// `workspace.newOnMachine` and Add Device through `device.add`. With Labs `labs.machineJoin` on it
-/// also lists the machines that joined with a one-line token, read when the section is made and each
+/// `workspace.newOnMachine` and Add Device through `device.add`. It also lists the person's machines
+/// that joined through the hub (`cmux machine list`), read when the section is made and each
 /// time it shows (never on a timer), with Check, Rotate and Revoke.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let section: MachineSectionView
@@ -16,8 +16,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     private var observation: Task<Void, Never>?
     /// The joined list's read in flight (a newer show replaces it).
     private var joinedRead: Task<Void, Never>?
-    /// Reads the joined list again when Labs `labs.machineJoin` turns on or off (off empties it).
-    private var switchWatch: Task<Void, Never>?
 
     init(services: AppServices) {
         machines = services.machines
@@ -48,19 +46,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
                 self?.section.update(rows, style: style, joined: state)
             }
         }
-        // task-owner: follows the switch for the section's life; deinit cancels it. Its first value
-        // is the switch now, which the refresh above already read.
-        switchWatch = Task { [weak self, weak services] in
-            var last: Bool?
-            // Any setting's change re-reads the snapshot: only a change of this switch reads the list.
-            // The read runs beside the watch, never awaited by it, so a later flip is seen at once:
-            // turning the switch off empties the rows and drops any read still in flight.
-            for await on in ObservationStream({ services?.settings?.snapshot.machineJoin == true }) {
-                defer { last = on }
-                guard let last, last != on else { continue }
-                self?.refresh()
-            }
-        }
     }
 
     @available(*, unavailable)
@@ -71,7 +56,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     nonisolated deinit {
         observation?.cancel()
         joinedRead?.cancel()
-        switchWatch?.cancel()
     }
 
     func refresh() {
@@ -116,7 +100,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     static func bindJoinedActions(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         bindJoinedActions(into: registry, store: { [weak services] in services?.joinedMachines },
-                          labsOn: { [weak services] in services?.settings?.snapshot.machineJoin == true },
+                          labsOn: { true },
                           perform: { [weak services] action, machine, rowID in
                               guard let services else { return }
                               Self.perform(action, machine, rowID: rowID, services: services)
@@ -124,7 +108,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     /// Binds Check, Rotate Credential and Revoke… on a joined machine (a `machine:` target that is a
-    /// joined machine's id). They do nothing while Labs `labs.machineJoin` is off. A revoked
+    /// joined machine's id). They do nothing while `labsOn` says no (the app's is always on). A revoked
     /// machine's menu leaves out Rotate and Revoke; while a change runs on it they wait.
     static func bindJoinedActions(into registry: ActionRegistry, store: @escaping @MainActor () -> JoinedMachineStore?,
                                   labsOn: @escaping @MainActor () -> Bool,

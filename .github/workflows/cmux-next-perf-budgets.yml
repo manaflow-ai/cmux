@@ -70,7 +70,7 @@ on:
         required: false
         default: ""
       parts:
-        description: "GUI parts (transcript-scroll,sidebar,startup) or pane-overflow-fade; manual Blacksmith mode only"
+        description: "GUI parts (transcript-scroll,sidebar,workspace-scaling,startup) or pane-overflow-fade; manual Blacksmith mode only"
         required: false
         default: ""
       product_sha:
@@ -235,6 +235,7 @@ jobs:
             case "$part" in
               transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=acp --raw=acp) ;;
               sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
+              workspace-scaling) args=(--app-cache --vdisplay=120 --vdisplay-hold=3600 --suite=workspace-scaling) ;;
               startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
               *) echo "unsupported part: $part" >&2; exit 2 ;;
             esac

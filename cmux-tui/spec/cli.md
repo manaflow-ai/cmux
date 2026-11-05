@@ -18,7 +18,7 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
-cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
 cmux link status --state-dir <dir>
@@ -52,8 +52,11 @@ classic verb that asks the running app (`system.capabilities`).
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never
 holds peer keys or link tokens). `--service` is `daemon` (the default; the
-session's remote entry) or `ssh` (the host's sshd, Cloud hosts only, when
-their policy allows it; paired installs serve only `daemon`). `--socket`
+session's remote entry), `ssh` (the host's sshd, Cloud hosts only, when
+their policy allows it; paired installs serve only `daemon`), `owner_session`
+(a paired server's owner session, its owner only) or `desktop` (the Cloud
+machine's agent display as `cmux.rd/1`, its creator only, on a machine that
+serves it; refused with `desktop_unavailable` when it does not). `--socket`
 dials exactly that link socket instead of looking up the running link (for a
 caller with a private `HOME`, or a tagged link); it must be an absolute path
 to a socket (otherwise exit 64), and a path that does not exist means the

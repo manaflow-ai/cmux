@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "who-else",
+        &[
+            (
+                "List the sessions that read or edited these files, here and on peers",
+                "acpmux who-else src/lib.rs src/main.rs",
+            ),
+            ("Ask for the files this chat edited lately, as JSON", "acpmux --json who-else"),
+            (
+                "Look for sessions on a topic in the last 6 hours",
+                "acpmux who-else --topic \"crate split\" --since 6h",
+            ),
+        ],
+    ),
+    (
         "dispatch",
         &[
             (

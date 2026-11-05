@@ -362,6 +362,7 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        input_frame_now: opts.flag("input-frame-now"),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier

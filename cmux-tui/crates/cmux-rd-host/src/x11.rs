@@ -110,4 +110,8 @@ impl Desktop for X11Desktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all()
     }
+
+    fn pump(&mut self) -> Res<bool> {
+        self.injector.pump()
+    }
 }
