@@ -34,8 +34,7 @@ fn claude_name_args(
     name: &str,
 ) -> Vec<String> {
     let name = name.trim();
-    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1")
-        || args.iter().any(|a| a == "--strict-mcp-config");
+    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1");
     let own = args.iter().any(|a| a == "--name" || a == "-n" || a.starts_with("--name="));
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
