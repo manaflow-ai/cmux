@@ -2252,3 +2252,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_classic_nightly_job_conditions.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_auto_resume_linux_jobs_bash32.py"
+lane = "linux-guard"
