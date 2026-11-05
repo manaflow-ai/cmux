@@ -16,8 +16,13 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip, no hover cards",
    "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
     "appearance": {
      "theme": "Builtin Dark",
      "appTheme": "Nord",
@@ -381,7 +386,8 @@
    },
    "unset": [
     "appearance.themeEdits",
-    "appearance.surfaces"
+    "appearance.surfaces",
+    "sidebar.hoverCards"
    ]
   },
   {
@@ -458,7 +464,8 @@
    },
    "unset": [
     "appearance.themeEdits",
-    "appearance.surfaces"
+    "appearance.surfaces",
+    "sidebar.hoverCards"
    ]
   }
  ]

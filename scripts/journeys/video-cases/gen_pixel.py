@@ -148,8 +148,12 @@ def fixture_files():
 
 def fixture_settings():
     return {"do": "settings_file", "title": f"set-up: shell {SHELL} (app theme {SHELL_THEME}), terminal ground {THEME_BG}, "
-                                            f"tab strips {STRIP}, agent ground {AGENT_FILL}, no close warning, new columns share the strip",
-            "set": {"appearance": {"theme": TERMINAL_THEME, "appTheme": SHELL_THEME,
+                                            f"tab strips {STRIP}, agent ground {AGENT_FILL}, no close warning, new columns share the strip, "
+                                            f"no hover cards",
+            # No hover card: the panes move under a still pointer, and a tab's hover card opened over p2's page in the
+            # J, J, K films (ab-s4pin-44ab81a px-keys-lowprompt-jjk-3kz-sw-terminals-on-s025 frames 264-433, R-HARNESS).
+            "set": {"sidebar": {"hoverCards": {"enabled": False}},
+                    "appearance": {"theme": TERMINAL_THEME, "appTheme": SHELL_THEME,
                                    "themeEdits": {f"{SHELL_THEME}/background": SHELL, f"{TERMINAL_THEME}/background": THEME_BG},
                                    "surfaces": {"terminal": {"color": THEME_BG, "opacity": 1},
                                                 "tabBar": {"color": STRIP, "opacity": 1},
@@ -162,7 +166,7 @@ def fixture_settings():
 def settings_back():
     return {"do": "settings_file", "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
             "set": {"appearance": {"appTheme": "followTerminal"}},
-            "unset": ["appearance.themeEdits", "appearance.surfaces"]}
+            "unset": ["appearance.themeEdits", "appearance.surfaces", "sidebar.hoverCards"]}
 
 
 def after_check():
