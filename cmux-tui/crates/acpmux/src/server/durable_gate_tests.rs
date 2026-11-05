@@ -251,3 +251,102 @@ async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
     .unwrap_or_else(|e| panic!("{e:#}"));
     assert_eq!(seen, vec![1, 2, 3], "the replay left out the log's tail past the saved lastSeq");
 }
+
+/// Review of #36022: a replay that comes while another catch-up of the chat is under way (a first
+/// replay, the background log pass or the chat's first append) must still send the tail past the
+/// saved `lastSeq`. `catch_up_locked` marks the chat caught up before it counts the tail, so a
+/// replay that reads the mark then skips the catch-up and stops at the saved `lastSeq`. The
+/// journal's read fence holds the first catch-up in that window here: another chat's append holds
+/// the appends' lock, as a segment's sync under it does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq() {
+    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    // The hard stop, as above: three lines in the chat's log, `lastSeq` saved at 1.
+    {
+        let store = crate::store::open(&config.store, home.path())
+            .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+        for (id, last) in [(CHAT, 1), (OTHER, 0)] {
+            let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+                "lastSeq": last,
+            }))
+            .unwrap_or_else(|e| panic!("meta: {e}"));
+            store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
+        }
+        for seq in 1..=3 {
+            let record = crate::store::EventRecord {
+                seq,
+                at: 1_000 + seq,
+                dir: "mux".into(),
+                kind: "note".into(),
+                msg: json!({ "n": seq }),
+                host_seq: None,
+            };
+            store.append(CHAT, &record).unwrap_or_else(|e| panic!("{e:#}"));
+        }
+        store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // A new daemon with the journal on, its logs read later (`Hub::new_deferred`).
+    config.store.journal = true;
+    let journal = SimStorage::new(64);
+    let journal_config = cmux_journal::Config {
+        retry_min: Duration::from_millis(1),
+        retry_max: Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home.path(),
+        Arc::new(journal.clone()),
+        journal_config,
+    )
+    .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let hub = crate::hub::Hub::new_deferred(config, store, crate::mailbox::Mailbox::memory());
+    // The other chat's append stops after its log write, the appends' lock held.
+    let other = hub.resolve(OTHER).unwrap_or_else(|e| panic!("{e:?}"));
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((arrived_tx, release_rx));
+    let appender = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.append(&other, "mux", "note", json!({"n": 1})).seq)
+    };
+    arrived
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    // The first replay catches the chat up: its read of the tail waits at the fence.
+    let first = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            hub.scan_events(CHAT, 0, &mut |record| {
+                seen.push(record.seq);
+                true
+            })
+            .unwrap_or_else(|e| panic!("{e:#}"));
+            seen
+        })
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let _ = release.send(());
+    });
+    // A second replay meanwhile.
+    let mut seen = Vec::new();
+    hub.scan_events(CHAT, 0, &mut |record| {
+        seen.push(record.seq);
+        true
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    releaser.join().unwrap_or_else(|_| panic!("releaser panicked"));
+    let _ = appender.join().unwrap_or_else(|_| panic!("append panicked"));
+    let first = first.join().unwrap_or_else(|_| panic!("the first replay panicked"));
+    assert_eq!(first, vec![1, 2, 3], "the first replay left out the tail");
+    assert_eq!(seen, vec![1, 2, 3], "a replay during another catch-up left out the tail");
+}
