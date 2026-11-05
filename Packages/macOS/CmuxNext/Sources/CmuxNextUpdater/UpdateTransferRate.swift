@@ -5,7 +5,7 @@ import Foundation
 /// so one slow or bursty report does not swing it; the time left is rounded to a step that grows with it
 /// (5 s under a minute, whole minutes above), so the line changes rarely and calmly. Nothing shows until
 /// a second of samples is in.
-nonisolated public struct UpdateTransferRate: Equatable, Sendable {
+nonisolated struct UpdateTransferRate: Equatable, Sendable {
     /// One byte count and when it arrived.
     struct Sample: Equatable {
         var bytes: UInt64
@@ -19,11 +19,11 @@ nonisolated public struct UpdateTransferRate: Equatable, Sendable {
     /// The span of samples the first estimate waits for.
     static let settle: TimeInterval = 1
 
-    public init() {}
+    init() {}
 
     /// Takes `phase`'s byte count at `now`; any other phase (or a count that went back: a new download)
     /// starts over.
-    public mutating func record(_ phase: UpdateIndicatorPhase, at now: Date) {
+    mutating func record(_ phase: UpdateIndicatorPhase, at now: Date) {
         guard case .downloading(let transfer) = phase, transfer.stage == .downloading, let bytes = transfer.receivedBytes else {
             samples.removeAll()
             return
@@ -35,7 +35,7 @@ nonisolated public struct UpdateTransferRate: Equatable, Sendable {
     }
 
     /// Bytes per second over the window, nil until it spans ``settle``.
-    public var bytesPerSecond: Double? {
+    var bytesPerSecond: Double? {
         guard let first = samples.first, let last = samples.last else { return nil }
         let span = last.at.timeIntervalSince(first.at)
         guard span >= Self.settle, last.bytes > first.bytes else { return nil }
@@ -44,7 +44,7 @@ nonisolated public struct UpdateTransferRate: Equatable, Sendable {
 
     /// Seconds until `expected` bytes are in at the current speed, rounded up to 5 s under a minute and to
     /// whole minutes above; nil without a speed or a size.
-    public func secondsLeft(expected: UInt64?) -> Int? {
+    func secondsLeft(expected: UInt64?) -> Int? {
         guard let rate = bytesPerSecond, rate > 0, let expected, let last = samples.last, expected > last.bytes else { return nil }
         let seconds = Double(expected - last.bytes) / rate
         let step: Double = seconds < 60 ? 5 : 60
@@ -53,7 +53,7 @@ nonisolated public struct UpdateTransferRate: Equatable, Sendable {
 
     /// The card's second line, "About 15 s left", or nil while unmeasured. The time left alone: the
     /// line above already counts the bytes, and a speed would swing with every report.
-    public func text(expected: UInt64?) -> String? {
+    func text(expected: UInt64?) -> String? {
         guard let left = secondsLeft(expected: expected) else { return nil }
         return left < 60 ? UpdaterStrings.secondsLeft(left) : UpdaterStrings.minutesLeft(left / 60)
     }
