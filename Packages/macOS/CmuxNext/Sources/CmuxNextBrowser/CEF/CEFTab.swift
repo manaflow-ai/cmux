@@ -601,8 +601,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
-        pendingFocus = focused && (!shown || browserID == nil)
-        guard !focused || shown, let browserID else { return }
+        let canTake = shown && hasSize
+        pendingFocus = focused && (!canTake || browserID == nil)
+        guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
@@ -619,12 +620,22 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         return !sequence(first: container as NSView, next: \.superview).contains { $0.isHidden }
     }
 
+    /// The page's host has an area: the CEF fork orders the page window out while its host is empty (as while hidden), so
+    /// a grant then orders it in and makes it key for one layout pass (INSTANT OWNER STATUS 14067).
+    private var hasSize: Bool { !container.bounds.isEmpty }
+
+    /// Whether the page's window can hold the keys now: shown, with an area, and a browser (``ChildPageFocus``).
+    public var canTakeKeys: Bool { isShown && hasSize && browserID != nil }
+
+    /// Keeps a focus ask the page cannot take now; granted once it can (``grantPendingFocusIfShown()``).
+    public func keepFocusAsk() { pendingFocus = true }
+
     /// Grants focus asked for while this page could not take it, once it shows: its view entered a
     /// window (`CEFPaneHost.present`) or the content lifecycle showed it (`setContentVisible`). A
     /// Cmd-N New Tab page (a spare with a browser) asked a moment before it showed and kept no
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
-        guard pendingFocus, isShown, !awaitsWindowMove, let browserID else { return }
+        guard pendingFocus, isShown, hasSize, !awaitsWindowMove, let browserID else { return }
         // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
         // the ask waits until this page's window has the keys again.
         if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }

@@ -74,7 +74,8 @@ public final class ChildPageFocus {
     ///
     /// Nothing happens inside a grant (AppKit's key changes there are the grant's own), when
     /// `window` is not key (an inactive app has no key window), or during a click (the click
-    /// decides where the keys go).
+    /// decides where the keys go). A page that cannot take the keys now (``canTakeKeys``) keeps
+    /// focus and its ask (``keepAsk``), with no blur and no grant.
     ///
     /// - Parameters:
     ///   - window: The cmux window.
@@ -82,7 +83,14 @@ public final class ChildPageFocus {
     /// - Returns: Whether a page lost focus; the caller then re-applies its target.
     public func keysReturned(to window: NSWindow, during event: NSEvent? = NSApplication.shared.currentEvent) -> Bool {
         let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        guard !granting, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        guard !granting, let page, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        // The page's window was ordered out (its host hidden or empty): a grant now would order it in and take the keys
+        // again, and the next layout pass would order it out again (47 key changes per Cmd-N, INSTANT OWNER STATUS 14067).
+        // It keeps focus and its ask; it is granted once it can take the keys.
+        guard canTakeKeys(page) else {
+            keepAsk(page)
+            return false
+        }
         blurPage()
         return true
     }

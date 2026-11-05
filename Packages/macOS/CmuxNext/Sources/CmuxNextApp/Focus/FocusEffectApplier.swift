@@ -17,9 +17,9 @@ import CmuxNextCompat
 final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
     /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
-    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows()) { [weak self] page, focused in
-        guard let self, let page = page as? any BrowserTab else { return }
-        self.setPageFocus(page, focused)
+    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows(), canTakeKeys: { ($0 as? CEFTab)?.canTakeKeys ?? true },
+                                                keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }) { [weak self] page, focused in
+        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
