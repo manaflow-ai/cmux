@@ -16,10 +16,11 @@ host_start() {
   chmod 600 "$EVAL_STATE/token"
   : >"$EVAL_STATE/host.log"
   # Two Macs (EVAL_BIND, a LAN address): the host's own opt-in for a private network, else loopback only.
-  reach=()
-  [[ -n "${EVAL_BIND:-}" ]] && reach=(--single-tenant-overlay 1)
+  host_flags=()
+  [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
+  [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
   : >"$EVAL_STATE/timing.jsonl"
-  CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${reach[@]+"${reach[@]}"} --port "$port" \
+  CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do

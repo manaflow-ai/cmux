@@ -12,7 +12,7 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token=""
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -23,10 +23,15 @@ for arg in "$@"; do
     lan=*) lan="${arg#lan=}" ;;
     viewer-of=*) viewer_of="${arg#viewer-of=}" ;;
     peer-token=*) peer_token="${arg#peer-token=}" ;;
+    # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
+    # for a before/after against the default.
+    input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
+[[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -71,6 +76,7 @@ link_arg=()
 [[ -n "$lan" ]] && link_arg=(link "lan: host at $lan, viewer on a second Mac")
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
+  rd_input_frame_now "$input_frame_now" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 

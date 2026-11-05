@@ -171,7 +171,8 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
     run = results.get("run", {})
     lines = [f"# Screen stream eval, {run.get('at', '?')}", ""]
     lines.append(f"Host {run.get('host', '?')} ({run.get('cpu', '?')}, macOS {run.get('macos', '?')}), display {run.get('display', '?')}, "
-                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`.")
+                 f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`"
+                 + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "") + ".")
     if previous:
         prev_run = previous.get("run", {})
         lines.append(f"Changes in brackets are against {prev_run.get('at', '?')} (rev `{str(prev_run.get('rev', '?'))[:12]}`).")
