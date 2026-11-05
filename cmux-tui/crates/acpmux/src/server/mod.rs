@@ -193,6 +193,10 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
+    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
+    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
+    /// The daemon made itself not dumpable when it accepted this connection.
+    provisioner: bool,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -784,7 +788,9 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            stream::serve_stream(hub, stream, peer).await;
+            // Before a byte of it is read: a root peer may carry the person key.
+            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+            stream::serve_stream(hub, stream, peer, provisioner).await;
         });
     }
 }
@@ -1257,7 +1263,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, device, Some(wire))
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1431,7 +1437,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, false, None, None).await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1444,7 +1450,7 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id), None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, false, Some(device.id), None).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1455,6 +1461,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    provisioner: bool,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
@@ -1489,6 +1496,7 @@ async fn serve_connection_from(
         notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
+        provisioner,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),

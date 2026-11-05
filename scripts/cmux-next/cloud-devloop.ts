@@ -190,14 +190,15 @@ export function guestInstallScript(sha: string, mode: "patch" | "full", units: s
     `orig="/opt/cmux/$(cat original-profile)"`,
     `P=/opt/cmux/profiles/devloop-${short}`,
     `sudo -n install -D -m 755 current.bin /opt/cmux/devloop/cmux-tui-${short}`,
-    `sudo -n rm -rf "$P" && sudo -n cp -a "$orig" "$P"`,
+    // cp -a keeps the image profile's mtime: touch it, or the prune below sorts it among the oldest.
+    `sudo -n rm -rf "$P" && sudo -n cp -a "$orig" "$P" && sudo -n touch "$P"`,
     `for n in cmux-tui cmux acpmux; do sudo -n ln -sfn /opt/cmux/devloop/cmux-tui-${short} "$P/bin/$n"; done`,
     `sudo -n ln -sfn "profiles/devloop-${short}" /opt/cmux/current.devloop && sudo -n mv -Tf /opt/cmux/current.devloop /opt/cmux/current`,
     // The session daemon runs ~/.cmux/bin/cmux-tui; an earlier in-place update may have left a real file there.
     `if [ ! -L /home/cmux/.cmux/bin/cmux-tui ]; then mv -f /home/cmux/.cmux/bin/cmux-tui "$D/home-cmux-tui.orig"; ln -s /opt/cmux/current/bin/cmux-tui /home/cmux/.cmux/bin/cmux-tui; fi`,
-    // Old dev profiles and binaries but this one and the last.
-    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | tail -n +3 | xargs -r sudo -n rm -rf`,
-    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | tail -n +3 | xargs -r sudo -n rm -f`,
+    // Old dev profiles and binaries but this one and the last (never the one just made).
+    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | grep -vxF "$P" | tail -n +2 | xargs -r sudo -n rm -rf`,
+    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | grep -vxF /opt/cmux/devloop/cmux-tui-${short} | tail -n +2 | xargs -r sudo -n rm -f`,
     ...restartLines(units),
     `echo "installed ${short}: $(/opt/cmux/current/bin/cmux-tui --version)"`,
   ].join("\n");
