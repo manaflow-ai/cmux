@@ -180,6 +180,7 @@ extension UpdaterService {
         dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        transferRate.record(phase, at: now())
         if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG || CMUX_BENCH_HOOKS
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }

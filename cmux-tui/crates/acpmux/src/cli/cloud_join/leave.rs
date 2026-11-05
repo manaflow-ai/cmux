@@ -23,6 +23,8 @@ pub(super) enum HubAnswer {
     Unsupported,
     /// No answer, or one that says nothing about the credential (5xx, 429, unreadable).
     Unavailable(String),
+    /// Not asked: this home was copied from another box, and the credential is that box's.
+    Copy,
 }
 
 impl HubAnswer {
@@ -32,6 +34,7 @@ impl HubAnswer {
             Self::AlreadyGone => "already_revoked",
             Self::Unsupported => "unsupported",
             Self::Unavailable(_) => "unavailable",
+            Self::Copy => "not_asked_copy",
         }
     }
 
@@ -127,12 +130,14 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         }
         return Ok(());
     };
-    let answer = revoke_at_hub(&record).await;
+    // A copy never revokes the original box's enrollment: it only removes what it holds.
+    let copy = copied_here(&home, &record, host_fingerprint::current().as_deref());
+    let answer = if copy { HubAnswer::Copy } else { revoke_at_hub(&record).await };
     let mac = format!("cmux machine revoke {}", record.name);
     // Refused unless the hub revoked it or the person asked for a local-only leave.
     let refusal = match &answer {
         _ if local_only => None,
-        HubAnswer::Revoked | HubAnswer::AlreadyGone => None,
+        HubAnswer::Revoked | HubAnswer::AlreadyGone | HubAnswer::Copy => None,
         HubAnswer::Unsupported => Some(leave_error(
             "leave.revoke_from_mac",
             3,
@@ -173,7 +178,11 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         out["nodeKeyNote"] =
             json!("the running daemon makes a new, unjoined node key at its next use");
     }
-    if !answer.revoked() {
+    if copy {
+        out["hint"] = json!(
+            "this home was copied from another machine; that machine keeps its join. Paste a new join line to join this one"
+        );
+    } else if !answer.revoked() {
         out["hint"] =
             json!(format!("the hub still lists this machine; revoke it from your Mac: {mac}"));
     }
@@ -183,6 +192,9 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         let hub = match &answer {
             HubAnswer::Revoked => "revoked at the hub".to_owned(),
             HubAnswer::AlreadyGone => "already revoked at the hub".to_owned(),
+            HubAnswer::Copy => {
+                "a copy of another machine's join: the hub was not asked, and that machine keeps its join".to_owned()
+            }
             HubAnswer::Unsupported | HubAnswer::Unavailable(_) => {
                 format!("NOT revoked at the hub; revoke it from your Mac: {mac}")
             }

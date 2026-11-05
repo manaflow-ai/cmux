@@ -819,6 +819,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
                 let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
+                // A session only the mesh hub reaches answers its info through the hub
+                // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
+                // the hub as one to a name nobody here runs (below).
+                if read_through_hub(&info) {
+                    return Err(errors::AppError::no_session(&session).into());
+                }
                 announce_machine_wake_value(&info);
                 let running = info.get("status").and_then(Value::as_str) == Some("running")
                     || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
@@ -1265,6 +1271,11 @@ struct SendWait {
 /// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
 /// classed one do unless the caller waits for the reply; the person's own send streams the
 /// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
+/// Whether `info` is a session this daemon read through the mesh hub (`server/mesh_read.rs`).
+fn read_through_hub(info: &Value) -> bool {
+    info.get("via").and_then(Value::as_str) == Some("hub")
+}
+
 fn send_queues(w: SendWait) -> bool {
     w.no_wait || (!w.wait && (w.classed || w.agent))
 }
@@ -1381,6 +1392,16 @@ mod tests {
         assert!(send_steers(false, false, true, true), "and so does its --no-wait send");
         assert!(!send_steers(false, true, false, true), "--no-steer opts out");
         assert!(!send_steers(false, true, true, true), "--no-steer opts out with --no-wait too");
+    }
+
+    /// A waiting send to a session only the hub reaches is sent through the hub, never run as
+    /// a local turn on the id its read named (own-machines e2e run 42071975275).
+    #[test]
+    fn a_session_read_through_the_hub_is_sent_through_the_hub() {
+        use super::read_through_hub;
+        assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
+        assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
+        assert!(!read_through_hub(&json!({"sessionId": "s"})));
     }
 
     #[test]

@@ -348,12 +348,14 @@ class ThisTree(unittest.TestCase):
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
         calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        # A pull request's head call (ci and release-notary), a push's head call, then the base.
+        # A pull request's head call (ci and the routed groups, release-notary among them), a push's head call
+        # (release-notary left to nightly-guards), then the base.
         self.assertEqual(len(calls), 3, calls)
         for call in calls:
             with self.subTest(call=call):
                 self.assertIn("--feat-routes", call)
-        self.assertIn("--group ci --group release-notary", calls[0])
+        self.assertNotIn("--group", calls[0])
+        self.assertIn("--skip-group release-notary", calls[1])
         self.assertIn("--root .guard-base", calls[2])
 
 

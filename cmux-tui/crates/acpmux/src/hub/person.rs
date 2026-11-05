@@ -18,6 +18,13 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
+//!   - an unsigned daemon on a Cloud machine (Linux, not root): the VM provisioning exec, which
+//!     runs as root, gives the RUNNING daemon the key with `_acpmux/person_enroll`
+//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). Such a daemon is not
+//!     dumpable for its whole run, takes the key only from a connection whose peer uid is 0, and
+//!     the provisioner checks the process that writes the daemon's replies before it sends the
+//!     key. An agent runs as the daemon's user and cannot. One daemon (acpmux.service) then
+//!     owns the home: nothing stops and restarts it for a key.
 //! - The key never crosses a socket after enrollment (cx-fcaq): whatever
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
@@ -716,6 +723,21 @@ impl PersonGate {
         Ok(())
     }
 
+    /// The key the VM provisioning exec gives the running daemon (`daemon/provision.rs`). The
+    /// caller checked that the connection is the provisioner (root, while this daemon is not
+    /// root) and that this daemon is not signed. It replaces any key this run holds: the
+    /// provisioning exec could restart the daemon with a key of its own anyway, and a new app
+    /// launch makes a new key. A connection that proved the earlier key stays the person it
+    /// proved; every new proof needs the new key.
+    pub fn provision(&self, key: &str) -> Result<Value, RpcError> {
+        if !valid_key(key) {
+            return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
+        }
+        *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
+        self.from_spawn.store(true, Ordering::SeqCst);
+        Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
+    }
+
     /// Whether `proof` answers the challenge (`nonce`, `connection`) with
     /// the current key (constant time).
     pub fn proves(&self, transport: &str, nonce: &str, connection: &str, proof: &str) -> bool {
@@ -1250,3 +1272,7 @@ impl Hub {
         matches!(offered.as_slice(), [one] if matches!(one["kind"].as_str(), Some("reject_once" | "reject_always")))
     }
 }
+
+#[cfg(test)]
+#[path = "person/provision_tests.rs"]
+mod provision_tests;

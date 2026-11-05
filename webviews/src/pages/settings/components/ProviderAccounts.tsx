@@ -3,8 +3,11 @@
 // One row per account: the CLI's own login and each added one, with who it is signed in as and its
 // plan (the address shows on this local page only), its login folder, and a switch that lets routing
 // move chats onto it. Add account makes a shadow home (a login folder of its own that shares settings
-// and chats with the CLI's) and starts its sign-in; nothing to type.
+// and chats with the CLI's) and starts its sign-in; nothing to type. An account whose plan usage was
+// read when Settings opened shows its 5-hour and weekly limits under it, in the composer ring's plan
+// usage card (PlanUsageCardBody).
 import { useId, useState } from "react";
+import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -64,6 +67,13 @@ function AccountRow({
         <div className="row-help selectable" data-account-folder="">
           {accountFolderText(account, all)}
         </div>
+        {account.usage && (
+          <div className="harness-account-usage" data-account-usage="">
+            {/* No family: the card's usage-page link opens through the agent pane's browser, which
+                Settings does not have. */}
+            <PlanUsageCardBody limits={account.usage} />
+          </div>
+        )}
       </div>
       <div className="row-control">
         {!account.signedIn && (

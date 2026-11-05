@@ -2278,13 +2278,13 @@
   "home.title": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "argument.home.view.messages": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "home.list.title": {
@@ -7250,9 +7250,33 @@
     "class": "brand",
     "source": "Geist"
   },
+  "chatDisplay.uiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "chatDisplay.uiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "chatDisplay.uiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
   "settings.choice.agentChatUiFontGeist": {
     "class": "brand",
     "source": "Geist"
+  },
+  "settings.choice.agentChatUiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "settings.choice.agentChatUiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "settings.choice.agentChatUiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
   },
   "chatDisplay.uiFontSystemUi": {
     "source": "System",
