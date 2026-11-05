@@ -1409,3 +1409,82 @@ fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() 
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+// ---- attach-replay-history-rows-v1 ------------------------------------
+
+/// The first `vt-state` of a bytes attach with these extra fields.
+fn byte_attach_vt_state(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+    extra: Value,
+) -> Value {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+    for (key, value) in extra.as_object().expect("fields") {
+        request[key] = value.clone();
+    }
+    handle_command(mux, client, command(request), &writer).unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first["event"], "vt-state", "{first}");
+    disconnect_client(mux, client, false);
+    first
+}
+
+#[test]
+fn replay_history_rows_capability_is_advertised() {
+    let mux = Mux::new_for_test("replay-history-rows-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(
+        capabilities.iter().any(|value| value == "attach-replay-history-rows-v1"),
+        "{identity}"
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Latest screen first (cmuxterm-hq#7231): a bytes attach with
+/// `replay_history_rows` gets a `vt-state` that rebuilds the screen and only
+/// that many of the newest history rows, and names how many older rows it
+/// left out; the same terminal attached without the field still gets its
+/// whole history and no new field.
+#[test]
+fn a_byte_attach_with_a_history_allowance_gets_the_latest_screen_first() {
+    let (mux, surface) = quiet_surface_with_scrollback("replay-history-rows", 5_000);
+    let full = byte_attach_vt_state(&mux, &surface, json!({}));
+    assert!(full.get("history_rows_omitted").is_none(), "{}", full["history_rows_omitted"]);
+    let screen = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 0}));
+    let tail = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 100}));
+
+    let screen_omitted = screen["history_rows_omitted"].as_u64().expect("omitted rows");
+    let tail_omitted = tail["history_rows_omitted"].as_u64().expect("omitted rows");
+    assert!(screen_omitted >= 4_900, "only {screen_omitted} rows were left out of 5,000");
+    assert_eq!(screen_omitted - tail_omitted, 100, "the allowance keeps 100 more rows");
+
+    let (full_bytes, screen_bytes, tail_bytes) = (data(&full), data(&screen), data(&tail));
+    assert!(
+        screen_bytes.len() * 50 < full_bytes.len(),
+        "a screen-only replay of {} bytes against the whole history's {}",
+        screen_bytes.len(),
+        full_bytes.len()
+    );
+    assert!(screen_bytes.len() < tail_bytes.len() && tail_bytes.len() < full_bytes.len());
+
+    // Each rebuilds the same screen.
+    let screen_text = |bytes: &[u8]| {
+        let mut term =
+            ghostty_vt::Terminal::new(80, 24, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.vt_write(bytes);
+        term.viewport_text().unwrap()
+    };
+    let expected = screen_text(&full_bytes);
+    assert!(expected.contains("004999"), "{expected}");
+    assert_eq!(screen_text(&screen_bytes), expected);
+    assert_eq!(screen_text(&tail_bytes), expected);
+    mux.shutdown();
+}
