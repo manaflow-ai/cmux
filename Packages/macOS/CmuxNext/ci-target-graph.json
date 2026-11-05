@@ -1836,7 +1836,8 @@
         "CmuxNextCloud",
         "CmuxNextDesign",
         "CmuxNextIcons",
-        "CmuxNextRemote"
+        "CmuxNextRemote",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
