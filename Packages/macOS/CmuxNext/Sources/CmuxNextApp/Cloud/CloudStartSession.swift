@@ -291,7 +291,7 @@ struct CloudStartSession {
         }
         // A copy of a folder this Mac trusts is trusted there too, as the composer's start trusts it.
         await AgentSessionAttachClient.trustCopiedFolder(copy?.chat, sourceTrusted: copy?.trusted == true, surface: started.surface,
-                                                         ownerLink: CloudMachineLinks(appLink: session.appLink, link: session.link).ownerLink,
+                                                         ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
                                                          endpoint: AgentTabRemoteHost.endpoint(on: session.daemon))
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
