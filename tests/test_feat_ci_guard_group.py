@@ -41,7 +41,9 @@ def runs_ci_group(job: dict) -> bool:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
-        if "scripts/ci/guards-local.sh" in command and "--group" not in command and "--list" not in command:
+        # No --group runs the fast set (the ci group); a pull request's call names it beside release-notary.
+        if ("scripts/ci/guards-local.sh" in command and "--list" not in command
+                and ("--group" not in command or "--group ci " in command)):
             return True
     return False
 
