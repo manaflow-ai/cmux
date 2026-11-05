@@ -186,6 +186,11 @@ impl HostShared {
             &self.pty_drained,
             &self.exit_published,
             |exit| {
+                // With its directory gone no daemon reads the exit record,
+                // and writing it would recreate a deleted tree (#36625).
+                if record_root_removed() {
+                    return Ok(());
+                }
                 write_exit_record(
                     &self.exit_record_path,
                     &TerminalHostExitRecord::new(

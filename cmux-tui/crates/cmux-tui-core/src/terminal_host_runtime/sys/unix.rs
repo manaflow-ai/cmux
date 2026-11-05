@@ -24,6 +24,7 @@ mod lease;
 mod listener;
 mod process;
 mod pty_readiness;
+mod record_root_watch;
 mod spawned_host;
 mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
@@ -34,6 +35,7 @@ pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use record_root_watch::follow_record_root_removal;
 pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
 
