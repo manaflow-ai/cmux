@@ -18,7 +18,7 @@
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out=""
+variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out="" timings=0
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;
@@ -27,6 +27,7 @@ for kv in "$@"; do
     scenarios=*) scenarios="${kv#*=}" ;;
     tests=*) tests="${kv#*=}" ;;
     out=*) out="${kv#*=}" ;;
+    timings=*) timings="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
@@ -53,7 +54,7 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
   fi
 fi
 # blaze, when asked for: its pinned release, checked against the sha256 GitHub publishes, with its
-# home (daemon state, build directory, its own nightly) under .build; the toolchain download
+# home (daemon state, build directory) outside the checkout; the toolchain download
 # happens here, before any clock starts.
 if [[ ",$variants," == *,blaze,* ]]; then
   blaze_version=0.20261105.1
@@ -64,7 +65,9 @@ if [[ ",$variants," == *,blaze,* ]]; then
     *) blaze_target="" ;;
   esac
   blaze_dir="$root/.build/rust-dev-loop-blaze"
-  export BLAZE_HOME="$blaze_dir/home"
+  # Outside the checkout: blaze's daemon watches the checkout and reads every file in it, its own
+  # socket included ("v2.sock changed and can't be read", 0.20261105.1).
+  export BLAZE_HOME="${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"
   mkdir -p "$blaze_dir/bin" "$BLAZE_HOME"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \
@@ -84,4 +87,4 @@ rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 exec python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"
+  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings)
