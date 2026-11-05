@@ -54,7 +54,11 @@ import Foundation
         await withTaskGroup(of: (Int, Result<Data?, any Error>).self) { group in
             for (index, scope) in scopes.enumerated() {
                 group.addTask {
-                    do { return (index, .success(try await load(provider: provider, teamID: scope, userID: userID))) } catch { return (index, .failure(error)) }
+                    // One return after the do/catch: a tuple returned from both an awaiting do and
+                    // its catch loses its first element (the index) at -O (swiftlang/swift#92698).
+                    let outcome: (Int, Result<Data?, any Error>)
+                    do { outcome = (index, .success(try await load(provider: provider, teamID: scope, userID: userID))) } catch { outcome = (index, .failure(error)) }
+                    return outcome
                 }
             }
             for await (index, result) in group { results[index] = result }
