@@ -1,7 +1,8 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
-// output (under its input's labeled fields, ToolDetail.tsx), Shell block or diff below once opened.
+// output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
+// read or file search found (FileResultCard.tsx) below once opened.
 import { useFindReveal } from "./chatFind";
 import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -28,6 +29,8 @@ import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
+import { FileResultCard } from "./FileResultCard";
+import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
@@ -125,6 +128,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     });
   }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
+  // A finished read or file search draws what it found as a card (fileResults.ts, FileResultCard.tsx)
+  // in place of its input fields and raw output; a result the card cannot read whole keeps those.
+  const card = useMemo(
+    () => (shell || failed || !fold.present ? undefined : fileCard(tool, result?.text, cwd)),
+    [shell, failed, fold.present, tool, result, cwd],
+  );
   // A call whose input opens as fields has details even before (or without) any output (ToolDetail.tsx).
   const hasInput = useMemo(
     () => !shell && opensToFields(tool, failure) && Boolean(inputFields(tool.inputSummary)),
@@ -236,6 +245,8 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
+          ) : card ? (
+            <FileResultCard id={detailsId} card={card} reveal={reveal} />
           ) : fields ? (
             <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
