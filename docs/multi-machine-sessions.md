@@ -33,16 +33,16 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
    already have). It appears in **My Machines** on every Mac and phone of that
    account within a second of signing in.
 2. **First contact asks once, on the machine being used.** The first time
-   cosmic-gray reaches Air Blue, Air Blue shows "cosmic-gray wants to use this
+   Studio reaches MacBook, MacBook shows "Studio wants to use this
    Mac" with what it asks for, and the same card reaches the person's phone
    (a signed approval, as phone pairing already does). Allow pins
-   cosmic-gray's identity key with the chosen grants. No code, no SSH, no
+   Studio's identity key with the chosen grants. No code, no SSH, no
    Tailscale policy, no port.
 3. **Then it just works, both ways.** From any Mac: the sidebar machine picker,
-   **New Workspace on Air Blue**, **Continue on Air Blue** (moves the
-   workspace with its chats and terminals), **Send This Build to Air Blue**.
+   **New Workspace on MacBook**, **Continue on MacBook** (moves the
+   workspace with its chats and terminals), **Send This Build to MacBook**.
    From the phone: the same machines, the same actions, and every approval
-   card. From the CLI: `cmux machine air-blue send|run|move`.
+   card. From the CLI: `cmux machine macbook send|run|move`.
 4. **Approvals go where the person is.** A grant set to Ask shows its card on
    that Mac and on the person's phone, whichever answers first.
 5. **What only a person at that Mac can do is said, never attempted.** Screen
@@ -129,8 +129,8 @@ them, and logged on both ends.
 
 ### Send a build (`install`)
 
-`cmux machine air-blue send [--app PATH | --tag TAG]`, **Send This Build to
-Air Blue**, or the sidebar row's menu.
+`cmux machine macbook send [--app PATH | --tag TAG]`, **Send This Build to
+MacBook**, or the sidebar row's menu.
 
 1. The sender packs the `.app` (and its bundled `cmux` and hostd) as a
    deterministic tar (`--zstd`), and a manifest: bundle id, version, tag,
@@ -144,24 +144,24 @@ Air Blue**, or the sidebar row's menu.
      made for its own tagged builds (`~/.config/cmux/build-key`, 0600). The
      receiver checks the signature over the manifest and the archive's
      sha256. A build key is enrolled only through an approval card on the
-     receiving machine ("cosmic-gray wants to install its own builds here"),
+     receiving machine ("Studio wants to install its own builds here"),
      never by the peer.
 3. The receiver streams it to a staging folder on the bulk lane (resumable by
    offset), verifies size and sha256, then the signature, then unpacks.
 4. **It never replaces anything it did not install.** A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. A release build installs beside
-   the others under its own name. The running app and Leo's nightly are never
+   the others under its own name. The running app and the person's nightly are never
    quit or replaced (the nightly has its own updater).
 5. If a person is logged in at the desktop, it opens the build when asked
-   (`--open`); if not, it says "Air Blue has no one logged in; the build is
+   (`--open`); if not, it says "MacBook has no one logged in; the build is
    installed and opens at the next login" and stops. Privacy permissions the
    build will need are listed with a button for the person there.
 
 ### Run there (`run`)
 
-`cmux machine air-blue run [--cwd DIR] [--agent claude|codex|...]`, **New
-Workspace on Air Blue**. A typed `machine.session.request` (the October
+`cmux machine macbook run [--cwd DIR] [--agent claude|codex|...]`, **New
+Workspace on MacBook**. A typed `machine.session.request` (the October
 draft's schema): agent from a closed list, `cwd` inside the folders the
 grant lists (realpath, no symlink escape), prompt as data delivered through
 hooks. No `command`, `argv`, `env` or launcher field exists in the schema.
@@ -171,8 +171,8 @@ over the same link (the phone's `daemon` and `acpmux` lanes).
 
 ### Move (`move`)
 
-`cmux machine air-blue move [WORKSPACE]`, **Continue on Air Blue**, and back
-with **Continue on cosmic-gray**. Built from what Cloud move already does,
+`cmux machine macbook move [WORKSPACE]`, **Continue on MacBook**, and back
+with **Continue on Studio**. Built from what Cloud move already does,
 with the link in place of the Cloud socket:
 
 - chats move with their history, queue and draft (`agent-transfer-v1`,
@@ -180,8 +180,8 @@ with the link in place of the Cloud socket:
 - the folder goes over `fs-v1` (`cmux link seed|sync`), or as a git worktree
   of the same branch when both machines have the repo (`acpmux session move`);
 - terminals reopen in the same folders; the workspace layout is recreated;
-- the source keeps a "Moved to Air Blue" ledger row (as `CloudMovedChats`)
-  so **Continue on cosmic-gray** brings it back.
+- the source keeps a "Moved to MacBook" ledger row (as `CloudMovedChats`)
+  so **Continue on Studio** brings it back.
 
 ## Audit and revoke
 
