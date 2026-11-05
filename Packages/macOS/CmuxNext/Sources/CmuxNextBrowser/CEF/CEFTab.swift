@@ -604,13 +604,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let canTake = shown && pageWindowHostHasArea
         pendingFocus = focused && (!canTake || browserID == nil)
         guard !focused || canTake, let browserID else { return }
-        // A page detached for a resize motion (fork API 30) gets its window back first; the window is a child of
-        // this window again only after the next commit, so the grant waits for that commit.
-        if focused, host.hostView.layerHosting.pageTakesFocus() {
-            pendingFocus = true
-            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
-            return
-        }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 

@@ -225,7 +225,16 @@ final class CEFLayerHosting {
     /// The new window's live resize state replaces the old one: AppKit tells only
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
+        let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
+        if isDetached {
+            // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
+            // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
+            setDetached(false)
+            motionKeepsAttached = inResizeMotion
+        } else if wasInMotion, !inResizeMotion {
+            motionKeepsAttached = false
+        }
         guard view?.window != nil else { return }
         syncDeadline()
     }
