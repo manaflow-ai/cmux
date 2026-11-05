@@ -115,9 +115,14 @@ final class TabCell {
         set { setFrame(newValue, laysOut: true) }
     }
 
+    /// How many times the strip wrote this cell's frame (``setFrame(_:laysOut:)``) and laid out its parts
+    /// (``layoutLayers()``): what a strip change cost per cell, for the resize work tests (SMOOTH-STRIP).
+    private(set) var workCounts = (frames: 0, layouts: 0)
+
     /// `laysOut` false: the caller adds the strip move of the new size first, then calls
     /// `layoutLayers()`, so the parts follow the path once (`TabStripView.applyFrames`).
     func setFrame(_ frame: CGRect, laysOut: Bool) {
+        workCounts.frames &+= 1
         let resized = layer.frame.size != frame.size
         layer.frame = frame
         if resized, laysOut { layoutLayers() }
@@ -366,6 +371,7 @@ final class TabCell {
     /// Lays the parts out for the cell's width. While a strip move changes that width, the parts follow
     /// the moving bounds frame by frame on the render server (`retimeInner`); at rest they are placed.
     func layoutLayers() {
+        workCounts.layouts &+= 1
         let now = CACurrentMediaTime()
         let path = MotionPath(layer, "bounds.size", now: now)
         if path.isExact, let end = path.end, end > now + 0.001 {

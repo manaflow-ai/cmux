@@ -37,6 +37,7 @@ extension TabStripView {
     func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false,
                   keepsClosing: Bool = false) {
         let grows = growsAdded
+        rowPasses.layouts &+= 1
         result = TabLayoutEngine.layout(
             items: layoutItems(),
             availableWidth: viewportWidth,
