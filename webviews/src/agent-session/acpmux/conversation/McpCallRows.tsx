@@ -147,7 +147,10 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   // An object of arguments opens as one labeled field each (ToolDetail.tsx); any other shape, and a
   // hook's refusal, as the request and response it came as.
-  const fields = useMemo(() => (fold.present ? inputFields(call.args) : undefined), [fold.present, call]);
+  const fields = useMemo(
+    () => (fold.present ? inputFields(call.args, tool.inputSummary) : undefined),
+    [fold.present, call, tool.inputSummary],
+  );
   return (
     <>
       <ToolVisualRow sources={images} label={label}>

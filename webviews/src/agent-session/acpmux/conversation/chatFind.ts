@@ -78,7 +78,8 @@ function drawnText(item: AcpmuxActivity): string {
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;
     // Arguments that open as labeled fields are read as their values (ToolDetail.tsx); any other
     // shape, and a hook's refusal, as the pretty request.
-    const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args);
+    const fields =
+      failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args, tool.inputSummary);
     return [fields ? fieldsText(fields, plainText) : prettyValue(call.args), text].filter(Boolean).join("\n");
   }
   // A subagent's card draws its report, then its prompt (AgentCallCard.tsx); its line is a summary.
@@ -103,9 +104,12 @@ function drawnText(item: AcpmuxActivity): string {
         ? plainText(result.text)
         : result.text;
   // A call that is not a shell or an edit opens to its input's fields, over its output when it has
-  // any (ToolRow.tsx).
+  // any (ToolRow.tsx); a dispatch or message card draws no fields, so Find reads none of its input.
   const fields =
-    !shell && opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
+    !shell &&
+    !dispatchCall(item) &&
+    !agentMessage(tool) &&
+    opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
       ? inputFields(tool.inputSummary)
       : undefined;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).

@@ -1,6 +1,7 @@
 // A tool call's input as the opened call draws it (ToolDetail.tsx): one labeled field per argument,
 // each value as the text it draws, so Find (chatFind.ts) reads what the fields show.
 import { cleanText, prettyValue } from "./mcpCalls";
+import { losesNumbers } from "./toolResult";
 
 /// One argument of a call: its key, and its value as text (a string as it came, any other value
 /// as the indented JSON prettyValue prints) with how to draw it.
@@ -30,7 +31,11 @@ export function opensToFields(
 
 /// The fields of a call's input, in the order the harness sent them, or nil when the input is not
 /// an object with at least one argument (the caller then shows it as it came).
-export function inputFields(args: unknown): InputField[] | undefined {
+export function inputFields(args: unknown, source?: string): InputField[] | undefined {
+  // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
+  // rounded (toolResult.ts losesNumbers): the caller's request or output view, not fields.
+  const raw = source ?? (typeof args === "string" ? args : undefined);
+  if (raw && losesNumbers(raw)) return undefined;
   const input = typeof args === "string" ? parseObject(args) : args;
   if (!isRecord(input)) return undefined;
   const fields: InputField[] = [];
