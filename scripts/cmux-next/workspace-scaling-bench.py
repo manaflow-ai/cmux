@@ -65,6 +65,8 @@ def instant_rows(report, count):
     # ``idle@Nws/new_workspace`` is the warm, same-harness interaction at N workspaces.
     for interaction, command in (("new_workspace", "new_workspace"), ("open_pane", "split_right")):
         entry = summary.get(f"idle{suffix}/{command}") or summary.get(f"idle/{command}")
+        if not isinstance(entry, dict):
+            continue
         values = []
         if entry:
             # Keep every warm-arm sample when present so p50/p95/p99 are meaningful.
@@ -90,16 +92,30 @@ def sidebar_rows(report, count):
     if not isinstance(size, dict):
         return {}
     out = {}
-    frame_reply = (size.get("scroll") or {}).get("frames") or {}
+    scroll = size.get("scroll")
+    if not isinstance(scroll, dict):
+        scroll = {}
+    frame_reply = scroll.get("frames")
+    if not isinstance(frame_reply, dict):
+        frame_reply = {}
     frame_metrics = frame_reply.get("frame_metrics") or {}
+    if not isinstance(frame_metrics, dict):
+        frame_metrics = {}
     values = frame_reply.get("intervals_ms") or []
     # Do not substitute RPC handling time for frame intervals: they measure different
     # surfaces, so comparing one topology's frame time with another's RPC time would
     # manufacture a scaling result.
     if values and frame_metrics.get("complete") is True:
         out["sidebar_scroll"] = stats(values)
-    switch = size.get("switch") or {}
-    switch_frames = (switch.get("frames") or {}).get("frame_metrics") or {}
+    switch = size.get("switch")
+    if not isinstance(switch, dict):
+        switch = {}
+    switch_frame_reply = switch.get("frames")
+    if not isinstance(switch_frame_reply, dict):
+        switch_frame_reply = {}
+    switch_frames = switch_frame_reply.get("frame_metrics") or {}
+    if not isinstance(switch_frames, dict):
+        switch_frames = {}
     switch_stats = switch.get("click_to_idle_ms")
     if switch_frames.get("complete") is True and isinstance(switch_stats, dict) and isinstance(switch_stats.get("p95"), (int, float)):
         out["switch"] = {"p50": switch_stats.get("p50", switch_stats["p95"]),
