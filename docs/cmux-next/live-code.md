@@ -8,10 +8,10 @@ until a patch's signer is checked (cmux#13742).
 
 | You want | Do this |
 |---|---|
-| Live mode on, in a tagged build (once per commit it builds; then a restart, sessions kept) | `cmux live start --swift`, Cmd-Shift-P > **Start Swift Live Mode**, or the button at the end of Settings > Advanced |
-| Live mode off: the normal build of the same commit, sessions kept | `cmux live stop --swift`, or **Stop Swift Live Mode** |
+| Live mode on, in a tagged build: a restart into the live code build (built once per commit), sessions kept, your edits patched in, then every save | `cmux live start --swift`, Cmd-Shift-P > **Start Swift Live Mode**, or the button at the end of Settings > Advanced |
+| Live mode off: a restart into the optimized build of your edited checkout (made in the background while you edit), sessions kept | `cmux live stop --swift`, or **Stop Swift Live Mode**; `--discard` restarts into the build from before live mode |
 | Is it on | `cmux live status` (its Swift line); the window's top row shows **Live mode** |
-| Apply your edits in live mode | `scripts/live-code/live-mode.py patch FILE.swift` (patch.py with the live build's log and folder) |
+| Apply an edit by hand in live mode (saves already apply) | `scripts/live-code/live-mode.py patch FILE.swift` (patch.py with the live build's log and folder) |
 | A live code build of your checkout (once) | `scripts/live-code/build.sh ~/live-code-build mine` (Debug; add `bench` after the tag for the bench configuration) |
 | Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
 | Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
@@ -55,23 +55,43 @@ you're hot-building". The live code build is slower and bigger than the normal o
 unoptimized, a file at a time, its calls interposable), and that cost is in how the app is built.
 So live mode swaps builds instead of flipping a setting:
 
-- **Start** (`cmux live start --swift`, `scripts/live-code/live-mode.py start`): the commit the tagged
-  app runs (`CMUXCommit`, else the HEAD of the checkout that built it) must be the checkout's HEAD.
-  The first time for that commit it builds the live code build with `build.sh`, build-only
-  (`reload.sh --build-only --keep-app`), while the app keeps running. It turns Labs > Live Code on
-  (from a terminal that is the user-only confirmation sheet in cmux; the app's own button is the
-  person's click), quits the app keeping every session (SIGTERM, as `reload.sh`), renames the normal
-  bundle aside and the live one into its place, and starts it again with the tag's own launchd job.
-- **Stop**: Live Code off, the same quit, the two bundles renamed back, the same start.
-- Both print the restart time (quit to the app answering with its layout loaded) and whether every
-  workspace, tab and running terminal is still there.
-- The cache is `~/Library/Caches/cmux-next/live-mode/<tag>/<commit>/`: `build/` (its
-  `xcodebuild.log` is what patches compile with) and whichever app is not installed. The next start
-  of the same commit is a restart, no build. A swap is two renames on one volume.
+Leo then: "For the swift bit why can't we simply apply after switching the build?" So it is one flow:
 
-The build runs on the Mac that runs the app, because a patch is compiled with that build's own
-intermediates (`patch.py` reads its `xcodebuild.log`): a build fetched from another Mac could not
-take patches. On a fleet Mac that is the fleet's build.
+- **Start** (`cmux live start --swift`, `scripts/live-code/live-mode.py start`). The first time for the
+  checkout's HEAD it builds the live code build with `build.sh`, build-only
+  (`reload.sh --build-only --keep-app`), while the app keeps running, and records the Swift it
+  compiled. It turns Labs > Live Code on (from a terminal that is the user-only confirmation sheet in
+  cmux; the app's own button is the person's click), quits the app keeping every session (SIGTERM,
+  as `reload.sh`), renames the running bundle aside and the live one into its place, and starts it
+  with the tag's own launchd job. Then every CmuxNextApp file that differs from what the live build
+  compiled is patched in at once: your edits are in right away.
+- **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
+  file in, and once saves stop for 20 s it makes the optimized build of the edited checkout
+  (`reload.sh --tag TAG --build-only`, the tag's own warm derived data, at background priority).
+  It stops when live mode does.
+- **Stop** restarts into that optimized build, so the edits are kept and fast. If saves came after
+  it, stop builds the rest first (incremental). `--discard` restarts into the build that ran before
+  live mode instead; your files are not touched.
+- Both print the restart time (quit to the app answering with its layout loaded) and whether every
+  workspace, tab and running terminal is still there. A launch that fails puts the old build back
+  and starts it.
+- **Edits that can't apply live** wait for the stop build, and `cmux live status` counts them: a
+  stored property or any other change of a type's layout (the app refuses that patch and says so),
+  a file of another module, a new file, a deleted file. The function bodies, computed properties
+  and methods of existing CmuxNextApp files apply.
+- The cache is `~/Library/Caches/cmux-next/live-mode/<tag>/`: per commit, `build/` (its
+  `xcodebuild.log` is what patches compile with), the Swift it compiled and `live.app` while it is
+  not installed; `before.app`, the build that ran before live mode; `edited.app`, the optimized
+  build of the edited checkout. The next start of the same commit is a restart and a patch, no
+  build. A swap is two renames on one volume.
+- The "Live mode" mark shows only in a live code build (its Info.plist has `CMUXLiveCodeBuild`): a
+  normal build with Labs > Live Code on watches the folder but cannot be patched.
+
+The builds run on the Mac that runs the app, because a patch is compiled with the live build's own
+intermediates (`patch.py` reads its `xcodebuild.log`), and the stop build is the incremental build
+of that checkout: a build fetched from another Mac could not take patches. On a fleet Mac that is
+the fleet's build. The fleet run is `scripts/measure/live-mode-swift.sh`: an edit before start,
+a save while on, and a stop into the optimized build, counted in pixels.
 
 ## What a NIGHTLY can and can't do
 

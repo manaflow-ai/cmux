@@ -77,16 +77,18 @@ fn swift_switches_start_and_stop_with_a_tag() {
             tag: Some("mine".to_owned()),
             detach: false,
             setting_done: false,
+            discard: false,
         })
     );
     assert_eq!(
-        parse(&words(&["stop", "--swift", "--worktree=/src/wt", "--detach", "--setting-done"])).unwrap(),
+        parse(&words(&["stop", "--swift", "--worktree=/src/wt", "--detach", "--setting-done", "--discard"])).unwrap(),
         Command::Swift(Swift {
             on: false,
             worktree: Some(PathBuf::from("/src/wt")),
             tag: None,
             detach: true,
             setting_done: true,
+            discard: true,
         })
     );
 }
@@ -97,6 +99,8 @@ fn swift_only_flags_need_swift_and_a_switch() {
     assert!(parse(&words(&["start", "--tag", "mine"])).is_err());
     assert!(parse(&words(&["stop", "--detach"])).is_err());
     assert!(parse(&words(&["status", "--swift"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--discard"])).is_err());
+    assert!(parse(&words(&["stop", "--discard"])).is_err());
 }
 
 #[test]

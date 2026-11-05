@@ -2192,6 +2192,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       esac
       /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
+      # Swift live mode's mark (LiveCode.isLive): only a live code build (scripts/live-code/build.sh) has it.
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$INFO_PLIST" 2>/dev/null || true
+      if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :CMUXLiveCodeBuild bool true" "$INFO_PLIST"
+      fi
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"

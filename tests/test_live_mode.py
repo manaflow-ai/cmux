@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -167,6 +168,81 @@ class LiveModeTests(unittest.TestCase):
         result = live_mode.status(live_mode.argparse.Namespace(socket=path, tag="t", tree=ROOT))
         self.assertEqual(result["mode"], "normal")  # a reload replaced it: live mode is not on
         self.assertEqual(live_mode.line(result), "Swift live mode: off, cmux DEV t runs its normal build")
+
+    def test_only_an_existing_app_file_patches_in_the_rest_waits_for_the_stop_build(self):
+        app, other = f"{live_mode.SOURCES}/CmuxNextApp/Home/A.swift", f"{live_mode.SOURCES}/CmuxNextDesign/B.swift"
+        new = f"{live_mode.SOURCES}/CmuxNextApp/New.swift"
+        built = {app: (1, "a"), other: (1, "b"), f"{live_mode.SOURCES}/CmuxNextApp/Same.swift": (1, "s")}
+        now_sources = {app: (2, "a2"), other: (2, "b2"), new: (2, "n"), f"{live_mode.SOURCES}/CmuxNextApp/Same.swift": (9, "s")}
+        patchable, waiting = live_mode.changed_sources(built, now_sources)
+        self.assertEqual(patchable, [app])  # a touch with the same bytes is no edit
+        self.assertEqual(waiting, [new, other])
+
+    def test_a_scan_hashes_only_files_whose_mtime_moved(self):
+        tree = Path(self.dir) / "tree"
+        source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"
+        source.parent.mkdir(parents=True)
+        source.write_text("one")
+        first = live_mode.swift_sources(tree)
+        rel = str(source.relative_to(tree))
+        stale = {rel: (first[rel][0], "remembered")}
+        self.assertEqual(live_mode.swift_sources(tree, stale)[rel][1], "remembered")
+        source.write_text("two")
+        os.utime(source, ns=(first[rel][0] + 10**9, first[rel][0] + 10**9))
+        self.assertNotEqual(live_mode.swift_sources(tree, stale)[rel][1], "remembered")
+
+    def test_the_tree_hash_follows_edits_and_new_files_without_touching_the_index(self):
+        tree = Path(self.dir) / "repo"
+        tree.mkdir()
+        run = lambda *a: subprocess.run(["git", "-C", str(tree), *a], check=True, capture_output=True)  # noqa: E731
+        run("init", "-q")
+        (tree / "a.txt").write_text("a")
+        run("add", "a.txt")
+        run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "a")
+        clean = live_mode.tree_hash(tree)
+        self.assertTrue(clean)
+        (tree / "a.txt").write_text("b")
+        edited = live_mode.tree_hash(tree)
+        (tree / "new.txt").write_text("n")
+        added = live_mode.tree_hash(tree)
+        self.assertEqual(len({clean, edited, added}), 3)
+        staged = subprocess.run(["git", "-C", str(tree), "diff", "--cached", "--name-only"], capture_output=True, text=True)
+        self.assertEqual(staged.stdout, "")  # the person's index is untouched
+
+    def test_status_without_a_tag_reads_the_recorded_live_tag(self):
+        live_mode.write_state(live_mode.cache_root("older"), {"mode": "live", "tag": "older", "since": "2026-11-05T10:00:00Z"})
+        live_mode.write_state(live_mode.cache_root("newer"), {"mode": "live", "tag": "newer", "since": "2026-11-05T11:00:00Z"})
+        live_mode.write_state(live_mode.cache_root("off"), {"mode": "normal", "tag": "off", "since": "2026-11-05T12:00:00Z"})
+        self.assertEqual(live_mode.recorded_live_tag(), "newer")
+
+    def test_a_launch_that_fails_puts_the_old_build_back_and_starts_it(self):
+        installed, live = self.bundle("cmux DEV t.app"), self.bundle("live.app")
+        keep = Path(self.dir) / "before.app"
+        old_inode = os.stat(installed / "Contents/MacOS/cmux").st_ino
+        launched, written, calls = [], [], {"n": 0}
+        saved = (live_mode.sessions, live_mode.quit_keep_sessions, live_mode.launch, live_mode.wait_ready, live_mode.answers)
+
+        def wait_ready(path):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise live_mode.Refused("did not answer")
+
+        live_mode.sessions = lambda path: {"workspaces": [], "tabs": [], "terminals": [], "loaded": True}
+        live_mode.quit_keep_sessions = lambda pid: None
+        live_mode.launch = lambda app, bundle: launched.append(os.stat(Path(app) / "Contents/MacOS/cmux").st_ino) or "open"
+        live_mode.wait_ready, live_mode.answers = wait_ready, lambda path: False
+        try:
+            with self.assertRaises(live_mode.Refused) as refused:
+                live_mode.swap("sock", {"app_bundle_path": str(installed), "pid": 1, "bundle_id": "b"},
+                               into=live, keep_as=keep, swapped=written.append)
+        finally:
+            (live_mode.sessions, live_mode.quit_keep_sessions, live_mode.launch, live_mode.wait_ready,
+             live_mode.answers) = saved
+        self.assertIn("the build that ran before is back", str(refused.exception))
+        self.assertEqual(os.stat(installed / "Contents/MacOS/cmux").st_ino, old_inode)
+        self.assertTrue((live / "Contents/MacOS/cmux").exists() and not keep.exists())
+        self.assertEqual(launched[-1], old_inode)  # the old build is what started last
+        self.assertIsNone(written[-1])  # the state says the swap did not happen
 
     def test_status_with_no_app_running(self):
         args = live_mode.argparse.Namespace(socket=os.path.join(self.dir, "none.sock"), tag="t", tree=ROOT)

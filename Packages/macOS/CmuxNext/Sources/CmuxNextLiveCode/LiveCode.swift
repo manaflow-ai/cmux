@@ -41,16 +41,20 @@ public final class LiveCode {
         #endif
     }
 
-    /// Whether this process watches a live folder: Swift live mode is on (`cmux live start --swift`).
-    /// It stays on until the app quits; live mode ends with a restart into the normal build.
+    /// Swift live mode is on (`cmux live start --swift`): this is a live code build (reload.sh marks
+    /// its Info.plist `CMUXLiveCodeBuild`) and it watches a live folder. A normal build with Labs >
+    /// Live Code on watches too, but its functions cannot be repointed, so it is not live. It stays on
+    /// until the app quits; live mode ends with a restart into the normal build.
     public private(set) var isLive = false
     /// Work waiting for live mode to start (each window's "Live mode" badge), run once when it does.
     private var whenLiveStarts: [@MainActor () -> Void] = []
+    private let isLiveCodeBuild = Bundle.main.object(forInfoDictionaryKey: "CMUXLiveCodeBuild") as? Bool == true
 
     /// Runs `body` now if live mode is on, else once when it starts. Stop condition: it runs at most
-    /// once, and the list empties when it does.
+    /// once and the list empties when it does; a build that cannot go live keeps nothing.
     public func whenLive(_ body: @escaping @MainActor () -> Void) {
         #if DEBUG || CMUX_BENCH_HOOKS
+        guard isLiveCodeBuild else { return }
         if isLive { body() } else { whenLiveStarts.append(body) }
         #endif // a Release build never watches, so nothing waits
     }
@@ -91,7 +95,8 @@ public final class LiveCode {
             Task { @MainActor in self?.found(names) }
         }
         say("watching \(folder.url.path)")
-        isLive = true
+        isLive = isLiveCodeBuild
+        guard isLive else { return }
         let waiting = whenLiveStarts
         whenLiveStarts = []
         for body in waiting { body() }

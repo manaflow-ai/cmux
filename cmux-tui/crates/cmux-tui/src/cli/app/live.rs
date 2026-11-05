@@ -52,6 +52,8 @@ pub(crate) struct Swift {
     pub detach: bool,
     /// The app already set `labs.liveCode` (the person's click on its button).
     pub setting_done: bool,
+    /// `stop` only: restart into the build from before live mode, not the optimized build of the edits.
+    pub discard: bool,
 }
 
 /// Parses the words after `live`.
@@ -65,7 +67,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
     let mut worktree = None;
     let mut port = None;
-    let (mut swift, mut tag, mut detach, mut setting_done) = (false, None, false, false);
+    let (mut swift, mut tag, mut detach, mut setting_done, mut discard) = (false, None, false, false, false);
     let switches = matches!(verb, Some("start" | "stop"));
     let mut words = rest.iter().skip(1);
     while let Some(word) = words.next() {
@@ -86,6 +88,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             "--tag" if switches => tag = Some(value()?),
             "--detach" if switches => detach = true,
             "--setting-done" if switches => setting_done = true,
+            "--discard" if verb == Some("stop") => discard = true,
             "--port" if verb == Some("start") => {
                 port = Some(value()?.parse::<u16>().ok().filter(|port| *port > 0).ok_or_else(
                     || UsageError::new(messages.missing_value.replace("{flag}", "--port")),
@@ -102,9 +105,16 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         if port.is_some() {
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", "--port")));
         }
-        return Ok(Command::Swift(Swift { on: verb == Some("start"), worktree, tag, detach, setting_done }));
+        return Ok(Command::Swift(Swift {
+            on: verb == Some("start"),
+            worktree,
+            tag,
+            detach,
+            setting_done,
+            discard,
+        }));
     }
-    if let Some(flag) = [(tag.is_some(), "--tag"), (detach, "--detach"), (setting_done, "--setting-done")]
+    if let Some(flag) = [(tag.is_some(), "--tag"), (detach, "--detach"), (setting_done, "--setting-done"), (discard, "--discard")]
         .into_iter()
         .find_map(|(given, flag)| given.then_some(flag))
     {
@@ -188,6 +198,9 @@ fn run_swift(swift: &Swift) -> i32 {
     }
     if swift.setting_done {
         args.push("--setting-done".to_owned());
+    }
+    if swift.discard {
+        args.push("--discard".to_owned());
     }
     match swift_process(&tree, &args).status() {
         Ok(status) => status.code().unwrap_or(1),

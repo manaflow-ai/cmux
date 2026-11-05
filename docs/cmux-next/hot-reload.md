@@ -40,7 +40,7 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | What's running | `cmux live status` (also says whether Swift live mode is on) |
-| Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept; `cmux live stop --swift` goes back ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
+| Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
