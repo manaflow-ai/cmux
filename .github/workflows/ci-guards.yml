@@ -198,6 +198,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the classic-frozen guard
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_frozen_guard.py
+
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
