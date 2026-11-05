@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 import QuartzCore
 
 /// A page of a Chromium host app in a cmux pane (prototype behind
@@ -99,9 +100,13 @@ public final class ChromiumHostPageView: NSView {
 
     // MARK: Mouse
 
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``): in a pane the screen's one
+    /// area delivers its moves, so a page that moves with its pane costs AppKit no tracking-area work (RESIZE MAIN BUDGET).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
+        tracking = nil
+        guard !isServedByPanePointerArea else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
@@ -209,4 +214,13 @@ nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
     var frame: ChromiumHostFrame {
         ChromiumHostFrame(.geometry, v: .init(width, height, screenX, screenY, scaleMilli))
     }
+}
+
+/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these, while the window is key (as
+/// the page's own `.activeInKeyWindow` area did). The page sets its own cursor (the host's cursor frames).
+extension ChromiumHostPageView: PanePointerFollowing {
+    public func panePointerCursor(at point: NSPoint) -> NSCursor? { nil }
+    public func panePointerEntered(with event: NSEvent) {}
+    public func panePointerMoved(with event: NSEvent) { if window?.isKeyWindow == true { mouseMoved(with: event) } }
+    public func panePointerExited(with event: NSEvent) { if window?.isKeyWindow == true { mouseExited(with: event) } }
 }

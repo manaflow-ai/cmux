@@ -12,7 +12,7 @@ rm -f "$tree/eval.status" "$tree/eval.log"
 cat >"$tree/run.sh" <<EOF
 #!/bin/bash
 cd "$tree"
-CU_DRIVER_EVAL_ROOT="$tree" CU_DRIVER_EVAL_REV="$rev" \\
+CU_DRIVER_EVAL_ROOT="$tree" CU_DRIVER_EVAL_REV="$rev" CU_DRIVER_EVAL_DISPLAY=1920x1080 \\
   CU_DRIVER_EVAL_GRANT="bash $tree/scripts/measure/cu-driver-eval/tcc-grant.sh" \\
   bash scripts/measure/cu-driver-eval.sh "reps=$reps" "drivers=$drivers" electron=1 >"$tree/eval.log" 2>&1
 echo \$? >"$tree/eval.status"

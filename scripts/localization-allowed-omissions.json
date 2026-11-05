@@ -7250,9 +7250,33 @@
     "class": "brand",
     "source": "Geist"
   },
+  "chatDisplay.uiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "chatDisplay.uiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "chatDisplay.uiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
   "settings.choice.agentChatUiFontGeist": {
     "class": "brand",
     "source": "Geist"
+  },
+  "settings.choice.agentChatUiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "settings.choice.agentChatUiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "settings.choice.agentChatUiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
   },
   "chatDisplay.uiFontSystemUi": {
     "source": "System",
