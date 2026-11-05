@@ -60,10 +60,9 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
   const openFind = async (page: Page) => {
     await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("find"));
     const field = page.locator(".acpmux-find .find-pill__field");
-    await field.fill("Answer");
-    await page.waitForFunction(() =>
-      document.querySelector<HTMLElement>(".acpmux-scroll")?.style.getPropertyValue("--acpmux-find-width"),
-    );
+    // One match in the middle: Find keeps the view scrolled, with rows under the top band.
+    await field.fill("Answer 16:");
+    await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 1");
   };
   const scrolledPage = async (colorScheme: "light" | "dark") => {
     const page = await pane.open({ width: 900, height: 700, scale: 2, colorScheme });
