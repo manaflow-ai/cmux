@@ -72,7 +72,7 @@ extension AppControl {
     // create` links), asked over the app FFI's JSON channel: the body and its limits, the VM API
     // for the backend, and how the answer reads. The app only does the HTTP call.
 
-    struct VMAgentKeyPlan: Decodable {
+    nonisolated struct VMAgentKeyPlan: Decodable, Sendable {
         var url: String
         var baseUrl: String
         var body: JSONValue
@@ -82,7 +82,7 @@ extension AppControl {
         var path: String { String(url.dropFirst(baseUrl.count + 1)) }
     }
 
-    struct VMAgentKeyRefusal: Decodable {
+    nonisolated struct VMAgentKeyRefusal: Decodable, Sendable {
         var code: String
         var message: String
         var status: Int?
