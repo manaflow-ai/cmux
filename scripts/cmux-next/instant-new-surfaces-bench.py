@@ -68,6 +68,7 @@ parser.add_argument("--arms", default=None,
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -79,6 +80,10 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"instant-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+LINK_PAGE = os.path.join(SCRATCH, "link.html")
+open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
+LINK_URL = opts.link_url or "file://" + LINK_PAGE
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser")  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -212,13 +217,16 @@ def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
     # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
     sent = "link_right" if command == "link_home" else command
-    result = rpc("debug.new_tab", {"action": "bench_create", "command": sent}, timeout=20) or {}
+    params = {"action": "bench_create", "command": sent}
+    if sent == "link_right":
+        params["url"] = LINK_URL
+    result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
           f"err={result.get('error')}", flush=True)
     return result
 
@@ -373,6 +381,9 @@ def summary(rows):
                 "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
+                "page_p50": pct([r.get("page_ms") for r in sel], .5),
+                "page_p95": pct([r.get("page_ms") for r in sel], .95),
+                "page_max": pct([r.get("page_ms") for r in sel], 1),
             }
     return out
 
@@ -464,7 +475,7 @@ def main():
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
-                                for metric in ("visible_ms", "confirmed_ms", "key_ms")}
+                                for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())}
                       for command in COMMANDS}
     result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
                           for command, arms in result["arms"].items()}
