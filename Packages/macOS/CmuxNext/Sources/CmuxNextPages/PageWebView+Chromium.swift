@@ -4,6 +4,7 @@ import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import os
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
 // Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. The
@@ -210,12 +211,14 @@ extension PageWebView {
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
     /// shows the crash notice (``reloadsAfterCrash`` false) gets the notice instead when Chromium
     /// ended under a page that had loaded (`ended`), and the WebKit load waits for its Reload.
-    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false) {
+    /// `level` is the log's: an expected move (the live web loop, ``reopenForLiveOverride(hosting:)``)
+    /// is not an error.
+    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false, level: OSLogType = .error) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
         chromiumStart?.cancel()
         chromiumStart = nil
-        logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
+        logger.log(level: level, "page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
         chromiumSession?.end()
         chromiumSession = nil
         chromiumUserEventUptime = nil

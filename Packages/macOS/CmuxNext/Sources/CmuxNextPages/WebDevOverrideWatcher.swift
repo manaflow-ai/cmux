@@ -89,11 +89,24 @@ public final class WebDevOverrideWatcher {
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
         served.reloadServed()
-        // Chromium pages reload when they serve the loop now or did until now. One whose Chromium
-        // cannot serve it keeps its bundled files until it next opens, in WebKit (PageEnginePolicy).
+        let pages = pages ?? PageRegistry.pages()
         defer { chromiumServedLive = chromiumLive }
+        // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
+        // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
+        // and scroll (a Settings page open before an overlay install showed none of it until it
+        // next opened, cmuxterm-hq#7149 L8).
+        if live, !chromiumLive, let hosting {
+            let moving = pages.filter(\.isOnChromium)
+            guard !moving.isEmpty else { return nil }
+            return Task { // task-owner: the engine moves of this reload; each page's own work ends with the page
+                await withTaskGroup(of: Void.self) { group in
+                    for page in moving { group.addTask { await page.reopenForLiveOverride(hosting: hosting) } }
+                }
+            }
+        }
+        // Chromium pages reload when they serve the loop now or did until now.
         guard chromiumLive || chromiumServedLive else { return nil }
-        for page in pages ?? PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
+        for page in pages where page.chromiumPage != nil { page.reload() }
         return nil
     }
 
