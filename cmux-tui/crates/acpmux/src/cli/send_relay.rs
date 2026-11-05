@@ -186,8 +186,24 @@ pub(crate) fn audit_sent(session: &str, text: &str, from: Option<&str>, done: &R
     crate::xhost_audit::record(
         if done.status == 0 { "sent" } else { "refused" },
         json!({"via": "sendRelay", "to": session, "from": from, "bytes": text.len(),
-               "exit": done.status, "delivery": done.output.as_deref().map(str::trim)}),
+               "exit": done.status, "delivery": delivery_id(done.output.as_deref())}),
     );
+}
+
+/// The delivery id a relay's JSON answer names (`deliveryId`, at the top or under `data`), when
+/// it is a short plain token: the audit log keeps that and nothing else of the relay's output,
+/// which may carry the message.
+fn delivery_id(output: Option<&str>) -> Option<String> {
+    let answer: Value = serde_json::from_str(output?.trim()).ok()?;
+    let id = answer
+        .get("deliveryId")
+        .or_else(|| answer.pointer("/data/deliveryId"))
+        .or_else(|| answer.pointer("/data/delivery"))
+        .and_then(Value::as_str)?;
+    (!id.is_empty()
+        && id.len() <= 128
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':')))
+    .then(|| id.to_owned())
 }
 
 /// What the relay did.
@@ -311,6 +327,16 @@ pub(crate) fn send_with_deadline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_audit_keeps_only_a_plain_delivery_id_of_the_relays_output() {
+        assert_eq!(delivery_id(Some(r#"{"deliveryId":"del-1"}"#)).as_deref(), Some("del-1"));
+        assert_eq!(delivery_id(Some(r#"{"data":{"deliveryId":"d_2"}}"#)).as_deref(), Some("d_2"));
+        assert_eq!(delivery_id(Some("sent: hello across")), None);
+        assert_eq!(delivery_id(Some(r#"{"deliveryId":"hello across"}"#)), None);
+        assert_eq!(delivery_id(Some(r#"{"echo":"hello","deliveryId":"x"}"#)).as_deref(), Some("x"));
+        assert_eq!(delivery_id(None), None);
+    }
 
     #[test]
     fn merged_rows_are_each_listed_once_by_machine_and_id() {

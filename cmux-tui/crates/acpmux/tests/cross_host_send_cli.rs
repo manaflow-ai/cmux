@@ -183,6 +183,8 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
     );
     assert_eq!(line["exit"], 0);
     assert_eq!(line["bytes"], 12);
+    // Of the relay's output, only B's delivery id.
+    assert_eq!(line["delivery"], json!(delivery));
     // B names the session it delivered to by its id.
     let receiver = audit(&b);
     let line =
