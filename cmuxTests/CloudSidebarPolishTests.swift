@@ -19,6 +19,10 @@ struct CloudSidebarPolishTests {
             id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
         )
         #expect(!operation.hitMachineLimit)
+        #expect(!operation.requiresPaidPlan)
+        operation.refusalCode = "vm_requires_pro"
+        #expect(operation.requiresPaidPlan)
+        #expect(!operation.hitMachineLimit)
         operation.phase = .failed(output: "Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)")
         operation.refusalCode = "vm_active_limit_exceeded"
         #expect(operation.hitMachineLimit)

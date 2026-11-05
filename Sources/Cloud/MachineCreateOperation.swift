@@ -57,6 +57,12 @@ struct MachineCreateOperation: Identifiable, Equatable {
         refusalCode == CloudPlanRefusal.activeLimitExceededCode
     }
 
+    /// The plan cannot create Cloud machines at all (`vm_requires_pro`). A retry
+    /// gets the same answer, so upgrading is the only way through.
+    var requiresPaidPlan: Bool {
+        refusalCode == CloudPlanRefusal.requiresProCode
+    }
+
     /// The create found the team's shared vCPUs or memory already in use
     /// (`vm_resource_pool_exceeded`). Pausing or deleting a running machine
     /// frees it; a larger plan is only the secondary way through.

@@ -91,7 +91,9 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     ///   - plan: The currently loaded plan, or nil while it is unavailable.
     /// - Returns: Whether the row should show its upgrade action.
     public static func offersUpgrade(for code: String?, plan: MachinePlanSnapshot?) -> Bool {
-        if code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
+        // A plan that cannot create machines at all, and a full set of slots,
+        // both clear by moving up. An unloaded plan still offers it.
+        if code == requiresProCode || code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
         return code == resourcePoolExceededCode && plan?.hasHigherResourcePoolPlan == true
     }
 
@@ -128,6 +130,9 @@ public struct CloudPlanRefusal: Equatable, Sendable {
             return serverMessage ?? CloudDiagnosticFailure.plan.label
         }
     }
+
+    /// `vm_requires_pro`: this plan cannot create Cloud machines, so retrying never helps.
+    public static let requiresProCode = "vm_requires_pro"
 
     /// `vm_resource_pool_exceeded`: running machines hold the shared pool.
     public static let resourcePoolExceededCode = "vm_resource_pool_exceeded"

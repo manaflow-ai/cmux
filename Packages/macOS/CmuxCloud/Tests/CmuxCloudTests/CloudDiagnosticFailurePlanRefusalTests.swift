@@ -100,6 +100,18 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         }
     }
 
+    @Test("A plan without Cloud offers the upgrade, including before the plan has loaded")
+    func requiresProOffersUpgrade() {
+        let code = CloudPlanRefusal.requiresProCode
+        #expect(code == "vm_requires_pro")
+        #expect(CloudPlanRefusal.offersUpgrade(for: code, plan: nil))
+        for planID in ["free", "unknown"] {
+            #expect(CloudPlanRefusal.offersUpgrade(for: code, plan: MachinePlanSnapshot(activeCount: 0, planId: planID)), "\(planID)")
+        }
+        // A stale refusal on a plan that already includes Cloud has nothing to sell.
+        #expect(!CloudPlanRefusal.offersUpgrade(for: code, plan: MachinePlanSnapshot(activeCount: 0, planId: "pro")))
+    }
+
     @Test("Create-credit refusals keep the server's account or team billing scope")
     func createCreditsPreserveBillingScope() throws {
         let account = try #require(CloudPlanRefusal(status: 402, body: Self.body([
