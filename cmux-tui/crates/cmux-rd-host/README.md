@@ -111,14 +111,19 @@ history, the receiving policy's peer services). Only then does the receiver conn
 
 - No network listener. The host takes its one listening socket from systemd
   (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`, `SocketUser=root`, `SocketMode=0600`,
-  `DirectoryMode=0700` on `/run/cmux-rd`), as fd 3 with `LISTEN_FDS=1` and `LISTEN_PID` set to the
+  `/run/cmux-rd` mode 0710 `root:cmux-rd`), as fd 3 with `LISTEN_FDS=1` and `LISTEN_PID` set to the
   host's pid. Without them it refuses to start, and it refuses any passed fd that is not a
   listening Unix stream socket. There is no TCP or UDP port; `--token-fd`, `--bind`, `--port`,
-  `--single-tenant-overlay` and `--upstream-record` are refused in this mode.
+  `--single-tenant-overlay`, `--upstream-record` and `--browser` are refused in this mode.
 - Only the receiver connects. `--peer-uid N` is required; every accepted connection's
   `SO_PEERCRED` uid must equal it (0, the root receiver), or the connection is closed before any
-  byte is read. The agent (user `cmux`) can neither open the socket (root only, 0600) nor pass
-  the uid check.
+  byte is read. A non-root process, the agent's user `cmux` included, can neither open the socket
+  (root only, 0600) nor pass the uid check.
+- What this does not hold against: on Cloud machines the agent user `cmux` has passwordless sudo
+  (`web/services/vms/images/workUser.ts`), so an agent that uses sudo is root and can reach the
+  socket. The uid-0 check keeps out non-root processes only. The boundary that holds against
+  other people is the link admission (the owner's one-time token). Taking sudo away from agent
+  sessions is a separate decision.
 - The principal is the machine owner. The link already admitted the owner, so the hello's token
   and its user, class and interactive claims are not used: the session's principal is the owner,
   a person at the app (`--owner`, default `owner`). The hello's `start` mode chooses `view` or

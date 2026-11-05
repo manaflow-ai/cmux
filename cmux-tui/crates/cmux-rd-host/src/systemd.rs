@@ -223,7 +223,16 @@ mod tests {
         // Closed with nothing sent back.
         client.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
         let mut buf = [0u8; 16];
-        assert_eq!(client.read(&mut buf).unwrap_or(0), 0);
+        // Closed: end of file, or a reset because the host never read what was sent. A read
+        // timeout (the connection still open) fails.
+        match client.read(&mut buf) {
+            Ok(n) => assert_eq!(n, 0, "nothing is sent back"),
+            Err(e) => assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionReset,
+                "closed, not timed out: {e}"
+            ),
+        }
     }
 
     #[test]

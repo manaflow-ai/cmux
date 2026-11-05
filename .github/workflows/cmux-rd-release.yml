@@ -96,6 +96,7 @@ jobs:
         run: cargo test --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --no-default-features --features "$FEATURES"
 
       - name: Build
+        id: build
         shell: bash
         env:
           CMUX_BUILD_SHA: ${{ steps.version.outputs.sha }}
@@ -103,15 +104,29 @@ jobs:
           set -euo pipefail
           cargo zigbuild --release --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
             --no-default-features --features "$FEATURES" --bin cmux-rd --target "${TARGET}.${GLIBC_FLOOR}"
-          bin="cmux-tui/crates/cmux-rd-host/target/$TARGET/release/cmux-rd"
+          # The target directory as cargo resolves it (a runner may set CARGO_TARGET_DIR).
+          target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+          bin="$target_dir/$TARGET/release/cmux-rd"
           test -x "$bin"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
           # No glibc symbol newer than the floor.
           newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)"
           echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
           [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
-          # Never a codec in the binary: no x264, no OpenH264 compiled from source.
-          if nm -D --defined-only "$bin" 2>/dev/null | grep -E ' (x264_|WelsCreateSVCEncoder|WelsCreateDecoder)' ; then
-            echo "the release binary contains an H.264 codec" >&2
+          # Never a codec in the binary: no x264, no OpenH264 compiled from source. The full
+          # symbol table (static and dynamic; the release profile keeps symbols) must name no
+          # codec function, and no x264 version banner may be in the data. The names
+          # WelsCreateSVCEncoder/WelsCreateDecoder and "openh264" do appear as strings: the
+          # host looks Cisco's library up by name at run time, so those are not grepped as text.
+          symbols="$(nm --defined-only "$bin" | wc -l)"
+          [[ "$symbols" -gt 1000 ]] || { echo "nm sees only $symbols symbols (stripped?); cannot check codecs" >&2; exit 1; }
+          if { nm --defined-only "$bin"; nm -D --defined-only "$bin"; } | grep -E ' [A-Za-z] (x264_|WelsCreateSVCEncoder|WelsCreateDecoder|WelsInitEncoderExt|WelsEncoderEncodeExt|DecodeFrame2)'; then
+            echo "the release binary defines an H.264 codec function" >&2
+            exit 1
+          fi
+          if strings -a "$bin" | grep -i -E 'x264 - core|x264_encoder_open|libx264'; then
+            echo "the release binary contains x264" >&2
             exit 1
           fi
 
@@ -131,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 cmux-tui/crates/cmux-rd-host/scripts/release.py package \
-            "cmux-tui/crates/cmux-rd-host/target/$TARGET/release/cmux-rd" \
+            "${{ steps.build.outputs.bin }}" \
             "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md" "${{ steps.version.outputs.version }}" dist
           (cd dist && sha256sum ./*.tar.gz | sed 's# \./# #' > checksums.txt && cat checksums.txt)
 
@@ -171,9 +186,10 @@ jobs:
           notes="cmux-rd $VERSION for $TARGET (glibc $GLIBC_FLOOR or later), built from https://github.com/${GITHUB_REPOSITORY}/commit/${SHA} with features $FEATURES.
 
           The archive holds bin/cmux-rd, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md. It contains no H.264 codec: run \`cmux-rd openh264-install\` on the machine to download Cisco's OpenH264 from Cisco (pinned SHA-256)."
-          # A re-run after a partial upload replaces the assets of the release it made.
+          # Published assets are never replaced: a re-run fails on an asset that is already there
+          # (it only adds what a partial upload left out).
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/checksums.txt
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/checksums.txt
             exit 0
           fi
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \

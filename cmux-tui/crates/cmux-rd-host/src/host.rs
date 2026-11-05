@@ -184,10 +184,18 @@ fn browser(opts: &Opts, cfg: &SessionCfg) -> Res<Option<crate::browser::BrowserS
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const MACHINE_OWNER: &str = "owner";
 
-/// Options of the TCP development modes that `--listen-systemd` refuses.
+/// Options that `--listen-systemd` refuses: the TCP development modes, and the cloud browser
+/// (a Chromium with an optional CDP port does not belong on the agent display's host).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const NOT_WITH_SYSTEMD: &[&str] =
-    &["token-fd", "bind", "port", "single-tenant-overlay", "upstream-record"];
+const NOT_WITH_SYSTEMD: &[&str] = &[
+    "token-fd",
+    "bind",
+    "port",
+    "single-tenant-overlay",
+    "upstream-record",
+    "browser",
+    "browser-cdp-port",
+];
 
 /// `--listen-systemd --peer-uid N`: the production Cloud mode (Linux). See systemd.rs.
 #[cfg(target_os = "linux")]
@@ -205,7 +213,6 @@ fn run_systemd(opts: &Opts) -> Res<()> {
     let cfg = session_cfg(opts)?;
     let owner = opts.str_or("owner", MACHINE_OWNER);
     let mut table = SessionTable::new(owner_policy(owner.clone()));
-    let _browser = browser(opts, &cfg)?;
     eprintln!(
         "cmux-rd host: systemd socket; only uid {peer_uid} (the link receiver) may connect; the link admitted \
          the owner, so no hello token is used; exits after {} s with no viewer",
@@ -604,6 +611,29 @@ mod tests {
         let _client = std::net::TcpStream::connect(addr).expect("connect");
         let (accepted, _) = listener.accept().expect("accept");
         assert!(peer_allowed(accepted.peer_addr().expect("peer").ip(), Reach::LoopbackOnly));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn listen_systemd_refuses_the_development_and_browser_options() {
+        for extra in [
+            &["--token-fd", "3"][..],
+            &["--port", "4103"],
+            &["--browser", "https://example.com"],
+            &["--browser-cdp-port", "9222"],
+        ] {
+            let mut args: Vec<String> =
+                ["--listen-systemd", "--peer-uid", "0"].iter().map(|s| s.to_string()).collect();
+            args.extend(extra.iter().map(|s| s.to_string()));
+            let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("refused");
+            assert!(
+                err.to_string().contains("is not used with --listen-systemd"),
+                "{extra:?}: {err}"
+            );
+        }
+        let args: Vec<String> = ["--listen-systemd"].iter().map(|s| s.to_string()).collect();
+        let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("no peer uid");
+        assert!(err.to_string().contains("--peer-uid"), "{err}");
     }
 
     #[test]
