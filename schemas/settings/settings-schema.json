@@ -44351,8 +44351,8 @@
     },
     {
       "accepts" : [
-        "rotate",
         "thinking",
+        "rotate",
         "custom"
       ],
       "agent_refusal" : null,
@@ -44360,17 +44360,17 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.agentChatStatusVerbsRotate",
-            "text" : "Rotate"
-          },
-          "value" : "rotate"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.agentChatStatusVerbsThinking",
             "text" : "Thinking only"
           },
           "value" : "thinking"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatStatusVerbsRotate",
+            "text" : "Rotate"
+          },
+          "value" : "rotate"
         },
         {
           "title" : {
@@ -44383,7 +44383,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "rotate",
+      "default" : "thinking",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",

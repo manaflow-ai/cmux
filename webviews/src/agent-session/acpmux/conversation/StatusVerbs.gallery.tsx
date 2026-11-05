@@ -55,7 +55,7 @@ export default componentEntry<{ variant: Variant }>({
   variants: {
     rotating: {
       props: { variant: "rotating" },
-      note: "The default live line rotates through cmux's own short -ing verbs while a turn works.",
+      note: "An opt-in setting rotates the live line through cmux's own short -ing verbs while a turn works.",
     },
     "thinking-only": {
       props: { variant: "thinking-only" },

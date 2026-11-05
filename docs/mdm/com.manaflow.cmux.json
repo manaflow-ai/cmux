@@ -152,11 +152,11 @@
       "type" : "string"
     },
     "agentPane.display.statusVerbs.mode" : {
-      "default" : "rotate",
+      "default" : "thinking",
       "description" : "Choose whether the live status line rotates through verbs or stays on Thinking.",
       "enum" : [
-        "rotate",
         "thinking",
+        "rotate",
         "custom"
       ],
       "title" : "Working Status Verbs",

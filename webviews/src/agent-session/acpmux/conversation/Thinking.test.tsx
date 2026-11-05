@@ -123,7 +123,10 @@ test("a typed wait keeps precedence over rotating verbs", () => {
 });
 
 test("saved display settings update an already mounted live line", () => {
-  act(() => root!.render(<Thinking since={0} now={() => 2_400} />));
+  act(() => {
+    setChatDisplay({ "agentPane.display.statusVerbs.mode": "rotate" });
+    root!.render(<Thinking since={0} now={() => 2_400} />);
+  });
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Exploring");
   act(() => setChatDisplay({ "agentPane.display.statusVerbs.mode": "thinking" }));
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");

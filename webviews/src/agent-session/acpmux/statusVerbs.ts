@@ -38,12 +38,14 @@ export type StatusVerbConfig =
   | { mode: "thinking"; verbs: readonly ["Thinking"] }
   | { mode: "custom"; verbs: readonly string[] };
 
+const THINKING_VERBS = ["Thinking"] as const;
+
 export const DEFAULT_STATUS_VERB_CONFIG: StatusVerbConfig = {
-  mode: "rotate",
-  verbs: DEFAULT_STATUS_VERBS,
+  mode: "thinking",
+  verbs: THINKING_VERBS,
 };
 
-const THINKING_CONFIG: StatusVerbConfig = { mode: "thinking", verbs: ["Thinking"] };
+const THINKING_CONFIG: StatusVerbConfig = DEFAULT_STATUS_VERB_CONFIG;
 
 const cleanVerb = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -62,6 +64,7 @@ export function resolveStatusVerbConfig(values: unknown): StatusVerbConfig {
   const record = values as Record<string, unknown>;
   const mode = record["agentPane.display.statusVerbs.mode"];
   const custom = record["agentPane.display.statusVerbs.custom"];
+  if (mode === "rotate") return { mode: "rotate", verbs: DEFAULT_STATUS_VERBS };
   if (mode === "thinking") return THINKING_CONFIG;
   if (mode === "custom") {
     const verbs = verbsFrom(custom);

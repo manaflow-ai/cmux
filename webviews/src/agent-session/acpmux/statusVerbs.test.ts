@@ -13,11 +13,17 @@ import { translatorFor } from "./i18n";
 afterEach(() => configureStatusVerbs(undefined));
 
 describe("status verbs", () => {
-  test("rotates the default list at a stable interval", () => {
-    expect(statusVerbAt(0)).toBe(DEFAULT_STATUS_VERBS[0]);
-    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS - 1)).toBe(DEFAULT_STATUS_VERBS[0]);
-    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS)).toBe(DEFAULT_STATUS_VERBS[1]);
-    expect(statusVerbAt(-1)).toBe(DEFAULT_STATUS_VERBS[0]);
+  test("keeps the default on bare Thinking", () => {
+    expect(resolveStatusVerbConfig(undefined)).toEqual({ mode: "thinking", verbs: ["Thinking"] });
+    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS * 20)).toBe("Thinking");
+  });
+
+  test("rotates the opt-in list at a stable interval", () => {
+    const config = resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" });
+    expect(statusVerbAt(0, config)).toBe(DEFAULT_STATUS_VERBS[0]);
+    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS - 1, config)).toBe(DEFAULT_STATUS_VERBS[0]);
+    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS, config)).toBe(DEFAULT_STATUS_VERBS[1]);
+    expect(statusVerbAt(-1, config)).toBe(DEFAULT_STATUS_VERBS[0]);
   });
 
   test("supports thinking only mode", () => {
@@ -43,8 +49,8 @@ describe("status verbs", () => {
       verbs: ["Thinking"],
     });
     expect(resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "unknown" })).toEqual({
-      mode: "rotate",
-      verbs: DEFAULT_STATUS_VERBS,
+      mode: "thinking",
+      verbs: ["Thinking"],
     });
   });
 
@@ -73,7 +79,7 @@ test("incomplete locales keep their translated Thinking for the entire rotation"
 
 test("complete locales rotate translated labels and thinking-only stays localized", () => {
   const t = translatorFor("ja");
-  const words = statusVerbLabels(t, "ja", resolveStatusVerbConfig(undefined));
+  const words = statusVerbLabels(t, "ja", resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" }));
   expect(words).toHaveLength(DEFAULT_STATUS_VERBS.length);
   expect(words[0]).toBe(t("thinking"));
   expect(words).not.toContain("Exploring");

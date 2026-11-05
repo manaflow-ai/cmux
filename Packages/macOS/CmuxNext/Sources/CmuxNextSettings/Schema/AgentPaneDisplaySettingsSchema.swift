@@ -169,17 +169,17 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
                 ]),
                 .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
-            // The live line's short working verbs (webviews/.../statusVerbs.ts). Rotate is the
-            // default; Thinking preserves the traditional label and Custom reads the comma list.
+            // The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the
+            // default; Rotate opts into the short -ing list and Custom reads the comma list.
             row(["statusVerbs", "mode"], SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
                 help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help",
                                          "Choose whether the live status line rotates through verbs or stays on Thinking."),
                 .choice([
-                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
                     SettingChoice("thinking", SettingsText.keyed("settings.choice.agentChatStatusVerbsThinking", "Thinking only")),
+                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
                     SettingChoice("custom", SettingsText.keyed("settings.choice.agentChatStatusVerbsCustom", "Custom")),
                 ]),
-                .string("rotate"), ["status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]),
+                .string("thinking"), ["status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]),
             row(["statusVerbs", "custom"], SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
                 help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help",
                                          "Comma-separated -ing verbs for the live status line."),

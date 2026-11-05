@@ -123,7 +123,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
           expect(new Set(frames.map((rect) => rect.y)).size).toBe(1);
           if (index > 0) expect(frames[0]!.y).toBeGreaterThan(geometry[index - 1]![0]!.y);
         }
-        expect(labels.size).toBe(baseline ? 1 : 10);
+        expect(labels.size).toBe(1);
         expect(displacement).toBeLessThanOrEqual(0.5);
         expect(heights.size).toBe(1);
         expect(shimmerOffset).toBeLessThanOrEqual(0.5);
@@ -147,6 +147,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
     test("real clock rotates, settings switch in place, and long custom labels keep the timer in bounds", async () => {
       const page = await open();
       try {
+        await page.evaluate(() => window.__statusVerbs.mode("rotate"));
         await page.evaluate(() => window.__statusVerbs.show(1));
         expect((await sample(page))[0]!.label).toBe("Thinking");
         await page.waitForFunction(() => document.querySelector(".cv-shimmer__base")?.textContent === "Exploring");

@@ -1801,11 +1801,11 @@
           "title": "Working Status Verbs",
           "help": "Choose whether the live status line rotates through verbs or stays on Thinking.",
           "kind": "choice",
-          "default": "rotate",
+          "default": "thinking",
           "group": "Agent Chat",
           "values": [
-            "rotate",
             "thinking",
+            "rotate",
             "custom"
           ]
         },

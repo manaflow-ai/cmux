@@ -50,7 +50,7 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
             accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
-        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("rotate"),
+        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("thinking"),
             accepted: [.string("thinking"), .string("custom")], refused: [.string("random"), .bool(true)]),
         Row(key: "agentPane.display.statusVerbs.custom", fallback: nil,
             accepted: [.string("Reading, Planning")], refused: [.number(3)]),
