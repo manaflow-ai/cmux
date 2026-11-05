@@ -130,11 +130,18 @@ OWNED_VERIFY_JOBS = {
 }
 # Rule 6's other exception: a verify job whose runs-on reads only a Blacksmith pick (exactly this
 # runs-on), from a job that runs scripts/ci/classic_nightly_build_runner.py with ENABLED '0', which can
-# emit only its CANDIDATES (both blacksmith-*), never an owned label.
+# emit only its CANDIDATES (both blacksmith-*), never an owned label. Rule change for the one-mini mode
+# only: with vars.CI_CLASSIC_NIGHTLY_MINI set on main (runner_label_policy holds it to cmux15's
+# glaeda-nightly-mini), the secret-free verify runs on cmux15's nightly-only runners, as feat-cmux-next's
+# one-mini nightly verifies there. The Mac outlives the job, so a process the app leaves running could see
+# a later signing job; glaeda's hook waits out an earlier job's leftover processes before it gives a signing
+# job the whole Mac (glaeda #1738, the first hook scripts/ci/glaeda-signing-hooks.txt lists), and that job's
+# claim gate fails it on any other hook (tests/test_classic_nightly_one_mini.py). Unset, the Blacksmith pick.
 PICKED_EPHEMERAL_VERIFY_JOBS = {
     ("nightly.yml", "verify-signed-nightly"): (
         "pick-classic-sign-runner",
-        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && "
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && "
+        "github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt > 1 && "
         "needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && "
         "needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || "
         "'blacksmith-6vcpu-macos-26' }}"),

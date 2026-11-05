@@ -1128,10 +1128,14 @@ jobs:
       id-token: write
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
-    # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    # Zig 0.15.2 could not link the real helper on macOS 26, so the helper
+    # builds on macOS 15 like the stable release workflow. The Ghostty
+    # submodule now pins Zig 0.16.0, the Zig feat-cmux-next's nightly links
+    # this helper with on cmux15 (macOS 27, Xcode 26.6), so the one-mini mode
+    # (vars.CI_CLASSIC_NIGHTLY_MINI, tests/test_classic_nightly_one_mini.py)
+    # builds it there too.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 140 || 20 }}
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
     steps:
@@ -1193,8 +1197,8 @@ jobs:
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 135 || 15 }}
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -1212,9 +1216,10 @@ jobs:
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
+      # Not in the one-mini mode: its route reads no pick, and the App key stays off the shared nightly-only runners.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != '' && !(vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1226,7 +1231,7 @@ jobs:
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
+        if: steps.route-token.outcome == 'failure' && !(vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1289,13 +1294,13 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'glaeda-nightly-mini-builder' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
     # build, not only a warm one.
-    timeout-minutes: 90
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 210 || 90 }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -1339,7 +1344,7 @@ jobs:
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           case "${RUNNER_NAME:-}" in
-            *-glaeda|*-glaeda-[0-9]*)
+            *-glaeda|*-glaeda-[0-9]*|*-glaeda-nightly-only-*)
               # Earlier jobs linked build-universal to a tree kept per channel
               # and toolchain. Delete this channel's trees, so no later change
               # can link one back and they stop using disk. Another channel's
@@ -1375,7 +1380,7 @@ jobs:
           # unchanged.
           identity="$(xcodebuild -version)"
           case "${RUNNER_NAME:-}" in
-            *-glaeda | *-glaeda-[0-9]*) identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE" ;;
+            *-glaeda | *-glaeda-[0-9]* | *-glaeda-nightly-only-*) identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE" ;;
           esac
           echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
@@ -1737,8 +1742,8 @@ jobs:
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 6
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
       contents: read
     outputs:
@@ -1753,9 +1758,10 @@ jobs:
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
+      # Not in the one-mini mode: its route reads no pick, and the App key stays off the shared nightly-only runners.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != '' && !(vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1767,7 +1773,7 @@ jobs:
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
+        if: steps.route-token.outcome == 'failure' && !(vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -2053,11 +2059,14 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # A literal ephemeral label: a repository variable must not move a signing
-    # job onto a machine that is reused between jobs. Blacksmith is trusted
-    # like GitHub-hosted for signing, and no nightly job takes a GitHub-hosted
-    # Mac (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # A literal label: a repository variable must not choose where signing
+    # secrets go. Blacksmith is trusted like GitHub-hosted for signing, and no
+    # nightly job takes a GitHub-hosted Mac (tests/test_ci_self_hosted_guard.sh).
+    # In the one-mini mode a push or schedule of main signs on cmux15's trusted
+    # signing runner, which glaeda admits for main's push and schedule only and
+    # gives this job the whole Mac (the claim gate below); a dispatch keeps the
+    # Blacksmith pick (tests/test_classic_nightly_one_mini.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && 'glaeda-trusted-next-signing' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
@@ -2066,7 +2075,8 @@ jobs:
     # queue for close to an hour before the final DMG can be created. Keep the
     # runner lease bounded, but leave enough room for the helper wait and the
     # signed DMG validation that follows it.
-    timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 120 || 170 }}
+    # The one-mini mode adds 120 minutes: glaeda's wait for the whole Mac counts toward the timeout.
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && (needs.decide.outputs.should_publish == 'true' && 240 || 290) || (needs.decide.outputs.should_publish == 'true' && 120 || 170) }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2092,6 +2102,34 @@ jobs:
       # Signed app path for every step after "Prepare channel identity".
       CHANNEL_APP_PATH: build-universal/Build/Products/Release/${{ needs.decide.outputs.app_name }}.app
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2113,6 +2151,20 @@ jobs:
           # check reads ghostty-next/build.zig.zon, so initialize that optional
           # submodule in the next step only for the cmux-next track.
           submodules: false
+
+      # This run's own claim script and hook list, whatever commit the build checkout holds.
+      - name: Checkout trusted signing controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .nightly-signing-control
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash .nightly-signing-control/scripts/ci/signing-runner-claim.sh
 
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
@@ -2749,8 +2801,11 @@ jobs:
     if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    # The one-mini mode verifies on cmux15's nightly-only runners, as feat-cmux-next's one-mini nightly does: this
+    # job holds no secret, and glaeda waits out an earlier job's leftover processes before a signing job takes
+    # the whole Mac (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 6).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
     strategy:
       fail-fast: false
       matrix:

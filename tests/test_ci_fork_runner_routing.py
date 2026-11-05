@@ -324,19 +324,33 @@ SECRET_RUNNER_EXCEPTIONS = {
         "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
         "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("nightly.yml", "build-sign-notarize-nightly"):
-        "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
+        "the same picker as generate-nightly-deltas: only Blacksmith macOS labels; in the one-mini mode "
+        "(vars.CI_CLASSIC_NIGHTLY_MINI, a push or schedule of main) the literal glaeda-trusted-next-signing, "
+        "cmux15's trusted signing runner, where glaeda gives the job the whole Mac and its claim gate fails it "
+        "before any secret otherwise (tests/test_classic_nightly_one_mini.py)",
     ("cmux-next-dev-daily.yml", "tip-deltas"):
         "the runner job's `cloud`/`alternate` outputs, from classic_nightly_build_runner.py: "
         "only Blacksmith macOS labels",
     ("nightly.yml", "build-nightly-app"):
-        "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
-        "by design; nightlies never use Blacksmith",
+        "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER), or in "
+        "the one-mini mode on cmux15's nightly-only builder, by design; nightlies never use Blacksmith",
+    # Rule change for the one-mini mode only (vars.CI_CLASSIC_NIGHTLY_MINI on main): these pickers then run on
+    # cmux15's nightly-only runners, and their App-key steps do not run there (their route reads no pick;
+    # tests/test_classic_nightly_one_mini.py test_a_mini_job_reads_no_secret_in_this_mode). Unset, the
+    # Blacksmith literal as before.
+    ("nightly.yml", "pick-nightly-app-runner"):
+        "the one-mini mode's vars.CI_CLASSIC_NIGHTLY_MINI, which mints no GLAEDA_ROUTE_APP_KEY token there; "
+        "else the Blacksmith literal",
+    ("nightly.yml", "pick-classic-prepare-runner"):
+        "the one-mini mode's vars.CI_CLASSIC_NIGHTLY_MINI, which mints no GLAEDA_ROUTE_APP_KEY token there; "
+        "else the Blacksmith literal",
     ("seed-derived-data.yml", "seed"):
         "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
         "(it seeds their DerivedData)",
 }
 APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
-                             if key == ("nightly.yml", "generate-nightly-deltas")}
+                             if key in {("nightly.yml", "generate-nightly-deltas"), ("nightly.yml", "pick-nightly-app-runner"),
+                                        ("nightly.yml", "pick-classic-prepare-runner")}}
 # A secret a job reads: `${{ secrets.X }}` (not the job's own GITHUB_TOKEN), `secrets[...]`, or
 # `secrets: inherit` into a reusable workflow. Context names are case-insensitive.
 SECRET_MARKER = re.compile(
