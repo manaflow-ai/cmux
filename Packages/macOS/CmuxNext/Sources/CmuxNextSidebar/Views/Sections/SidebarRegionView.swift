@@ -325,7 +325,7 @@ final class SidebarRegionView: NSView {
             }
             let card = CALayer()
             card.cornerCurve = .continuous
-            card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            card.cornerRadius = Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1)
             layer?.insertSublayer(card, at: 0)
             card.frame = frame
             cardLayers[id] = card

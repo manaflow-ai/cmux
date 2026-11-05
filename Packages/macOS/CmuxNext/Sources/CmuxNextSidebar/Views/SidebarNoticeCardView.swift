@@ -58,7 +58,7 @@ final class SidebarNoticeCardView: NSView {
     /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
          motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Metrics.surfaceCornerRadius, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
@@ -79,8 +79,8 @@ final class SidebarNoticeCardView: NSView {
         // Nothing draws past the card's rounded edge: a card laid out narrower than its rows (a sidebar laid out
         // small) drew its switch past its leading edge, alone, with no card around it (Lawrence msg 19185).
         content.layer?.masksToBounds = true
-        track.cornerRadius = 1.5
-        bar.cornerRadius = 1.5
+        track.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
+        bar.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
         // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
         track.masksToBounds = true
         content.layer?.addSublayer(track)
@@ -311,8 +311,8 @@ final class SidebarNoticeCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
-        content.layer?.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
+        content.layer?.cornerRadius = Metrics.surfaceCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
         eyebrowLabel.font = Typography.caption

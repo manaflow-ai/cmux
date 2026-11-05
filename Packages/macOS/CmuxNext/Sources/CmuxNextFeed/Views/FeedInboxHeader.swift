@@ -85,7 +85,7 @@ struct FeedInboxHeader: View {
             FeedIconLabel(title, icon: icon, textSize: 11.5)
                 .font(.system(size: 11.5, weight: filter.connection == connection ? .medium : .regular))
                 .padding(.horizontal, 9).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6).fill(filter.connection == connection ? colors.selection : .clear))
+                .background(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).fill(filter.connection == connection ? colors.selection : .clear))
         }
         .buttonStyle(.plain)
         .foregroundStyle(filter.connection == connection ? colors.primary : colors.secondary)
