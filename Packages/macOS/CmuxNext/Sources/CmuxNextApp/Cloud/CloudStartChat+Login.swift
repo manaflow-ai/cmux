@@ -72,8 +72,8 @@ extension CloudStartChat {
                     return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
                 }
             } else {
-                let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams,
-                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
+                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                        confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) }, stillAllowed: gate.stillAllowed)
             }
