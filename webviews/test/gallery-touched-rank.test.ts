@@ -105,3 +105,15 @@ test("an asset a component loads with new URL(..., import.meta.url) touches the 
   expect(result.entries).toEqual(["agent-pane.dock"]);
   expect(result.ranked[0]).toMatchObject({ why: "imports", distance: 1 });
 });
+
+test("an asset beside an entry but loaded by nothing it reaches places no entry", () => {
+  // Folder and name guesses would hide it from unplaced.py's full render (review of #36776).
+  const result = touchedEntries(entries, ["webviews/src/summary/SummaryCard.png"], options);
+  expect(result.entries).toEqual([]);
+});
+
+test("a string catalog under webviews/src renders every entry", () => {
+  const result = touchedEntries(entries, ["webviews/src/summary/Localizable.xcstrings"], options);
+  expect(result.all).toBe(true);
+  expect(result.entries).toHaveLength(5);
+});

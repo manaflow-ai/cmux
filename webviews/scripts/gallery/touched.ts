@@ -37,6 +37,8 @@ const EVERYTHING = [
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
+  // A string catalog gen-strings.mjs compiles into the strings every page loads; no import reaches it.
+  /^webviews\/src\/.*\.xcstrings$/,
 ];
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
@@ -208,10 +210,13 @@ export function touchedEntries(
         hits.add(repoPath);
         rank({ id: entry.id, tier, why: reason, file: repoPath, distance });
       };
+      // An asset (an image, a JSON file) counts only where an import or new URL() traces it; a guess by
+      // name or folder would place it and skip the full render unplaced.py falls back to.
+      const source = SOURCE_EXTENSIONS.includes(path.extname(full));
       if (own.has(full)) why(0, "own");
-      else if (full.startsWith(`${src}/`) && names(entryText, path.relative(src, full))) why(1, "names");
+      else if (source && full.startsWith(`${src}/`) && names(entryText, path.relative(src, full))) why(1, "names");
       else if (hops.has(full)) why(2, "imports", hops.get(full)!);
-      else if (folders.has(path.dirname(full))) why(3, "same-folder");
+      else if (source && folders.has(path.dirname(full))) why(3, "same-folder");
       else if (sheets.get(entry.host)!.includes(full)) why(4, "host-stylesheet");
     }
     if (hits.size) reasons[entry.id] = [...hits].sort();
