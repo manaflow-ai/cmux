@@ -102,4 +102,19 @@ struct StoreIndexLookupTests {
         store.apply(snapshot: Self.tree(firstResource: "ws_a2"))
         #expect(await wait.value == "a")
     }
+
+    /// EVIDENCE ONLY (branch fix/rds-reopen-wait-race-nomerge, never lands): the test above as #35078
+    /// wrote it, with the main actor busy 6 s after the wait starts, as on the starved runner of run
+    /// 41954200584 (the test ran 121 s there). The 5 s wall-clock deadline ends the wait first.
+    @Test func evidenceTheWallClockDesignFailsOnABusyMainActor() async {
+        let store = DaemonStore()
+        store.apply(snapshot: Self.tree())
+        let wait = Task { await store.workspace(afterReopen: ResourceID(rawValue: "ws_a2"), timeout: .seconds(5)) }
+        await Task.yield()  // the wait's task runs first: its 5 s deadline starts on the wall clock
+        let busyUntil = ContinuousClock.now + .seconds(6)
+        while ContinuousClock.now < busyUntil {}
+        for _ in 0..<9 { await Task.yield() }
+        store.apply(snapshot: Self.tree(firstResource: "ws_a2"))
+        #expect(await wait.value == "a")
+    }
 }
