@@ -357,6 +357,27 @@ class NeverCancelled(unittest.TestCase):
                 self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/rerun-failed-jobs"])
                 self.assertIn("signer-build never got a runner", out)
 
+    def test_a_tip_that_moves_before_the_re_run_keeps_the_old_tips_jobs(self):
+        # A push landing while the tick reads must not have the old tip's jobs re-run over the newer
+        # nightly (review F1 on #36244): the tip is read again right before the write.
+        newer = "f" * 40
+        gh = FakeGh(runs=[ended(7)], jobs={7: [lost("signer")]}, tip=[TIP, newer])
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        self.assertIn("moved", out)
+        gh = FakeGh(runs=[ended(7)], jobs={7: [lost("signer")]}, tip=[TIP, TIP])
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/rerun-failed-jobs"])
+
+        class TipFailsSecond(FakeGh):
+            def __call__(self, args, write):
+                if not write and args[-1].endswith("git/ref/heads/nightly-next") and self.reads.get("tip", 0) >= 1:
+                    raise stuck.Unreadable("read failed")
+                return super().__call__(args, write)
+        gh = TipFailsSecond(runs=[ended(7)], jobs={7: [lost("signer")]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [], "an unreadable tip before the write re-runs nothing")
+
     def test_an_ended_run_is_re_run_only_when_its_only_failures_never_got_a_runner(self):
         real_failure = job("build-nightly-app", status="completed", conclusion="failure", runner="mini",
                            started_at=ago(40))
