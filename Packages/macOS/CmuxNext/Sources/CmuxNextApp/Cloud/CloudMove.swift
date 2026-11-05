@@ -56,9 +56,9 @@ struct CloudMove {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
         var left = retries[tab.id]
-        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
-        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
-        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        // Kept across launches: any uncommitted rerun's pin (move, ask first, Update Machine) to a machine gone from
+        // the signed-in account's list would refuse every move of this tab, so it goes, as does a retry of a non-chat.
+        if let machineID = left?.machineID, services.cloud.hasLoadedCurrentMachines, services.machines.session(machineID) == nil { left = nil }
         if tab.agentSession == nil { left = nil }
         if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
