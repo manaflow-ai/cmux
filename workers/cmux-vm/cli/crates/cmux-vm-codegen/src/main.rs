@@ -71,8 +71,8 @@ fn generate(args: &Args) -> Result<(), String> {
     let mut doc: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", args.spec.display()))?;
     if let Some(path) = &args.tags {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let tags = text
             .lines()
             .map(|line| line.split('#').next().unwrap_or_default().trim())

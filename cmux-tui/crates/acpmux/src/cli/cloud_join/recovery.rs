@@ -364,8 +364,10 @@ pub(super) async fn join(
             "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
         )
     };
-    // The spec's own limits (name and hostname length, the platform) are
-    // checked here as the hub would: a body it would refuse is never sent.
+    // The spec's own limits (name and hostname length) are checked here as
+    // the hub would: a body it would refuse is never sent. The generated type
+    // keeps `platform` a string; the pending record's check (macos or linux)
+    // already holds it to the spec's two values.
     let body: cmux_cloud_client::types::JoinRedeem =
         serde_json::from_value(body).map_err(|_| refused())?;
     let answer =

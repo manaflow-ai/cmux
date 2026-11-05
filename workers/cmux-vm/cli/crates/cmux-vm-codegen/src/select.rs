@@ -39,7 +39,10 @@ pub fn keep_tags(doc: &mut Value, tags: &BTreeSet<String>) -> Vec<String> {
         });
     }
     prune_schemas(doc);
-    tags.iter().filter(|t| !seen.contains(*t)).cloned().collect()
+    tags.iter()
+        .filter(|t| !seen.contains(*t))
+        .cloned()
+        .collect()
 }
 
 /// Removes the component schemas that nothing under `paths` reaches,
@@ -112,7 +115,11 @@ mod tests {
         assert!(doc.pointer("/paths/~1v1~1slack").is_none());
         assert!(doc.pointer("/paths/~1v1~1machines/post").is_none());
         assert!(doc.pointer("/paths/~1v1~1machines/get").is_some());
-        let schemas = doc.pointer("/components/schemas").unwrap().as_object().unwrap();
+        let schemas = doc
+            .pointer("/components/schemas")
+            .unwrap()
+            .as_object()
+            .unwrap();
         assert_eq!(
             schemas.keys().cloned().collect::<Vec<_>>(),
             vec!["Machine".to_owned(), "State".to_owned()]

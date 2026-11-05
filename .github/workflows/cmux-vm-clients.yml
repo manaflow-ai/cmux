@@ -1,9 +1,7 @@
 # CI for the clients generated from the cmux VM OpenAPI document
 # (workers/cmux-vm/openapi.json): the Rust `cmux-vm` CLI and its
 # `cmux-vm-client` crate (workers/cmux-vm/cli), and the TypeScript SDK
-# `@cmux/vm` (workers/cmux-vm/sdk). The same generator makes NEXT Cloud's
-# `cmux-cloud-client` (cmux-tui/crates/cmux-cloud-client) from its vendored
-# selection of cmux-platform's openapi.json, checked here the same way.
+# `@cmux/vm` (workers/cmux-vm/sdk).
 #
 # Each job regenerates its client from the document and fails when the
 # checked-in output differs, so a contract change always lands together with
@@ -20,7 +18,6 @@ on:
       - workers/cmux-vm/cli/**
       # The agent-key mint's rules the CLI shares with the cmux app.
       - cmux-tui/crates/cmux-cloud-config/**
-      - cmux-tui/crates/cmux-cloud-client/**
       - workers/cmux-vm/sdk/**
       # The cli tests run every command in this agent guide (tests/agent_doc.rs).
       - skills/cmux-cloud-vm/references/headless.md
@@ -36,7 +33,6 @@ on:
       - workers/cmux-vm/cli/**
       # The agent-key mint's rules the CLI shares with the cmux app.
       - cmux-tui/crates/cmux-cloud-config/**
-      - cmux-tui/crates/cmux-cloud-client/**
       - workers/cmux-vm/sdk/**
       # The cli tests run every command in this agent guide (tests/agent_doc.rs).
       - skills/cmux-cloud-vm/references/headless.md
@@ -111,18 +107,6 @@ jobs:
           if [[ -n "$(git status --porcelain -- .)" ]]; then
             git --no-pager diff --stat -- .
             echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
-            exit 1
-          fi
-
-      - name: cmux-cloud-client matches its openapi.json
-        id: regenerate-cloud
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          ../../../cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh
-          if [[ -n "$(git status --porcelain -- ../../../cmux-tui/crates/cmux-cloud-client)" ]]; then
-            git --no-pager diff --stat -- ../../../cmux-tui/crates/cmux-cloud-client
-            echo "::error::cmux-cloud-client's src/generated.rs is stale: run cmux-tui/crates/cmux-cloud-client/scripts/regenerate.sh and commit the result"
             exit 1
           fi
 

@@ -5,8 +5,8 @@
 //! into rust for next's cloud").
 //!
 //! - [`Client`] and [`types`] are generated from cmux-platform's
-//!   `openapi.json` by `cmux-vm-codegen` (`scripts/update-spec.sh` takes a
-//!   newer spec; `scripts/regenerate.sh` reruns the generator, which CI checks).
+//!   `openapi.json` at build time (`build.rs`, with `cmux-vm-codegen`'s
+//!   spelling rewrite; `scripts/update-spec.sh` takes a newer spec).
 //!   Only the groups `tags.txt` names are generated. A route NEXT needs that the
 //!   spec lacks is a cmux-platform issue (cmux-platform#825), never a type
 //!   written here.
@@ -27,7 +27,15 @@
     dead_code,
     missing_docs
 )]
-mod generated;
+/// The client progenitor generates from `openapi.json` at build time
+/// (`build.rs`; generated code is build output, never committed).
+#[allow(
+    clippy::unwrap_used,
+    reason = "progenitor's Client::new unwraps a reqwest build with fixed timeouts; this crate's callers use client_for, which returns that error"
+)]
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+}
 
 pub mod backend;
 mod error;
