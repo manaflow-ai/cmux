@@ -480,15 +480,13 @@ impl Inner {
                 session_file(&dir, self.journal.journal_id()),
                 Ok(SessionFile::Journaled(lsn)) if lsn >= pending.lsn
             );
-            if !held
-                && let Err(error) =
+            if !held {
+                // Counted, the checkpoint's own write too: a failed sync freezes the store (F3),
+                // and a checkpoint under way never writes an LSN past it.
+                self.counted_sync("a chat's metadata failed to sync", || {
                     write_session_json(&dir, &pending.meta, pending.lsn, self.journal.journal_id())
-            {
-                let error = error.context(format!("write the metadata of {id}"));
-                if error.chain().any(|cause| cause.is::<SyncFailed>()) {
-                    self.freeze(format!("a chat's metadata failed to sync: {error:#}"));
-                }
-                return Err(error);
+                })
+                .with_context(|| format!("write the metadata of {id}"))?;
             }
         } else {
             let image = serde_json::to_vec(&pending.meta)?;
