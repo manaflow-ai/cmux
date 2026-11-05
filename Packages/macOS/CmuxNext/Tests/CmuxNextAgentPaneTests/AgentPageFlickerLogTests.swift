@@ -60,6 +60,8 @@ struct AgentPageFlickerLogTests {
         #expect(current.last?["kind"] as? String == "visibility")
         let size = try #require(try FileManager.default.attributesOfItem(atPath: log.url.path)[.size] as? Int)
         #expect(size < AgentPageFlickerLog.maximumBytes)
+        let olderSize = try #require(try FileManager.default.attributesOfItem(atPath: older.path)[.size] as? Int)
+        #expect(olderSize <= AgentPageFlickerLog.maximumBytes)
     }
 }
 #endif
